@@ -46,8 +46,9 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      # 例: DOMAIN=app.example.com → Let's Encrypt で自動HTTPS。未設定なら http://<IP> で待ち受け
-      DOMAIN: ${DOMAIN:-}
+      # 例: DOMAIN=app.example.com → Let's Encrypt で自動HTTPS。空なら :80（http://<IP>）で待ち受け
+      # Caddy は「空文字」の環境変数に既定値を当ててくれないので、compose 側で確定させてから渡す
+      SITE_ADDRESS: ${DOMAIN:-:80}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - media:/srv/media:ro

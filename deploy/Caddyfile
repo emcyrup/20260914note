@@ -1,5 +1,5 @@
-# DOMAIN が設定されていればそのホスト名で自動HTTPS、なければ :80（IP直アクセス・検証用）
-{$DOMAIN::80} {
+# SITE_ADDRESS は compose が .env の DOMAIN から作る：ドメインなら自動HTTPS、空なら :80（IP直アクセス・検証用）
+{$SITE_ADDRESS} {
 	encode gzip
 
 	# 日誌の写真などアップロードファイルは Caddy が直接配信する
