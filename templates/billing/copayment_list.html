@@ -7,31 +7,24 @@
 {% block content %}
 <div class="container-fluid px-3 pt-3">
 
-  <!-- ヘッダー：タイトル＋月ナビゲーション -->
-  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
-    <h5 class="mb-0 fw-bold">
-      <i class="bi bi-shield-check me-1"></i>利用者負担上限額管理
-    </h5>
-    <div class="d-flex align-items-center gap-2">
-      <a href="{% url 'billing:copayment_list_month' prev_year prev_month %}"
-         class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-chevron-left"></i>
-      </a>
-      <span class="fw-bold" style="min-width: 100px; text-align: center;">
-        {{ year }}年{{ month }}月
-      </span>
-      <a href="{% url 'billing:copayment_list_month' next_year next_month %}"
-         class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-chevron-right"></i>
-      </a>
-      <a href="{% url 'billing:copayment_list' %}" class="btn btn-sm btn-outline-primary ms-1">今月</a>
-    </div>
+  <!-- 月ナビゲーション（画面名はトップバーに出るため見出しは重ねない） -->
+  <div class="monthnav mb-3">
+    <a href="{% url 'billing:copayment_list_month' prev_year prev_month %}"
+       class="btn btn-sm btn-outline-secondary" aria-label="前の月">
+      <i class="bi bi-chevron-left"></i>
+    </a>
+    <span class="monthnav-label">{{ year }}年{{ month }}月</span>
+    <a href="{% url 'billing:copayment_list_month' next_year next_month %}"
+       class="btn btn-sm btn-outline-secondary" aria-label="次の月">
+      <i class="bi bi-chevron-right"></i>
+    </a>
+    <a href="{% url 'billing:copayment_list' %}" class="btn btn-sm btn-outline-primary">今月</a>
   </div>
 
   <!-- サブナビ -->
-  <div class="mb-3 d-flex gap-2 flex-wrap align-items-center">
+  <div class="subnav mb-3">
     <a href="{% url 'billing:matrix_month' year month %}" class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-table me-1"></i>請求マトリックス
+      請求マトリックス
     </a>
     <span class="btn btn-sm btn-primary disabled">上限額管理</span>
   </div>

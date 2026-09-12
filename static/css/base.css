@@ -15,12 +15,16 @@
   --sage-soft:      #e3e9da;
   --lake:           #4e7d89;
   --lake-text:      #3f6974;
-  --lake-soft:      #dce8e9;
+  --lake-soft:      #d5e4e9;
   --cinnabar:       #bd5b40;
   --cinnabar-text:  #a24932;
   --cinnabar-soft:  #f3dfd6;
   --gold:           #b58a44;
   --gold-soft:      #eee3c9;
+  /* サブナビのアクティブタブ色 */
+  --tab-active:     #5b8def;
+  /* 入力欄の枠線（淡いティール） */
+  --field-line:     #c3d5d8;
   --shadow:         0 18px 40px rgba(25, 43, 43, 0.08);
   --shadow-soft:    0 8px 20px rgba(25, 43, 43, 0.055);
   --radius:         18px;
@@ -57,9 +61,7 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--ink);
-  background:
-    radial-gradient(circle at 86% 3%, rgba(145, 165, 130, 0.16), transparent 26rem),
-    linear-gradient(135deg, #f4f1eb 0%, #ece8df 100%);
+  background: linear-gradient(135deg, #f4f1eb 0%, #ece8df 100%);
   font-family: var(--font-body);
   font-size: 14px;
   line-height: 1.7;
@@ -163,10 +165,9 @@ body::before {
 
 .sidebar-nav-label {
   margin: 18px 0 6px 4px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  letter-spacing: 0.18em;
   color: rgba(255, 255, 255, 0.38);
 }
 
@@ -247,48 +248,48 @@ body::before {
 .sidebar-user {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
-  padding: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.05);
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
   margin-top: 8px;
 }
 
-.sidebar-user-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.15);
-  display: grid;
-  place-items: center;
-  font-size: 16px;
-  color: #cdd8ca;
-  flex-shrink: 0;
+.sidebar-user-main {
+  min-width: 0;
 }
 
 .sidebar-user-name {
-  font-size: 12px;
+  font-size: 14px;
+  font-weight: 700;
   color: #eff3ed;
-  flex: 1;
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.sidebar-user-role {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: rgba(239, 243, 237, 0.55);
+}
+
 .sidebar-logout-btn {
   background: none;
   border: none;
-  color: rgba(239, 243, 237, 0.5);
-  font-size: 16px;
+  color: rgba(239, 243, 237, 0.78);
+  font-size: 12px;
+  font-weight: 700;
   padding: 4px;
+  white-space: nowrap;
   cursor: pointer;
   transition: color 160ms ease;
 }
 
 .sidebar-logout-btn:hover {
-  color: #f08060;
+  color: #f0a880;
 }
 
 /* =============================================
@@ -355,8 +356,8 @@ body::before {
    ============================================= */
 .card {
   border-radius: var(--radius);
-  border: 1px solid rgba(216, 210, 198, 0.72);
-  background: rgba(255, 253, 248, 0.82);
+  border: 1px solid rgba(216, 210, 198, 0.5);
+  background: var(--sheet);
   box-shadow: var(--shadow-soft);
   overflow: hidden; /* 内側の角が card の border-radius に沿うように */
 }
@@ -481,6 +482,20 @@ body::before {
   color: var(--ink);
 }
 
+/* Bootstrap既定のグレーではなく、暖色のラインとインクの文字色に揃える */
+.btn-outline-secondary {
+  background-color: rgba(255, 253, 248, 0.72);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.btn-outline-secondary:hover,
+.btn-outline-secondary:focus {
+  background-color: var(--sheet);
+  border-color: var(--line-dark);
+  color: var(--ink);
+}
+
 .btn-success {
   background-color: var(--color-success);
   border-color: var(--color-success);
@@ -532,13 +547,13 @@ body::before {
    ============================================= */
 .form-control,
 .form-select {
-  border-radius: 8px;
-  border: 1px solid var(--line-dark);
+  border-radius: 10px;
+  border: 1px solid var(--field-line);
   background: #fffefa;
   color: var(--ink);
   font-family: var(--font-body);
   font-size: 14px;
-  padding: 9px 12px;
+  padding: 11px 14px;
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
@@ -550,10 +565,10 @@ body::before {
 }
 
 .form-label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
-  color: var(--ink-soft);
-  margin-bottom: 4px;
+  color: var(--ink);
+  margin-bottom: 6px;
   letter-spacing: 0.02em;
 }
 
@@ -571,14 +586,33 @@ textarea.form-control {
 }
 
 .table thead th {
-  background: rgba(243, 239, 231, 0.85);
-  color: var(--ink-soft);
-  font-size: 11px;
+  background: var(--lake-soft);
+  color: var(--lake-text);
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  border-bottom: 2px solid var(--line-dark);
-  padding: 10px 12px;
+  letter-spacing: 0.02em;
+  border-bottom: 2px solid rgba(78, 125, 137, 0.42);
+  padding: 12px;
+}
+
+/* カード内テーブルでも帯の色を保つ（.card .table の透明化より後に適用） */
+.card .table thead th {
+  background-color: var(--lake-soft) !important;
+}
+
+/* 横スクロールするテーブルの外枠を角丸に */
+.table-responsive {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.table-responsive > .table {
+  margin-bottom: 0;
+}
+
+/* 見出しは折り返さず、狭い画面では横スクロールさせる */
+.table-responsive > .table > thead th {
+  white-space: nowrap;
 }
 
 .table tbody tr:hover {
@@ -617,8 +651,9 @@ textarea.form-control {
 
 .alert-info {
   background-color: var(--lake-soft);
-  border-color: rgba(78, 125, 137, 0.35);
+  border-color: transparent;
   color: var(--lake-text);
+  padding: 16px 18px;
 }
 
 .badge {
@@ -753,11 +788,11 @@ textarea.form-control {
   display: none;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  background: none;
-  border: 1px solid rgba(23, 45, 49, 0.18);
-  border-radius: 8px;
+  width: 46px;
+  height: 46px;
+  background: rgba(255, 253, 248, 0.85);
+  border: 1px solid var(--field-line);
+  border-radius: 12px;
   color: var(--ink);
   font-size: 22px;
   cursor: pointer;
@@ -765,7 +800,101 @@ textarea.form-control {
   transition: background 150ms ease;
 }
 .sidebar-toggle-btn:hover {
-  background: rgba(23, 45, 49, 0.07);
+  background: var(--sheet);
+  border-color: var(--lake);
+}
+
+/* =============================================
+   メモボタン（トップバー右）
+   ============================================= */
+.btn-memo {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 9px 20px;
+  border: none;
+  border-radius: 999px;
+  background: var(--lake);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(78, 125, 137, 0.28);
+  transition: background 150ms ease, transform 150ms ease;
+}
+
+.btn-memo:hover,
+.btn-memo:focus {
+  background: var(--lake-text);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+/* =============================================
+   月ナビゲーション（‹ 2026年9月 › 今月）
+   ============================================= */
+.monthnav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.monthnav-label {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.monthnav .btn {
+  flex-shrink: 0;
+}
+
+/* =============================================
+   凡例（請求マトリックス）
+   ============================================= */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+/* =============================================
+   サブナビ（請求マトリックス／上限額管理／請求書・領収書）
+   ============================================= */
+.subnav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.subnav .btn {
+  border-radius: 12px;
+}
+
+/* 現在表示中のタブ */
+.subnav .btn-primary.disabled,
+.subnav .btn-primary:disabled {
+  background-color: var(--tab-active);
+  border-color: var(--tab-active);
+  color: #fff;
+  opacity: 1;
 }
 
 /* サイドバー背景オーバーレイ（モバイルでサイドバーを開いたときに背景を暗くする） */
@@ -809,13 +938,51 @@ textarea.form-control {
 @media (max-width: 640px) {
   /* メインサイドバーをスライドドロワー化 */
   .sidebar {
-    width: 270px;
+    width: 268px;
+    padding: 22px 16px 16px;
     transform: translateX(-100%);
     transition: transform 280ms cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 201;
   }
   .sidebar.is-open {
     transform: translateX(0);
+  }
+
+  /* ナビ項目：アイコンを上、ラベルを下に置いた中央揃えの大きめタップ領域 */
+  .sidebar-nav {
+    gap: 6px;
+  }
+  .sidebar-nav-item {
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    min-height: 78px;
+    padding: 14px 10px;
+    border-radius: 14px;
+    font-size: 15px;
+    text-align: center;
+  }
+  .sidebar-nav-item:hover {
+    transform: none;
+  }
+  .sidebar-nav-item i {
+    width: auto;
+    font-size: 22px;
+  }
+  .sidebar-nav-label {
+    margin: 22px 0 8px 6px;
+  }
+  .sidebar-nav-submenu .sidebar-nav-item {
+    min-height: 66px;
+    padding-left: 10px;
+    font-size: 14px;
+  }
+  /* 折りたたみトグルは行のまま（左揃え） */
+  .sidebar-nav-dropdown-toggle {
+    flex-direction: row;
+    justify-content: space-between;
+    min-height: 48px;
+    text-align: left;
   }
 
   /* no-sidebar モードでもモバイルではドロワーとして使えるように */
@@ -836,16 +1003,29 @@ textarea.form-control {
 
   /* トップバー */
   .topbar {
-    padding: 8px 12px;
-    min-height: 52px;
-    gap: 6px;
+    padding: 10px 14px;
+    min-height: 64px;
+    gap: 10px;
   }
-  /* タイトルラッパー：モバイルでは縮まない幅に変更してナビゲーションが使える領域を確保 */
+  /* タイトルは省略せず2行まで折り返す */
   .topbar-title-wrap {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+  }
+  .topbar-title {
+    font-size: 19px;
+    line-height: 1.35;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  /* トップナビを併置する画面（記録一覧など）だけは従来どおり1行に省略する */
+  .no-sidebar .topbar-title-wrap {
     flex: 0 0 auto;
     max-width: 130px;
   }
-  .topbar-title {
+  .no-sidebar .topbar-title {
     font-size: 15px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -890,7 +1070,7 @@ textarea.form-control {
   }
   input.form-control,
   select.form-select {
-    min-height: 44px;
+    min-height: 52px;
   }
 
   /* ボタンのタップ領域を確保 */
@@ -898,8 +1078,9 @@ textarea.form-control {
     min-height: 44px;
   }
   .btn-sm {
-    min-height: 40px;
-    padding: 6px 14px;
+    min-height: 46px;
+    padding: 8px 16px;
+    border-radius: 12px;
     font-size: 13px;
   }
 
@@ -918,10 +1099,10 @@ textarea.form-control {
 
   /* テーブルフォントサイズ調整 */
   .table {
-    font-size: 12px;
+    font-size: 13px;
   }
   .table thead th {
-    font-size: 10px;
-    padding: 8px 8px;
+    font-size: 12px;
+    padding: 10px 8px;
   }
 }

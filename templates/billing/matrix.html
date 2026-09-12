@@ -7,29 +7,22 @@
 {% block content %}
 <div class="container-fluid px-3 pt-3">
 
-  <!-- ヘッダー：タイトル＋月ナビゲーション -->
-  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
-    <h5 class="mb-0 fw-bold">
-      <i class="bi bi-receipt me-1"></i>請求マトリックス
-    </h5>
-    <div class="d-flex align-items-center gap-2">
-      <a href="{% url 'billing:matrix_month' prev_year prev_month %}"
-         class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-chevron-left"></i>
-      </a>
-      <span class="fw-bold" style="min-width: 100px; text-align: center;">
-        {{ year }}年{{ month }}月
-      </span>
-      <a href="{% url 'billing:matrix_month' next_year next_month %}"
-         class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-chevron-right"></i>
-      </a>
-      <a href="{% url 'billing:matrix' %}" class="btn btn-sm btn-outline-primary ms-1">今月</a>
-    </div>
+  <!-- 月ナビゲーション（画面名はトップバーに出るため見出しは重ねない） -->
+  <div class="monthnav mb-3">
+    <a href="{% url 'billing:matrix_month' prev_year prev_month %}"
+       class="btn btn-sm btn-outline-secondary" aria-label="前の月">
+      <i class="bi bi-chevron-left"></i>
+    </a>
+    <span class="monthnav-label">{{ year }}年{{ month }}月</span>
+    <a href="{% url 'billing:matrix_month' next_year next_month %}"
+       class="btn btn-sm btn-outline-secondary" aria-label="次の月">
+      <i class="bi bi-chevron-right"></i>
+    </a>
+    <a href="{% url 'billing:matrix' %}" class="btn btn-sm btn-outline-primary">今月</a>
   </div>
 
   <!-- サブナビ -->
-  <div class="mb-3 d-flex gap-2 flex-wrap align-items-center">
+  <div class="subnav mb-3">
     <span class="btn btn-sm btn-primary disabled">請求マトリックス</span>
 
     <!-- 予定を一括確定ボタン -->
@@ -38,7 +31,7 @@
           onsubmit="return confirm('{{ year }}年{{ month }}月の来所済み・欠席の予定を請求マトリックスに一括反映します。\nすでに入力済みのセルは上書きしません。よろしいですか？')">
       {% csrf_token %}
       <button type="submit" class="btn btn-sm btn-outline-success">
-        <i class="bi bi-calendar-check me-1"></i>予定を一括確定
+        予定を一括確定
       </button>
     </form>
 
@@ -51,13 +44,13 @@
     <!-- 上限額管理へのリンク -->
     <a href="{% url 'billing:copayment_list_month' year month %}"
        class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-shield-check me-1"></i>上限額管理
+      上限額管理
     </a>
 
     <!-- 請求書・領収書へのリンク -->
     <a href="{% url 'billing:invoice_list_month' year month %}"
        class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-file-earmark-text me-1"></i>請求書・領収書
+      請求書・領収書
     </a>
   </div>
 
@@ -74,16 +67,19 @@
   {% endif %}
 
   <!-- 凡例 -->
-  <div class="d-flex gap-3 mb-3 flex-wrap small align-items-center">
-    <span class="badge px-2 py-1" style="background-color: var(--color-primary); color: #fff;">利</span>
-    <span class="text-muted">利用</span>
-    <span class="badge px-2 py-1 bg-secondary">欠</span>
-    <span class="text-muted">欠席</span>
-    <span class="badge px-2 py-1" style="background-color: var(--color-warning); color: #fff;">振</span>
-    <span class="text-muted">振替</span>
-    <span class="text-muted ms-2">空欄＝予定なし</span>
-    <span style="color: var(--color-primary);">+N</span><span class="text-muted">＝加算N件保存済み</span>
-    <span style="color: var(--color-warning);">◆</span><span class="text-muted">＝未確認（ポップアップ未保存）</span>
+  <div class="legend mb-3">
+    <span class="legend-item">
+      <span class="badge px-2 py-1" style="background-color: var(--color-primary); color: #fff;">利</span>利用
+    </span>
+    <span class="legend-item">
+      <span class="badge px-2 py-1 bg-secondary">欠</span>欠席
+    </span>
+    <span class="legend-item">
+      <span class="badge px-2 py-1" style="background-color: var(--color-warning); color: #fff;">振</span>振替
+    </span>
+    <span class="legend-item">空欄＝予定なし</span>
+    <span class="legend-item"><span style="color: var(--color-primary);">+N</span>＝加算N件保存済み</span>
+    <span class="legend-item"><span style="color: var(--color-warning);">◆</span>＝未確認（ポップアップ未保存）</span>
   </div>
 
   <!-- マトリックス表（横スクロール対応） -->
