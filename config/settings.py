@@ -11,6 +11,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
 ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', default='localhost', cast=Csv())
+# コンテナ内のヘルスチェック（127.0.0.1）やサーバー内からの確認（localhost）を
+# DJANGO_ALLOWED_HOSTS の設定に関係なく通す。外部からはこのホスト名で到達できないので安全
+for _local_host in ('127.0.0.1', 'localhost'):
+    if _local_host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(_local_host)
 
 INSTALLED_APPS = [
     'django.contrib.admin',
