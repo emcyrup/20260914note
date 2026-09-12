@@ -34,3 +34,25 @@ jobs:
         run: |
           python manage.py check
           python manage.py test --noinput
+
+  # 本番イメージがビルドできることを確認する（レジストリには push しない）
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: dayservice:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test the image
+        run: |
+          docker run --rm -e SECRET_KEY=ci -e DEBUG=False -e DJANGO_ALLOWED_HOSTS=localhost \
+            dayservice:ci python manage.py check --deploy --fail-level ERROR
+          docker run --rm -e SECRET_KEY=ci -e DJANGO_ALLOWED_HOSTS=localhost \
+            dayservice:ci python -c "import weasyprint, anthropic, gunicorn; print('imports ok')"

@@ -14,21 +14,40 @@ export DEBIAN_FRONTEND=noninteractive
 DEPLOY_USER=deploy
 APP_DIR=/opt/dayservice
 
+# 初回起動直後は unattended-upgrades が apt を掴んでいることが多いので、空くまで待つ（最大10分）
+wait_for_apt() {
+  for _ in $(seq 1 120); do
+    if ! fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 5
+  done
+  echo "setup-server: apt lock timeout" >&2
+  return 1
+}
+apt_install() {
+  wait_for_apt
+  apt-get -o DPkg::Lock::Timeout=300 install -y --no-install-recommends "$@"
+}
+
 # デプロイ用ユーザー（GCE のゲストエージェントがメタデータの公開鍵をこのユーザーに配る）
 id -u "$DEPLOY_USER" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$DEPLOY_USER"
 
-apt-get update
-apt-get install -y --no-install-recommends ca-certificates curl git
+wait_for_apt
+apt-get -o DPkg::Lock::Timeout=300 update
+# rsync は GitHub Actions がファイルを同期するのに必要（サーバー側にも要る）
+apt_install ca-certificates curl git rsync
 
 # Docker（公式スクリプト）
 if ! command -v docker >/dev/null 2>&1; then
+  wait_for_apt
   curl -fsSL https://get.docker.com | sh
 fi
 usermod -aG docker "$DEPLOY_USER" || true
 
 # gcloud（GCE の Ubuntu イメージには入っている。無ければ apt で）
 if ! command -v gcloud >/dev/null 2>&1; then
-  apt-get install -y --no-install-recommends google-cloud-cli || true
+  apt_install google-cloud-cli || true
 fi
 
 # スワップ 2GB（メモリが少ないマシンでも WeasyPrint の PDF 生成が落ちないように）

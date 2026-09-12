@@ -77,7 +77,6 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    environment: production
     concurrency:
       group: deploy-production
       cancel-in-progress: false
