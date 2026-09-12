@@ -70,10 +70,29 @@ docker --version
 
 VM 一覧の **SSH** ボタンで端末を開く。
 
+### 5-0. 準備ができているか確認（必ず最初に）
+
+```bash
+id deploy && docker --version && echo "準備OK"
+```
+
+`no such user` や `docker: command not found` が出たら起動スクリプトが走っていない。その場で実行し直す（2〜4分、末尾に `setup-server: done`）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/emcyrup/20260914note/claude/awesome-franklin-2ixofk/deploy/setup-server.sh | sudo bash
+```
+
+curl が使えない場合は `sudo nano /root/setup-server.sh` に `deploy/setup-server.sh`（Raw）の全文を貼って保存し、`sudo bash /root/setup-server.sh`。
+
 ### 5-1. GitHub Actions がログインするための鍵
+
+`sudo -u deploy -i` は **1行だけ先に実行**し、プロンプトが `deploy@dayservice:~$` に変わってから残りを貼る（まとめて貼ると後続行が正しく実行されないことがある）。
 
 ```bash
 sudo -u deploy -i
+```
+
+```bash
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
 ssh-keygen -t ed25519 -N "" -C deploy -f ~/.ssh/github_deploy
 cat ~/.ssh/github_deploy.pub >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
@@ -162,7 +181,9 @@ gunzip -c backups/db-YYYYMMDD-HHMMSS.sql.gz | docker compose exec -T db psql -U 
 | 症状 | 対処 |
 |---|---|
 | Compute Engine を有効にできない | 請求先がこのプロジェクトにリンクされていない |
-| `setup-server: done` が出ない | 起動スクリプトが貼れていない。VM を編集して貼り直し、リセット |
+| `setup-server: done` が出ない | 起動スクリプトが貼れていない。手順 5-0 の `curl … \| sudo bash` でその場で実行（VM を編集して起動スクリプトに貼っておくと再起動時も自動実行） |
+| `sudo -u deploy -i` で「no such user」／`docker: command not found` | 同上（手順 5-0 の修復ブロック） |
+| 複数行を貼ったのに一部しか実行されない | `sudo -u deploy -i` は単独で実行し、プロンプトが `deploy@` に変わってから残りを貼る |
 | deploy ジョブ `.env がありません` | 5-3 が未完了 |
 | deploy ジョブ `Permission denied (publickey)` | `DEPLOY_SSH_KEY` が 5-1 の全文と一致していない |
 | deploy ジョブ `Connection timed out` | VPC ネットワーク → ファイアウォールに `default-allow-ssh` があるか |
