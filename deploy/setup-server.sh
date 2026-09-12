@@ -36,7 +36,7 @@ id -u "$DEPLOY_USER" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash 
 wait_for_apt
 apt-get -o DPkg::Lock::Timeout=300 update
 # rsync は GitHub Actions がファイルを同期するのに必要（サーバー側にも要る）
-apt_install ca-certificates curl git rsync
+apt_install ca-certificates curl git rsync nano
 
 # Docker（公式スクリプト）
 if ! command -v docker >/dev/null 2>&1; then

@@ -115,6 +115,8 @@ chmod 600 /opt/dayservice/.env
 exit
 ```
 
+`nano: command not found` の場合は、内容を先に書き換えてから `cat > /opt/dayservice/.env <<'EOF'` … `EOF` で貼り付ける（または `exit` 後に `sudo apt-get install -y nano`）。
+
 まず IP で動かす場合の最小構成：
 
 ```
