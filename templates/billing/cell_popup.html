@@ -1,0 +1,108 @@
+<form method="post" action="{% url 'billing:cell_update' beneficiary.pk year month day %}">
+  {% csrf_token %}
+
+  <div class="modal-header" style="background-color: var(--color-primary-bg); border-bottom: 1px solid var(--color-primary-light);">
+    <div class="w-100">
+      <div class="d-flex align-items-center justify-content-between">
+        <h6 class="modal-title fw-bold mb-0" style="color: var(--color-primary-dark);">
+          <i class="bi bi-pencil-square me-1"></i>
+          {{ beneficiary.full_name }}
+          <span class="text-muted small fw-normal ms-2">{{ month }}月{{ day }}日</span>
+        </h6>
+        <button type="button" class="btn-close ms-2" data-bs-dismiss="modal"></button>
+      </div>
+      {% if daily_record %}
+      <div class="mt-1">
+        <a href="{% url 'records:list' beneficiary.pk %}?selected={{ daily_record.pk }}"
+           class="btn btn-sm btn-outline-primary py-0 px-2"
+           style="font-size: 0.75rem;" target="_blank">
+          <i class="bi bi-journal-text me-1"></i>この日の記録を見る
+        </a>
+      </div>
+      {% else %}
+      <div class="mt-1">
+        <a href="{% url 'records:list' beneficiary.pk %}?new_date={{ year }}-{{ month|stringformat:'02d' }}-{{ day|stringformat:'02d' }}"
+           class="btn btn-sm btn-outline-secondary py-0 px-2"
+           style="font-size: 0.75rem;" target="_blank">
+          <i class="bi bi-journal-plus me-1"></i>この日の記録を入力する
+        </a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="modal-body" style="overflow-y: auto; max-height: 60vh;">
+
+    <div class="mb-3">
+      <div class="fw-semibold small mb-2" style="color: var(--color-primary-dark);">
+        <i class="bi bi-circle-fill me-1" style="font-size: 0.6rem;"></i>サービス提供の状況
+      </div>
+      <div class="d-flex gap-3">
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="status" value="attended" id="st_attended"
+                 {% if current_status == 'attended' %}checked{% endif %}>
+          <label class="form-check-label" for="st_attended">
+            <span class="badge px-2" style="background-color: var(--color-primary); color: #fff;">利用</span>
+          </label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="status" value="absent" id="st_absent"
+                 {% if current_status == 'absent' %}checked{% endif %}>
+          <label class="form-check-label" for="st_absent">
+            <span class="badge px-2 bg-secondary">欠席</span>
+          </label>
+        </div>
+        <div class="form-check">
+          <input class="form-check-input" type="radio" name="status" value="transferred" id="st_transferred"
+                 {% if current_status == 'transferred' %}checked{% endif %}>
+          <label class="form-check-label" for="st_transferred">
+            <span class="badge px-2" style="background-color: var(--color-warning); color: #fff;">振替</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <hr class="my-2">
+
+    <div class="fw-semibold small mb-1" style="color: var(--color-primary-dark);">
+      <i class="bi bi-circle-fill me-1" style="font-size: 0.6rem;"></i>個別加算
+    </div>
+    {% if is_auto_suggested %}
+    <div class="alert alert-warning py-1 px-2 mb-2 small">
+      <i class="bi bi-magic me-1"></i>
+      日次記録・送迎情報をもとに自動チェックしました。内容を確認して保存してください。
+    </div>
+    {% endif %}
+    {% for item in addon_list %}
+    <div class="form-check py-2 border-bottom d-flex align-items-start">
+      <input class="form-check-input mt-1 flex-shrink-0" type="checkbox"
+             name="addon_ids" value="{{ item.addon.pk }}"
+             id="addon_{{ item.addon.pk }}"
+             {% if item.is_applied %}checked{% endif %}>
+      <label class="form-check-label ms-2 w-100" for="addon_{{ item.addon.pk }}">
+        <div class="small fw-semibold">{{ item.addon.name }}</div>
+        {% if item.addon.unit_count %}
+        <div class="text-muted" style="font-size: 0.72rem;">{{ item.addon.unit_count }}単位</div>
+        {% else %}
+        <div class="text-warning" style="font-size: 0.72rem;">単位数：要確認</div>
+        {% endif %}
+      </label>
+    </div>
+    {% empty %}
+    <p class="text-muted small text-center py-3">
+      個別加算マスタが登録されていません。<a href="{% url 'facilities:settings' %}">施設設定</a>で「標準加算マスタを読み込む」を実行してください。
+    </p>
+    {% endfor %}
+
+  </div>
+
+  <div class="modal-footer">
+    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">
+      キャンセル
+    </button>
+    <button type="submit" class="btn btn-primary btn-sm px-4">
+      <i class="bi bi-check-circle me-1"></i>保存する
+    </button>
+  </div>
+
+</form>

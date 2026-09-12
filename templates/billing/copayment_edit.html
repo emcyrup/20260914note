@@ -1,0 +1,120 @@
+{% extends 'base.html' %}
+
+{% block title %}上限額管理 入力 — {{ beneficiary.full_name }}（{{ year }}年{{ month }}月）{% endblock %}
+{% block page_title %}上限額管理入力{% endblock %}
+{% block nav_billing_copayment %}active{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-3" style="max-width: 800px;">
+
+  <!-- ヘッダー -->
+  <div class="d-flex align-items-center gap-2 mb-3">
+    <a href="{% url 'billing:copayment_list_month' year month %}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-chevron-left"></i>
+    </a>
+    <h5 class="mb-0 fw-bold">
+      <i class="bi bi-shield-check me-1"></i>
+      上限額管理 — {{ beneficiary.full_name }}
+      <span class="text-muted small fw-normal ms-2">{{ year }}年{{ month }}月</span>
+    </h5>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+
+    <!-- 管理情報 -->
+    <div class="card mb-4" style="border: 1px solid var(--color-primary-light);">
+      <div class="card-header fw-semibold small"
+           style="background-color: var(--color-primary-bg); color: var(--color-primary-dark);">
+        <i class="bi bi-info-circle me-1"></i>管理情報
+      </div>
+      <div class="card-body">
+        <div class="mb-3">
+          <div class="form-check">
+            {{ form.is_upper_limit_manager }}
+            <label class="form-check-label" for="{{ form.is_upper_limit_manager.id_for_label }}">
+              {{ form.is_upper_limit_manager.label }}
+            </label>
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small fw-semibold mb-1">{{ form.management_result.label }}</label>
+          {{ form.management_result }}
+          {% if form.management_result.errors %}
+          <div class="text-danger small">{{ form.management_result.errors }}</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- 事業所別実績 formset -->
+    <div class="card mb-4" style="border: 1px solid var(--color-primary-light);">
+      <div class="card-header fw-semibold small"
+           style="background-color: var(--color-primary-bg); color: var(--color-primary-dark);">
+        <i class="bi bi-building me-1"></i>事業所別利用実績
+        <span class="text-muted fw-normal ms-2" style="font-size: 0.72rem;">
+          当施設を先頭に入力してください
+        </span>
+      </div>
+      <div class="card-body p-0">
+        {{ formset.management_form }}
+
+        {% for office_form in formset %}
+        <div class="p-3 border-bottom office-form-row">
+          {{ office_form.id }}
+          <div class="row g-2 mb-2">
+            <div class="col-12 col-md-6">
+              <label class="form-label small mb-1">事業所名</label>
+              {{ office_form.office_name }}
+              {% if office_form.office_name.errors %}
+              <div class="text-danger small">{{ office_form.office_name.errors }}</div>
+              {% endif %}
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label small mb-1">事業所番号</label>
+              {{ office_form.office_number }}
+            </div>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-4">
+              <label class="form-label small mb-1">総費用額（円）</label>
+              {{ office_form.total_cost }}
+            </div>
+            <div class="col-4">
+              <label class="form-label small mb-1">負担額（調整前）</label>
+              {{ office_form.original_copayment }}
+            </div>
+            <div class="col-4">
+              <label class="form-label small mb-1">負担額（調整後）</label>
+              {{ office_form.adjusted_copayment }}
+            </div>
+          </div>
+          {% if formset.can_delete %}
+          <div class="form-check mt-1">
+            {{ office_form.DELETE }}
+            <label class="form-check-label text-danger small" for="{{ office_form.DELETE.id_for_label }}">
+              この行を削除する
+            </label>
+          </div>
+          {% endif %}
+        </div>
+        {% empty %}
+        <p class="text-muted small text-center py-3 mb-0">事業所情報がありません。</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- ボタン -->
+    <div class="d-flex gap-2 justify-content-end">
+      <a href="{% url 'billing:copayment_list_month' year month %}"
+         class="btn btn-outline-secondary btn-sm">キャンセル</a>
+      <button type="submit" class="btn btn-primary btn-sm px-4">
+        <i class="bi bi-check-circle me-1"></i>保存する
+      </button>
+    </div>
+
+  </form>
+
+</div>
+{% endblock %}

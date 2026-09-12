@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page {
+    size: A4;
+    margin: 20mm 20mm 20mm 20mm;
+  }
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "IPAexGothic", sans-serif;
+    font-size: 10pt;
+    color: #1a1a1a;
+    line-height: 1.6;
+  }
+  h1 {
+    font-size: 20pt;
+    text-align: center;
+    letter-spacing: 0.2em;
+    margin: 0 0 4mm 0;
+    border-bottom: 2px solid #0F6E56;
+    padding-bottom: 3mm;
+    color: #04342C;
+  }
+  .doc-no {
+    text-align: right;
+    font-size: 8pt;
+    color: #555;
+    margin-bottom: 6mm;
+  }
+  .recipient-block {
+    margin-bottom: 6mm;
+  }
+  .recipient-block .name {
+    font-size: 13pt;
+    font-weight: bold;
+    border-bottom: 1px solid #333;
+    padding-bottom: 1mm;
+    display: inline-block;
+    min-width: 120mm;
+  }
+  .facility-block {
+    text-align: right;
+    font-size: 9pt;
+    color: #333;
+    margin-bottom: 8mm;
+  }
+  .period-block {
+    background-color: #E1F5EE;
+    border-left: 4px solid #0F6E56;
+    padding: 3mm 5mm;
+    margin-bottom: 6mm;
+    font-size: 10pt;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 4mm;
+  }
+  table th {
+    background-color: #E1F5EE;
+    color: #04342C;
+    font-size: 9pt;
+    padding: 2mm 3mm;
+    border: 1px solid #9FE1CB;
+    text-align: left;
+  }
+  table td {
+    padding: 2mm 3mm;
+    border: 1px solid #ccc;
+    font-size: 10pt;
+  }
+  .text-right { text-align: right; }
+  .total-row td {
+    background-color: #04342C;
+    color: #fff;
+    font-size: 12pt;
+    font-weight: bold;
+    border-color: #04342C;
+  }
+  .note {
+    font-size: 8pt;
+    color: #666;
+    background-color: #FAEEDA;
+    border-left: 3px solid #854F0B;
+    padding: 2mm 4mm;
+    margin-top: 4mm;
+  }
+  .footer {
+    margin-top: 10mm;
+    font-size: 8pt;
+    color: #666;
+    text-align: center;
+  }
+  .receipt-stamp-area {
+    text-align: right;
+    margin-bottom: 6mm;
+  }
+  .receipt-stamp {
+    display: inline-block;
+    border: 2px solid #0F6E56;
+    color: #0F6E56;
+    padding: 3mm 8mm;
+    font-size: 14pt;
+    font-weight: bold;
+    letter-spacing: 0.1em;
+    margin-top: 4mm;
+  }
+</style>
+</head>
+<body>
+
+<h1>{% if doc_type == 'receipt' %}領　収　書{% else %}ご　請　求　書{% endif %}</h1>
+
+<div class="doc-no">
+  発行日：{{ issued_date|date:"Y年n月j日" }}
+</div>
+
+<div class="recipient-block">
+  <p style="margin:0 0 1mm 0; font-size:9pt; color:#555;">お名前（保護者様）</p>
+  <span class="name">{{ beneficiary.full_name }} 様</span>
+  {% if cert_number %}
+  <span style="font-size:9pt; color:#555; margin-left:4mm;">受給者証番号：{{ cert_number }}</span>
+  {% endif %}
+</div>
+
+<div class="facility-block">
+  <strong>{{ facility.name }}</strong><br>
+  {% if facility.office_number %}事業所番号：{{ facility.office_number }}<br>{% endif %}
+  {% if facility.address %}{{ facility.address }}<br>{% endif %}
+  {% if facility.phone %}TEL：{{ facility.phone }}{% endif %}
+</div>
+
+<div class="period-block">
+  対象月：<strong>{{ year }}年{{ month }}月分</strong>　／
+  利用日数：<strong>{{ attended_days }}日</strong>
+</div>
+
+<!-- ご請求金額サマリー -->
+<table>
+  <tr>
+    <th style="width:55%;">項目</th>
+    <th style="width:20%; text-align:right;">単価／回</th>
+    <th style="width:10%; text-align:right;">回数</th>
+    <th style="width:15%; text-align:right;">金額（円）</th>
+  </tr>
+
+  <!-- 公費自己負担額 -->
+  <tr>
+    <td>放課後等デイサービス利用料（公費自己負担額）
+      {% if not unit_count_available %}
+      <br><span style="font-size:8pt; color:#854F0B;">※単位数未設定のため上限月額を使用</span>
+      {% endif %}
+    </td>
+    <td class="text-right">—</td>
+    <td class="text-right">{{ attended_days }}日</td>
+    <td class="text-right">
+      {% if user_burden is not None %}{{ user_burden|floatformat:0 }}{% else %}—{% endif %}
+    </td>
+  </tr>
+
+  <!-- 実費負担（タグごと） -->
+  {% for item in expense_items %}
+  <tr>
+    <td>{{ item.name }}（実費）</td>
+    <td class="text-right">{{ item.price }}円</td>
+    <td class="text-right">{{ item.count }}回</td>
+    <td class="text-right">{{ item.subtotal }}</td>
+  </tr>
+  {% endfor %}
+
+  {% if not expense_items and user_burden is None %}
+  <tr>
+    <td colspan="4" style="text-align:center; color:#888;">
+      利用実績または受給者証情報が未入力です
+    </td>
+  </tr>
+  {% endif %}
+
+  <!-- 合計行 -->
+  <tr class="total-row">
+    <td colspan="3">
+      {% if doc_type == 'receipt' %}領収金額（合計）{% else %}ご請求金額（合計）{% endif %}
+    </td>
+    <td class="text-right">
+      ¥ {{ grand_total|floatformat:0 }}
+    </td>
+  </tr>
+</table>
+
+<!-- 計算根拠の補足（請求書のみ） -->
+{% if doc_type == 'invoice' and unit_count_available and total_cost is not None %}
+<div style="font-size:8pt; color:#555; margin-bottom:4mm;">
+  ＜計算の根拠＞
+  基本報酬単位数：{{ facility.base_unit_count }}単位
+  {% if facility.is_new_facility_r8 %}（×982/1000 減算適用）{% endif %}
+  × 地域区分単価（{{ facility.region_category }}）
+  × {{ attended_days }}日
+  ＝ 総費用 {{ total_cost|floatformat:0 }}円 の10%
+  → 上限月額（{{ monthly_cap|floatformat:0 }}円）と比較して低い方を適用
+</div>
+{% endif %}
+
+{% if not unit_count_available %}
+<div class="note">
+  ※ 施設設定に「1日あたり基本報酬単位数」が未入力のため、公費自己負担額は受給者証の上限月額（{{ monthly_cap|default:"—" }}円）を使用しています。
+  より正確な金額は施設設定画面から単位数を入力してください。
+</div>
+{% endif %}
+
+{% if doc_type == 'receipt' %}
+<div class="receipt-stamp-area">
+  <div class="receipt-stamp">領　収　済</div>
+</div>
+{% endif %}
+
+<div class="footer">
+  このPDFは {{ facility.name }} の業務支援システムで自動生成されました。
+</div>
+
+</body>
+</html>

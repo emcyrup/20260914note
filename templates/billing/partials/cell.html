@@ -1,0 +1,9 @@
+{% comment %}セル1つ分のHTML。CellSaveView がHTMXに返すパーシャル。{% endcomment %}<td id="cell-{{ beneficiary.pk }}-{{ cell.date_iso }}"
+    data-beneficiary-id="{{ beneficiary.pk }}"
+    hx-get="{% url 'billing:cell_detail' %}"
+    hx-vals='{"beneficiary_id": "{{ beneficiary.pk }}", "date": "{{ cell.date_iso }}"}'
+    hx-target="#cellModalBody"
+    hx-swap="innerHTML"
+    class="billing-cell{% if cell.entry %} status-{{ cell.entry.status }}{% else %} status-none{% endif %}{% if cell.date.weekday == 5 %} col-saturday{% elif cell.date.weekday == 6 %} col-sunday{% endif %}"
+    title="{{ cell.entry.get_status_display|default:'未入力' }}">{% if cell.entry %}{% if cell.entry.status == 'attended' %}利{% elif cell.entry.status == 'absent' %}欠{% elif cell.entry.status == 'transferred' %}振{% endif %}{% if cell.entry.addons.exists %}<span class="addon-dot" title="加算あり"></span>{% endif %}{% endif %}</td>{% if attended_count is not None %}
+<td id="total-{{ beneficiary.pk }}" hx-swap-oob="true" class="col-total total-cell">{{ attended_count }}</td>{% endif %}

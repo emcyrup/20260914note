@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+
+{% block title %}利用者一覧 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}利用者台帳{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+
+{% block content %}
+<div class="px-2">
+
+  <!-- ページヘッダー -->
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="mb-0 fw-bold">
+      <i class="bi bi-people-fill me-2"></i>利用者一覧
+    </h5>
+    <a href="{% url 'beneficiaries:create' %}" class="btn btn-primary">
+      <i class="bi bi-person-plus-fill me-1"></i>新規登録
+    </a>
+  </div>
+
+  <!-- 検索・フィルタ -->
+  <form method="get" class="mb-3">
+    <div class="row g-2 align-items-center">
+      <div class="col-sm-6 col-md-4">
+        <input type="text" name="q" value="{{ q }}" class="form-control"
+               placeholder="氏名・かなで検索">
+      </div>
+      <div class="col-auto">
+        <select name="status" class="form-select">
+          <option value="active" {% if status == 'active' %}selected{% endif %}>在籍中</option>
+          <option value="inactive" {% if status == 'inactive' %}selected{% endif %}>退所</option>
+          <option value="" {% if status == '' %}selected{% endif %}>全員</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-outline-secondary">
+          <i class="bi bi-search me-1"></i>検索
+        </button>
+      </div>
+    </div>
+  </form>
+
+  <!-- 利用者リスト -->
+  {% if beneficiaries %}
+  <div class="list-group">
+    {% for b in beneficiaries %}
+    <a href="{% url 'beneficiaries:detail' b.pk %}"
+       class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-3">
+      <div>
+        <span class="fw-bold fs-5">{{ b.full_name }}</span>
+        <span class="text-muted ms-2 small">{{ b.full_name_kana }}</span>
+        <div class="small text-muted mt-1">
+          生年月日：{{ b.date_of_birth }}
+          {% if b.disability_type %}／{{ b.disability_type }}{% endif %}
+        </div>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        {% if b.status == 'inactive' %}
+        <span class="badge bg-secondary">退所</span>
+        {% endif %}
+        {% for g in b.guardians.all %}{% if g.line_linked %}<span class="badge" style="background-color:#06C755;font-size:0.7rem;"><i class="bi bi-chat-dots me-1"></i>LINE連携済</span>{% endif %}{% endfor %}
+        <i class="bi bi-chevron-right text-muted"></i>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-people fs-1 d-block mb-2"></i>
+    利用者が登録されていません。
+    <div class="mt-2">
+      <a href="{% url 'beneficiaries:create' %}" class="btn btn-primary btn-sm">
+        最初の利用者を登録する
+      </a>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

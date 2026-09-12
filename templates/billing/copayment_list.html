@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+
+{% block title %}上限額管理 — {{ year }}年{{ month }}月{% endblock %}
+{% block page_title %}上限額管理 — {{ year }}年{{ month }}月{% endblock %}
+{% block nav_billing_copayment %}active{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-3">
+
+  <!-- ヘッダー：タイトル＋月ナビゲーション -->
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <h5 class="mb-0 fw-bold">
+      <i class="bi bi-shield-check me-1"></i>利用者負担上限額管理
+    </h5>
+    <div class="d-flex align-items-center gap-2">
+      <a href="{% url 'billing:copayment_list_month' prev_year prev_month %}"
+         class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-chevron-left"></i>
+      </a>
+      <span class="fw-bold" style="min-width: 100px; text-align: center;">
+        {{ year }}年{{ month }}月
+      </span>
+      <a href="{% url 'billing:copayment_list_month' next_year next_month %}"
+         class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-chevron-right"></i>
+      </a>
+      <a href="{% url 'billing:copayment_list' %}" class="btn btn-sm btn-outline-primary ms-1">今月</a>
+    </div>
+  </div>
+
+  <!-- サブナビ -->
+  <div class="mb-3 d-flex gap-2 flex-wrap align-items-center">
+    <a href="{% url 'billing:matrix_month' year month %}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-table me-1"></i>請求マトリックス
+    </a>
+    <span class="btn btn-sm btn-primary disabled">上限額管理</span>
+  </div>
+
+  <!-- 説明バナー -->
+  <div class="alert mb-3 small" style="background-color: var(--color-primary-bg); border: 1px solid var(--color-primary-light); color: var(--color-primary-dark);">
+    <i class="bi bi-info-circle me-1"></i>
+    複数の事業所を利用する利用者の負担上限月額管理です。「入力」ボタンをタップして各利用者の実績を登録してください。
+  </div>
+
+  <!-- 利用者一覧 -->
+  {% if rows %}
+  <div class="table-responsive">
+    <table class="table table-bordered table-sm align-middle" style="font-size: 0.85rem;">
+      <thead>
+        <tr style="background-color: #f8f9fa;">
+          <th class="px-3">利用者</th>
+          <th class="text-center px-2">管理結果</th>
+          <th class="text-center px-2">当施設負担額</th>
+          <th class="text-center px-2">合計負担額</th>
+          <th class="text-center px-2" style="width: 100px;">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td class="px-3 fw-semibold">{{ row.beneficiary.full_name }}</td>
+          {% if row.management %}
+            <td class="text-center px-2">
+              <span class="badge px-2"
+                    style="background-color: var(--color-primary); color: #fff; font-size: 0.72rem;">
+                {{ row.management.get_management_result_display }}
+              </span>
+            </td>
+            <td class="text-center px-2">
+              {{ row.management.this_office_copayment|default:"—" }}円
+            </td>
+            <td class="text-center px-2">
+              {{ row.management.total_copayment|default:"—" }}円
+            </td>
+          {% else %}
+            <td class="text-center text-muted px-2 small">未入力</td>
+            <td class="text-center text-muted px-2 small">—</td>
+            <td class="text-center text-muted px-2 small">—</td>
+          {% endif %}
+          <td class="text-center px-2">
+            <a href="{% url 'billing:copayment_edit' row.beneficiary.pk year month %}"
+               class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size: 0.78rem;">
+              {% if row.management %}編集{% else %}入力{% endif %}
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="text-center py-5 text-muted">
+    <i class="bi bi-person-x" style="font-size: 3rem;"></i>
+    <p class="mt-3">
+      在籍中の利用者がいません。<br>
+      <a href="{% url 'beneficiaries:list' %}">利用者台帳</a>から利用者を登録してください。
+    </p>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

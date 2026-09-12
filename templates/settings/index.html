@@ -1,0 +1,437 @@
+{% extends 'base.html' %}
+
+{% block title %}施設設定{% endblock %}
+{% block page_title %}施設設定{% endblock %}
+{% block nav_settings %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .settings-card {
+    background: #fff;
+    border: 1px solid #e8e8e8;
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .settings-section-title {
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-primary);
+    font-weight: 600;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .tag-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid #f5f5f5;
+  }
+  .tag-row:last-child { border-bottom: none; }
+  .tag-name { flex: 1; font-size: 0.9rem; }
+  .tag-sub  { font-size: 0.75rem; color: #888; }
+  .form-control, .form-select {
+    border-radius: 8px;
+    border: 1.5px solid #ddd;
+    font-size: 0.9rem;
+  }
+  .form-control:focus, .form-select:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(15,110,86,0.12);
+  }
+  .btn-tag-action { padding: 2px 8px; font-size: 0.75rem; border-radius: 6px; }
+  .modal-content { border-radius: 16px; border: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="max-width: 900px; margin: 0 auto;" class="px-2">
+
+  <div class="mb-4">
+    <p class="text-muted small mb-1">
+      <a href="{% url 'facilities:dashboard' %}" class="text-muted text-decoration-none">
+        <i class="bi bi-house me-1"></i>ホーム
+      </a>
+      <span class="mx-1">/</span>施設設定
+    </p>
+    <h2 class="fw-bold mb-0">施設設定</h2>
+  </div>
+
+  <!-- ===== 施設基本情報 ===== -->
+  <div class="settings-card">
+    <div class="settings-section-title">FACILITY · 施設基本情報</div>
+    <form method="post" action="{% url 'facilities:facility_update' %}">
+      {% csrf_token %}
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">施設名 <span class="text-danger">*</span></label>
+          {{ facility_form.name }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">事業所番号</label>
+          {{ facility_form.office_number }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">電話番号</label>
+          {{ facility_form.phone }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">地域区分</label>
+          {{ facility_form.region_category }}
+        </div>
+        <div class="col-12">
+          <label class="form-label small fw-semibold">住所</label>
+          {{ facility_form.address }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">通常終了時刻
+            <span class="text-muted fw-normal">（延長支援加算の判定に使用）</span>
+          </label>
+          {{ facility_form.standard_close_time }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">1日あたり基本報酬単位数</label>
+          {{ facility_form.base_unit_count }}
+        </div>
+        <div class="col-md-4 d-flex align-items-end">
+          <div class="form-check mb-2">
+            {{ facility_form.is_new_facility_r8 }}
+            <label class="form-check-label small">令和8年6月以降新規指定事業所</label>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">LINEチャネルアクセストークン</label>
+          {{ facility_form.line_channel_access_token }}
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">LINEチャネルシークレット</label>
+          {{ facility_form.line_channel_secret }}
+        </div>
+      </div>
+      <div class="mt-3 text-end">
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-check-lg me-1"></i>施設情報を保存
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ===== 活動タグ管理 ===== -->
+  <div class="settings-card">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+      <div class="settings-section-title mb-0">ACTIVITY TAGS · 活動タグ</div>
+      <div class="d-flex gap-2">
+        <form method="post" action="{% url 'facilities:activity_tag_defaults' %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-magic me-1"></i>標準タグを一括追加
+          </button>
+        </form>
+        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addActivityTagModal">
+          <i class="bi bi-plus me-1"></i>追加
+        </button>
+      </div>
+    </div>
+    <p class="text-muted small mb-3">日誌入力時に選択できる活動の種類です。「おやつ」「食事」は実費単価を設定すると請求集計に使われます。</p>
+
+    {% if activity_tags %}
+    {% for tag in activity_tags %}
+    <div class="tag-row">
+      <div class="tag-name">
+        {{ tag.name }}
+        {% if tag.price %}<span class="badge text-bg-warning ms-2" style="font-size:0.65rem;">実費 {{ tag.price }}円</span>{% endif %}
+        {% if not tag.is_active %}<span class="badge text-bg-secondary ms-1" style="font-size:0.65rem;">無効</span>{% endif %}
+      </div>
+      <button type="button" class="btn btn-outline-secondary btn-tag-action"
+              data-bs-toggle="modal" data-bs-target="#editActivityTagModal"
+              data-pk="{{ tag.pk }}" data-name="{{ tag.name }}"
+              data-order="{{ tag.display_order }}" data-price="{{ tag.price }}"
+              data-active="{{ tag.is_active|yesno:'true,false' }}">
+        <i class="bi bi-pencil"></i>
+      </button>
+      <form method="post" action="{% url 'facilities:activity_tag_delete' tag.pk %}"
+            onsubmit="return confirm('「{{ tag.name }}」を削除しますか？')">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline-danger btn-tag-action">
+          <i class="bi bi-trash"></i>
+        </button>
+      </form>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="text-muted small">まだタグが登録されていません。「標準タグを一括追加」か「追加」ボタンから登録してください。</p>
+    {% endif %}
+  </div>
+
+  <!-- ===== 支援内容タグ管理 ===== -->
+  <div class="settings-card">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+      <div class="settings-section-title mb-0">SUPPORT TAGS · 支援内容タグ</div>
+      <div class="d-flex gap-2">
+        <form method="post" action="{% url 'facilities:support_tag_defaults' %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-magic me-1"></i>標準タグを一括追加
+          </button>
+        </form>
+        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addSupportTagModal">
+          <i class="bi bi-plus me-1"></i>追加
+        </button>
+      </div>
+    </div>
+    <p class="text-muted small mb-3">送迎・入浴支援などの加算に関わる支援の種類です。日誌で選択した結果が請求集計に使われます。</p>
+
+    {% if support_tags %}
+    {% for tag in support_tags %}
+    <div class="tag-row">
+      <div class="tag-name">
+        {{ tag.name }}
+        {% if not tag.is_active %}<span class="badge text-bg-secondary ms-1" style="font-size:0.65rem;">無効</span>{% endif %}
+      </div>
+      <button type="button" class="btn btn-outline-secondary btn-tag-action"
+              data-bs-toggle="modal" data-bs-target="#editSupportTagModal"
+              data-pk="{{ tag.pk }}" data-name="{{ tag.name }}"
+              data-order="{{ tag.order }}"
+              data-active="{{ tag.is_active|yesno:'true,false' }}">
+        <i class="bi bi-pencil"></i>
+      </button>
+      <form method="post" action="{% url 'facilities:support_tag_delete' tag.pk %}"
+            onsubmit="return confirm('「{{ tag.name }}」を削除しますか？')">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline-danger btn-tag-action">
+          <i class="bi bi-trash"></i>
+        </button>
+      </form>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="text-muted small">まだタグが登録されていません。「標準タグを一括追加」か「追加」ボタンから登録してください。</p>
+    {% endif %}
+  </div>
+
+  <!-- ===== 加算マスタ・体制加算設定 ===== -->
+  <div class="settings-card">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+      <div class="settings-section-title mb-0">ADDONS · 加算設定（体制加算）</div>
+      <form method="post" action="{% url 'facilities:addon_defaults' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-download me-1"></i>標準加算マスタを読み込む
+        </button>
+      </form>
+    </div>
+    <p class="text-muted small mb-3">
+      施設の人員配置・体制に応じて算定する加算にチェックを入れてください。<br>
+      ※ 送迎加算・延長支援加算など利用者ごとに異なる加算は、請求マトリックスの各セルで個別に管理します。
+    </p>
+
+    {% if no_addons %}
+    <div class="text-center py-4" style="color:#a0b0b2;border:1px dashed #d0dadb;border-radius:10px;">
+      <i class="bi bi-plus-circle" style="font-size:1.8rem;display:block;margin-bottom:8px;"></i>
+      加算マスタが登録されていません。<br>
+      <span class="small">「標準加算マスタを読み込む」ボタンで放課後等デイの全加算を一括登録できます。</span>
+    </div>
+    {% else %}
+    <form method="post" action="{% url 'facilities:addon_setting' %}">
+      {% csrf_token %}
+      <div class="mb-3">
+        {% for item in addon_list %}
+        <div class="form-check py-2" style="border-bottom:1px solid #f5f5f5;">
+          <input class="form-check-input" type="checkbox" name="addon_ids"
+                 value="{{ item.addon.pk }}" id="addon_{{ item.addon.pk }}"
+                 {% if item.is_enabled %}checked{% endif %}>
+          <label class="form-check-label w-100" for="addon_{{ item.addon.pk }}">
+            <div class="fw-semibold" style="font-size:0.88rem;">{{ item.addon.name }}</div>
+            {% if item.addon.unit_count %}
+            <div class="text-muted small">{{ item.addon.unit_count }}単位</div>
+            {% endif %}
+            {% if item.addon.description %}
+            <div class="text-muted" style="font-size:0.75rem;margin-top:2px;">{{ item.addon.description }}</div>
+            {% endif %}
+          </label>
+        </div>
+        {% endfor %}
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">
+        <i class="bi bi-check-circle me-1"></i>加算設定を保存する
+      </button>
+    </form>
+    {% endif %}
+  </div>
+
+</div>
+
+
+<!-- ===== 活動タグ追加モーダル ===== -->
+<div class="modal fade" id="addActivityTagModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'facilities:activity_tag_add' %}">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">活動タグを追加</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">タグ名 <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" placeholder="例：おやつ" required>
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label small fw-semibold">表示順</label>
+              <input type="number" name="display_order" class="form-control" value="0" min="0">
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">実費単価（円/回）</label>
+              <input type="number" name="price" class="form-control" value="0" min="0">
+            </div>
+          </div>
+          <div class="form-check mt-2">
+            <input type="checkbox" name="is_active" id="add_activity_active" class="form-check-input" checked>
+            <label for="add_activity_active" class="form-check-label small">有効</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="submit" class="btn btn-primary">追加する</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 活動タグ編集モーダル ===== -->
+<div class="modal fade" id="editActivityTagModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" id="editActivityTagForm">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">活動タグを編集</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">タグ名 <span class="text-danger">*</span></label>
+            <input type="text" name="name" id="edit_activity_name" class="form-control" required>
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label small fw-semibold">表示順</label>
+              <input type="number" name="display_order" id="edit_activity_order" class="form-control" min="0">
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">実費単価（円/回）</label>
+              <input type="number" name="price" id="edit_activity_price" class="form-control" min="0">
+            </div>
+          </div>
+          <div class="form-check mt-2">
+            <input type="checkbox" name="is_active" id="edit_activity_active" class="form-check-input">
+            <label for="edit_activity_active" class="form-check-label small">有効</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="submit" class="btn btn-primary">保存する</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 支援タグ追加モーダル ===== -->
+<div class="modal fade" id="addSupportTagModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'facilities:support_tag_add' %}">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">支援内容タグを追加</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">タグ名 <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control" placeholder="例：送迎支援（迎え）" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">表示順</label>
+            <input type="number" name="order" class="form-control" value="0" min="0">
+          </div>
+          <div class="form-check">
+            <input type="checkbox" name="is_active" id="add_support_active" class="form-check-input" checked>
+            <label for="add_support_active" class="form-check-label small">有効</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="submit" class="btn btn-primary">追加する</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 支援タグ編集モーダル ===== -->
+<div class="modal fade" id="editSupportTagModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" id="editSupportTagForm">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">支援内容タグを編集</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">タグ名 <span class="text-danger">*</span></label>
+            <input type="text" name="name" id="edit_support_name" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">表示順</label>
+            <input type="number" name="order" id="edit_support_order" class="form-control" min="0">
+          </div>
+          <div class="form-check">
+            <input type="checkbox" name="is_active" id="edit_support_active" class="form-check-input">
+            <label for="edit_support_active" class="form-check-label small">有効</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="submit" class="btn btn-primary">保存する</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 活動タグ編集モーダルにデータを流し込む
+document.getElementById('editActivityTagModal').addEventListener('show.bs.modal', function(e) {
+  const btn = e.relatedTarget;
+  const pk = btn.dataset.pk;
+  document.getElementById('editActivityTagForm').action = `/settings/activity-tags/${pk}/edit/`;
+  document.getElementById('edit_activity_name').value  = btn.dataset.name;
+  document.getElementById('edit_activity_order').value = btn.dataset.order;
+  document.getElementById('edit_activity_price').value = btn.dataset.price;
+  document.getElementById('edit_activity_active').checked = btn.dataset.active === 'true';
+});
+
+// 支援タグ編集モーダルにデータを流し込む
+document.getElementById('editSupportTagModal').addEventListener('show.bs.modal', function(e) {
+  const btn = e.relatedTarget;
+  const pk = btn.dataset.pk;
+  document.getElementById('editSupportTagForm').action = `/settings/support-tags/${pk}/edit/`;
+  document.getElementById('edit_support_name').value  = btn.dataset.name;
+  document.getElementById('edit_support_order').value = btn.dataset.order;
+  document.getElementById('edit_support_active').checked = btn.dataset.active === 'true';
+});
+</script>
+{% endblock %}

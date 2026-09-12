@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ page_title }} — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}{{ page_title }}{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 640px;">
+
+  <!-- ページタイトル -->
+  <div class="mb-4">
+    <a href="{% url 'beneficiaries:list' %}" class="text-muted small">
+      <i class="bi bi-arrow-left me-1"></i>利用者一覧に戻る
+    </a>
+    <h2 class="fw-bold mt-1" style="color: var(--color-primary);">{{ page_title }}</h2>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+
+    <!-- 氏名 -->
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="card-title fw-bold mb-3">氏名</h6>
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="form-label">姓 <span class="text-danger">*</span></label>
+            <input type="text" name="last_name"
+                   value="{{ form.last_name.value|default:'' }}"
+                   class="form-control {% if form.last_name.errors %}is-invalid{% endif %}"
+                   required>
+          </div>
+          <div class="col-6">
+            <label class="form-label">名 <span class="text-danger">*</span></label>
+            <input type="text" name="first_name"
+                   value="{{ form.first_name.value|default:'' }}"
+                   class="form-control {% if form.first_name.errors %}is-invalid{% endif %}"
+                   required>
+          </div>
+          <div class="col-6">
+            <label class="form-label">姓（かな）</label>
+            <input type="text" name="last_name_kana"
+                   value="{{ form.last_name_kana.value|default:'' }}"
+                   class="form-control">
+          </div>
+          <div class="col-6">
+            <label class="form-label">名（かな）</label>
+            <input type="text" name="first_name_kana"
+                   value="{{ form.first_name_kana.value|default:'' }}"
+                   class="form-control">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 基本情報 -->
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="card-title fw-bold mb-3">基本情報</h6>
+        <div class="row g-2">
+          <div class="col-sm-6">
+            <label class="form-label">生年月日 <span class="text-danger">*</span></label>
+            <input type="date" name="date_of_birth"
+                   value="{{ form.date_of_birth.value|date:'Y-m-d'|default:'' }}"
+                   class="form-control" required>
+          </div>
+          <div class="col-sm-6">
+            <label class="form-label">性別</label>
+            <select name="gender" class="form-select">
+              {% for value, label in form.fields.gender.choices %}
+              <option value="{{ value }}"
+                {% if form.gender.value == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-sm-6">
+            <label class="form-label">障害区分</label>
+            <select name="disability_class" class="form-select">
+              <option value="">—</option>
+              {% for value, label in form.fields.disability_class.choices %}
+              {% if value %}
+              <option value="{{ value }}"
+                {% if form.disability_class.value == value %}selected{% endif %}>{{ label }}</option>
+              {% endif %}
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-sm-6">
+            <label class="form-label">障害種別</label>
+            <input type="text" name="disability_type"
+                   value="{{ form.disability_type.value|default:'' }}"
+                   class="form-control" placeholder="例：自閉スペクトラム症">
+          </div>
+          <div class="col-12">
+            <label class="form-label">在籍状況</label>
+            <select name="status" class="form-select">
+              {% for value, label in form.fields.status.choices %}
+              <option value="{{ value }}"
+                {% if form.status.value == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 利用予定曜日 -->
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="card-title fw-bold mb-3">利用予定曜日</h6>
+        <p class="small text-muted mb-2">予定管理で月間スケジュールを一括生成する際に使います</p>
+        <div class="d-flex gap-3 flex-wrap">
+          {% for field in form %}{% if field.name in 'weekday_mon,weekday_tue,weekday_wed,weekday_thu,weekday_fri,weekday_sat' %}
+          <div class="form-check">
+            <input type="checkbox" name="{{ field.name }}" id="{{ field.id_for_label }}"
+                   class="form-check-input" {% if field.value %}checked{% endif %}>
+            <label for="{{ field.id_for_label }}" class="form-check-label fw-bold fs-5">
+              {{ field.label }}</label>
+          </div>
+          {% endif %}{% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- 備考 -->
+    <div class="card mb-4">
+      <div class="card-body">
+        <h6 class="card-title fw-bold mb-3">備考</h6>
+        <textarea name="notes" class="form-control" rows="3"
+                  placeholder="アレルギー・服薬・配慮事項など">{{ form.notes.value|default:'' }}</textarea>
+      </div>
+    </div>
+
+    <!-- ボタン -->
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary px-4">
+        <i class="bi bi-check-lg me-1"></i>保存する
+      </button>
+      <a href="{% url 'beneficiaries:list' %}" class="btn btn-outline-secondary">
+        キャンセル
+      </a>
+    </div>
+
+  </form>
+</div>
+{% endblock %}

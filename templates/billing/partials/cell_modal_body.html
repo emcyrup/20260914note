@@ -1,0 +1,91 @@
+{% comment %}
+セル編集モーダルの中身。CellDetailView がHTMXで返すパーシャル。
+{% endcomment %}
+<div class="modal-header">
+  <h5 class="modal-title">
+    <i class="bi bi-pencil-square me-1"></i>
+    {{ beneficiary.full_name }}
+    <span class="text-muted fw-normal ms-2" style="font-size:0.9rem;">{{ cell_date|date:"Y年n月j日" }}</span>
+  </h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+
+<form hx-post="{% url 'billing:cell_save' %}"
+      hx-target="#cell-{{ beneficiary.pk }}-{{ date_iso }}"
+      hx-swap="outerHTML">
+  {% csrf_token %}
+  <input type="hidden" name="beneficiary_id" value="{{ beneficiary.pk }}">
+  <input type="hidden" name="date"           value="{{ date_iso }}">
+
+  <div class="modal-body">
+
+    <!-- ===== 状態選択 ===== -->
+    <p class="fw-bold mb-2">状態</p>
+    <div class="d-flex flex-wrap gap-2 mb-4">
+
+      <label class="btn btn-outline-secondary {% if current_status == '' %}active{% endif %}" style="min-width:80px;">
+        <input type="radio" name="status" value="" class="btn-check" autocomplete="off"
+               {% if current_status == '' %}checked{% endif %}>
+        <i class="bi bi-dash-circle me-1"></i>未入力
+      </label>
+
+      <label class="btn btn-outline-success {% if current_status == 'attended' %}active{% endif %}" style="min-width:80px;">
+        <input type="radio" name="status" value="attended" class="btn-check" autocomplete="off"
+               {% if current_status == 'attended' %}checked{% endif %}>
+        <i class="bi bi-check-circle me-1"></i>利用
+      </label>
+
+      <label class="btn btn-outline-warning {% if current_status == 'absent' %}active{% endif %}" style="min-width:80px;">
+        <input type="radio" name="status" value="absent" class="btn-check" autocomplete="off"
+               {% if current_status == 'absent' %}checked{% endif %}>
+        <i class="bi bi-x-circle me-1"></i>欠席
+      </label>
+
+      <label class="btn btn-outline-primary {% if current_status == 'transferred' %}active{% endif %}" style="min-width:80px;">
+        <input type="radio" name="status" value="transferred" class="btn-check" autocomplete="off"
+               {% if current_status == 'transferred' %}checked{% endif %}>
+        <i class="bi bi-arrow-repeat me-1"></i>振替
+      </label>
+
+    </div>
+
+    <!-- ===== 個別加算 ===== -->
+    {% if addon_list %}
+    <p class="fw-bold mb-2">個別加算</p>
+    <div class="row g-2">
+      {% for item in addon_list %}
+      <div class="col-12">
+        <div class="form-check p-0">
+          <label class="d-flex align-items-start gap-2 p-2 rounded border cursor-pointer
+                        {% if item.is_applied %}border-success bg-success bg-opacity-10{% else %}border-light{% endif %}"
+                 style="cursor:pointer;">
+            <input class="form-check-input mt-1 flex-shrink-0" type="checkbox"
+                   name="addon_ids" value="{{ item.addon.pk }}"
+                   {% if item.is_applied %}checked{% endif %}>
+            <div>
+              <div class="fw-semibold" style="font-size:0.9rem;">{{ item.addon.name }}</div>
+              {% if item.addon.unit_count %}
+              <div class="text-muted" style="font-size:0.8rem;">{{ item.addon.unit_count }}単位</div>
+              {% endif %}
+            </div>
+          </label>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-muted" style="font-size:0.9rem;">
+      個別加算が登録されていません。<a href="{% url 'facilities:settings' %}">施設設定</a>で「標準加算マスタを読み込む」を実行してください。
+    </p>
+    {% endif %}
+
+  </div><!-- /.modal-body -->
+
+  <div class="modal-footer">
+    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+    <button type="submit" class="btn btn-primary">
+      <i class="bi bi-save me-1"></i>保存
+    </button>
+  </div>
+
+</form>

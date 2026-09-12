@@ -1,0 +1,731 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ beneficiary.full_name }} — 利用者詳細{% endblock %}
+{% block page_title %}{{ beneficiary.full_name }}{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .detail-label { font-size: 0.75rem; color: #888; letter-spacing: 0.05em; margin-bottom: 2px; }
+  .detail-value { font-size: 0.95rem; font-weight: 500; }
+  .section-title {
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-primary);
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+  }
+  .info-card {
+    background: #fff;
+    border: 1px solid #e8e8e8;
+    border-radius: 12px;
+    padding: 1.5rem;
+  }
+  .flow-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: 0.72rem;
+    color: #666;
+    gap: 4px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--color-primary-bg);
+    min-width: 60px;
+    text-decoration: none;
+  }
+  .flow-step i { font-size: 1.3rem; color: var(--color-primary); }
+  a.flow-step:hover { background: var(--color-primary-light); color: var(--color-primary-dark); }
+  .modal-content { border-radius: 16px; border: none; }
+  .modal-header { border-bottom: 1px solid #f0f0f0; padding: 1.5rem 1.75rem 1rem; }
+  .modal-body { padding: 1.25rem 1.75rem; }
+  .modal-footer { border-top: 1px solid #f0f0f0; padding: 1rem 1.75rem 1.5rem; }
+  .form-control, .form-select {
+    border-radius: 8px;
+    border: 1.5px solid #ddd;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.9rem;
+  }
+  .form-control:focus, .form-select:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(15,110,86,0.12);
+  }
+  .weekday-check label {
+    display: flex; flex-direction: column; align-items: center;
+    width: 44px; height: 44px; border-radius: 50%;
+    border: 2px solid #ddd; cursor: pointer;
+    font-weight: 700; font-size: 0.95rem; color: #888;
+    justify-content: center; transition: all 0.15s;
+  }
+  .weekday-check input:checked + label {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+  }
+  .weekday-check input { display: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="max-width: 900px; margin: 0 auto;" class="px-2">
+
+  <!-- パンくず -->
+  <div class="mb-3">
+    <a href="{% url 'beneficiaries:list' %}" class="text-muted small text-decoration-none">
+      <i class="bi bi-people me-1"></i>利用者一覧
+    </a>
+    <span class="text-muted small mx-1">/</span>
+    <span class="small">{{ beneficiary.full_name }}</span>
+  </div>
+
+  <!-- ヘッダーカード -->
+  <div class="info-card mb-3 d-flex justify-content-between align-items-start flex-wrap gap-3">
+    <div class="d-flex align-items-center gap-3">
+      <!-- アバター（名前の頭文字） -->
+      <div class="rounded-circle d-flex align-items-center justify-content-center fw-bold fs-4 text-white flex-shrink-0"
+           style="width:56px;height:56px;background:var(--color-primary);">
+        {{ beneficiary.last_name|first }}
+      </div>
+      <div>
+        <div class="section-title">利用者</div>
+        <h2 class="fw-bold mb-0" style="font-size:1.6rem;">{{ beneficiary.full_name }}</h2>
+        <div class="text-muted small">{{ beneficiary.full_name_kana }}
+          <span class="ms-2 badge {% if beneficiary.status == 'active' %}text-bg-success{% else %}text-bg-secondary{% endif %}" style="font-size:0.7rem;">
+            {{ beneficiary.get_status_display }}
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 支援の流れナビ -->
+  <div class="info-card mb-3">
+    <div class="section-title mb-2">支援の流れ</div>
+    <div class="d-flex align-items-center gap-1 flex-wrap">
+      <div class="flow-step"><i class="bi bi-chat-dots"></i>相談支援</div>
+      <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
+      <div class="flow-step"><i class="bi bi-clipboard2-check"></i>アセスメント</div>
+      <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
+      <div class="flow-step"><i class="bi bi-file-earmark-text"></i>支援計画</div>
+      <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
+      <a href="{% url 'records:list' beneficiary.pk %}" class="flow-step"><i class="bi bi-journal-text"></i>日誌</a>
+      <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
+      <div class="flow-step"><i class="bi bi-graph-up"></i>モニタリング</div>
+      <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
+      <div class="flow-step"><i class="bi bi-arrow-repeat"></i>次の計画</div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+
+    <!-- 基本情報 -->
+    <div class="col-md-6">
+      <div class="info-card h-100">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="section-title mb-0">基本情報</div>
+          <button class="btn btn-sm btn-outline-secondary"
+                  data-bs-toggle="modal" data-bs-target="#editModal">
+            <i class="bi bi-pencil me-1"></i>編集
+          </button>
+        </div>
+        <div class="row g-3">
+          <div class="col-6">
+            <div class="detail-label">生年月日</div>
+            <div class="detail-value">{{ beneficiary.date_of_birth }}</div>
+          </div>
+          <div class="col-6">
+            <div class="detail-label">性別</div>
+            <div class="detail-value">{{ beneficiary.get_gender_display }}</div>
+          </div>
+          <div class="col-6">
+            <div class="detail-label">障害区分</div>
+            <div class="detail-value">{{ beneficiary.get_disability_class_display|default:'—' }}</div>
+          </div>
+          <div class="col-6">
+            <div class="detail-label">障害種別</div>
+            <div class="detail-value">{{ beneficiary.disability_type|default:'—' }}</div>
+          </div>
+          <div class="col-12">
+            <div class="detail-label">利用予定曜日</div>
+            <div class="detail-value">{{ beneficiary.scheduled_weekdays_display }}</div>
+          </div>
+          {% if beneficiary.notes %}
+          <div class="col-12">
+            <div class="detail-label">備考</div>
+            <div class="detail-value">{{ beneficiary.notes }}</div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- 保護者 -->
+    <div class="col-md-6">
+      <div class="info-card h-100">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="section-title mb-0">保護者</div>
+          <button class="btn btn-sm btn-outline-primary"
+                  data-bs-toggle="modal" data-bs-target="#guardianModal">
+            <i class="bi bi-plus me-1"></i>追加
+          </button>
+        </div>
+        {% if guardians %}
+          {% for g in guardians %}
+          <div class="{% if not forloop.last %}border-bottom pb-2 mb-2{% endif %}">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <div class="fw-semibold">{{ g.last_name }} {{ g.first_name }}
+                  <span class="badge text-bg-light text-dark ms-1" style="font-size:0.7rem;">{{ g.get_relation_display }}</span>
+                  {% if g.is_primary %}<span class="badge ms-1" style="background:var(--color-primary);font-size:0.7rem;">主連絡先</span>{% endif %}
+                  {% if g.line_linked %}<span class="badge ms-1" style="background:#06C755;font-size:0.7rem;"><i class="bi bi-chat-dots me-1"></i>LINE連携済</span>{% else %}<span class="badge ms-1 bg-light text-muted" style="font-size:0.7rem;">LINE未連携</span>{% endif %}
+                </div>
+                <div class="text-muted small">{{ g.phone|default:'—' }}</div>
+                <!-- LINE登録コード -->
+                {% if not g.line_linked %}
+                <div class="mt-1 d-flex align-items-center gap-2 flex-wrap">
+                  <span class="small text-muted">LINE登録コード：</span>
+                  <code style="font-size:1rem;letter-spacing:0.15em;color:var(--color-primary);font-weight:700;">{{ g.line_registration_code }}</code>
+                  <form method="post" action="{% url 'beneficiaries:regenerate_line_code' g.pk %}"
+                        onsubmit="return confirm('登録コードを再発行しますか？\n古いコードは使えなくなります。')">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size:0.7rem;">
+                      再発行
+                    </button>
+                  </form>
+                </div>
+                {% endif %}
+              </div>
+              <button class="btn btn-sm btn-outline-secondary"
+                      data-bs-toggle="modal"
+                      data-bs-target="#guardianEditModal{{ g.pk }}">
+                <i class="bi bi-pencil"></i>
+              </button>
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <p class="text-muted small mb-0">保護者が未登録です</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- 受給者証 -->
+    <div class="col-12">
+      <div class="info-card">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="section-title mb-0">受給者証</div>
+          <button class="btn btn-sm btn-outline-primary"
+                  data-bs-toggle="modal" data-bs-target="#certificateModal">
+            <i class="bi bi-plus me-1"></i>追加
+          </button>
+        </div>
+        {% if certificates %}
+          {% with current=certificates.0 %}
+          <!-- 最新の受給者証 -->
+          <div class="d-flex justify-content-between align-items-center">
+            <div class="d-flex flex-wrap gap-4 align-items-baseline" style="font-size:0.88rem;">
+              <div>
+                <span class="detail-label d-block">有効期間</span>
+                <span class="detail-value">{{ current.valid_from }}〜{{ current.valid_until }}
+                  {% if current.valid_until < today %}
+                    <span class="badge ms-1 text-white" style="background:var(--color-danger);font-size:0.7rem;">期限切れ</span>
+                  {% elif current.valid_until <= cert_expiry_soon %}
+                    <span class="badge ms-1 text-white" style="background:var(--color-warning);font-size:0.7rem;">まもなく期限切れ</span>
+                  {% endif %}
+                </span>
+              </div>
+              <div>
+                <span class="detail-label d-block">受給者証番号</span>
+                <span class="detail-value">{{ current.certificate_number|default:'—' }}</span>
+              </div>
+              <div>
+                <span class="detail-label d-block">支給量 / 負担上限</span>
+                <span class="detail-value">{{ current.granted_days }}日/月 ／ {{ current.monthly_cap }}円</span>
+              </div>
+              {% if current.municipality %}
+              <div>
+                <span class="detail-label d-block">市区町村</span>
+                <span class="detail-value">{{ current.municipality }}</span>
+              </div>
+              {% endif %}
+            </div>
+            <button class="btn btn-sm btn-outline-secondary ms-3 flex-shrink-0"
+                    data-bs-toggle="modal" data-bs-target="#certEditModal{{ current.pk }}">
+              <i class="bi bi-pencil"></i>
+            </button>
+          </div>
+          {% endwith %}
+
+          <!-- 過去の受給者証（折りたたみ） -->
+          {% if certificates|length > 1 %}
+          <div class="mt-2">
+            <button class="btn btn-link btn-sm text-muted p-0 text-decoration-none"
+                    data-bs-toggle="collapse" data-bs-target="#pastCertificates">
+              <i class="bi bi-clock-history me-1"></i>過去の受給者証を表示（{{ certificates|length|add:"-1" }}件）
+            </button>
+            <div class="collapse mt-2" id="pastCertificates">
+              <table class="table table-sm mb-0" style="font-size:0.85rem;">
+                <thead><tr style="color:#aaa;font-size:0.75rem;">
+                  <th>有効期間</th><th>証番号</th><th>支給量</th><th>負担上限</th><th></th>
+                </tr></thead>
+                <tbody>
+                  {% for c in certificates %}{% if not forloop.first %}
+                  <tr>
+                    <td>{{ c.valid_from }}〜{{ c.valid_until }}</td>
+                    <td>{{ c.certificate_number|default:'—' }}</td>
+                    <td>{{ c.granted_days }}日/月</td>
+                    <td>{{ c.monthly_cap }}円</td>
+                    <td>
+                      <button class="btn btn-sm btn-outline-secondary py-0"
+                              data-bs-toggle="modal" data-bs-target="#certEditModal{{ c.pk }}">
+                        <i class="bi bi-pencil"></i>
+                      </button>
+                    </td>
+                  </tr>
+                  {% endif %}{% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {% endif %}
+
+        {% else %}
+          <p class="text-muted small mb-0">受給者証が未登録です</p>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ========== 利用者編集モーダル ========== -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{% url 'beneficiaries:update' beneficiary.pk %}">
+        {% csrf_token %}
+        <div class="modal-header">
+          <div>
+            <div class="section-title">EDIT PROFILE</div>
+            <h5 class="modal-title fw-bold mb-0">利用者情報を編集</h5>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+
+          <!-- 氏名 -->
+          <div class="row g-3 mb-3">
+            <div class="col-6">
+              <label class="form-label small fw-semibold">姓 <span class="text-danger">*</span></label>
+              <input type="text" name="last_name" class="form-control"
+                     value="{{ edit_form.last_name.value|default:'' }}" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">名 <span class="text-danger">*</span></label>
+              <input type="text" name="first_name" class="form-control"
+                     value="{{ edit_form.first_name.value|default:'' }}" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">姓（かな）</label>
+              <input type="text" name="last_name_kana" class="form-control"
+                     value="{{ edit_form.last_name_kana.value|default:'' }}">
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">名（かな）</label>
+              <input type="text" name="first_name_kana" class="form-control"
+                     value="{{ edit_form.first_name_kana.value|default:'' }}">
+            </div>
+          </div>
+
+          <!-- 基本情報 -->
+          <div class="row g-3 mb-3">
+            <div class="col-sm-4">
+              <label class="form-label small fw-semibold">生年月日 <span class="text-danger">*</span></label>
+              <input type="date" name="date_of_birth" class="form-control"
+                     value="{{ edit_form.date_of_birth.value|date:'Y-m-d'|default:'' }}" required>
+            </div>
+            <div class="col-sm-4">
+              <label class="form-label small fw-semibold">性別</label>
+              <select name="gender" class="form-select">
+                {% for value, label in edit_form.fields.gender.choices %}
+                <option value="{{ value }}" {% if edit_form.gender.value == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-sm-4">
+              <label class="form-label small fw-semibold">障害区分</label>
+              <select name="disability_class" class="form-select">
+                <option value="">—</option>
+                {% for value, label in edit_form.fields.disability_class.choices %}
+                {% if value %}<option value="{{ value }}" {% if edit_form.disability_class.value == value %}selected{% endif %}>{{ label }}</option>{% endif %}
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label small fw-semibold">障害種別</label>
+              <input type="text" name="disability_type" class="form-control"
+                     value="{{ edit_form.disability_type.value|default:'' }}"
+                     placeholder="例：自閉スペクトラム症">
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label small fw-semibold">在籍状況</label>
+              <select name="status" class="form-select">
+                {% for value, label in edit_form.fields.status.choices %}
+                <option value="{{ value }}" {% if edit_form.status.value == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <!-- 利用予定曜日 -->
+          <div class="mb-3">
+            <label class="form-label small fw-semibold d-block">利用予定曜日</label>
+            <div class="d-flex gap-2">
+              {% for fname, lbl in edit_weekdays %}
+              <div class="weekday-check">
+                <input type="checkbox" name="{{ fname }}" id="edit_{{ fname }}"
+                       {% if lbl in beneficiary.scheduled_weekdays_display %}checked{% endif %}>
+                <label for="edit_{{ fname }}">{{ lbl }}</label>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- 備考 -->
+          <div>
+            <label class="form-label small fw-semibold">備考</label>
+            <textarea name="notes" class="form-control" rows="2"
+                      placeholder="アレルギー・服薬・配慮事項など">{{ edit_form.notes.value|default:'' }}</textarea>
+          </div>
+
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="submit" class="btn btn-primary px-4">
+            <i class="bi bi-check-lg me-1"></i>保存する
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<!-- ========== 受給者証編集モーダル（受給者証ごとに生成） ========== -->
+{% for c in certificates %}
+<div class="modal fade" id="certEditModal{{ c.pk }}" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{% url 'beneficiaries:certificate_update' beneficiary.pk c.pk %}"
+            enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">受給者証を編集</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">受給者証番号</label>
+              <input type="text" name="certificate_number" class="form-control"
+                     value="{{ c.certificate_number }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">支給量（日/月）</label>
+              <input type="number" name="granted_days" class="form-control"
+                     value="{{ c.granted_days }}" min="0">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">負担上限月額（円）</label>
+              <input type="number" name="monthly_cap" class="form-control"
+                     value="{{ c.monthly_cap }}" min="0">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">有効期間（開始）</label>
+              <input type="date" name="valid_from" class="form-control"
+                     value="{{ c.valid_from|date:'Y-m-d' }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">有効期間（終了）</label>
+              <input type="date" name="valid_until" class="form-control"
+                     value="{{ c.valid_until|date:'Y-m-d' }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">市区町村</label>
+              <input type="text" name="municipality" class="form-control"
+                     value="{{ c.municipality }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">相談支援事業所</label>
+              <input type="text" name="support_office" class="form-control"
+                     value="{{ c.support_office }}">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="submit" class="btn btn-primary">保存する</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<!-- ========== 保護者編集モーダル（保護者ごとに生成） ========== -->
+{% for g in guardians %}
+<div class="modal fade" id="guardianEditModal{{ g.pk }}" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'beneficiaries:guardian_update' beneficiary.pk g.pk %}"
+            x-data="{ lineId: '{{ g.line_user_id|escapejs }}' }">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">保護者を編集</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-6">
+              <label class="form-label small fw-semibold">姓 <span class="text-danger">*</span></label>
+              <input type="text" name="last_name" class="form-control" value="{{ g.last_name }}" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">名 <span class="text-danger">*</span></label>
+              <input type="text" name="first_name" class="form-control" value="{{ g.first_name }}" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">続柄</label>
+              <select name="relation" class="form-select">
+                <option value="mother" {% if g.relation == 'mother' %}selected{% endif %}>母</option>
+                <option value="father" {% if g.relation == 'father' %}selected{% endif %}>父</option>
+                <option value="other"  {% if g.relation == 'other'  %}selected{% endif %}>その他</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">電話番号</label>
+              <input type="tel" name="phone" class="form-control" value="{{ g.phone }}">
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">メール</label>
+              <input type="email" name="email" class="form-control" value="{{ g.email }}">
+            </div>
+            <div class="col-12">
+              <div class="form-check">
+                <input type="checkbox" name="is_primary" id="edit_is_primary_{{ g.pk }}" class="form-check-input"
+                       {% if g.is_primary %}checked{% endif %}>
+                <label for="edit_is_primary_{{ g.pk }}" class="form-check-label small">主連絡先にする</label>
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">LINE User ID
+                <span class="text-muted fw-normal">（通常は自動登録。テスト時のみ手動入力）</span>
+              </label>
+              <!-- x-model で lineId と双方向バインド。LINE IDが空になると自動でチェックが外れる -->
+              <input type="text" name="line_user_id" class="form-control form-control-sm font-monospace"
+                     x-model="lineId"
+                     placeholder="Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+            </div>
+            <div class="col-12">
+              <div class="form-check">
+                <!-- x-effect: lineId が空のとき checked を自動で false にする -->
+                <input type="checkbox" name="line_linked" id="edit_line_linked_{{ g.pk }}" class="form-check-input"
+                       x-effect="if(!lineId.trim()) $el.checked = false"
+                       {% if g.line_linked %}checked{% endif %}>
+                <label for="edit_line_linked_{{ g.pk }}" class="form-check-label small">LINE連携済みにする</label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="submit" class="btn btn-primary">保存する</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<!-- ========== 保護者追加モーダル ========== -->
+<div class="modal fade" id="guardianModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'beneficiaries:guardian_create' beneficiary.pk %}">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">保護者を追加</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-6">
+              <label class="form-label small fw-semibold">姓 <span class="text-danger">*</span></label>
+              <input type="text" name="last_name" class="form-control" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">名 <span class="text-danger">*</span></label>
+              <input type="text" name="first_name" class="form-control" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">続柄</label>
+              <select name="relation" class="form-select">
+                <option value="mother">母</option>
+                <option value="father">父</option>
+                <option value="other">その他</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">電話番号</label>
+              <input type="tel" name="phone" class="form-control">
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">メール</label>
+              <input type="email" name="email" class="form-control">
+            </div>
+            <div class="col-12">
+              <div class="form-check">
+                <input type="checkbox" name="is_primary" id="is_primary" class="form-check-input">
+                <label for="is_primary" class="form-check-label small">主連絡先にする</label>
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">LINE User ID
+                <span class="text-muted fw-normal">（通常は自動登録。テスト時のみ手動入力）</span>
+              </label>
+              <input type="text" name="line_user_id" class="form-control form-control-sm font-monospace"
+                     placeholder="Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+            </div>
+            <div class="col-12">
+              <div class="form-check">
+                <input type="checkbox" name="line_linked" id="line_linked" class="form-check-input">
+                <label for="line_linked" class="form-check-label small">LINE連携済みにする</label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="submit" class="btn btn-primary">追加する</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<!-- ========== 受給者証追加モーダル（OCR付き） ========== -->
+<div class="modal fade" id="certificateModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold">受給者証を追加</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+
+        <!-- OCRエリア -->
+        <div class="p-3 mb-3 rounded" style="background: var(--color-primary-bg);"
+             x-data="ocrHandler('{% url 'beneficiaries:certificate_ocr' beneficiary.pk %}')">
+          <p class="fw-semibold small mb-2">
+            <i class="bi bi-camera me-1"></i>写真から自動入力（OCR）
+          </p>
+          <div class="d-flex gap-2 align-items-center flex-wrap">
+            <input type="file" accept="image/*" class="form-control form-control-sm"
+                   style="max-width:300px;" @change="selectedFile = $event.target.files[0]">
+            <button type="button" class="btn btn-sm btn-primary"
+                    @click="runOcr()" :disabled="!selectedFile || loading">
+              <span x-show="!loading"><i class="bi bi-magic me-1"></i>読み取る</span>
+              <span x-show="loading"><i class="bi bi-hourglass-split me-1"></i>読み取り中...</span>
+            </button>
+          </div>
+          <p x-show="errorMsg" class="text-danger small mt-2 mb-0" x-text="errorMsg"></p>
+          <p x-show="successMsg" class="small mt-2 mb-0" style="color:var(--color-success);">
+            <i class="bi bi-check-circle me-1"></i><span x-text="successMsg"></span>
+          </p>
+        </div>
+
+        <form method="post" enctype="multipart/form-data"
+              action="{% url 'beneficiaries:certificate_create' beneficiary.pk %}">
+          {% csrf_token %}
+          <div class="row g-3">
+            <div class="col-sm-6">
+              <label class="form-label small fw-semibold">受給者証番号</label>
+              <input type="text" name="certificate_number" id="f_cert_number" class="form-control">
+            </div>
+            <div class="col-sm-3">
+              <label class="form-label small fw-semibold">支給量（日/月）<span class="text-danger">*</span></label>
+              <input type="number" name="granted_days" id="f_granted_days" class="form-control" min="0" required>
+            </div>
+            <div class="col-sm-3">
+              <label class="form-label small fw-semibold">負担上限月額（円）</label>
+              <input type="number" name="monthly_cap" id="f_monthly_cap" class="form-control" min="0">
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label small fw-semibold">有効期間（開始）<span class="text-danger">*</span></label>
+              <input type="date" name="valid_from" id="f_valid_from" class="form-control" required>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label small fw-semibold">有効期間（終了）<span class="text-danger">*</span></label>
+              <input type="date" name="valid_until" id="f_valid_until" class="form-control" required>
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label small fw-semibold">市区町村</label>
+              <input type="text" name="municipality" id="f_municipality" class="form-control">
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label small fw-semibold">相談支援事業所</label>
+              <input type="text" name="support_office" id="f_support_office" class="form-control">
+            </div>
+          </div>
+          <div class="modal-footer px-0 pb-0 mt-3">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+            <button type="submit" class="btn btn-primary">登録する</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function ocrHandler(ocrUrl) {
+  return {
+    selectedFile: null, loading: false, errorMsg: '', successMsg: '',
+    async runOcr() {
+      if (!this.selectedFile) return;
+      this.loading = true; this.errorMsg = ''; this.successMsg = '';
+      const formData = new FormData();
+      formData.append('image', this.selectedFile);
+      formData.append('csrfmiddlewaretoken',
+        document.querySelector('[name=csrfmiddlewaretoken]').value);
+      try {
+        const res = await fetch(ocrUrl, { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.error) { this.errorMsg = data.error; }
+        else {
+          const r = data.result;
+          if (r.certificate_number) document.getElementById('f_cert_number').value = r.certificate_number;
+          if (r.granted_days)       document.getElementById('f_granted_days').value = r.granted_days;
+          if (r.monthly_cap)        document.getElementById('f_monthly_cap').value = r.monthly_cap;
+          if (r.valid_from)         document.getElementById('f_valid_from').value = r.valid_from;
+          if (r.valid_until)        document.getElementById('f_valid_until').value = r.valid_until;
+          if (r.municipality)       document.getElementById('f_municipality').value = r.municipality;
+          if (r.support_office)     document.getElementById('f_support_office').value = r.support_office;
+          this.successMsg = '読み取り完了！内容を確認して「登録する」を押してください。';
+        }
+      } catch(e) { this.errorMsg = '通信エラーが発生しました。'; }
+      finally { this.loading = false; }
+    }
+  };
+}
+</script>
+
+
+{% endblock %}

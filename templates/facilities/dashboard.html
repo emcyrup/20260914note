@@ -1,0 +1,163 @@
+{% extends 'base.html' %}
+
+{% block title %}ホーム — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}ホーム{% endblock %}
+{% block nav_home %}active{% endblock %}
+
+{% block content %}
+<div class="px-2">
+
+  <!-- 日付表示 -->
+  <p class="text-muted mb-4">{{ today|date:"Y年n月j日（D）" }}</p>
+
+  <!-- ===== アラートカード ===== -->
+  <div class="mb-4">
+    <h5 class="fw-bold mb-3" style="color: var(--color-primary-dark);">
+      <i class="bi bi-bell-fill me-2"></i>お知らせ・アラート
+    </h5>
+
+    {% if expired_certs %}
+    <div class="card mb-3 border-danger">
+      <div class="card-header fw-bold text-white" style="background: var(--color-danger);">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>受給者証の有効期限が切れています（{{ expired_certs|length }}件）
+      </div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+          {% for cert in expired_certs %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>
+              <a href="{% url 'beneficiaries:detail' cert.beneficiary.pk %}" class="fw-semibold text-decoration-none" style="color: var(--color-danger);">
+                {{ cert.beneficiary.full_name }}
+              </a>
+              <span class="text-muted small ms-2">（{{ cert.beneficiary.full_name_kana }}）</span>
+            </span>
+            <span class="badge text-white" style="background: var(--color-danger);">
+              期限切れ：{{ cert.valid_until|date:"Y/m/d" }}
+            </span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if expiring_certs %}
+    <div class="card mb-3" style="border-color: var(--color-warning);">
+      <div class="card-header fw-bold text-white" style="background: var(--color-warning);">
+        <i class="bi bi-clock-fill me-2"></i>受給者証の有効期限が30日以内に切れます（{{ expiring_certs|length }}件）
+      </div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+          {% for cert in expiring_certs %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span>
+              <a href="{% url 'beneficiaries:detail' cert.beneficiary.pk %}" class="fw-semibold text-decoration-none" style="color: var(--color-warning);">
+                {{ cert.beneficiary.full_name }}
+              </a>
+              <span class="text-muted small ms-2">（{{ cert.beneficiary.full_name_kana }}）</span>
+            </span>
+            <span class="badge text-white" style="background: var(--color-warning);">
+              期限：{{ cert.valid_until|date:"Y/m/d" }}
+            </span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if not expired_certs and not expiring_certs %}
+    <div class="p-3 rounded text-center" style="background: var(--color-primary-bg); color: var(--color-primary-dark);">
+      <i class="bi bi-check-circle-fill me-2"></i>現在、対応が必要なアラートはありません。
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ===== 今日の来所予定 ===== -->
+  <div class="mb-4">
+    <h5 class="fw-bold mb-3" style="color: var(--color-primary-dark);">
+      <i class="bi bi-calendar-check-fill me-2"></i>今日の来所予定
+    </h5>
+    <div class="card" style="overflow:hidden;">
+      <div class="card-body p-0">
+        {% if today_schedules %}
+        <ul class="list-group list-group-flush" style="border-radius:0;">
+          {% for s in today_schedules %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            <span class="fw-semibold">{{ s.beneficiary.full_name }}</span>
+            <span class="badge rounded-pill
+              {% if s.status == 'scheduled' %}bg-secondary
+              {% elif s.status == 'attended' %}text-white
+              {% else %}bg-light text-dark{% endif %}"
+              {% if s.status == 'attended' %}style="background: var(--color-primary);"{% endif %}>
+              {{ s.get_status_display }}
+            </span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="text-center py-4 text-muted small">
+          <i class="bi bi-calendar-x me-1"></i>本日の予定はありません。
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== クイックアクセス + ログイン情報 ===== -->
+  <div class="row g-3">
+
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-header fw-bold" style="background: var(--color-primary-bg); color: var(--color-primary-dark);">
+          <i class="bi bi-lightning-fill me-2"></i>クイックアクセス
+        </div>
+        <div class="card-body" style="background-color: var(--paper) !important;">
+          <div class="d-grid gap-2">
+            <a href="{% url 'records:dashboard' %}" class="btn btn-outline-primary text-start">
+              <i class="bi bi-pencil-square me-2"></i>日誌を入力する
+            </a>
+            <a href="{% url 'beneficiaries:list' %}" class="btn btn-outline-primary text-start">
+              <i class="bi bi-people-fill me-2"></i>利用者を確認する
+            </a>
+            <a href="{% url 'schedules:calendar' %}" class="btn btn-outline-primary text-start">
+              <i class="bi bi-calendar3 me-2"></i>今月の予定を確認する
+            </a>
+            <a href="{% url 'billing:matrix' %}" class="btn btn-outline-primary text-start">
+              <i class="bi bi-receipt me-2"></i>請求マトリックスを開く
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-header fw-bold" style="background: var(--color-primary-bg); color: var(--color-primary-dark);">
+          <i class="bi bi-person-circle me-2"></i>ログイン中の職員
+        </div>
+        <div class="card-body" style="background-color: var(--paper) !important;">
+          <table class="table table-borderless mb-0">
+            <tr>
+              <th class="ps-0 text-muted small" style="width:5rem;">氏名</th>
+              <td class="fw-semibold">{{ user.display_name|default:user.username }}</td>
+            </tr>
+            <tr>
+              <th class="ps-0 text-muted small">権限</th>
+              <td>{{ user.get_role_display }}</td>
+            </tr>
+            {% if user.facility %}
+            <tr>
+              <th class="ps-0 text-muted small">施設</th>
+              <td>{{ user.facility.name }}</td>
+            </tr>
+            {% endif %}
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,114 @@
+from django.db import models
+
+
+class Facility(models.Model):
+    """
+    施設基本情報。全テーブルの親となるテナント単位。
+    """
+    # 地域区分（障害福祉サービスの単位単価に影響する）
+    REGION_CATEGORY_CHOICES = [
+        ('1', '1級地（東京23区等）'), ('2', '2級地'), ('3', '3級地'),
+        ('4', '4級地'), ('5', '5級地'), ('6', '6級地'), ('7', '7級地'),
+        ('other', 'その他'),
+    ]
+
+    name = models.CharField(max_length=100, verbose_name='施設名')
+    office_number = models.CharField(max_length=20, blank=True, verbose_name='事業所番号')
+    address = models.CharField(max_length=200, blank=True, verbose_name='住所')
+    phone = models.CharField(max_length=20, blank=True, verbose_name='電話番号')
+    # 地域区分（請求単価計算に使用）
+    region_category = models.CharField(
+        max_length=10, choices=REGION_CATEGORY_CHOICES, default='other', verbose_name='地域区分'
+    )
+    # 通常終了時刻（延長支援加算の自動判定に使用）
+    standard_close_time = models.TimeField(
+        null=True, blank=True, verbose_name='通常終了時刻',
+        help_text='例：17:00。延長支援加算の自動チェックに使います。'
+    )
+    # 基本報酬単位数（請求書PDF生成に使用）
+    base_unit_count = models.IntegerField(
+        null=True, blank=True, verbose_name='1日あたり基本報酬単位数'
+    )
+    is_new_facility_r8 = models.BooleanField(
+        default=False, verbose_name='令和8年6月以降新規指定事業所',
+        help_text='令和8年6月1日以降に新規指定された事業所の場合はチェック'
+    )
+    line_channel_access_token = models.TextField(blank=True, verbose_name='LINEチャネルアクセストークン')
+    line_channel_secret = models.CharField(max_length=100, blank=True, verbose_name='LINEチャネルシークレット')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = '施設'
+        verbose_name_plural = '施設'
+
+    def __str__(self):
+        return self.name
+
+
+class SupportContentTag(models.Model):
+    """
+    支援内容タグマスタ。
+    送迎・入浴支援など、日次記録で選択する支援種別（加算集計にも使用）。
+    施設ごとに追加・編集可能。
+    """
+    facility = models.ForeignKey(
+        Facility, on_delete=models.CASCADE,
+        related_name='support_content_tags', verbose_name='施設'
+    )
+    name = models.CharField(max_length=50, verbose_name='タグ名')
+    order = models.PositiveIntegerField(default=0, verbose_name='表示順')
+    is_active = models.BooleanField(default=True, verbose_name='有効')
+
+    class Meta:
+        verbose_name = '支援内容タグ'
+        verbose_name_plural = '支援内容タグ'
+        ordering = ['order', 'name']
+
+    def __str__(self):
+        return self.name
+
+
+class AddonMaster(models.Model):
+    """
+    加算マスタ（全国共通・法令ベース）。
+    放課後等デイサービスで算定できる加算の一覧。
+    開発側が法令に基づいて初期投入し、施設側は選択するだけ。
+    """
+    ADDON_TYPE_CHOICES = [
+        ('individual', '個別加算（利用者×日単位）'),
+        ('facility',   '体制加算（施設全体・月単位）'),
+    ]
+
+    name       = models.CharField(max_length=200, verbose_name='加算名')
+    addon_type = models.CharField(
+        max_length=20, choices=ADDON_TYPE_CHOICES, default='individual', verbose_name='加算種別'
+    )
+    unit_count  = models.IntegerField(default=0, verbose_name='単位数')
+    description = models.TextField(blank=True, verbose_name='算定要件の概要')
+    is_active   = models.BooleanField(default=True, verbose_name='有効')
+
+    class Meta:
+        verbose_name        = '加算マスタ'
+        verbose_name_plural = '加算マスタ'
+        ordering            = ['addon_type', 'name']
+
+    def __str__(self):
+        return f'{self.name}（{self.unit_count}単位）'
+
+
+class FacilityAddonSetting(models.Model):
+    """
+    施設が算定する加算のON/OFF管理。
+    AddonMasterの全加算から、各施設が実際に算定するものを選択して登録する。
+    """
+    facility   = models.ForeignKey(Facility, on_delete=models.CASCADE, verbose_name='施設')
+    addon      = models.ForeignKey(AddonMaster, on_delete=models.CASCADE, verbose_name='加算')
+    is_enabled = models.BooleanField(default=False, verbose_name='算定する')
+
+    class Meta:
+        verbose_name        = '施設加算設定'
+        verbose_name_plural = '施設加算設定'
+        unique_together     = [['facility', 'addon']]
+
+    def __str__(self):
+        return f'{self.facility.name} - {self.addon.name}'

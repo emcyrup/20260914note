@@ -1,0 +1,238 @@
+{% comment %}
+電子サインモーダル（共通コンポーネント）
+使い方：
+  {% include 'esignatures/signature_modal.html' with target_type='daily_record' target_id=record.pk guardians=beneficiary.guardians.all %}
+{% endcomment %}
+
+<div class="modal fade" id="signatureModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered" style="max-width: 560px;">
+    <div class="modal-content">
+      <div class="modal-header" style="background: var(--color-primary-bg);">
+        <h5 class="modal-title" style="color: var(--color-primary-dark);">
+          <i class="bi bi-pen me-2"></i>電子サイン
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+
+        <!-- 保護者選択 -->
+        {% if guardians %}
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">保護者を選択</label>
+          <select id="guardianSelect" class="form-select" onchange="onGuardianSelect(this)">
+            <option value="">-- 保護者を選択してください --</option>
+            {% for g in guardians %}
+            <option value="{{ g.last_name }} {{ g.first_name }}"
+                    data-relation="{{ g.get_relation_display }}">
+              {{ g.last_name }} {{ g.first_name }}（{{ g.get_relation_display }}）
+            </option>
+            {% endfor %}
+            <option value="__other__">その他（手入力）</option>
+          </select>
+        </div>
+        {% endif %}
+
+        <!-- 署名者情報（プルダウン未選択時 or その他選択時に入力） -->
+        <div class="row g-2 mb-3">
+          <div class="col-sm-7">
+            <label class="form-label fw-semibold small">署名者氏名 <span class="text-danger">*</span></label>
+            <input type="text" id="signerName" class="form-control" placeholder="例：山田 花子"
+                   {% if guardians %}readonly style="background:#f8f9fa;"{% endif %}>
+          </div>
+          <div class="col-sm-5">
+            <label class="form-label fw-semibold small">続柄</label>
+            <input type="text" id="signerRelationship" class="form-control" value="保護者"
+                   {% if guardians %}readonly style="background:#f8f9fa;"{% endif %}>
+          </div>
+        </div>
+
+        <!-- 署名キャンバス -->
+        <div class="mb-1">
+          <label class="form-label fw-semibold small">署名欄</label>
+          <div id="canvasWrapper"
+               style="border: 2px solid var(--color-primary); border-radius: 8px; background: #fff; overflow: hidden; touch-action: none;">
+            <canvas id="signatureCanvas" style="display: block; width: 100%;"></canvas>
+          </div>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="text-muted small">指またはペンで署名してください</span>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="clearSignatureBtn">
+            <i class="bi bi-eraser me-1"></i>クリア
+          </button>
+        </div>
+
+        <div id="signatureError" class="text-danger small d-none"></div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+        <button type="button" class="btn btn-primary" id="saveSignatureBtn">
+          <i class="bi bi-check-circle-fill me-1"></i>サインを保存
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // position:sticky / overflow の親要素の影響を受けないよう、モーダルをbody直下に移動する
+  const _modal = document.getElementById('signatureModal');
+  if (_modal && _modal.parentElement !== document.body) {
+    document.body.appendChild(_modal);
+  }
+
+  const SAVE_URL    = '{% url "esignatures:save" %}';
+  const TARGET_TYPE = '{{ target_type }}';
+  const TARGET_ID   = '{{ target_id }}';
+  const CSRF_TOKEN  = '{{ csrf_token }}';
+  const CANVAS_HEIGHT = 200;
+  const HAS_GUARDIANS = {{ guardians|yesno:"true,false" }};
+
+  let canvas, ctx, isDrawing = false, isEmpty = true;
+
+  // 保護者プルダウン選択時の処理
+  window.onGuardianSelect = function(select) {
+    const val = select.value;
+    const nameInput     = document.getElementById('signerName');
+    const relationInput = document.getElementById('signerRelationship');
+    const option        = select.options[select.selectedIndex];
+
+    if (val === '' || val === '__other__') {
+      // 手入力モード
+      nameInput.value     = '';
+      relationInput.value = val === '__other__' ? '' : '保護者';
+      nameInput.readOnly  = false;
+      nameInput.style.background     = '';
+      relationInput.readOnly = false;
+      relationInput.style.background = '';
+      nameInput.focus();
+    } else {
+      // 保護者選択モード：自動入力して読み取り専用に
+      nameInput.value         = val;
+      relationInput.value     = option.dataset.relation || '保護者';
+      nameInput.readOnly      = true;
+      nameInput.style.background     = '#f8f9fa';
+      relationInput.readOnly  = true;
+      relationInput.style.background = '#f8f9fa';
+    }
+  };
+
+  function initCanvas() {
+    canvas = document.getElementById('signatureCanvas');
+    const wrapper  = document.getElementById('canvasWrapper');
+    const dpr      = window.devicePixelRatio || 1;
+    const displayW = wrapper.clientWidth;
+
+    canvas.style.height = CANVAS_HEIGHT + 'px';
+    canvas.width  = displayW * dpr;
+    canvas.height = CANVAS_HEIGHT * dpr;
+
+    ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth   = 2.5;
+    ctx.lineCap     = 'round';
+    ctx.lineJoin    = 'round';
+    ctx.fillStyle   = '#ffffff';
+    ctx.fillRect(0, 0, displayW, CANVAS_HEIGHT);
+    isEmpty = true;
+  }
+
+  function getPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const src  = e.touches ? e.touches[0] : e;
+    return { x: src.clientX - rect.left, y: src.clientY - rect.top };
+  }
+
+  function onStart(e) { e.preventDefault(); isDrawing = true; isEmpty = false; const p = getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }
+  function onMove(e)  { if (!isDrawing) return; e.preventDefault(); const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); }
+  function onEnd()    { isDrawing = false; }
+
+  const modal = document.getElementById('signatureModal');
+
+  modal.addEventListener('shown.bs.modal', function () {
+    setTimeout(initCanvas, 50);
+
+    // 入力欄をリセット
+    const select = document.getElementById('guardianSelect');
+    if (select) {
+      select.value = '';
+      onGuardianSelect(select);
+    } else {
+      document.getElementById('signerName').value = '';
+      document.getElementById('signerRelationship').value = '保護者';
+    }
+    document.getElementById('signatureError').classList.add('d-none');
+
+    canvas = document.getElementById('signatureCanvas');
+    canvas.addEventListener('pointerdown', onStart,  { passive: false });
+    canvas.addEventListener('pointermove', onMove,   { passive: false });
+    canvas.addEventListener('pointerup',   onEnd);
+    canvas.addEventListener('pointerleave', onEnd);
+  });
+
+  modal.addEventListener('hidden.bs.modal', function () {
+    if (canvas) {
+      canvas.removeEventListener('pointerdown', onStart);
+      canvas.removeEventListener('pointermove', onMove);
+      canvas.removeEventListener('pointerup',   onEnd);
+      canvas.removeEventListener('pointerleave', onEnd);
+    }
+  });
+
+  document.getElementById('clearSignatureBtn').addEventListener('click', function () {
+    if (!ctx) return;
+    const w = canvas.getBoundingClientRect().width;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, CANVAS_HEIGHT);
+    isEmpty = true;
+  });
+
+  document.getElementById('saveSignatureBtn').addEventListener('click', function () {
+    const signerName = document.getElementById('signerName').value.trim();
+    const errorEl    = document.getElementById('signatureError');
+    errorEl.classList.add('d-none');
+
+    if (!signerName) { errorEl.textContent = '署名者氏名を入力してください。'; errorEl.classList.remove('d-none'); return; }
+    if (isEmpty)     { errorEl.textContent = '署名欄にサインしてください。';    errorEl.classList.remove('d-none'); return; }
+
+    const imageData = canvas.toDataURL('image/png');
+    const btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>保存中...';
+
+    fetch(SAVE_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+      body: JSON.stringify({
+        image_data:   imageData,
+        signer_name:  signerName,
+        relationship: document.getElementById('signerRelationship').value.trim(),
+        target_type:  TARGET_TYPE,
+        target_id:    TARGET_ID,
+      }),
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        bootstrap.Modal.getInstance(modal).hide();
+        window.location.reload();
+      } else {
+        errorEl.textContent = data.error || '保存に失敗しました。';
+        errorEl.classList.remove('d-none');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i>サインを保存';
+      }
+    })
+    .catch(function () {
+      errorEl.textContent = '通信エラーが発生しました。';
+      errorEl.classList.remove('d-none');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i>サインを保存';
+    });
+  });
+})();
+</script>

@@ -1,0 +1,1650 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ beneficiary.full_name }}の日誌{% endblock %}
+{% block page_title %}{{ beneficiary.full_name }}の日誌{% endblock %}
+{% block nav_records %}active{% endblock %}
+{% block app_shell_class %}no-sidebar{% endblock %}
+
+{% block topbar_nav %}
+<nav class="topbar-nav">
+  <a class="topbar-nav-item" href="{% url 'facilities:dashboard' %}"><i class="bi bi-house"></i>ホーム</a>
+  <a class="topbar-nav-item" href="{% url 'beneficiaries:list' %}"><i class="bi bi-people"></i>利用者台帳</a>
+  <a class="topbar-nav-item active" href="{% url 'records:dashboard' %}"><i class="bi bi-journal-text"></i>記録</a>
+  <a class="topbar-nav-item" href="{% url 'schedules:calendar' %}"><i class="bi bi-calendar3"></i>予定</a>
+  <div class="topbar-nav-divider"></div>
+  <a class="topbar-nav-item" href="{% url 'billing:matrix' %}"><i class="bi bi-grid-3x3"></i>請求</a>
+  <a class="topbar-nav-item" href="{% url 'line_integration:delivery_log' %}"><i class="bi bi-chat-dots"></i>LINE</a>
+  <a class="topbar-nav-item" href="{% url 'facilities:settings' %}"><i class="bi bi-gear"></i>設定</a>
+</nav>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* 日誌画面：全幅レイアウト（page-content の余白を除去） */
+  .no-sidebar .page-content {
+    padding: 0;
+    max-width: 100%;
+  }
+
+  /* ===== みちのーと風カラーパレット（日誌専用） ===== */
+  :root {
+    --paper:      #f3efe7;
+    --sheet:      #fffdf8;
+    --ink:        #172d31;
+    --ink-soft:   #486064;
+    --line:       #d8d2c6;
+    --line-dark:  #b7b0a3;
+    --lake:       #4e7d89;
+    --lake-soft:  #dce8e9;
+    --sage:       #91a582;
+    --sage-soft:  #e3e9da;
+    --gold:       #b58a44;
+    --gold-soft:  #eee3c9;
+  }
+
+  /* ===== 全体レイアウト（サイドバー＋メイン） ===== */
+  .journal-layout {
+    display: flex;
+    min-height: calc(100vh - 56px);
+  }
+
+  /* ===== 左サイドバー ===== */
+  .journal-sidebar {
+    width: 200px;
+    flex-shrink: 0;
+    background: #172d31;
+    color: #c8d8da;
+    position: sticky;
+    top: 56px;
+    height: calc(100vh - 56px);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .sidebar-header {
+    padding: 18px 16px 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .sidebar-name {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.3;
+  }
+  .sidebar-sub {
+    font-size: 0.65rem;
+    color: #6a9098;
+    margin-top: 2px;
+  }
+  .sidebar-nav { padding: 8px 0; flex: 1; }
+  .sidebar-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
+    color: #8ab0b5;
+    text-decoration: none;
+    font-size: 0.8rem;
+    transition: background 0.12s, color 0.12s;
+    border-left: 3px solid transparent;
+  }
+  .sidebar-nav-item:hover { background: rgba(255,255,255,0.07); color: #d8ecee; }
+  .sidebar-nav-item.active {
+    background: rgba(78,125,137,0.28);
+    color: #fff;
+    border-left-color: #4e7d89;
+    font-weight: 600;
+  }
+  .sidebar-nav-num {
+    font-size: 0.6rem;
+    color: #4e7d89;
+    width: 18px;
+    flex-shrink: 0;
+  }
+  .sidebar-nav-item.active .sidebar-nav-num { color: #7dc0cb; }
+  .sidebar-nav-future { opacity: 0.4; cursor: default; pointer-events: none; }
+  .sidebar-back {
+    padding: 10px 16px 10px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    margin-top: auto;
+    flex-shrink: 0;
+  }
+  .sidebar-back a {
+    color: #6a9098;
+    font-size: 0.75rem;
+    text-decoration: none;
+  }
+  .sidebar-back a:hover { color: #c8d8da; }
+  /* バッジ（日誌件数など） */
+  .sidebar-nav-count {
+    margin-left: auto;
+    min-width: 22px;
+    padding: 1px 6px;
+    border-radius: 99px;
+    background: rgba(255,255,255,0.1);
+    color: #c8d8da;
+    font-size: 0.65rem;
+    text-align: center;
+  }
+  .sidebar-nav-item.active .sidebar-nav-count {
+    background: rgba(78,125,137,0.55);
+    color: #e8f4f6;
+  }
+
+  /* ===== メインエリア ===== */
+  .journal-page {
+    flex: 1;
+    min-width: 0; /* overflow: hidden の代わり。モーダルをクリップしない */
+    background: var(--paper);
+    font-family: "BIZ UDPGothic", "Hiragino Kaku Gothic ProN", sans-serif;
+    color: var(--ink);
+  }
+
+  /* ===== セクションヘッダー ===== */
+  .section-kicker {
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    color: var(--lake);
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .section-title-lg {
+    font-family: "Yu Mincho", "Hiragino Mincho ProN", "Noto Serif JP", serif;
+    font-size: 1.6rem;
+    font-weight: 400;
+    line-height: 1.2;
+    color: var(--ink);
+    margin-bottom: 4px;
+  }
+
+  /* ===== ページレイアウト ===== */
+  .journal-header {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .journal-workspace {
+    display: grid;
+    grid-template-columns: minmax(300px, 0.82fr) minmax(380px, 1.18fr);
+    gap: 0;
+    min-height: calc(100vh - 180px);
+  }
+
+  /* ===== 左：日誌リスト ===== */
+  .journal-list-panel {
+    border-right: 1px solid var(--line);
+    overflow-y: auto;
+    max-height: calc(100vh - 180px);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* ===== 日誌カード（左リスト） ===== */
+  .journal-card {
+    display: grid;
+    grid-template-columns: 52px 1fr;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255,253,248,0.75);
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 150ms, background 150ms, transform 150ms, box-shadow 150ms;
+    cursor: pointer;
+  }
+  .journal-card:hover {
+    border-color: #b5b7ac;
+    background: var(--sheet);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(23,45,49,0.06);
+  }
+  .journal-card.is-selected {
+    border-color: rgba(78,125,137,0.65);
+    background: var(--sheet);
+    box-shadow: inset 3px 0 0 var(--lake), 0 4px 12px rgba(23,45,49,0.06);
+  }
+
+  /* 日付列（左の数字エリア） */
+  .journal-card-date {
+    display: grid;
+    place-content: center;
+    border-right: 1px solid var(--line);
+    padding-right: 12px;
+    color: #506467;
+    line-height: 1.1;
+    text-align: center;
+  }
+  .journal-card-date .month { font-size: 0.65rem; }
+  .journal-card-date .day   {
+    font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
+    font-size: 1.7rem;
+    font-weight: 400;
+  }
+  .journal-card-date .weekday { font-size: 0.6rem; color: #8a9a9c; }
+
+  /* カード本文 */
+  .journal-card-body { overflow: hidden; }
+  .journal-card-top  {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .journal-card-top strong { font-size: 0.85rem; }
+  .journal-card-preview {
+    font-size: 0.75rem;
+    color: #5a6e70;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.5;
+  }
+
+  /* タグチップ */
+  .tag-chip {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 99px;
+    font-size: 0.65rem;
+    background: var(--sage-soft);
+    color: #526b4d;
+    white-space: nowrap;
+  }
+
+  /* ステータスバッジ */
+  .status-badge {
+    padding: 1px 6px;
+    border-radius: 99px;
+    font-size: 0.62rem;
+    font-weight: 600;
+  }
+  .status-draft     { background: var(--gold-soft);  color: #8a6530; }
+  .status-confirmed { background: var(--sage-soft);  color: #3d6135; }
+
+  /* ===== 右：日誌詳細パネル ===== */
+  .journal-detail-panel {
+    position: sticky;
+    top: 60px;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+    padding: 28px 30px;
+  }
+
+  /* ペーパーカード風背景 */
+  .paper-card {
+    border: 1px solid rgba(216,210,198,0.9);
+    border-radius: 16px;
+    background:
+      linear-gradient(rgba(23,45,49,0.018) 1px, transparent 1px) 0 0 / 100% 32px,
+      var(--sheet);
+    box-shadow: 0 8px 20px rgba(25,43,43,0.055);
+    padding: 24px 26px;
+    margin-bottom: 16px;
+  }
+
+  .detail-date-heading {
+    font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
+    font-size: 1.8rem;
+    font-weight: 400;
+    color: var(--ink);
+    margin-bottom: 2px;
+  }
+  .detail-meta { font-size: 0.75rem; color: var(--ink-soft); margin-bottom: 16px; }
+
+  .detail-section { margin-bottom: 20px; }
+  .detail-section-label {
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    color: var(--lake);
+    font-weight: 600;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .detail-section-text {
+    font-size: 0.88rem;
+    line-height: 1.8;
+    color: var(--ink);
+    white-space: pre-wrap;
+  }
+  .detail-section-empty {
+    font-size: 0.82rem;
+    color: #a0adb0;
+    font-style: italic;
+  }
+
+  /* ===== 空の状態 ===== */
+  .empty-state {
+    display: grid;
+    place-content: center;
+    text-align: center;
+    min-height: 320px;
+    border: 1px dashed var(--line-dark);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.35);
+    color: #59696b;
+    padding: 40px 20px;
+  }
+  .empty-state strong {
+    display: block;
+    font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
+    font-size: 1rem;
+    color: var(--ink);
+    margin-bottom: 6px;
+  }
+
+  /* ===== モーダル内 ===== */
+  .modal-content { border-radius: 16px; border: none; }
+  /* モーダルが画面に収まるように高さを制限してスクロール可能にする */
+  .modal-dialog-scrollable .modal-body {
+    overflow-y: auto;
+    max-height: calc(100vh - 200px);
+  }
+
+  /* AI整えボタン：星アイコン付き常時ベタ塗り */
+  .ai-btn {
+    font-size: 0.72rem;
+    padding: 3px 10px;
+    border-radius: 99px;
+    border: none;
+    background: #4e7d89;
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+    line-height: 1.6;
+  }
+  .ai-btn:hover   { background: #375f6b; }
+  .ai-btn:disabled { background: #b0c8cc; cursor: not-allowed; }
+
+  /* タグ選択ボタン：未選択=アウトライン、選択=深緑ベタ塗り */
+  .tag-toggle {
+    padding: 4px 12px;
+    border-radius: 99px;
+    border: 1.5px solid #bdc8ca;
+    background: #fff;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: all 0.12s;
+    color: #486064;
+  }
+  .tag-toggle.active {
+    border-color: var(--color-primary, #0F6E56);
+    background: var(--color-primary, #0F6E56);
+    color: #fff;
+    font-weight: 600;
+  }
+
+  /* AI整えプレビュー（上書き後の成功インジケーター） */
+  .ai-done-msg {
+    font-size: 0.72rem;
+    color: #4e7d89;
+    margin-top: 4px;
+  }
+
+  /* ===== モバイル用 支援の流れ横ナビ ===== */
+  .journal-mobile-nav {
+    display: none; /* デスクトップでは非表示 */
+  }
+
+  @media (max-width: 768px) {
+    .journal-workspace { grid-template-columns: 1fr; }
+    .journal-detail-panel { position: static; max-height: none; }
+    .journal-list-panel { max-height: 40vh; }
+    /* 支援の流れサイドバーはモバイルでは非表示（代わりに横ナビを表示） */
+    .journal-sidebar { display: none; }
+    /* モバイル用横ナビを表示 */
+    .journal-mobile-nav {
+      display: flex;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      gap: 6px;
+      padding: 10px 14px;
+      background: #172d31;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      flex-shrink: 0;
+    }
+    .journal-mobile-nav::-webkit-scrollbar { display: none; }
+    .jmn-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 12px;
+      border-radius: 99px;
+      font-size: 0.75rem;
+      white-space: nowrap;
+      flex-shrink: 0;
+      text-decoration: none;
+      color: rgba(200, 220, 222, 0.8);
+      border: 1px solid rgba(255,255,255,0.15);
+      transition: background 150ms ease;
+    }
+    .jmn-item:hover { background: rgba(255,255,255,0.1); color: #fff; }
+    .jmn-item.active {
+      background: rgba(78, 125, 137, 0.55);
+      border-color: rgba(78, 125, 137, 0.8);
+      color: #fff;
+      font-weight: 600;
+    }
+    .jmn-item.future {
+      opacity: 0.45;
+      pointer-events: none;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .journal-header {
+      padding: 14px 16px 12px;
+      gap: 8px;
+    }
+    .section-title-lg {
+      font-size: 1.2rem;
+    }
+    .journal-list-panel {
+      padding: 10px;
+      gap: 6px;
+      max-height: 45vh;
+    }
+    .journal-card {
+      padding: 10px;
+      gap: 8px;
+    }
+    .journal-card-date .day {
+      font-size: 1.3rem;
+    }
+    .journal-detail-panel {
+      padding: 16px 14px;
+    }
+    .paper-card {
+      padding: 16px 14px;
+    }
+    .detail-date-heading {
+      font-size: 1.4rem;
+    }
+    /* 日誌ワークスペース：モバイルでは最小高さを解放 */
+    .journal-workspace {
+      min-height: auto;
+    }
+  }
+
+  /* ===== ライトボックス（写真拡大表示） ===== */
+  #lightbox-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+    cursor: zoom-out;
+  }
+  #lightbox-overlay.active { display: flex; }
+  #lightbox-overlay img {
+    max-width: 90vw;
+    max-height: 90vh;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    cursor: default;
+  }
+  #lightbox-close {
+    position: fixed;
+    top: 16px;
+    right: 20px;
+    color: #fff;
+    font-size: 2rem;
+    line-height: 1;
+    background: none;
+    border: none;
+    cursor: pointer;
+    opacity: 0.8;
+  }
+  #lightbox-close:hover { opacity: 1; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="journal-layout">
+
+  <!-- ===== 左サイドバー ===== -->
+  <aside class="journal-sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-name">{{ beneficiary.full_name }}</div>
+      <div class="sidebar-sub">{{ beneficiary.full_name_kana }}</div>
+    </div>
+    <nav class="sidebar-nav">
+      <span class="sidebar-nav-item sidebar-nav-future">
+        <span class="sidebar-nav-num">01</span>相談支援案
+      </span>
+      <span class="sidebar-nav-item sidebar-nav-future">
+        <span class="sidebar-nav-num">02</span>概要
+      </span>
+      <a href="{% url 'beneficiaries:detail' beneficiary.pk %}" class="sidebar-nav-item">
+        <span class="sidebar-nav-num">03</span>利用者情報
+      </a>
+      <a href="{% url 'records:list' beneficiary.pk %}" class="sidebar-nav-item active">
+        <span class="sidebar-nav-num">04</span>日誌を確認
+        <span class="sidebar-nav-count">{{ records|length }}</span>
+      </a>
+      <span class="sidebar-nav-item sidebar-nav-future">
+        <span class="sidebar-nav-num">05</span>連絡帳
+      </span>
+      <span class="sidebar-nav-item sidebar-nav-future">
+        <span class="sidebar-nav-num">06</span>モニタリング
+      </span>
+      <span class="sidebar-nav-item sidebar-nav-future">
+        <span class="sidebar-nav-num">07</span>アセスメント
+      </span>
+      <span class="sidebar-nav-item sidebar-nav-future">
+        <span class="sidebar-nav-num">08</span>計画書をつくる
+      </span>
+    </nav>
+    <div class="sidebar-back">
+      <a href="{% url 'beneficiaries:list' %}">
+        <i class="bi bi-people me-1"></i>利用者一覧へ
+      </a>
+    </div>
+  </aside>
+
+  <!-- ===== メインコンテンツ ===== -->
+  <div class="journal-page">
+
+  <!-- ===== モバイル用：支援の流れ横ナビ（スマートフォンでのみ表示） ===== -->
+  <nav class="journal-mobile-nav">
+    <span class="jmn-item future"><i class="bi bi-chat-text"></i>相談支援案</span>
+    <span class="jmn-item future"><i class="bi bi-person-lines-fill"></i>概要</span>
+    <a class="jmn-item" href="{% url 'beneficiaries:detail' beneficiary.pk %}">
+      <i class="bi bi-person"></i>利用者情報
+    </a>
+    <a class="jmn-item active" href="{% url 'records:list' beneficiary.pk %}">
+      <i class="bi bi-journal-text"></i>日誌
+    </a>
+    <span class="jmn-item future"><i class="bi bi-envelope"></i>連絡帳</span>
+    <span class="jmn-item future"><i class="bi bi-clipboard-check"></i>モニタリング</span>
+    <span class="jmn-item future"><i class="bi bi-graph-up"></i>アセスメント</span>
+    <span class="jmn-item future"><i class="bi bi-file-earmark-text"></i>計画書</span>
+  </nav>
+
+  <!-- ページヘッダー -->
+  <div class="journal-header">
+    <div>
+      <p class="section-kicker">DAILY RECORDS · {{ beneficiary.full_name }}</p>
+      <h2 class="section-title-lg">日誌を、観察の根拠に。</h2>
+    </div>
+    <div>
+      <button class="btn btn-primary btn-sm"
+              data-bs-toggle="modal" data-bs-target="#newRecordModal">
+        <i class="bi bi-plus me-1"></i>日誌を追加
+      </button>
+    </div>
+  </div>
+
+  <!-- 2カラムワークスペース -->
+  <div class="journal-workspace">
+
+    <!-- ===== 左：日誌リスト ===== -->
+    <div class="journal-list-panel">
+      {% if records %}
+        {% for r in records %}
+        <a href="?selected={{ r.pk }}"
+           class="journal-card {% if selected_record and selected_record.pk == r.pk %}is-selected{% endif %}">
+          <div class="journal-card-date">
+            <span class="month">{{ r.date|date:"n月" }}</span>
+            <span class="day">{{ r.date|date:"j" }}</span>
+            <span class="weekday">{{ r.date|date:"D" }}</span>
+          </div>
+          <div class="journal-card-body">
+            <div class="journal-card-top">
+              <strong>{{ r.date|date:"Y年n月j日" }}</strong>
+              <span class="status-badge status-{{ r.status }}">
+                {{ r.get_status_display }}
+              </span>
+            </div>
+            {% if r.activity_tags.all %}
+            <div class="mb-1">
+              {% for tag in r.activity_tags.all %}
+              <span class="tag-chip">{{ tag.name }}</span>
+              {% endfor %}
+            </div>
+            {% endif %}
+            <div class="journal-card-preview">
+              {{ r.observation_text|default:r.observation_memo|default:"（記録なし）" }}
+            </div>
+          </div>
+        </a>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state">
+          <strong>日誌がまだありません</strong>
+          <p style="font-size:0.78rem;margin:6px 0 12px;">「日誌を追加」から最初の記録を入力してください</p>
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- ===== 右：日誌詳細 ===== -->
+    <div class="journal-detail-panel">
+      {% if selected_record %}
+      <div class="paper-card">
+        <!-- ヘッダー -->
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid #d8d2c6;padding-bottom:16px;margin-bottom:20px;">
+          <div>
+            <div style="font-size:0.68rem;letter-spacing:0.1em;color:#4e7d89;font-weight:600;">
+              {{ selected_record.date|date:"Y年" }}
+            </div>
+            <h3 class="detail-date-heading">{{ selected_record.date|date:"n月j日（D）" }}</h3>
+            <p class="detail-meta">
+              {% if selected_record.activity_tags.all %}
+              {% for tag in selected_record.activity_tags.all %}
+              <span class="tag-chip">{{ tag.name }}</span>
+              {% endfor %}
+              {% endif %}
+              {% if selected_record.author %}
+              <span class="ms-2">記録者：{{ selected_record.author.display_name|default:selected_record.author.username }}</span>
+              {% endif %}
+            </p>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <span class="status-badge status-{{ selected_record.status }}">
+              {{ selected_record.get_status_display }}
+            </span>
+            <button class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="modal" data-bs-target="#editRecordModal"
+                    data-record-id="{{ selected_record.pk }}">
+              <i class="bi bi-pencil"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- 観察記録 -->
+        <div class="detail-section">
+          <div class="detail-section-label">OBSERVATION · 観察・活動内容</div>
+          {% if selected_record.observation_text %}
+          <p class="detail-section-text">{{ selected_record.observation_text }}</p>
+          {% elif selected_record.observation_memo %}
+          <p class="detail-section-text" style="color:#7a8f92;">{{ selected_record.observation_memo }}</p>
+          <p style="font-size:0.7rem;color:#a0b0b2;">※ メモのみ（AI整えを使って記録文章を作成できます）</p>
+          {% else %}
+          <p class="detail-section-empty">未入力</p>
+          {% endif %}
+        </div>
+
+        <!-- 支援記録 -->
+        <div class="detail-section">
+          <div class="detail-section-label">SUPPORT · 支援内容</div>
+          {% if selected_record.support_text %}
+          <p class="detail-section-text">{{ selected_record.support_text }}</p>
+          {% elif selected_record.support_memo %}
+          <p class="detail-section-text" style="color:#7a8f92;">{{ selected_record.support_memo }}</p>
+          {% else %}
+          <p class="detail-section-empty">未入力</p>
+          {% endif %}
+        </div>
+
+        <!-- 反応記録 -->
+        <div class="detail-section">
+          <div class="detail-section-label">REACTION · 本人の反応</div>
+          {% if selected_record.reaction_text %}
+          <p class="detail-section-text">{{ selected_record.reaction_text }}</p>
+          {% elif selected_record.reaction_memo %}
+          <p class="detail-section-text" style="color:#7a8f92;">{{ selected_record.reaction_memo }}</p>
+          {% else %}
+          <p class="detail-section-empty">未入力</p>
+          {% endif %}
+        </div>
+
+        <!-- 写真 -->
+        <div class="detail-section">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="detail-section-label mb-0" style="color:#4e7d89;">
+              <i class="bi bi-image me-1"></i>写真
+              {% if photos_count > 0 %}<span class="ms-1" style="font-size:0.65rem;opacity:0.7;">{{ photos_count }}/5枚</span>{% endif %}
+            </div>
+          </div>
+          {% if photos %}
+          <div class="d-flex flex-wrap gap-2 mb-2">
+            {% for photo in photos %}
+            <div style="position:relative;">
+              <button type="button" onclick="openLightbox('{{ photo.photo.url }}')"
+                      style="padding:0;border:none;background:none;cursor:zoom-in;">
+                <img src="{{ photo.photo.url }}" alt="写真{{ forloop.counter }}"
+                     style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid var(--line);">
+              </button>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="detail-section-empty">写真がありません</p>
+          {% endif %}
+          {% if can_add_photo %}
+          <button class="btn btn-sm btn-outline-secondary"
+                  data-bs-toggle="modal" data-bs-target="#editRecordModal"
+                  data-record-id="{{ selected_record.pk }}"
+                  style="font-size:0.78rem;">
+            <i class="bi bi-camera me-1"></i>写真を追加
+          </button>
+          {% else %}
+          <p class="text-muted" style="font-size:0.75rem;">写真は最大5枚まで添付できます</p>
+          {% endif %}
+        </div>
+
+        <!-- 電子サイン -->
+        <div class="detail-section">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <div class="detail-section-label mb-0" style="color:#4e7d89;">
+              <i class="bi bi-pen me-1"></i>電子サイン
+            </div>
+            {% if not signatures %}
+            <button class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="modal" data-bs-target="#signatureModal">
+              <i class="bi bi-pen me-1"></i>サインをもらう
+            </button>
+            {% endif %}
+          </div>
+          {% if signatures %}
+            {% for sig in signatures %}
+            <span class="badge me-1 mb-1" style="background:var(--color-primary);font-size:0.8rem;padding:0.4em 0.8em;">
+              <i class="bi bi-pen me-1"></i>{{ sig.signer_name }}{% if sig.relationship %}（{{ sig.relationship }}）{% endif %} サイン済み
+            </span>
+            {% endfor %}
+          {% else %}
+            <p class="detail-section-empty">まだサインがありません</p>
+          {% endif %}
+        </div>
+
+      </div>
+      {% else %}
+      <div class="empty-state">
+        <strong>日誌を選択してください</strong>
+        <p style="font-size:0.78rem;margin:6px 0;">左の一覧から日付をクリックすると詳細が表示されます</p>
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+
+  </div><!-- /.journal-page -->
+</div><!-- /.journal-layout -->
+
+
+<!-- ===== 新規日誌モーダル ===== -->
+<div class="modal fade" id="newRecordModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{% url 'records:create' beneficiary.pk %}"
+            enctype="multipart/form-data"
+            x-data="journalCreateForm('{% url 'records:ai_generate_all' %}')"
+            @submit.prevent="submitForm($el)">
+        {% csrf_token %}
+        <div class="modal-header" style="border-bottom:1px solid #e8e8e8;">
+          <div>
+            <p class="section-kicker mb-0">NEW RECORD · {{ beneficiary.full_name }}</p>
+            <h5 class="fw-bold mb-0" style="font-family:'Yu Mincho','Hiragino Mincho ProN',serif;">日誌を追加</h5>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+
+          <!-- ① 基本情報 -->
+          <div class="row g-2 mb-3">
+            <div class="col-5">
+              <label class="form-label small fw-semibold">記録日 <span class="text-danger">*</span></label>
+              <input type="date" name="date" class="form-control" value="{{ today|date:'Y-m-d' }}" required>
+            </div>
+            <div class="col-7">
+              {% if staff_list %}
+              <label class="form-label small fw-semibold">記録者</label>
+              <select name="author" class="form-select">
+                <option value="">— 選択 —</option>
+                {% for staff in staff_list %}
+                <option value="{{ staff.pk }}">{{ staff.display_name|default:staff.username }}</option>
+                {% endfor %}
+              </select>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="row g-2 mb-3">
+            <div class="col-4">
+              <label class="form-label small fw-semibold">入室時間</label>
+              <input type="time" name="entry_time" class="form-control">
+            </div>
+            <div class="col-4">
+              <label class="form-label small fw-semibold">退室時間</label>
+              <input type="time" name="exit_time" class="form-control">
+            </div>
+            <div class="col-4">
+              <label class="form-label small fw-semibold">体調</label>
+              <select name="health_condition" class="form-select" @change="showHealthNote = $event.target.value === 'special'">
+                {% for val, label in health_choices %}
+                <option value="{{ val }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <textarea name="health_note" class="form-control form-control-sm mb-3" rows="1"
+                    x-show="showHealthNote" placeholder="体調の詳細を入力"></textarea>
+
+          <!-- ② タグ選択 -->
+          {% if activity_tags %}
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">活動タグ</label>
+            <div class="d-flex flex-wrap gap-2">
+              {% for tag in activity_tags %}
+              <button type="button" class="tag-toggle"
+                      :class="{ active: selectedTags.includes({{ tag.pk }}) }"
+                      @click="toggleTag({{ tag.pk }})">{{ tag.name }}</button>
+              {% endfor %}
+            </div>
+            <template x-for="tid in selectedTags" :key="tid">
+              <input type="hidden" name="activity_tags" :value="tid">
+            </template>
+          </div>
+          {% endif %}
+          {% if support_tags %}
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">支援内容タグ</label>
+            <div class="d-flex flex-wrap gap-2">
+              {% for tag in support_tags %}
+              <button type="button" class="tag-toggle"
+                      :class="{ active: selectedSupportTags.includes({{ tag.pk }}) }"
+                      @click="toggleSupportTag({{ tag.pk }})">{{ tag.name }}</button>
+              {% endfor %}
+            </div>
+            <template x-for="tid in selectedSupportTags" :key="tid">
+              <input type="hidden" name="support_tags" :value="tid">
+            </template>
+          </div>
+          {% endif %}
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">関連する5領域</label>
+            <div class="d-flex flex-wrap gap-2">
+              {% for field_name, label in domains %}
+              <button type="button" class="tag-toggle"
+                      :class="{ active: selectedDomains.includes('{{ field_name }}') }"
+                      @click="toggleDomain('{{ field_name }}')">{{ label }}</button>
+              {% endfor %}
+            </div>
+            <template x-for="d in selectedDomains" :key="d">
+              <input type="hidden" :name="d" value="1">
+            </template>
+          </div>
+
+          <!-- ③ メモ入力（1箇所） -->
+          <div class="mb-3" style="background:#f8fffe;border:1.5px solid #4e7d89;border-radius:10px;padding:14px;">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <label class="form-label small fw-semibold mb-0" style="color:#4e7d89;">
+                <i class="bi bi-pencil-square me-1"></i>今日の様子をメモしてください
+              </label>
+              <button type="button" class="voice-btn btn btn-sm"
+                      id="voiceBtnCreate"
+                      onclick="toggleVoice(this, document.getElementById('memoTextareaCreate'))"
+                      title="音声入力">
+                <i class="bi bi-mic"></i>
+              </button>
+            </div>
+            <p class="text-muted mb-2" style="font-size:0.75rem;">
+              観察したこと・行った支援・本人の反応など、思いつくままに書いてください。AIが4種類の記録文章を自動で生成します。
+            </p>
+            <textarea id="memoTextareaCreate" name="memo" class="form-control" rows="4"
+                      x-model="memo"
+                      placeholder="例：ハロウィンの工作でかぼちゃを折り紙で作った。最初は難しそうにしていたが、声かけすると集中して取り組み、完成時はとても嬉しそうだった。送迎あり。"></textarea>
+            <input type="hidden" name="observation_memo" :value="memo">
+            <div class="mt-2 text-end">
+              <button type="button" class="ai-btn px-4 py-2" style="font-size:0.82rem;"
+                      @click="generateAll()"
+                      :disabled="generating">
+                <i class="bi bi-stars me-1"></i>
+                <span x-show="!generating">AIで記録文章を一括生成</span>
+                <span x-show="generating">生成中... しばらくお待ちください</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- エラー表示 -->
+          <p x-show="errorMsg" class="text-danger small mb-2" x-text="errorMsg"></p>
+
+          <!-- ④ AI生成結果（生成後に表示） -->
+          <div x-show="generated" x-transition style="border-top:1px solid #e8e8e8;padding-top:14px;margin-top:4px;">
+            <p class="small fw-semibold mb-2" style="color:#4e7d89;">
+              <i class="bi bi-check-circle me-1"></i>AI生成完了 — 内容を確認・修正して保存してください
+            </p>
+
+            <div class="mb-2">
+              <label class="form-label" style="font-size:0.68rem;letter-spacing:0.1em;color:#4e7d89;font-weight:600;">OBSERVATION · 観察・活動内容</label>
+              <textarea name="observation_text" class="form-control form-control-sm" rows="3" x-model="result.observation"></textarea>
+            </div>
+            <div class="mb-2">
+              <label class="form-label" style="font-size:0.68rem;letter-spacing:0.1em;color:#4e7d89;font-weight:600;">SUPPORT · 支援内容</label>
+              <textarea name="support_text" class="form-control form-control-sm" rows="3" x-model="result.support"></textarea>
+            </div>
+            <div class="mb-2">
+              <label class="form-label" style="font-size:0.68rem;letter-spacing:0.1em;color:#4e7d89;font-weight:600;">REACTION · 本人の反応</label>
+              <textarea name="reaction_text" class="form-control form-control-sm" rows="2" x-model="result.reaction"></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" style="font-size:0.68rem;letter-spacing:0.1em;color:#9a7a40;font-weight:600;">
+                <i class="bi bi-chat-dots me-1"></i>LINE · 保護者向けメッセージ
+              </label>
+              <textarea name="parent_message_draft" class="form-control form-control-sm" rows="3" x-model="result.parent_message"
+                        style="border-color:#c8a84b;"></textarea>
+            </div>
+
+            <!-- ステータス ＋ LINE送信（Alpine.jsで連動） -->
+            <div x-data="{ confirmed: false }">
+              <label class="form-label small fw-semibold">状態</label>
+              <div class="d-flex gap-3 mb-2">
+                <div class="form-check">
+                  <input type="radio" name="status" value="draft" id="status_draft" class="form-check-input" checked
+                         @change="confirmed = false">
+                  <label for="status_draft" class="form-check-label small">下書き</label>
+                </div>
+                <div class="form-check">
+                  <input type="radio" name="status" value="confirmed" id="status_confirmed" class="form-check-input"
+                         @change="confirmed = true">
+                  <label for="status_confirmed" class="form-check-label small">確定</label>
+                </div>
+              </div>
+              <!-- 保存してLINE送信ボタン -->
+              <input type="hidden" name="send_line" id="createSendLineFlag" value="0">
+              <div class="d-flex align-items-center gap-2">
+                <button type="button" class="btn btn-sm"
+                        :style="confirmed ? 'background-color:#06C755;color:#fff;border:none;' : 'background-color:#ccc;color:#fff;border:none;cursor:not-allowed;'"
+                        :disabled="!confirmed"
+                        onclick="if(confirm('保存してLINEを送信します。よろしいですか？')){document.getElementById('createSendLineFlag').value='1'; this.closest('form').submit();}">
+                  <i class="bi bi-send me-1"></i>保存してLINE送信
+                </button>
+                <span class="text-muted small" x-show="!confirmed">確定にチェックを入れると送信できます</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 写真アップロード -->
+          <div class="mb-3 mt-3" style="border-top:1px solid #e8e8e8;padding-top:14px;">
+            <label class="form-label small fw-semibold">
+              <i class="bi bi-camera me-1"></i>写真を添付（最大5枚・JPEG/PNG）
+            </label>
+            <input type="file" name="photos" accept="image/jpeg,image/png,image/webp"
+                   multiple class="form-control form-control-sm"
+                   id="createPhotoInput"
+                   onchange="previewPhotos(this, 'createPhotoPreview', 0)">
+            <div id="createPhotoPreview" class="d-flex flex-wrap gap-2 mt-2"></div>
+            <div class="text-muted mt-1" style="font-size:0.72rem;">最大5枚まで選択できます。タップして写真を選んでください。</div>
+          </div>
+
+        </div>
+        <div class="modal-footer" style="border-top:1px solid #e8e8e8;">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="submit" class="btn btn-primary px-4" x-show="generated"
+                  onclick="document.getElementById('createSendLineFlag').value='0';">
+            <i class="bi bi-check-lg me-1"></i>保存する
+          </button>
+          <span x-show="!generated" class="text-muted small">↑ AIで一括生成してから保存できます</span>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<!-- ===== 編集モーダル（選択中の日誌を編集） ===== -->
+{% if selected_record %}
+<div class="modal fade" id="editRecordModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="{% url 'records:update' selected_record.pk %}"
+            enctype="multipart/form-data"
+            @submit.prevent="submitForm($el)"
+            x-data="journalEditForm(
+              '{% url 'records:ai_generate_all' %}',
+              {
+                observation:    '{{ selected_record.observation_text|escapejs }}',
+                support:        '{{ selected_record.support_text|escapejs }}',
+                reaction:       '{{ selected_record.reaction_text|escapejs }}',
+                parent_message: '{{ selected_record.parent_message_draft|escapejs }}'
+              },
+              {{ selected_support_tag_ids_json }},
+              {{ selected_domain_keys_json }},
+              {{ selected_activity_tag_ids_json }}
+            )">
+        {% csrf_token %}
+        <div class="modal-header" style="border-bottom:1px solid #e8e8e8;">
+          <div>
+            <p class="section-kicker mb-0">EDIT RECORD</p>
+            <h5 class="fw-bold mb-0" style="font-family:'Yu Mincho','Hiragino Mincho ProN',serif;">
+              {{ selected_record.date|date:"n月j日" }}の日誌を編集
+            </h5>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+
+          <!-- 入退室時間 -->
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label small fw-semibold">入室時間</label>
+              <input type="time" name="entry_time" class="form-control"
+                     value="{{ selected_record.entry_time|time:'H:i'|default:'' }}">
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">退室時間</label>
+              <input type="time" name="exit_time" class="form-control"
+                     value="{{ selected_record.exit_time|time:'H:i'|default:'' }}">
+            </div>
+          </div>
+
+          <!-- 記録者 -->
+          {% if staff_list %}
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">記録者</label>
+            <select name="author" class="form-select form-select-sm">
+              <option value="">— 選択 —</option>
+              {% for staff in staff_list %}
+              <option value="{{ staff.pk }}" {% if selected_record.author_id == staff.pk %}selected{% endif %}>
+                {{ staff.display_name|default:staff.username }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
+
+          <!-- 体調 -->
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">体調</label>
+            <div class="d-flex gap-3 flex-wrap mb-2">
+              {% for val, label in health_choices %}
+              <div class="form-check">
+                <input type="radio" name="health_condition" value="{{ val }}"
+                       id="edit_health_{{ val }}" class="form-check-input"
+                       {% if selected_record.health_condition == val %}checked{% endif %}
+                       @change="showHealthNote = '{{ val }}' === 'special'">
+                <label for="edit_health_{{ val }}" class="form-check-label small">{{ label }}</label>
+              </div>
+              {% endfor %}
+            </div>
+            <textarea name="health_note" class="form-control form-control-sm" rows="2"
+                      x-show="showHealthNote || '{{ selected_record.health_condition }}' === 'special'"
+                      placeholder="体調の詳細を入力">{{ selected_record.health_note }}</textarea>
+          </div>
+
+          <!-- 活動タグ -->
+          {% if activity_tags %}
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">活動タグ</label>
+            <div class="d-flex flex-wrap gap-2">
+              {% for tag in activity_tags %}
+              <button type="button" class="tag-toggle"
+                      :class="{ active: selectedTags.includes({{ tag.pk }}) }"
+                      @click="toggleTag({{ tag.pk }})">{{ tag.name }}</button>
+              {% endfor %}
+            </div>
+            <template x-for="tid in selectedTags" :key="tid">
+              <input type="hidden" name="activity_tags" :value="tid">
+            </template>
+          </div>
+          {% endif %}
+
+          <!-- 支援内容タグ -->
+          {% if support_tags %}
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">支援内容タグ</label>
+            <div class="d-flex flex-wrap gap-2">
+              {% for tag in support_tags %}
+              <button type="button" class="tag-toggle"
+                      :class="{ active: selectedSupportTags.includes({{ tag.pk }}) }"
+                      @click="toggleSupportTag({{ tag.pk }})">{{ tag.name }}</button>
+              {% endfor %}
+            </div>
+            <template x-for="tid in selectedSupportTags" :key="tid">
+              <input type="hidden" name="support_tags" :value="tid">
+            </template>
+          </div>
+          {% endif %}
+
+          <!-- 関連する5領域 -->
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">関連する5領域</label>
+            <div class="d-flex flex-wrap gap-2">
+              {% for field_name, label in domains %}
+              <button type="button" class="tag-toggle"
+                      :class="{ active: selectedDomains.includes('{{ field_name }}') }"
+                      @click="toggleDomain('{{ field_name }}')">{{ label }}</button>
+              {% endfor %}
+            </div>
+            <template x-for="d in selectedDomains" :key="d">
+              <input type="hidden" :name="d" value="1">
+            </template>
+          </div>
+
+          <!-- メモ入力（任意・AIで再生成する場合に使う） -->
+          <div class="mb-3" style="background:#f8fffe;border:1.5px solid #4e7d89;border-radius:10px;padding:14px;">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <label class="form-label small fw-semibold mb-0" style="color:#4e7d89;">
+                <i class="bi bi-pencil-square me-1"></i>AIで記録文章を作り直す場合はメモを入力
+              </label>
+              <button type="button" class="voice-btn btn btn-sm"
+                      id="voiceBtnEdit"
+                      onclick="toggleVoice(this, document.getElementById('memoTextareaEdit'))"
+                      title="音声入力">
+                <i class="bi bi-mic"></i>
+              </button>
+            </div>
+            <p class="text-muted mb-2" style="font-size:0.75rem;">
+              メモを入力してボタンを押すと、下の記録文章が新しく生成されます。直接編集するだけの場合はそのまま保存できます。
+            </p>
+            <textarea id="memoTextareaEdit" class="form-control" rows="3" x-model="memo"
+                      placeholder="例：今日は工作でリース作り。はさみの使い方を練習しながら取り組んだ。最後まで集中できていた。"></textarea>
+            <div class="mt-2 text-end">
+              <button type="button" class="ai-btn px-4 py-2" style="font-size:0.82rem;"
+                      @click="generateAll()" :disabled="generating">
+                <i class="bi bi-stars me-1"></i>
+                <span x-show="!generating">AIで記録文章を一括生成</span>
+                <span x-show="generating">生成中... しばらくお待ちください</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- エラー表示 -->
+          <p x-show="errorMsg" class="text-danger small mb-2" x-text="errorMsg"></p>
+
+          <!-- 記録文章（常時表示・直接編集可） -->
+          <div style="border-top:1px solid #e8e8e8;padding-top:14px;">
+            <p class="small fw-semibold mb-3" style="color:#4e7d89;">
+              <i class="bi bi-file-text me-1"></i>記録文章を確認・修正してください
+            </p>
+
+            <div class="mb-2">
+              <label class="form-label" style="font-size:0.68rem;letter-spacing:0.1em;color:#4e7d89;font-weight:600;">OBSERVATION · 観察・活動内容</label>
+              <textarea name="observation_text" class="form-control form-control-sm" rows="3" x-model="result.observation"></textarea>
+            </div>
+            <div class="mb-2">
+              <label class="form-label" style="font-size:0.68rem;letter-spacing:0.1em;color:#4e7d89;font-weight:600;">SUPPORT · 支援内容</label>
+              <textarea name="support_text" class="form-control form-control-sm" rows="3" x-model="result.support"></textarea>
+            </div>
+            <div class="mb-2">
+              <label class="form-label" style="font-size:0.68rem;letter-spacing:0.1em;color:#4e7d89;font-weight:600;">REACTION · 本人の反応</label>
+              <textarea name="reaction_text" class="form-control form-control-sm" rows="2" x-model="result.reaction"></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label" style="font-size:0.68rem;letter-spacing:0.1em;color:#9a7a40;font-weight:600;">
+                <i class="bi bi-chat-dots me-1"></i>LINE · 保護者向けメッセージ
+              </label>
+              <textarea name="parent_message_draft" class="form-control form-control-sm" rows="3"
+                        x-model="result.parent_message" style="border-color:#c8a84b;"
+                        placeholder="保護者向けメッセージを入力してください。上のメモ欄にメモを入力してAI生成ボタンを押すと自動で作成されます。"></textarea>
+            </div>
+
+            <!-- 状態 ＋ LINE送信（Alpine.jsで連動） -->
+            <div x-data="{ confirmed: {% if selected_record.status == 'confirmed' %}true{% else %}false{% endif %} }">
+              <label class="form-label small fw-semibold">状態</label>
+              <div class="d-flex gap-3 mb-3">
+                <div class="form-check">
+                  <input type="radio" name="status" value="draft" id="edit_status_draft"
+                         class="form-check-input"
+                         {% if selected_record.status == 'draft' %}checked{% endif %}
+                         @change="confirmed = false">
+                  <label for="edit_status_draft" class="form-check-label small">下書き</label>
+                </div>
+                <div class="form-check">
+                  <input type="radio" name="status" value="confirmed" id="edit_status_confirmed"
+                         class="form-check-input"
+                         {% if selected_record.status == 'confirmed' %}checked{% endif %}
+                         @change="confirmed = true">
+                  <label for="edit_status_confirmed" class="form-check-label small">確定</label>
+                </div>
+              </div>
+              <div>
+                <button type="button" class="btn btn-sm"
+                        :style="confirmed ? 'background-color:#06C755;color:#fff;border:none;' : 'background-color:#ccc;color:#fff;border:none;cursor:not-allowed;'"
+                        :disabled="!confirmed"
+                        onclick="if(confirm('{{ selected_record.beneficiary.full_name }}様の保護者にLINEを送信します。よろしいですか？')){document.getElementById('lineSendForm').submit();}">
+                  <i class="bi bi-send me-1"></i>LINE送信
+                </button>
+                <span class="text-muted small ms-2" x-show="!confirmed">確定にチェックを入れると送信できます</span>
+                <span class="text-muted small ms-2" x-show="confirmed">確定後に送信してください</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 署名画像（編集モーダル内のみ表示） -->
+          {% if signatures %}
+          <div class="mt-3 pt-3" style="border-top:1px solid #e8e8e8;">
+            <p class="small fw-semibold mb-2" style="color:#4e7d89;">
+              <i class="bi bi-pen me-1"></i>電子サイン
+            </p>
+            {% for sig in signatures %}
+            <div class="d-flex align-items-center gap-3 p-2 mb-2 rounded"
+                 style="background: var(--color-primary-bg);">
+              <img src="{{ sig.signature_image.url }}" alt="署名"
+                   style="height:56px; background:#fff; border:1px solid #ccc; border-radius:4px; padding:2px;">
+              <div class="small">
+                <div class="fw-semibold">{{ sig.signer_name }}
+                  {% if sig.relationship %}<span class="text-muted">（{{ sig.relationship }}）</span>{% endif %}
+                </div>
+                <div class="text-muted">{{ sig.signed_at|date:"Y年n月j日 H:i" }}</div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+
+          <!-- 写真（保存済み表示 + 新規追加） -->
+          <div class="mb-3 mt-3" style="border-top:1px solid #e8e8e8;padding-top:14px;">
+            <label class="form-label small fw-semibold">
+              <i class="bi bi-camera me-1"></i>写真（最大5枚）
+            </label>
+
+            {% if photos %}
+            <!-- 保存済みの写真 -->
+            <p class="text-muted small mb-1">保存済みの写真 — ×ボタンで削除できます</p>
+            <div class="d-flex flex-wrap gap-2 mb-2" id="savedPhotoList">
+              {% for photo in photos %}
+              <div id="saved-photo-{{ photo.pk }}" style="position:relative;display:inline-block;">
+                <img src="{{ photo.photo.url }}"
+                     style="width:72px;height:72px;object-fit:cover;border-radius:8px;border:1px solid #dee2e6;">
+                <button type="button"
+                        onclick="deletePhoto({{ photo.pk }}, 'saved-photo-{{ photo.pk }}')"
+                        style="position:absolute;top:-5px;right:-5px;width:20px;height:20px;background:#dc3545;color:#fff;border:none;border-radius:50%;font-size:11px;cursor:pointer;padding:0;line-height:1;">×</button>
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if can_add_photo %}
+            <!-- 写真を追加 -->
+            <input type="file" name="photos" accept="image/jpeg,image/png,image/webp"
+                   multiple class="form-control form-control-sm"
+                   id="editPhotoInput"
+                   onchange="previewPhotos(this, 'editPhotoPreview', {{ photos_count }})">
+            <div id="editPhotoPreview" class="d-flex flex-wrap gap-2 mt-2"></div>
+            {% else %}
+            <p class="text-muted small mb-0">上の×ボタンで写真を削除してから、新しい写真を追加できます。</p>
+            {% endif %}
+          </div>
+
+        </div>
+        <div class="modal-footer" style="border-top:1px solid #e8e8e8;">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="submit" class="btn btn-primary px-4">
+            <i class="bi bi-check-lg me-1"></i>保存する
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if selected_record %}
+<form id="lineSendForm" method="post" action="{% url 'line_integration:send' selected_record.pk %}">
+  {% csrf_token %}
+</form>
+{% include 'esignatures/signature_modal.html' with target_type='daily_record' target_id=selected_record.pk guardians=beneficiary.guardians.all %}
+{% endif %}
+
+<!-- ===== ライトボックス ===== -->
+<div id="lightbox-overlay" onclick="closeLightbox()">
+  <button id="lightbox-close" onclick="closeLightbox()" aria-label="閉じる">&#x2715;</button>
+  <img id="lightbox-img" src="" alt="拡大写真" onclick="event.stopPropagation()">
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ===== ライトボックス =====
+function openLightbox(src) {
+  document.getElementById('lightbox-img').src = src;
+  document.getElementById('lightbox-overlay').classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+function closeLightbox() {
+  document.getElementById('lightbox-overlay').classList.remove('active');
+  document.getElementById('lightbox-img').src = '';
+  document.body.style.overflow = '';
+}
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeLightbox();
+});
+</script>
+<script>
+// カレンダーから new_date パラメータ付きで来た場合、新規モーダルを自動オープンして日付をセット
+(function() {
+  const params = new URLSearchParams(location.search);
+  const newDate = params.get('new_date');
+  if (newDate) {
+    const dateInput = document.querySelector('#newRecordModal input[name="date"]');
+    if (dateInput) dateInput.value = newDate;
+    const modal = new bootstrap.Modal(document.getElementById('newRecordModal'));
+    modal.show();
+  }
+})();
+</script>
+<script>
+/**
+ * 新規日誌フォーム：1メモ→AI一括生成
+ */
+function journalCreateForm(generateUrl) {
+  return {
+    memo:                '',
+    generating:          false,
+    generated:           false,
+    result:              { observation: '', support: '', reaction: '', parent_message: '' },
+    errorMsg:            '',
+    showHealthNote:      false,
+    selectedTags:        [],
+    selectedSupportTags: [],
+    selectedDomains:     [],
+
+    toggleTag(id)        { const i = this.selectedTags.indexOf(id);        i === -1 ? this.selectedTags.push(id)        : this.selectedTags.splice(i, 1); },
+    toggleSupportTag(id) { const i = this.selectedSupportTags.indexOf(id); i === -1 ? this.selectedSupportTags.push(id) : this.selectedSupportTags.splice(i, 1); },
+    toggleDomain(key)    { const i = this.selectedDomains.indexOf(key);    i === -1 ? this.selectedDomains.push(key)    : this.selectedDomains.splice(i, 1); },
+
+    async generateAll() {
+      if (!this.memo.trim()) { this.errorMsg = 'メモを入力してから生成してください。'; return; }
+      this.errorMsg    = '';
+      this.generating  = true;
+      this.generated   = false;
+
+      // 選択中のタグ名をAlpine.jsの状態から直接取得（DOM依存を避ける）
+      const tagNames = this._tagNames || '';
+
+      // CSRFトークンはdocument全体から取得（確実に見つかる）
+      const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
+
+      try {
+        const fd = new FormData();
+        fd.append('memo', this.memo);
+        fd.append('tags', tagNames);
+        fd.append('csrfmiddlewaretoken', csrf);
+        const res  = await fetch(generateUrl, { method: 'POST', body: fd });
+        if (!res.ok) {
+          const errText = await res.text();
+          this.errorMsg = `サーバーエラー (${res.status})`;
+          return;
+        }
+        const data = await res.json();
+        if (data.error) {
+          this.errorMsg = data.error;
+        } else {
+          this.result    = data;
+          this.generated = true;
+        }
+      } catch(e) {
+        this.errorMsg = '通信エラー: ' + e.message;
+      } finally {
+        this.generating = false;
+      }
+    },
+
+    // タグボタン押下時にタグ名も保持する
+    get _tagNames() {
+      return document.querySelectorAll('#newRecordModal .tag-toggle.active')
+        ? [...document.querySelectorAll('#newRecordModal .tag-toggle.active')].map(el => el.textContent.trim()).join('、')
+        : '';
+    },
+
+    submitForm(formEl) {
+      // iOS Safari では input.files への代入が無効なため、
+      // _prev（蓄積済みファイルリスト）と input.files の枚数が合わない場合は
+      // fetch + FormData で手動送信してすべての写真を確実に含める
+      const photoInput = formEl.querySelector('input[name="photos"]');
+      const allFiles = photoInput && photoInput._prev ? photoInput._prev : [];
+      const currentCount = photoInput && photoInput.files ? photoInput.files.length : 0;
+      if (allFiles.length > 0 && currentCount < allFiles.length) {
+        const fd = new FormData(formEl);
+        fd.delete('photos');
+        allFiles.forEach(function(f) { fd.append('photos', f, f.name); });
+        fetch(formEl.action, { method: 'POST', body: fd })
+          .then(function(r) { window.location.href = r.url; });
+        return;
+      }
+      formEl.submit();
+    }
+  };
+}
+
+/**
+ * 編集フォーム：既存の記録文章を表示しつつ、AIで再生成も可能
+ */
+function journalEditForm(generateUrl, initialResult, initSupportTags = [], initDomains = [], initActivityTags = []) {
+  return {
+    memo:                '',
+    generating:          false,
+    result:              initialResult,
+    errorMsg:            '',
+    showHealthNote:      false,
+    selectedTags:        initActivityTags,
+    selectedSupportTags: initSupportTags,
+    selectedDomains:     initDomains,
+
+    toggleTag(id)        { const i = this.selectedTags.indexOf(id);        i === -1 ? this.selectedTags.push(id)        : this.selectedTags.splice(i, 1); },
+    toggleSupportTag(id) { const i = this.selectedSupportTags.indexOf(id); i === -1 ? this.selectedSupportTags.push(id) : this.selectedSupportTags.splice(i, 1); },
+    toggleDomain(key)    { const i = this.selectedDomains.indexOf(key);    i === -1 ? this.selectedDomains.push(key)    : this.selectedDomains.splice(i, 1); },
+
+    async generateAll() {
+      if (!this.memo.trim()) { this.errorMsg = 'メモを入力してから生成してください。'; return; }
+      this.errorMsg   = '';
+      this.generating = true;
+      const tagNames = this._tagNames;
+      const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
+      try {
+        const fd = new FormData();
+        fd.append('memo', this.memo);
+        fd.append('tags', tagNames);
+        fd.append('csrfmiddlewaretoken', csrf);
+        const res = await fetch(generateUrl, { method: 'POST', body: fd });
+        if (!res.ok) { this.errorMsg = `サーバーエラー (${res.status})`; return; }
+        const data = await res.json();
+        if (data.error) { this.errorMsg = data.error; }
+        else { this.result = data; }
+      } catch(e) {
+        this.errorMsg = '通信エラー: ' + e.message;
+      } finally {
+        this.generating = false;
+      }
+    },
+
+    get _tagNames() {
+      return [...document.querySelectorAll('#editRecordModal .tag-toggle.active')]
+        .map(el => el.textContent.trim()).join('、');
+    },
+
+    submitForm(formEl) {
+      const photoInput = formEl.querySelector('input[name="photos"]');
+      const allFiles = photoInput && photoInput._prev ? photoInput._prev : [];
+      const currentCount = photoInput && photoInput.files ? photoInput.files.length : 0;
+      if (allFiles.length > 0 && currentCount < allFiles.length) {
+        const fd = new FormData(formEl);
+        fd.delete('photos');
+        allFiles.forEach(function(f) { fd.append('photos', f, f.name); });
+        fetch(formEl.action, { method: 'POST', body: fd })
+          .then(function(r) { window.location.href = r.url; });
+        return;
+      }
+      formEl.submit();
+    }
+  };
+}
+</script>
+
+<!-- ===== 音声入力（Web Speech API） ===== -->
+<style>
+  .voice-btn {
+    color: var(--color-primary);
+    border: 1px solid var(--color-primary-light);
+    border-radius: 6px;
+    padding: 2px 8px;
+    line-height: 1.4;
+    transition: background 0.2s;
+  }
+  .voice-btn:hover { background: var(--color-primary-bg); }
+  .voice-btn.recording {
+    color: #fff;
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+    animation: pulse-rec 1s infinite;
+  }
+  @keyframes pulse-rec {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.6; }
+  }
+</style>
+<script>
+(function () {
+  'use strict';
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  // ブラウザが音声入力に対応していない場合はボタンを非表示にする
+  if (!SR) {
+    document.querySelectorAll('.voice-btn').forEach(function (el) {
+      el.style.display = 'none';
+    });
+    return;
+  }
+
+  let activeRecognition = null;
+  let activeBtn = null;
+
+  function stopRecognition() {
+    if (activeRecognition) {
+      activeRecognition.stop();
+      activeRecognition = null;
+    }
+    if (activeBtn) {
+      activeBtn.classList.remove('recording');
+      activeBtn.innerHTML = '<i class="bi bi-mic"></i>';
+      activeBtn = null;
+    }
+  }
+
+  // マイクボタン押下時の処理（グローバルに公開してonclick属性から呼べるようにする）
+  window.toggleVoice = function (btn, textarea) {
+    // すでに録音中なら停止
+    if (activeBtn === btn) {
+      stopRecognition();
+      return;
+    }
+    // 別のボタンが録音中なら先に停止
+    stopRecognition();
+
+    const recognition = new SR();
+    recognition.lang = 'ja-JP';
+    recognition.continuous = true;      // 自動停止せず話し続けられる
+    recognition.interimResults = false; // 確定した認識結果のみ使用
+
+    activeRecognition = recognition;
+    activeBtn = btn;
+    btn.classList.add('recording');
+    btn.innerHTML = '<i class="bi bi-stop-fill"></i>';
+
+    recognition.onresult = function (e) {
+      // 新たに認識されたテキストを取り出して末尾に追記する
+      let newText = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) {
+          newText += e.results[i][0].transcript;
+        }
+      }
+      if (!newText) return;
+      textarea.value = textarea.value ? textarea.value + ' ' + newText : newText;
+      // Alpine.js の x-model に変更を反映させるため input イベントを発火する
+      textarea.dispatchEvent(new Event('input'));
+    };
+
+    recognition.onend = function () { stopRecognition(); };
+    recognition.onerror = function () { stopRecognition(); };
+
+    recognition.start();
+  };
+})();
+</script>
+
+<script>
+/**
+ * 写真ファイル選択時にサムネイルプレビューを表示する
+ * 最大5枚を超えた場合は自動で絞り込む
+ * @param {HTMLInputElement} input       - ファイル入力要素
+ * @param {string}           previewId  - プレビュー表示先のdivのID
+ * @param {number}           savedCount - 既に保存済みの枚数（省略時は0）
+ */
+function previewPhotos(input, previewId, savedCount) {
+  const preview = document.getElementById(previewId);
+  if (!preview) return;
+
+  const MAX = 5;
+  const already = savedCount || 0;
+  const canAdd = MAX - already;
+
+  // 前回選択分（input._prev）と今回選択分を合算する
+  // ブラウザのfile inputは毎回選択し直すと前の選択が消えるため、_prevで保持する
+  const dt = new DataTransfer();
+  const prev = input._prev || [];
+  prev.forEach(function(f) { dt.items.add(f); });
+
+  // 今回選んだファイルのうち、まだ含まれていないものだけ追加（重複防止）
+  Array.from(input.files).forEach(function(f) {
+    const isDup = prev.some(function(p) { return p.name === f.name && p.size === f.size; });
+    if (!isDup) dt.items.add(f);
+  });
+
+  // 上限チェック
+  if (dt.files.length > canAdd) {
+    alert('写真は最大' + MAX + '枚まで添付できます。最初の' + canAdd + '枚のみ使用します。');
+    const limited = new DataTransfer();
+    Array.from(dt.files).slice(0, canAdd).forEach(function(f) { limited.items.add(f); });
+    input.files = limited.files;
+    input._prev = Array.from(limited.files);
+  } else {
+    input.files = dt.files;
+    input._prev = Array.from(dt.files);
+  }
+
+  // プレビューを全選択分で更新
+  // ※ input.files への代入は iOS Safari では動作しない場合があるため、
+  //   必ず dt.files（蓄積済みリスト）を使ってプレビューを描画する
+  preview.innerHTML = '';
+  Array.from(dt.files).forEach(function(file) {
+    if (!file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const img = document.createElement('img');
+      img.src = e.target.result;
+      img.style.cssText = 'width:64px;height:64px;object-fit:cover;border-radius:6px;border:1px solid #dee2e6;';
+      preview.appendChild(img);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * 保存済み写真をサーバーに削除リクエストを送り、DOM上からも取り除く
+ * @param {number} pk        - 写真のID
+ * @param {string} elementId - 取り除くDOM要素のID
+ */
+function deletePhoto(pk, elementId) {
+  if (!confirm('この写真を削除しますか？')) return;
+  const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
+  fetch('/records/photo/' + pk + '/delete/', {
+    method: 'POST',
+    headers: { 'X-CSRFToken': csrf },
+    redirect: 'follow',
+  }).then(function() {
+    const el = document.getElementById(elementId);
+    if (el) el.remove();
+  }).catch(function() {
+    alert('削除に失敗しました。ページを再読み込みしてお試しください。');
+  });
+}
+</script>
+{% endblock %}

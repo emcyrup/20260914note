@@ -1,0 +1,486 @@
+{% extends 'base.html' %}
+
+{% block title %}日誌 週間カレンダー{% endblock %}
+{% block page_title %}記録{% endblock %}
+{% block nav_records %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+.week-nav {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .week-title {
+    font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
+    font-size: 1rem;
+    color: #172d31;
+    min-width: 200px;
+    text-align: center;
+  }
+
+  /* カレンダーグリッド */
+  .week-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+    align-items: start;   /* 各カラムが独立した高さを持てるように */
+  }
+
+  /* 1日分のカラム */
+  .day-col {
+    background: #fff;
+    border: 1.5px solid #dde4e5;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .day-col.is-today {
+    border-color: #0F6E56;
+    box-shadow: 0 0 0 2px rgba(15,110,86,0.15);
+  }
+
+  /* 日付ヘッダー */
+  .day-header {
+    padding: 8px 6px 6px;
+    background: #f3f7f7;
+    border-bottom: 1px solid #dde4e5;
+    text-align: center;
+  }
+  .day-col.is-today .day-header {
+    background: #0F6E56;
+    border-bottom-color: #0F6E56;
+  }
+  .day-weekday {
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: #6a9098;
+    margin-bottom: 1px;
+  }
+  .day-col.is-today .day-weekday { color: rgba(255,255,255,0.8); }
+  .day-date-num {
+    font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
+    font-size: 1.4rem;
+    font-weight: 400;
+    color: #172d31;
+    line-height: 1;
+  }
+  .day-col.is-today .day-date-num { color: #fff; }
+  .day-col.is-saturday .day-weekday,
+  .day-col.is-saturday .day-date-num { color: #3a6bba; }
+  .day-col.is-sunday .day-weekday,
+  .day-col.is-sunday .day-date-num { color: #c0392b; }
+  .day-col.is-today .day-weekday,
+  .day-col.is-today .day-date-num { color: #fff; }
+
+  /* 利用者カード */
+  .day-body {
+    padding: 7px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .visit-card {
+    display: block;
+    padding: 6px 8px;
+    border-radius: 7px;
+    text-decoration: none;
+    font-size: 0.77rem;
+    font-weight: 500;
+    line-height: 1.3;
+    border: 1px solid transparent;
+    transition: opacity 0.12s, transform 0.1s;
+  }
+  .visit-card:hover { opacity: 0.82; transform: translateY(-1px); }
+
+  /* ステータス別カラー */
+  .status-none      { background: #f0f2f2; color: #5a6e70; border-color: #d8dedf; }
+  .status-draft     { background: #faeeda; color: #7a5220; border-color: #e8c98a; }
+  .status-confirmed { background: #eaf3de; color: #2e5a25; border-color: #b8d89e; }
+
+  /* 欠席・キャンセル */
+  .visit-absent {
+    background: #f5f5f5 !important;
+    color: #b0b0b0 !important;
+    border-color: #e0e0e0 !important;
+    text-decoration: line-through;
+  }
+
+  .visit-name { display: block; }
+  .visit-status-label {
+    display: block;
+    font-size: 0.62rem;
+    opacity: 0.75;
+    margin-top: 2px;
+  }
+  .status-dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+  .status-none .status-dot      { background: #9aadb0; }
+  .status-draft .status-dot     { background: #c88b30; }
+  .status-confirmed .status-dot { background: #3d8c2e; }
+
+  .no-visit {
+    color: #c8d0d1;
+    font-size: 0.7rem;
+    text-align: center;
+    padding: 12px 4px 6px;
+  }
+
+  /* 日誌追加ボタン */
+  .add-record-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: 100%;
+    padding: 5px 4px;
+    border: none;
+    background: none;
+    color: #9aadb0;
+    font-size: 0.68rem;
+    cursor: pointer;
+    border-top: 1px dashed #dde4e5;
+    transition: color 0.12s, background 0.12s;
+  }
+  .add-record-btn:hover {
+    color: #0F6E56;
+    background: #f0faf6;
+  }
+
+  @media (max-width: 960px) {
+    .week-grid { grid-template-columns: repeat(4, 1fr); }
+  }
+  @media (max-width: 640px) {
+    .week-grid { grid-template-columns: 1fr; }
+    .day-col { border-radius: 8px; }
+    .day-header { padding: 8px 12px 6px; text-align: left; }
+    .day-weekday { display: inline; margin-right: 6px; font-size: 0.65rem; }
+    .day-date-num { display: inline; font-size: 1.1rem; }
+  }
+
+  /* ===== メモボックス ===== */
+  .memo-widget {
+    background: #fff;
+    border: 1.5px solid #dde4e5;
+    border-radius: 16px;
+    padding: 20px 20px 14px;
+    margin-top: 28px;
+  }
+  .memo-widget-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: #6a9098;
+    margin-bottom: 12px;
+  }
+  .memo-card {
+    background: #f8fafb;
+    border: 1px solid #e4eaec;
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    position: relative;
+  }
+  .memo-card-content {
+    font-size: 0.88rem;
+    color: #1a2e32;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-bottom: 4px;
+  }
+  .memo-card-meta {
+    font-size: 0.7rem;
+    color: #9aadb0;
+  }
+  .memo-card-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  /* 音声入力ボタン（日誌画面と同じスタイル） */
+  .voice-btn-memo {
+    color: var(--color-primary);
+    border: 1px solid var(--color-primary-light);
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    transition: background 0.2s;
+    background: none;
+    cursor: pointer;
+  }
+  .voice-btn-memo:hover { background: var(--color-primary-bg); }
+  .voice-btn-memo.recording {
+    color: #fff;
+    background: var(--color-danger);
+    border-color: var(--color-danger);
+    animation: pulse-rec 1s infinite;
+  }
+  @keyframes pulse-rec {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.6; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" x-data="{ modalDate: '', modalDateLabel: '' }">
+
+  <!-- ページヘッダー -->
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h5 class="mb-0 fw-bold">
+      <i class="bi bi-calendar-week me-2"></i>週間カレンダー
+    </h5>
+
+    <!-- 週ナビゲーション -->
+    <div class="week-nav">
+      <a href="?week={{ prev_week }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-chevron-left"></i> 前の週
+      </a>
+      <span class="week-title">
+        {{ week_start|date:"Y年n月j日" }}（月）〜 {{ week_end|date:"n月j日" }}（日）
+      </span>
+      <a href="?week={{ next_week }}" class="btn btn-outline-secondary btn-sm">
+        次の週 <i class="bi bi-chevron-right"></i>
+      </a>
+      <a href="{% url 'records:dashboard' %}" class="btn btn-sm btn-outline-primary">
+        今週
+      </a>
+    </div>
+  </div>
+
+  <!-- 凡例 -->
+  <div class="d-flex gap-3 mb-3 flex-wrap" style="font-size:0.74rem;color:#4a6266;">
+    <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#9aadb0;margin-right:4px;vertical-align:middle;"></span>日誌：未作成</span>
+    <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#c88b30;margin-right:4px;vertical-align:middle;"></span>日誌：下書き</span>
+    <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#3d8c2e;margin-right:4px;vertical-align:middle;"></span>日誌：確定</span>
+  </div>
+
+  <!-- 週カレンダー -->
+  <div class="week-grid">
+    {% for day in week_info %}
+    <div class="day-col
+      {% if day.is_today %}is-today{% endif %}
+      {% if day.is_saturday %}is-saturday{% endif %}
+      {% if day.is_sunday %}is-sunday{% endif %}
+    ">
+      <!-- 日付ヘッダー -->
+      <div class="day-header">
+        <div class="day-weekday">{{ day.weekday_ja }}曜日</div>
+        <div class="day-date-num">{{ day.date|date:"j" }}</div>
+        <div style="font-size:0.6rem;opacity:0.6;">{{ day.date|date:"n/j" }}</div>
+      </div>
+
+      <!-- 利用者リスト -->
+      <div class="day-body">
+        {% if day.entries %}
+          {% for entry in day.entries %}
+          <a href="{% url 'records:list' entry.visit.beneficiary.pk %}{% if entry.record %}?selected={{ entry.record.pk }}{% else %}?new_date={{ day.date_iso }}{% endif %}"
+             class="visit-card status-{{ entry.record_status }}
+                    {% if entry.visit.status == 'absent' or entry.visit.status == 'canceled' %}visit-absent{% endif %}">
+            <span class="status-dot"></span>
+            <span class="visit-name">{{ entry.visit.beneficiary.full_name }}</span>
+            <span class="visit-status-label">
+              {% if entry.visit.status == 'absent' %}欠席
+              {% elif entry.visit.status == 'canceled' %}キャンセル
+              {% elif entry.record_status == 'none' %}日誌：未作成
+              {% elif entry.record_status == 'draft' %}日誌：下書き
+              {% else %}日誌：確定
+              {% endif %}
+            </span>
+          </a>
+          {% endfor %}
+        {% else %}
+          <div class="no-visit">予定なし</div>
+        {% endif %}
+      </div>
+
+      <!-- 日誌追加ボタン -->
+      <button class="add-record-btn"
+              type="button"
+              data-bs-toggle="modal"
+              data-bs-target="#selectBeneficiaryModal"
+              @click="modalDate = '{{ day.date_iso }}'; modalDateLabel = '{{ day.date|date:"n月j日（" }}{{ day.weekday_ja }}）'">
+        <i class="bi bi-plus-circle"></i> 日誌を追加
+      </button>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- ===== メモボックス（一覧のみ） ===== -->
+  <div class="memo-widget">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="memo-widget-title mb-0"><i class="bi bi-pencil-square me-1"></i>メモボックス</div>
+      <button type="button" class="btn btn-sm btn-outline-primary"
+              style="font-size:0.75rem;"
+              data-bs-toggle="modal" data-bs-target="#globalMemoModal">
+        <i class="bi bi-plus me-1"></i>書く
+      </button>
+    </div>
+
+    <!-- メモ一覧 -->
+    {% if memos %}
+    <div>
+      {% for memo in memos %}
+      <div class="memo-card" id="memo-card-{{ memo.pk }}">
+
+        <!-- 通常表示 -->
+        <div id="memo-view-{{ memo.pk }}">
+          <div class="memo-card-content">{{ memo.content }}</div>
+          <div class="d-flex justify-content-between align-items-center mt-1">
+            <span class="memo-card-meta">
+              {{ memo.created_at|date:"n月j日 H:i" }}
+              {% if memo.author %}· {{ memo.author.display_name|default:memo.author.username }}{% endif %}
+              {% if memo.updated_at != memo.created_at %}<span class="ms-1" style="opacity:0.7;">（編集済み）</span>{% endif %}
+            </span>
+            <div class="memo-card-actions">
+              <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2"
+                      style="font-size:0.72rem;"
+                      data-memo-pk="{{ memo.pk }}"
+                      data-memo-content="{{ memo.content|escapejs }}"
+                      onclick="showMemoEdit(this.dataset.memoPk, this.dataset.memoContent)">
+                編集
+              </button>
+              <form method="post" action="{% url 'records:memo_delete' memo.pk %}"
+                    onsubmit="return confirm('このメモを削除しますか？')">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline-danger btn-sm py-0 px-2"
+                        style="font-size:0.72rem;">削除</button>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <!-- 編集フォーム（初期非表示） -->
+        <div id="memo-edit-{{ memo.pk }}" style="display:none;">
+          <form method="post" action="{% url 'records:memo_edit' memo.pk %}">
+            {% csrf_token %}
+            <textarea name="content" id="memo-edit-text-{{ memo.pk }}" rows="2"
+                      class="form-control mb-2" style="font-size:0.88rem;resize:none;"></textarea>
+            <div class="d-flex gap-2 align-items-center">
+              <button type="submit" class="btn btn-primary btn-sm px-3" style="font-size:0.78rem;">保存</button>
+              <button type="button" class="btn btn-outline-secondary btn-sm px-2" style="font-size:0.78rem;"
+                      onclick="hideMemoEdit({{ memo.pk }})">キャンセル</button>
+              <button type="button" class="voice-btn-memo"
+                      onclick="toggleMemoVoice(this, document.getElementById('memo-edit-text-{{ memo.pk }}'))">
+                <i class="bi bi-mic"></i>
+              </button>
+            </div>
+          </form>
+        </div>
+
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-muted small mb-0">まだメモはありません。</p>
+    {% endif %}
+  </div>
+
+  <!-- ===== 利用者選択モーダル ===== -->
+  <div class="modal fade" id="selectBeneficiaryModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-content" style="border-radius:14px;border:none;">
+        <div class="modal-header" style="border-bottom:1px solid #e8e8e8;">
+          <div>
+            <p class="text-muted small mb-0" style="font-size:0.7rem;letter-spacing:0.08em;">NEW RECORD</p>
+            <h6 class="fw-bold mb-0" style="font-family:'Yu Mincho','Hiragino Mincho ProN',serif;">
+              <span x-text="modalDateLabel"></span>の日誌を作成
+            </h6>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted mb-3">日誌を作成する利用者を選んでください。</p>
+          <div class="d-flex flex-column gap-2">
+            {% for b in beneficiaries %}
+            <a href="{% url 'records:list' b.pk %}?new_date="
+               class="btn btn-outline-secondary text-start"
+               style="font-size:0.85rem;"
+               :href="'{% url 'records:list' b.pk %}?new_date=' + modalDate">
+              <i class="bi bi-person me-2"></i>{{ b.full_name }}
+              <small class="text-muted ms-1" style="font-size:0.72rem;">{{ b.full_name_kana }}</small>
+            </a>
+            {% empty %}
+            <p class="text-muted small">利用者が登録されていません。</p>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ===== メモ：編集フォームの表示切り替え =====
+function showMemoEdit(pk, content) {
+  document.getElementById('memo-view-' + pk).style.display = 'none';
+  const editBox = document.getElementById('memo-edit-' + pk);
+  editBox.style.display = 'block';
+  document.getElementById('memo-edit-text-' + pk).value = content;
+}
+function hideMemoEdit(pk) {
+  document.getElementById('memo-view-' + pk).style.display = 'block';
+  document.getElementById('memo-edit-' + pk).style.display = 'none';
+}
+
+// ===== メモボックス用 音声入力（Web Speech API） =====
+(function () {
+  'use strict';
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    document.querySelectorAll('.voice-btn-memo').forEach(function(el) {
+      el.style.display = 'none';
+    });
+    return;
+  }
+
+  let activeRec = null;
+  let activeBtn = null;
+
+  function stopRec() {
+    if (activeRec) { activeRec.stop(); activeRec = null; }
+    if (activeBtn) {
+      activeBtn.classList.remove('recording');
+      activeBtn.innerHTML = '<i class="bi bi-mic"></i>';
+      activeBtn = null;
+    }
+  }
+
+  window.toggleMemoVoice = function(btn, textarea) {
+    if (activeBtn === btn) { stopRec(); return; }
+    stopRec();
+    const rec = new SR();
+    rec.lang = 'ja-JP';
+    rec.interimResults = false;
+    rec.continuous = true;
+    activeRec = rec;
+    activeBtn = btn;
+    btn.classList.add('recording');
+    btn.innerHTML = '<i class="bi bi-stop-fill"></i>';
+
+    rec.onresult = function(e) {
+      let text = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) text += e.results[i][0].transcript;
+      }
+      if (!text) return;
+      textarea.value = textarea.value ? textarea.value + ' ' + text : text;
+      // Alpine.js の x-model に反映
+      textarea.dispatchEvent(new Event('input'));
+    };
+    rec.onend = stopRec;
+    rec.onerror = stopRec;
+    rec.start();
+  };
+})();
+</script>
+{% endblock %}

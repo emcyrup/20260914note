@@ -1,0 +1,268 @@
+{% extends 'base.html' %}
+
+{% block title %}請求マトリックス — {{ year }}年{{ month }}月{% endblock %}
+{% block page_title %}請求マトリックス — {{ year }}年{{ month }}月{% endblock %}
+{% block nav_billing_matrix %}active{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-3">
+
+  <!-- ヘッダー：タイトル＋月ナビゲーション -->
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <h5 class="mb-0 fw-bold">
+      <i class="bi bi-receipt me-1"></i>請求マトリックス
+    </h5>
+    <div class="d-flex align-items-center gap-2">
+      <a href="{% url 'billing:matrix_month' prev_year prev_month %}"
+         class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-chevron-left"></i>
+      </a>
+      <span class="fw-bold" style="min-width: 100px; text-align: center;">
+        {{ year }}年{{ month }}月
+      </span>
+      <a href="{% url 'billing:matrix_month' next_year next_month %}"
+         class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-chevron-right"></i>
+      </a>
+      <a href="{% url 'billing:matrix' %}" class="btn btn-sm btn-outline-primary ms-1">今月</a>
+    </div>
+  </div>
+
+  <!-- サブナビ -->
+  <div class="mb-3 d-flex gap-2 flex-wrap align-items-center">
+    <span class="btn btn-sm btn-primary disabled">請求マトリックス</span>
+
+    <!-- 予定を一括確定ボタン -->
+    <form method="post"
+          action="{% url 'billing:load_from_schedule' year month %}"
+          onsubmit="return confirm('{{ year }}年{{ month }}月の来所済み・欠席の予定を請求マトリックスに一括反映します。\nすでに入力済みのセルは上書きしません。よろしいですか？')">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-sm btn-outline-success">
+        <i class="bi bi-calendar-check me-1"></i>予定を一括確定
+      </button>
+    </form>
+
+    <!-- 請求集計 CSV ダウンロード -->
+    <a href="{% url 'billing:billing_csv' year month %}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-download me-1"></i>請求集計 CSV
+    </a>
+
+    <!-- 上限額管理へのリンク -->
+    <a href="{% url 'billing:copayment_list_month' year month %}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-shield-check me-1"></i>上限額管理
+    </a>
+
+    <!-- 請求書・領収書へのリンク -->
+    <a href="{% url 'billing:invoice_list_month' year month %}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-file-earmark-text me-1"></i>請求書・領収書
+    </a>
+  </div>
+
+  <!-- 未確認セル警告バナー -->
+  {% if unsaved_count > 0 %}
+  <div class="alert mb-3 d-flex align-items-center gap-2"
+       style="background-color: var(--color-warning-bg); border: 1px solid var(--color-warning); color: var(--color-warning); border-radius: 6px;">
+    <span style="font-size: 1.1rem;">◆</span>
+    <div>
+      <strong>未確認のセルが {{ unsaved_count }}件 あります。</strong>
+      請求CSV・PDFを出力する前に、すべてのセルのポップアップを開いて確認・保存してください。
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- 凡例 -->
+  <div class="d-flex gap-3 mb-3 flex-wrap small align-items-center">
+    <span class="badge px-2 py-1" style="background-color: var(--color-primary); color: #fff;">利</span>
+    <span class="text-muted">利用</span>
+    <span class="badge px-2 py-1 bg-secondary">欠</span>
+    <span class="text-muted">欠席</span>
+    <span class="badge px-2 py-1" style="background-color: var(--color-warning); color: #fff;">振</span>
+    <span class="text-muted">振替</span>
+    <span class="text-muted ms-2">空欄＝予定なし</span>
+    <span style="color: var(--color-primary);">+N</span><span class="text-muted">＝加算N件保存済み</span>
+    <span style="color: var(--color-warning);">◆</span><span class="text-muted">＝未確認（ポップアップ未保存）</span>
+  </div>
+
+  <!-- マトリックス表（横スクロール対応） -->
+  {% if matrix %}
+  <div class="table-responsive" style="overflow-x: auto;">
+    <table class="table table-bordered table-sm align-middle mb-0"
+           style="min-width: max-content; font-size: 0.8rem;">
+      <thead>
+        <tr>
+          <!-- 利用者名列（固定） -->
+          <th class="text-nowrap px-2"
+              style="min-width: 100px; position: sticky; left: 0; z-index: 2; background: #fff;">
+            利用者
+          </th>
+          <!-- 日付列 -->
+          {% for day_info in day_headers %}
+          <th class="text-center px-1"
+              style="min-width: 32px;
+                     {% if day_info.weekday == 6 %}background-color: #fff0f0;
+                     {% elif day_info.weekday == 5 %}background-color: #f0f4ff;
+                     {% else %}background-color: #f8f9fa;{% endif %}">
+            <div>{{ day_info.day }}</div>
+            <div style="font-size: 0.65rem; font-weight: normal;">
+              {% if day_info.weekday == 0 %}月
+              {% elif day_info.weekday == 1 %}火
+              {% elif day_info.weekday == 2 %}水
+              {% elif day_info.weekday == 3 %}木
+              {% elif day_info.weekday == 4 %}金
+              {% elif day_info.weekday == 5 %}<span style="color:#3366cc;">土</span>
+              {% elif day_info.weekday == 6 %}<span style="color:#cc3333;">日</span>
+              {% endif %}
+            </div>
+          </th>
+          {% endfor %}
+          <!-- 合計列 -->
+          <th class="text-center text-nowrap px-2" style="background-color: #f8f9fa;">利用日数</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in matrix %}
+        <tr>
+          <!-- 利用者名（固定列） -->
+          <td class="text-nowrap px-2 fw-semibold"
+              style="position: sticky; left: 0; z-index: 1; background: #fff;">
+            {{ row.beneficiary.full_name }}
+          </td>
+
+          <!-- 各日のセル -->
+          {% for cell in row.cells %}
+          <td class="text-center p-0"
+              style="height: 36px; {% if cell.is_clickable %}cursor: pointer;{% endif %}"
+              {% if cell.is_clickable %}
+              data-popup-url="{% url 'billing:cell_popup' row.beneficiary.pk year month cell.day %}"
+              onclick="openCellPopup(this)"
+              {% endif %}>
+
+            {% if cell.display_status == 'attended' %}
+              <span class="d-flex flex-column align-items-center justify-content-center h-100 w-100"
+                    style="background-color: var(--color-primary-bg);">
+                <span class="badge" style="background-color: var(--color-primary); color: #fff; font-size: 0.65rem;">利</span>
+                {% if cell.addon_count > 0 %}
+                <span style="font-size: 0.6rem; color: var(--color-primary); line-height: 1;">+{{ cell.addon_count }}</span>
+                {% elif not cell.is_saved %}
+                <span style="font-size: 0.55rem; color: var(--color-warning); line-height: 1;" title="未確認：ポップアップを開いて確認してください">◆</span>
+                {% endif %}
+              </span>
+
+            {% elif cell.display_status == 'absent' %}
+              <span class="d-flex flex-column align-items-center justify-content-center h-100 w-100"
+                    style="background-color: #f0f0f0;">
+                <span class="badge bg-secondary" style="font-size: 0.65rem;">欠</span>
+                {% if cell.addon_count > 0 %}
+                <span style="font-size: 0.6rem; color: var(--color-primary); line-height: 1;">+{{ cell.addon_count }}</span>
+                {% elif not cell.is_saved %}
+                <span style="font-size: 0.55rem; color: var(--color-warning); line-height: 1;" title="未確認：ポップアップを開いて確認してください">◆</span>
+                {% endif %}
+              </span>
+
+            {% elif cell.display_status == 'transferred' %}
+              <span class="d-flex flex-column align-items-center justify-content-center h-100 w-100"
+                    style="background-color: var(--color-warning-bg);">
+                <span class="badge" style="background-color: var(--color-warning); color: #fff; font-size: 0.65rem;">振</span>
+                {% if cell.addon_count > 0 %}
+                <span style="font-size: 0.6rem; color: var(--color-primary); line-height: 1;">+{{ cell.addon_count }}</span>
+                {% elif not cell.is_saved %}
+                <span style="font-size: 0.55rem; color: var(--color-warning); line-height: 1;" title="未確認：ポップアップを開いて確認してください">◆</span>
+                {% endif %}
+              </span>
+
+            {% else %}
+              {# 予定なし：空白 #}
+            {% endif %}
+
+          </td>
+          {% endfor %}
+
+          <!-- 利用日数合計 -->
+          <td class="text-center fw-bold" style="background-color: #f8f9fa;">
+            {% if row.attended_count > 0 %}
+              <span style="color: var(--color-primary);">{{ row.attended_count }}日</span>
+            {% else %}
+              <span class="text-muted">0日</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 月合計サマリー -->
+  <div class="mt-3 p-3 rounded" style="background-color: var(--color-primary-bg);">
+    <div class="row g-2">
+      <div class="col-auto">
+        <span class="fw-bold" style="color: var(--color-primary-dark);">
+          <i class="bi bi-person-check me-1"></i>登録利用者数：{{ matrix|length }}名
+        </span>
+      </div>
+      <div class="col-auto">
+        <span class="fw-bold" style="color: var(--color-primary-dark);">
+          <i class="bi bi-calendar-check me-1"></i>合計利用延べ日数：{{ total_attended_days }}日
+        </span>
+      </div>
+    </div>
+  </div>
+
+  {% else %}
+  <div class="text-center py-5 text-muted">
+    <i class="bi bi-person-x" style="font-size: 3rem;"></i>
+    <p class="mt-3">
+      この施設に在籍中の利用者がいません。<br>
+      <a href="{% url 'beneficiaries:list' %}">利用者台帳</a>から利用者を登録してください。
+    </p>
+  </div>
+  {% endif %}
+
+</div>
+
+{# セルタップ時のポップアップモーダル #}
+<div class="modal fade" id="cellModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content" id="cellModalContent">
+      {# HTMX がここにポップアップ内容を読み込む #}
+      <div class="modal-body text-center py-5 text-muted">
+        <div class="spinner-border spinner-border-sm me-2"></div>読み込み中...
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  /**
+   * セルをタップしたときにポップアップを開く。
+   * data-popup-url 属性に URL を保持し、fetch で取得してモーダルに表示する。
+   * HTMX のイベント処理を使わないことで、どのセルをタップしたか確実に特定できる。
+   */
+  function openCellPopup(td) {
+    const url = td.getAttribute('data-popup-url');
+    if (!url) return;
+
+    // スピナーを表示してモーダルを開く
+    document.getElementById('cellModalContent').innerHTML =
+      '<div class="modal-body text-center py-5 text-muted">' +
+      '<div class="spinner-border spinner-border-sm me-2"></div>読み込み中...</div>';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('cellModal')).show();
+
+    // fetch でポップアップ内容を取得してモーダルに挿入
+    fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        document.getElementById('cellModalContent').innerHTML = html;
+      })
+      .catch(function() {
+        document.getElementById('cellModalContent').innerHTML =
+          '<div class="modal-body text-center py-3 text-danger">読み込みに失敗しました。</div>';
+      });
+  }
+</script>
+{% endblock %}

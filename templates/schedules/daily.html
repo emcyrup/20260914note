@@ -1,0 +1,171 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ target_date }} 出欠入力 — 予定管理{% endblock %}
+{% block page_title %}出欠入力 — {{ target_date }}{% endblock %}
+{% block nav_schedules %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .btn-check:checked + .btn-status-scheduled {
+    background-color: var(--color-primary); color: #fff; border-color: var(--color-primary);
+  }
+  .btn-check:checked + .btn-status-attended {
+    background-color: var(--color-success); color: #fff; border-color: var(--color-success);
+  }
+  .btn-check:checked + .btn-status-absent {
+    background-color: #6c757d; color: #fff; border-color: #6c757d;
+  }
+  .btn-check:checked + .btn-status-transferred {
+    background-color: var(--color-warning); color: #fff; border-color: var(--color-warning);
+  }
+  .btn-check:checked + .btn-status-none {
+    background-color: #dc3545; color: #fff; border-color: #dc3545;
+  }
+  .btn-status { min-height: 44px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-3">
+
+  <!-- パンくずナビ -->
+  <nav aria-label="breadcrumb" class="mb-2">
+    <ol class="breadcrumb small">
+      <li class="breadcrumb-item">
+        <a href="{% url 'schedules:calendar_month' year month %}">{{ year }}年{{ month }}月</a>
+      </li>
+      <li class="breadcrumb-item active">{{ target_date }} 出欠入力</li>
+    </ol>
+  </nav>
+
+  <!-- 日付ナビゲーション -->
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <a href="{% url 'schedules:daily' prev_date.year prev_date.month prev_date.day %}"
+       class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-chevron-left"></i> 前日
+    </a>
+    <h5 class="mb-0 fw-bold text-center">
+      {{ target_date|date:"Y年n月j日（D）" }}
+    </h5>
+    <a href="{% url 'schedules:daily' next_date.year next_date.month next_date.day %}"
+       class="btn btn-outline-secondary btn-sm">
+      翌日 <i class="bi bi-chevron-right"></i>
+    </a>
+  </div>
+
+  {% if rows %}
+  <form method="post" action="{% url 'schedules:daily_save' target_date.year target_date.month target_date.day %}">
+    {% csrf_token %}
+
+    <div class="card mb-3">
+      <div class="card-header fw-bold small"
+           style="background-color: var(--color-primary-bg); color: var(--color-primary-dark);">
+        <i class="bi bi-pencil-square me-1"></i>出欠入力（{{ rows|length }}名）
+      </div>
+
+      {% for row in rows %}
+      <div class="{% if not forloop.last %}border-bottom{% endif %} px-3 py-3">
+
+        <!-- 利用者名 -->
+        <div class="fw-bold mb-2">{{ row.beneficiary.full_name }}</div>
+
+        <!-- 状態ボタン -->
+        <div class="d-flex flex-wrap gap-2 mb-2">
+
+          <input type="radio" class="btn-check" autocomplete="off"
+                 name="b_{{ row.beneficiary.pk }}_status"
+                 id="st_scheduled_{{ row.beneficiary.pk }}"
+                 value="scheduled"
+                 {% if row.status == 'scheduled' %}checked{% endif %}>
+          <label class="btn btn-sm btn-outline-primary btn-status btn-status-scheduled"
+                 for="st_scheduled_{{ row.beneficiary.pk }}">予定</label>
+
+          <input type="radio" class="btn-check" autocomplete="off"
+                 name="b_{{ row.beneficiary.pk }}_status"
+                 id="st_attended_{{ row.beneficiary.pk }}"
+                 value="attended"
+                 {% if row.status == 'attended' %}checked{% endif %}>
+          <label class="btn btn-sm btn-outline-success btn-status btn-status-attended"
+                 for="st_attended_{{ row.beneficiary.pk }}">来所</label>
+
+          <input type="radio" class="btn-check" autocomplete="off"
+                 name="b_{{ row.beneficiary.pk }}_status"
+                 id="st_absent_{{ row.beneficiary.pk }}"
+                 value="absent"
+                 {% if row.status == 'absent' %}checked{% endif %}>
+          <label class="btn btn-sm btn-outline-secondary btn-status btn-status-absent"
+                 for="st_absent_{{ row.beneficiary.pk }}">欠席</label>
+
+          <input type="radio" class="btn-check" autocomplete="off"
+                 name="b_{{ row.beneficiary.pk }}_status"
+                 id="st_transferred_{{ row.beneficiary.pk }}"
+                 value="transferred"
+                 {% if row.status == 'transferred' %}checked{% endif %}>
+          <label class="btn btn-sm btn-outline-warning btn-status btn-status-transferred"
+                 for="st_transferred_{{ row.beneficiary.pk }}">振替</label>
+
+          <input type="radio" class="btn-check" autocomplete="off"
+                 name="b_{{ row.beneficiary.pk }}_status"
+                 id="st_none_{{ row.beneficiary.pk }}"
+                 value=""
+                 {% if not row.status %}checked{% endif %}>
+          <label class="btn btn-sm btn-outline-danger btn-status btn-status-none"
+                 for="st_none_{{ row.beneficiary.pk }}"
+                 title="予定なし（削除）">
+            <i class="bi bi-x"></i>
+          </label>
+
+        </div>
+
+        <!-- 送迎チェックボックス＋備考 -->
+        <div class="d-flex flex-wrap align-items-center gap-3">
+          <div class="form-check">
+            <input type="checkbox" class="form-check-input"
+                   id="pickup_{{ row.beneficiary.pk }}"
+                   name="b_{{ row.beneficiary.pk }}_has_pickup"
+                   {% if row.has_pickup %}checked{% endif %}>
+            <label class="form-check-label" for="pickup_{{ row.beneficiary.pk }}">
+              <i class="bi bi-car-front me-1"></i>迎え
+            </label>
+          </div>
+          <div class="form-check">
+            <input type="checkbox" class="form-check-input"
+                   id="dropoff_{{ row.beneficiary.pk }}"
+                   name="b_{{ row.beneficiary.pk }}_has_dropoff"
+                   {% if row.has_dropoff %}checked{% endif %}>
+            <label class="form-check-label" for="dropoff_{{ row.beneficiary.pk }}">
+              <i class="bi bi-car-front-fill me-1"></i>送り
+            </label>
+          </div>
+          <input type="text" class="form-control form-control-sm"
+                 style="max-width: 200px;"
+                 name="b_{{ row.beneficiary.pk }}_notes"
+                 value="{{ row.notes }}"
+                 placeholder="備考（任意）">
+        </div>
+
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- 保存ボタン -->
+    <div class="d-flex gap-2 mb-4">
+      <button type="submit" class="btn btn-primary">
+        <i class="bi bi-check-circle-fill me-1"></i>保存
+      </button>
+      <a href="{% url 'schedules:calendar_month' year month %}" class="btn btn-outline-secondary">
+        カレンダーに戻る
+      </a>
+    </div>
+  </form>
+
+  {% else %}
+  <div class="card card-body text-center py-5 text-muted">
+    <i class="bi bi-person-x" style="font-size: 2.5rem;"></i>
+    <p class="mt-2 mb-0">在籍中の利用者がいません。</p>
+    <a href="{% url 'beneficiaries:list' %}" class="btn btn-outline-primary mt-3">利用者台帳へ</a>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

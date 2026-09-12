@@ -1,0 +1,139 @@
+{% extends 'base.html' %}
+
+{% block title %}LINE配信履歴{% endblock %}
+{% block page_title %}LINE配信履歴{% endblock %}
+{% block nav_line %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* モバイルでテーブルをカード形式に変換 */
+  @media (max-width: 640px) {
+    .delivery-table thead {
+      display: none;
+    }
+    .delivery-table tbody tr {
+      display: block;
+      padding: 14px 16px;
+      border-bottom: 1px solid #dee2e6;
+    }
+    .delivery-table tbody tr:last-child {
+      border-bottom: none;
+    }
+    .delivery-table td {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 4px 0;
+      border: none;
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+    .delivery-table td::before {
+      content: attr(data-label);
+      font-weight: 700;
+      font-size: 0.72rem;
+      color: #666;
+      min-width: 76px;
+      flex-shrink: 0;
+      padding-top: 2px;
+    }
+    /* 送信内容欄は横幅いっぱい使う */
+    .delivery-table td[data-label="送信内容"] div {
+      max-width: 100%;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-3">
+
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h5 class="mb-0 fw-bold">
+      <i class="bi bi-chat-dots me-2"></i>LINE連携
+    </h5>
+  </div>
+
+  <!-- 将来機能の案内 -->
+  <div class="alert alert-info d-flex align-items-start gap-2 mb-3" style="font-size:0.85rem;">
+    <i class="bi bi-info-circle-fill flex-shrink-0 mt-1"></i>
+    <div>
+      <strong>今後追加予定：</strong>保護者からのLINEメッセージの受信・一覧表示機能を実装予定です。現在は配信履歴のみ確認できます。
+    </div>
+  </div>
+
+  {% if logs %}
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table table-hover mb-0 small delivery-table">
+        <thead style="background-color: var(--color-primary-bg);">
+          <tr>
+            <th class="px-3 py-2">送信日時</th>
+            <th class="py-2">利用者</th>
+            <th class="py-2">送信先保護者</th>
+            <th class="py-2">結果</th>
+            <th class="py-2">送信内容</th>
+            <th class="py-2">日誌</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for log in logs %}
+          <tr>
+            <td class="px-3 py-2 text-nowrap" data-label="送信日時">{{ log.sent_at|date:"Y/m/d H:i" }}</td>
+            <td class="py-2" data-label="利用者">
+              {% if log.guardian %}
+                {{ log.guardian.beneficiary.full_name }}
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td class="py-2" data-label="保護者">
+              {% if log.guardian %}
+                {{ log.guardian.last_name }} {{ log.guardian.first_name }}
+                <span class="text-muted">（{{ log.guardian.get_relation_display }}）</span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td class="py-2" data-label="結果">
+              {% if log.is_success %}
+                <span class="badge bg-success">成功</span>
+              {% else %}
+                <span class="badge bg-danger">失敗</span>
+                {% if log.error_message %}
+                <div class="text-danger small mt-1">{{ log.error_message|truncatechars:50 }}</div>
+                {% endif %}
+              {% endif %}
+            </td>
+            <td class="py-2" data-label="送信内容">
+              <div style="max-width:300px; white-space:pre-wrap; font-size:0.8rem;">{{ log.content|truncatechars:100 }}</div>
+            </td>
+            <td class="py-2" data-label="日誌">
+              {% if log.daily_record %}
+              <a href="{% url 'records:list' log.daily_record.beneficiary_id %}?record={{ log.daily_record.pk }}"
+                 class="text-muted small">
+                <i class="bi bi-journal me-1"></i>{{ log.daily_record.date|date:"n月j日" }}の日誌
+              </a>
+              {% else %}
+              <span class="text-muted small">—</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% else %}
+  <div class="card card-body text-center py-5 text-muted">
+    <i class="bi bi-chat-dots" style="font-size: 2.5rem;"></i>
+    <p class="mt-2 mb-0">まだLINE送信履歴がありません。</p>
+    <p class="small mt-1">日誌画面の「LINE送信」ボタンから保護者向けメッセージを送ることができます。</p>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
