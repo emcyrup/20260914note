@@ -201,6 +201,7 @@ gunzip -c backups/db-YYYYMMDD-HHMMSS.sql.gz | docker compose exec -T db psql -U 
 | deploy ジョブ `Permission denied (publickey)` | `DEPLOY_SSH_KEY` とサーバーの `authorized_keys` が対になっていない。5-1 をやり直して `鍵OK` を確認 → Secret を Update → Actions で Re-run failed jobs |
 | deploy ジョブ `Connection timed out` | VPC ネットワーク → ファイアウォールに `default-allow-ssh` があるか |
 | 502 Bad Gateway | `docker compose logs app` を確認（SECRET_KEY 未設定・DB_PASSWORD 不一致が多い） |
+| AI生成で「サーバーエラー (500)」 | `docker compose logs --tail=50 app` に原因が出る（APIキー・モデル名）。モデルが使えない場合は `.env` に `AI_PLAN_MODEL=claude-sonnet-5` を追加して `docker compose up -d app` |
 | `CSRF verification failed` | `CSRF_TRUSTED_ORIGINS` が実際の URL と違う |
 | IP で動かしているのにログインできない | `SECURE_SSL_REDIRECT=False` を確認して `docker compose up -d` |
 | バックアップが Cloud Storage に届かない | VM のアクセススコープ（手順3）とバケットの権限（手順4） |

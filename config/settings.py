@@ -125,6 +125,8 @@ LOGOUT_REDIRECT_URL = '/accounts/login/'
 
 # Anthropic Claude API
 ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
+# 活動→めあて・考察の生成に使うモデル（利用できない場合は .env で差し替える）
+AI_PLAN_MODEL = config('AI_PLAN_MODEL', default='claude-opus-5')
 
 # LINE Messaging API
 LINE_CHANNEL_ACCESS_TOKEN = config('LINE_CHANNEL_ACCESS_TOKEN', default='')
@@ -148,3 +150,14 @@ if not DEBUG:
         # ブラウザに1年間HTTPSを強制させる（HSTS）
         SECURE_HSTS_SECONDS = 31536000
         SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+
+# ログ: アプリ内の例外を gunicorn の標準エラー（docker compose logs app）に出す
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {'console': {'class': 'logging.StreamHandler'}},
+    'root': {'handlers': ['console'], 'level': 'WARNING'},
+    'loggers': {
+        'django.request': {'handlers': ['console'], 'level': 'ERROR', 'propagate': False},
+    },
+}

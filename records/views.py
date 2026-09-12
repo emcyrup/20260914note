@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import date, timedelta
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views import View
@@ -8,6 +9,8 @@ from django.contrib import messages
 from django.http import JsonResponse
 from django.conf import settings
 import anthropic
+
+logger = logging.getLogger(__name__)
 
 from beneficiaries.models import Beneficiary
 from esignatures.models import EsignatureRecord
@@ -623,7 +626,7 @@ reflection は、【職員のメモ】がある場合はその事実に基づい
         try:
             client   = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
             response = client.messages.create(
-                model='claude-opus-5',
+                model=settings.AI_PLAN_MODEL,
                 max_tokens=1500,
                 output_config={'effort': 'medium'},
                 system=self.SYSTEM_PROMPT,
@@ -634,6 +637,8 @@ reflection は、【職員のメモ】がある場合はその事実に基づい
             start = raw.find('{')
             end   = raw.rfind('}') + 1
             data  = json.loads(raw[start:end])
+            if not isinstance(data, dict):
+                raise json.JSONDecodeError('object expected', raw, 0)
 
             aim        = str(data.get('aim', '')).strip()
             viewpoints = [str(v).strip() for v in data.get('viewpoints', []) if str(v).strip()]
@@ -656,3 +661,6 @@ reflection は、【職員のメモ】がある場合はその事実に基づい
             return JsonResponse({'error': f'AIサービスでエラーが発生しました（{e.status_code}）。'}, status=502)
         except anthropic.APIConnectionError:
             return JsonResponse({'error': 'AIサービスに接続できませんでした。ネットワークを確認してください。'}, status=502)
+        except Exception as e:  # noqa: BLE001 — 画面に理由を返し、詳細はログに残す
+            logger.exception('活動プラン生成で予期しないエラー')
+            return JsonResponse({'error': f'AIでの処理中にエラーが発生しました: {type(e).__name__}: {e}'}, status=500)

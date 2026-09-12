@@ -96,3 +96,19 @@ class AiActivityPlanViewTests(TestCase):
         res = self.client.post(self.url, {'activity': 'かるた'})
         self.assertEqual(res.status_code, 500)
         self.assertIn('解析できません', res.json()['error'])
+
+    @mock.patch('records.views.anthropic.Anthropic')
+    def test_unexpected_error_is_reported_as_json(self, mock_client_cls):
+        mock_client_cls.return_value.messages.create.side_effect = TypeError('unexpected keyword')
+        with self.assertLogs('records.views', level='ERROR'):
+            res = self.client.post(self.url, {'activity': 'かるた'})
+        self.assertEqual(res.status_code, 500)
+        self.assertIn('TypeError', res.json()['error'])
+
+    @mock.patch('records.views.anthropic.Anthropic')
+    def test_model_is_configurable(self, mock_client_cls):
+        mock_client_cls.return_value.messages.create.return_value = _fake_response(
+            '{"aim": "a", "viewpoints": [], "reflection": "r"}')
+        with self.settings(AI_PLAN_MODEL='claude-sonnet-5'):
+            self.client.post(self.url, {'activity': 'かるた'})
+        self.assertEqual(mock_client_cls.return_value.messages.create.call_args.kwargs['model'], 'claude-sonnet-5')
