@@ -95,7 +95,8 @@ sudo -u deploy -i
 ```bash
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
 ssh-keygen -t ed25519 -N "" -C deploy -f ~/.ssh/github_deploy
-cat ~/.ssh/github_deploy.pub >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+cat ~/.ssh/github_deploy.pub > ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+ssh -i ~/.ssh/github_deploy -o StrictHostKeyChecking=no deploy@localhost 'echo 鍵OK'   # 鍵OK が出ること
 cat ~/.ssh/github_deploy        # BEGIN〜END の全文を控える（手順7で GitHub に登録）
 rm ~/.ssh/github_deploy         # 登録後、サーバーから秘密鍵を消す
 ```
@@ -187,7 +188,7 @@ gunzip -c backups/db-YYYYMMDD-HHMMSS.sql.gz | docker compose exec -T db psql -U 
 | `sudo -u deploy -i` で「no such user」／`docker: command not found` | 同上（手順 5-0 の修復ブロック） |
 | 複数行を貼ったのに一部しか実行されない | `sudo -u deploy -i` は単独で実行し、プロンプトが `deploy@` に変わってから残りを貼る |
 | deploy ジョブ `.env がありません` | 5-3 が未完了 |
-| deploy ジョブ `Permission denied (publickey)` | `DEPLOY_SSH_KEY` が 5-1 の全文と一致していない |
+| deploy ジョブ `Permission denied (publickey)` | `DEPLOY_SSH_KEY` とサーバーの `authorized_keys` が対になっていない。5-1 をやり直して `鍵OK` を確認 → Secret を Update → Actions で Re-run failed jobs |
 | deploy ジョブ `Connection timed out` | VPC ネットワーク → ファイアウォールに `default-allow-ssh` があるか |
 | 502 Bad Gateway | `docker compose logs app` を確認（SECRET_KEY 未設定・DB_PASSWORD 不一致が多い） |
 | `CSRF verification failed` | `CSRF_TRUSTED_ORIGINS` が実際の URL と違う |
