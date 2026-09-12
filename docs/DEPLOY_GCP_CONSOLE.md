@@ -188,6 +188,7 @@ gunzip -c backups/db-YYYYMMDD-HHMMSS.sql.gz | docker compose exec -T db psql -U 
 | `sudo -u deploy -i` で「no such user」／`docker: command not found` | 同上（手順 5-0 の修復ブロック） |
 | 複数行を貼ったのに一部しか実行されない | `sudo -u deploy -i` は単独で実行し、プロンプトが `deploy@` に変わってから残りを貼る |
 | deploy ジョブ `.env がありません` | 5-3 が未完了 |
+| 5-1 の `ssh … deploy@localhost` が `Permission denied (publickey)` | `deploy` がロック状態（古い起動スクリプト）。`exit` → `sudo usermod -p '*' deploy` → 5-1 の確認行を再実行 |
 | deploy ジョブ `Permission denied (publickey)` | `DEPLOY_SSH_KEY` とサーバーの `authorized_keys` が対になっていない。5-1 をやり直して `鍵OK` を確認 → Secret を Update → Actions で Re-run failed jobs |
 | deploy ジョブ `Connection timed out` | VPC ネットワーク → ファイアウォールに `default-allow-ssh` があるか |
 | 502 Bad Gateway | `docker compose logs app` を確認（SECRET_KEY 未設定・DB_PASSWORD 不一致が多い） |

@@ -30,8 +30,10 @@ apt_install() {
   apt-get -o DPkg::Lock::Timeout=300 install -y --no-install-recommends "$@"
 }
 
-# デプロイ用ユーザー（GCE のゲストエージェントがメタデータの公開鍵をこのユーザーに配る）
-id -u "$DEPLOY_USER" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$DEPLOY_USER"
+# デプロイ用ユーザー。パスワード欄は '*'（パスワードなし・鍵ログインは可）にする。
+# useradd の既定の '!' は「ロック」扱いで、sshd が鍵ログインも拒否する（Permission denied (publickey)）
+id -u "$DEPLOY_USER" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash --password '*' "$DEPLOY_USER"
+usermod -p '*' "$DEPLOY_USER"
 
 wait_for_apt
 apt-get -o DPkg::Lock::Timeout=300 update
