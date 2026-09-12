@@ -1510,12 +1510,11 @@ function journalCreateForm(generateUrl, planUrl) {
         fd.append('tags', this._tagsWithActivity(tagNames));
         fd.append('csrfmiddlewaretoken', csrf);
         const res  = await fetch(generateUrl, { method: 'POST', body: fd });
-        if (!res.ok) {
-          const errText = await res.text();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok && !data.error) {
           this.errorMsg = `サーバーエラー (${res.status})`;
           return;
         }
-        const data = await res.json();
         if (data.error) {
           this.errorMsg = data.error;
         } else {
@@ -1587,8 +1586,8 @@ function journalEditForm(generateUrl, initialResult, initSupportTags = [], initD
         fd.append('tags', this._tagsWithActivity(tagNames));
         fd.append('csrfmiddlewaretoken', csrf);
         const res = await fetch(generateUrl, { method: 'POST', body: fd });
-        if (!res.ok) { this.errorMsg = `サーバーエラー (${res.status})`; return; }
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok && !data.error) { this.errorMsg = `サーバーエラー (${res.status})`; return; }
         if (data.error) { this.errorMsg = data.error; }
         else { this.result = data; }
       } catch(e) {

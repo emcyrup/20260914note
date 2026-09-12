@@ -112,3 +112,31 @@ class AiActivityPlanViewTests(TestCase):
         with self.settings(AI_PLAN_MODEL='claude-sonnet-5'):
             self.client.post(self.url, {'activity': 'かるた'})
         self.assertEqual(mock_client_cls.return_value.messages.create.call_args.kwargs['model'], 'claude-sonnet-5')
+
+
+class AiGenerateAllViewTests(TestCase):
+    """メモ → 4種の記録文の一括生成。エラー時は理由を JSON で返す。"""
+
+    def setUp(self):
+        self.facility = Facility.objects.create(name='テスト施設')
+        self.user = StaffAccount.objects.create_user('staff', password='pass12345', facility=self.facility)
+        self.client.force_login(self.user)
+        self.url = reverse('records:ai_generate_all')
+
+    @mock.patch('records.views.anthropic.Anthropic')
+    def test_api_error_message_is_returned(self, mock_client_cls):
+        mock_client_cls.return_value.messages.create.side_effect = RuntimeError('invalid x-api-key')
+        with self.settings(ANTHROPIC_API_KEY='sk-ant-test'), self.assertLogs('records.views', level='ERROR'):
+            res = self.client.post(self.url, {'memo': '集中できた'})
+        self.assertEqual(res.status_code, 500)
+        self.assertIn('RuntimeError: invalid x-api-key', res.json()['error'])
+
+    @mock.patch('records.views.anthropic.Anthropic')
+    def test_thinking_block_is_skipped(self, mock_client_cls):
+        thinking = mock.Mock(type='thinking')
+        text = mock.Mock(type='text', text='{"observation":"o","support":"s","reaction":"r","parent_message":"p"}')
+        mock_client_cls.return_value.messages.create.return_value = mock.Mock(content=[thinking, text])
+        with self.settings(ANTHROPIC_API_KEY='sk-ant-test'):
+            res = self.client.post(self.url, {'memo': '集中できた'})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['observation'], 'o')

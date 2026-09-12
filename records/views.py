@@ -509,17 +509,18 @@ class AiPolishView(LoginRequiredMixin, View):
         try:
             client   = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
             response = client.messages.create(
-                model='claude-haiku-4-5-20251001',  # 文章整えは高速・低コストのHaikuを使用
+                model=settings.AI_TEXT_MODEL,  # 文章整えは高速・低コストのモデルを使用
                 max_tokens=300,
                 messages=[{
                     'role': 'user',
                     'content': user_content,
                 }],
             )
-            polished = response.content[0].text.strip()
+            polished = ''.join(b.text for b in response.content if b.type == 'text').strip()
             return JsonResponse({'result': polished})
-        except Exception as e:
-            return JsonResponse({'error': f'AIでの処理中にエラーが発生しました: {str(e)}'}, status=500)
+        except Exception as e:  # noqa: BLE001
+            logger.exception('AI文章整えでエラー')
+            return JsonResponse({'error': f'AIでの処理中にエラーが発生しました: {type(e).__name__}: {e}'}, status=500)
 
 
 # =============================================
@@ -559,16 +560,20 @@ class AiGenerateAllView(LoginRequiredMixin, View):
         try:
             client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
             response = client.messages.create(
-                model='claude-haiku-4-5-20251001',
+                model=settings.AI_TEXT_MODEL,
                 max_tokens=800,
                 system=self.SYSTEM_PROMPT,
                 messages=[{'role': 'user', 'content': user_content}],
             )
-            raw = response.content[0].text.strip()
+            raw = ''.join(b.text for b in response.content if b.type == 'text').strip()
             # JSON部分だけ抽出（念のため）
             start = raw.find('{')
             end   = raw.rfind('}') + 1
+            if start < 0 or end <= start:
+                raise json.JSONDecodeError('JSONが含まれていない', raw, 0)
             data  = json.loads(raw[start:end])
+            if not isinstance(data, dict):
+                raise json.JSONDecodeError('object expected', raw, 0)
             return JsonResponse({
                 'observation':    data.get('observation', ''),
                 'support':        data.get('support', ''),
@@ -576,9 +581,11 @@ class AiGenerateAllView(LoginRequiredMixin, View):
                 'parent_message': data.get('parent_message', ''),
             })
         except json.JSONDecodeError:
+            logger.warning('AI一括生成の返答がJSONでない: %r', raw[:200] if 'raw' in locals() else None)
             return JsonResponse({'error': 'AIの返答を解析できませんでした。もう一度お試しください。'}, status=500)
-        except Exception as e:
-            return JsonResponse({'error': f'AIでの処理中にエラーが発生しました: {str(e)}'}, status=500)
+        except Exception as e:  # noqa: BLE001
+            logger.exception('AI一括生成でエラー')
+            return JsonResponse({'error': f'AIでの処理中にエラーが発生しました: {type(e).__name__}: {e}'}, status=500)
 
 
 # =============================================
