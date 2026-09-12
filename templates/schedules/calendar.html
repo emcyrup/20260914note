@@ -67,23 +67,23 @@
 {% block content %}
 <div class="container-fluid px-3 pt-3">
 
-  <!-- ページタイトル＋月ナビゲーション -->
-  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-    <h5 class="mb-0 fw-bold">
-      <i class="bi bi-calendar3 me-2"></i>予定管理
-    </h5>
-    <div class="d-flex align-items-center gap-2">
-      <a href="{% url 'schedules:calendar_month' prev_year prev_month %}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-chevron-left"></i>
-      </a>
-      <span class="fw-bold" style="min-width: 7rem; text-align: center;">
-        {{ year }}年{{ month }}月
-      </span>
-      <a href="{% url 'schedules:calendar_month' next_year next_month %}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-chevron-right"></i>
-      </a>
-      <a href="{% url 'schedules:calendar' %}" class="btn btn-outline-primary btn-sm ms-1">今月</a>
-    </div>
+  <!-- ページタイトル -->
+  <h5 class="fw-bold mb-3">
+    <i class="bi bi-calendar3 me-2"></i>予定管理
+  </h5>
+
+  <!-- 月ナビゲーション -->
+  <div class="monthnav mb-3">
+    <a href="{% url 'schedules:calendar_month' prev_year prev_month %}"
+       class="btn btn-sm btn-outline-secondary" aria-label="前の月">
+      <i class="bi bi-chevron-left"></i>
+    </a>
+    <span class="monthnav-label">{{ year }}年{{ month }}月</span>
+    <a href="{% url 'schedules:calendar_month' next_year next_month %}"
+       class="btn btn-sm btn-outline-secondary" aria-label="次の月">
+      <i class="bi bi-chevron-right"></i>
+    </a>
+    <a href="{% url 'schedules:calendar' %}" class="btn btn-sm btn-outline-primary">今月</a>
   </div>
 
   <!-- 当月予定一括作成ボタン -->

@@ -30,41 +30,41 @@
 
   /* 1日分のカラム */
   .day-col {
-    background: #fff;
-    border: 1.5px solid #dde4e5;
-    border-radius: 12px;
+    background: var(--sheet);
+    border: 1px solid var(--line);
+    border-radius: 16px;
     overflow: hidden;
   }
   .day-col.is-today {
-    border-color: #0F6E56;
-    box-shadow: 0 0 0 2px rgba(15,110,86,0.15);
+    border-color: var(--lake);
+    box-shadow: 0 0 0 2px rgba(78, 125, 137, 0.18);
   }
 
   /* 日付ヘッダー */
   .day-header {
-    padding: 8px 6px 6px;
-    background: #f3f7f7;
-    border-bottom: 1px solid #dde4e5;
+    padding: 10px 12px 8px;
+    background: var(--lake-soft);
+    border-bottom: 1px solid var(--line);
     text-align: center;
   }
   .day-col.is-today .day-header {
-    background: #0F6E56;
-    border-bottom-color: #0F6E56;
+    background: var(--lake);
+    border-bottom-color: var(--lake);
   }
   .day-weekday {
-    font-size: 0.6rem;
+    font-size: 0.78rem;
     font-weight: 700;
     letter-spacing: 0.06em;
-    color: #6a9098;
+    color: var(--lake-text);
     margin-bottom: 1px;
   }
   .day-col.is-today .day-weekday { color: rgba(255,255,255,0.8); }
   .day-date-num {
-    font-family: "Yu Mincho", "Hiragino Mincho ProN", serif;
-    font-size: 1.4rem;
+    font-family: var(--font-display);
+    font-size: 1.35rem;
     font-weight: 400;
-    color: #172d31;
-    line-height: 1;
+    color: var(--ink);
+    line-height: 1.1;
   }
   .day-col.is-today .day-date-num { color: #fff; }
   .day-col.is-saturday .day-weekday,
@@ -142,15 +142,16 @@
     padding: 5px 4px;
     border: none;
     background: none;
-    color: #9aadb0;
-    font-size: 0.68rem;
+    color: var(--lake-text);
+    font-size: 0.8rem;
+    font-weight: 700;
     cursor: pointer;
-    border-top: 1px dashed #dde4e5;
+    border-top: 1px dashed var(--line);
     transition: color 0.12s, background 0.12s;
   }
   .add-record-btn:hover {
-    color: #0F6E56;
-    background: #f0faf6;
+    color: var(--ink);
+    background: var(--lake-soft);
   }
 
   @media (max-width: 960px) {
@@ -158,10 +159,10 @@
   }
   @media (max-width: 640px) {
     .week-grid { grid-template-columns: 1fr; }
-    .day-col { border-radius: 8px; }
-    .day-header { padding: 8px 12px 6px; text-align: left; }
-    .day-weekday { display: inline; margin-right: 6px; font-size: 0.65rem; }
-    .day-date-num { display: inline; font-size: 1.1rem; }
+    .day-col { border-radius: 16px; }
+    .day-header { padding: 12px 16px 10px; text-align: left; }
+    .day-weekday { display: inline; margin-right: 10px; font-size: 0.82rem; }
+    .day-date-num { display: inline; font-size: 1.35rem; }
   }
 
   /* ===== メモボックス ===== */
@@ -231,27 +232,25 @@
 {% block content %}
 <div class="px-2" x-data="{ modalDate: '', modalDateLabel: '' }">
 
-  <!-- ページヘッダー -->
-  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-    <h5 class="mb-0 fw-bold">
-      <i class="bi bi-calendar-week me-2"></i>週間カレンダー
-    </h5>
-
-    <!-- 週ナビゲーション -->
-    <div class="week-nav">
-      <a href="?week={{ prev_week }}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-chevron-left"></i> 前の週
-      </a>
-      <span class="week-title">
-        {{ week_start|date:"Y年n月j日" }}（月）〜 {{ week_end|date:"n月j日" }}（日）
-      </span>
-      <a href="?week={{ next_week }}" class="btn btn-outline-secondary btn-sm">
-        次の週 <i class="bi bi-chevron-right"></i>
-      </a>
-      <a href="{% url 'records:dashboard' %}" class="btn btn-sm btn-outline-primary">
-        今週
-      </a>
-    </div>
+  <!-- 週ナビゲーション（画面名はトップバーに出るため見出しは重ねない） -->
+  <div class="monthnav mb-2">
+    <a href="?week={{ prev_week }}" class="btn btn-sm btn-outline-secondary" aria-label="前の週">
+      <i class="bi bi-chevron-left"></i>
+    </a>
+    <span class="monthnav-label">
+      {{ week_start|date:"Y-m-d" }} 〜 {{ week_end|date:"Y-m-d" }}
+    </span>
+    <a href="?week={{ next_week }}" class="btn btn-sm btn-outline-secondary" aria-label="次の週">
+      <i class="bi bi-chevron-right"></i>
+    </a>
+  </div>
+  <div class="d-flex gap-2 flex-wrap mb-3">
+    <a href="{% url 'records:dashboard' %}" class="btn btn-sm btn-outline-primary">今週</a>
+    <button type="button" class="btn btn-sm btn-primary"
+            data-bs-toggle="modal" data-bs-target="#selectBeneficiaryModal"
+            @click="modalDate = '{% now 'Y-m-d' %}'; modalDateLabel = '{% now 'n月j日' %}'">
+      <i class="bi bi-plus me-1"></i>日誌を追加
+    </button>
   </div>
 
   <!-- 凡例 -->
@@ -271,9 +270,8 @@
     ">
       <!-- 日付ヘッダー -->
       <div class="day-header">
-        <div class="day-weekday">{{ day.weekday_ja }}曜日</div>
-        <div class="day-date-num">{{ day.date|date:"j" }}</div>
-        <div style="font-size:0.6rem;opacity:0.6;">{{ day.date|date:"n/j" }}</div>
+        <span class="day-weekday">{{ day.weekday_ja }}</span>
+        <span class="day-date-num">{{ day.date|date:"n/j" }}</span>
       </div>
 
       <!-- 利用者リスト -->
@@ -387,12 +385,9 @@
     <div class="modal-dialog modal-sm">
       <div class="modal-content" style="border-radius:14px;border:none;">
         <div class="modal-header" style="border-bottom:1px solid #e8e8e8;">
-          <div>
-            <p class="text-muted small mb-0" style="font-size:0.7rem;letter-spacing:0.08em;">NEW RECORD</p>
-            <h6 class="fw-bold mb-0" style="font-family:'Yu Mincho','Hiragino Mincho ProN',serif;">
-              <span x-text="modalDateLabel"></span>の日誌を作成
-            </h6>
-          </div>
+          <h6 class="fw-bold mb-0" style="font-family:var(--font-display);">
+            <span x-text="modalDateLabel"></span>の日誌を作成
+          </h6>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">

@@ -21,8 +21,8 @@
   --cinnabar-soft:  #f3dfd6;
   --gold:           #b58a44;
   --gold-soft:      #eee3c9;
-  /* サブナビのアクティブタブ色 */
-  --tab-active:     #5b8def;
+  /* サブナビ・切替タブのアクティブ色 */
+  --tab-active:     var(--lake);
   /* 入力欄の枠線（淡いティール） */
   --field-line:     #c3d5d8;
   --shadow:         0 18px 40px rgba(25, 43, 43, 0.08);
@@ -366,8 +366,9 @@ body::before {
 .card .table {
   background-color: transparent !important;
 }
-.card .table td,
-.card .table th {
+/* カレンダーは土日・当日のセル色を持つため対象外にする */
+.card .table:not(.calendar-table) td,
+.card .table:not(.calendar-table) th {
   background-color: transparent !important;
 }
 
@@ -455,18 +456,20 @@ body::before {
   transform: translateY(-1px);
 }
 
+/* 主要アクションはティール（参照サイトの「日誌を追加」「編集」ボタンに合わせる） */
 .btn-primary {
-  background-color: var(--ink);
-  border-color: var(--ink);
+  background-color: var(--lake);
+  border-color: var(--lake);
   color: white;
-  box-shadow: 0 6px 16px rgba(23, 45, 49, 0.16);
+  box-shadow: 0 6px 16px rgba(78, 125, 137, 0.24);
 }
 
 .btn-primary:hover,
 .btn-primary:focus {
-  background-color: #24484d;
-  border-color: #24484d;
-  box-shadow: 0 8px 20px rgba(23, 45, 49, 0.22);
+  background-color: var(--lake-text);
+  border-color: var(--lake-text);
+  color: white;
+  box-shadow: 0 8px 20px rgba(78, 125, 137, 0.3);
 }
 
 .btn-secondary {
@@ -598,6 +601,13 @@ textarea.form-control {
 /* カード内テーブルでも帯の色を保つ（.card .table の透明化より後に適用） */
 .card .table thead th {
   background-color: var(--lake-soft) !important;
+}
+
+/* カレンダーの曜日見出しはクリームの帯（淡いブルーの帯は一覧表のみ） */
+.table.calendar-table thead th,
+.card .table.calendar-table thead th {
+  background-color: rgba(243, 239, 231, 0.9) !important;
+  color: var(--ink-soft);
 }
 
 /* 横スクロールするテーブルの外枠を角丸に */
@@ -833,6 +843,27 @@ textarea.form-control {
 }
 
 /* =============================================
+   空の状態
+   ============================================= */
+.empty-state {
+  padding: 56px 24px;
+  text-align: center;
+}
+
+.empty-state-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+
+.empty-state-text {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  margin: 0;
+}
+
+/* =============================================
    月ナビゲーション（‹ 2026年9月 › 今月）
    ============================================= */
 .monthnav {
@@ -946,6 +977,23 @@ textarea.form-control {
   }
   .sidebar.is-open {
     transform: translateX(0);
+  }
+
+  /* ブランド表示を大きく */
+  .sidebar-brand {
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .sidebar-brand-icon {
+    width: 52px;
+    height: 52px;
+    font-size: 24px;
+  }
+  .sidebar-brand-name {
+    font-size: 22px;
+  }
+  .sidebar-brand-sub {
+    font-size: 12px;
   }
 
   /* ナビ項目：アイコンを上、ラベルを下に置いた中央揃えの大きめタップ領域 */
