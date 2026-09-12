@@ -537,7 +537,8 @@ class AiGenerateAllView(LoginRequiredMixin, View):
 
     SYSTEM_PROMPT = """あなたは放課後等デイサービスの記録専門AIアシスタントです。
 職員のメモ書きと選択されたタグをもとに、4種類の記録文章を生成してください。です/ます調・「して下さいました」などの過剰な敬語は不要です。
-必ず以下のJSON形式のみで返してください。余分なテキストや説明は一切不要です。
+必ず以下のJSON形式のみで返してください。余分なテキストや説明、コードフェンスは一切不要です。
+文字列の中に改行を入れず、1つの文字列は1行で書いてください。
 
 {
   "observation": "活動内容・観察記録（80〜120字・事実に基づき客観的に）",
@@ -571,7 +572,8 @@ class AiGenerateAllView(LoginRequiredMixin, View):
             end   = raw.rfind('}') + 1
             if start < 0 or end <= start:
                 raise json.JSONDecodeError('JSONが含まれていない', raw, 0)
-            data  = json.loads(raw[start:end])
+            # 文字列中に改行がそのまま入ることがあるため strict=False で許容する
+            data  = json.loads(raw[start:end], strict=False)
             if not isinstance(data, dict):
                 raise json.JSONDecodeError('object expected', raw, 0)
             return JsonResponse({
@@ -603,7 +605,8 @@ class AiActivityPlanView(LoginRequiredMixin, View):
 対象は発達に特性のある小学生〜高校生です。安全・役割分担・感覚・言語・社会性など、
 活動の性質に合った観点を選び、抽象的な言葉ではなく現場で観察できる行動で書いてください。
 
-必ず以下のJSON形式のみで返してください。余分な説明は不要です。
+必ず以下のJSON形式のみで返してください。余分な説明やコードフェンスは不要です。
+文字列の中に改行を入れず、1つの文字列は1行で書いてください。
 {
   "aim": "活動全体のめあて（1文・30字以内。例：役割分担、気を付けて調理道具をつかおう）",
   "viewpoints": ["観察の観点1", "観察の観点2", "観察の観点3"],
@@ -643,7 +646,8 @@ reflection は、【職員のメモ】がある場合はその事実に基づい
             raw = ''.join(b.text for b in response.content if b.type == 'text').strip()
             start = raw.find('{')
             end   = raw.rfind('}') + 1
-            data  = json.loads(raw[start:end])
+            # 文字列中に改行がそのまま入ることがあるため strict=False で許容する
+            data  = json.loads(raw[start:end], strict=False)
             if not isinstance(data, dict):
                 raise json.JSONDecodeError('object expected', raw, 0)
 
@@ -659,6 +663,7 @@ reflection は、【職員のメモ】がある場合はその事実に基づい
                 'reflection': str(data.get('reflection', '')).strip(),
             })
         except json.JSONDecodeError:
+            logger.warning('活動プラン生成の返答がJSONでない: %r', raw[:200] if 'raw' in locals() else None)
             return JsonResponse({'error': 'AIの返答を解析できませんでした。もう一度お試しください。'}, status=500)
         except anthropic.AuthenticationError:
             return JsonResponse({'error': 'Anthropic APIキーが無効です。設定を確認してください。'}, status=500)

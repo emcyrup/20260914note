@@ -140,3 +140,12 @@ class AiGenerateAllViewTests(TestCase):
             res = self.client.post(self.url, {'memo': '集中できた'})
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()['observation'], 'o')
+
+    @mock.patch('records.views.anthropic.Anthropic')
+    def test_raw_newlines_inside_strings_are_accepted(self, mock_client_cls):
+        text = '{"observation":"1行目\n2行目","support":"s","reaction":"r","parent_message":"p"}'
+        mock_client_cls.return_value.messages.create.return_value = _fake_response(text)
+        with self.settings(ANTHROPIC_API_KEY='sk-ant-test'):
+            res = self.client.post(self.url, {'memo': '集中できた'})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['observation'], '1行目\n2行目')
