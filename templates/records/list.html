@@ -609,8 +609,9 @@
                 {{ r.get_status_display }}
               </span>
             </div>
-            {% if r.activity_tags.all %}
+            {% if r.activity_name or r.activity_tags.all %}
             <div class="mb-1">
+              {% if r.activity_name %}<span class="tag-chip">{{ r.activity_name }}</span>{% endif %}
               {% for tag in r.activity_tags.all %}
               <span class="tag-chip">{{ tag.name }}</span>
               {% endfor %}
@@ -663,6 +664,25 @@
             </button>
           </div>
         </div>
+
+        <!-- 活動・めあて・考察 -->
+        {% if selected_record.activity_name or selected_record.activity_aim or selected_record.activity_reflection %}
+        <div class="detail-section">
+          <div class="detail-section-label">活動・めあて</div>
+          {% if selected_record.activity_name %}
+          <p class="detail-section-text mb-1"><strong>活動：</strong>{{ selected_record.activity_name }}</p>
+          {% endif %}
+          {% if selected_record.activity_aim %}
+          <p class="detail-section-text" style="white-space:pre-line;"><strong>めあて：</strong>{{ selected_record.activity_aim }}</p>
+          {% endif %}
+        </div>
+        {% if selected_record.activity_reflection %}
+        <div class="detail-section">
+          <div class="detail-section-label">考察</div>
+          <p class="detail-section-text" style="white-space:pre-line;">{{ selected_record.activity_reflection }}</p>
+        </div>
+        {% endif %}
+        {% endif %}
 
         <!-- 観察記録 -->
         <div class="detail-section">
@@ -781,7 +801,7 @@
     <div class="modal-content">
       <form method="post" action="{% url 'records:create' beneficiary.pk %}"
             enctype="multipart/form-data"
-            x-data="journalCreateForm('{% url 'records:ai_generate_all' %}')"
+            x-data="journalCreateForm('{% url 'records:ai_generate_all' %}', '{% url 'records:ai_activity_plan' %}')"
             @submit.prevent="submitForm($el)">
         {% csrf_token %}
         <div class="modal-header" style="border-bottom:1px solid #e8e8e8;">
@@ -875,6 +895,40 @@
             </div>
             <template x-for="d in selectedDomains" :key="d">
               <input type="hidden" :name="d" value="1">
+            </template>
+          </div>
+
+          <!-- 活動・めあて・考察（活動名からAIで生成） -->
+          <div class="mb-3" style="background:var(--sheet);border:1px solid var(--field-line);border-radius:12px;padding:14px;">
+            <label class="form-label small fw-semibold mb-1" style="color:var(--lake-text);">
+              <i class="bi bi-flag me-1"></i>活動
+            </label>
+            <div class="d-flex gap-2 align-items-start flex-wrap">
+              <input type="text" name="activity_name" class="form-control" style="flex:1;min-width:180px;"
+                     x-model="activityName" maxlength="100"
+                     placeholder="例：クッキー作り／かるた／トンボストロー">
+              <button type="button" class="ai-btn px-3 py-2" style="font-size:0.82rem;white-space:nowrap;"
+                      @click="generateActivityPlan()" :disabled="planning || !activityName.trim()">
+                <i class="bi bi-stars me-1"></i>
+                <span x-show="!planning">AIでめあて・考察を生成</span>
+                <span x-show="planning">生成中...</span>
+              </button>
+            </div>
+            <p class="text-muted mb-0 mt-1" style="font-size:0.72rem;">
+              活動名を入れて生成すると、観察の観点（めあて）と考察の下書きが入ります。メモを先に書いておくと、考察はその内容を踏まえます。
+            </p>
+            <p x-show="planErrorMsg" class="text-danger small mb-0 mt-1" x-text="planErrorMsg"></p>
+            <div x-show="activityAim || activityReflection" x-transition class="mt-2">
+              <label class="form-label small fw-semibold mb-1">めあて・観点</label>
+              <textarea name="activity_aim" class="form-control form-control-sm mb-2" rows="4" x-model="activityAim"></textarea>
+              <label class="form-label small fw-semibold mb-1">考察</label>
+              <textarea name="activity_reflection" class="form-control form-control-sm" rows="3" x-model="activityReflection"></textarea>
+            </div>
+            <template x-if="!(activityAim || activityReflection)">
+              <div>
+                <input type="hidden" name="activity_aim" value="">
+                <input type="hidden" name="activity_reflection" value="">
+              </div>
             </template>
           </div>
 
@@ -1013,7 +1067,13 @@
               },
               {{ selected_support_tag_ids_json }},
               {{ selected_domain_keys_json }},
-              {{ selected_activity_tag_ids_json }}
+              {{ selected_activity_tag_ids_json }},
+              '{% url 'records:ai_activity_plan' %}',
+              {
+                name:       '{{ selected_record.activity_name|escapejs }}',
+                aim:        '{{ selected_record.activity_aim|escapejs }}',
+                reflection: '{{ selected_record.activity_reflection|escapejs }}'
+              }
             )">
         {% csrf_token %}
         <div class="modal-header" style="border-bottom:1px solid #e8e8e8;">
@@ -1121,6 +1181,40 @@
             </div>
             <template x-for="d in selectedDomains" :key="d">
               <input type="hidden" :name="d" value="1">
+            </template>
+          </div>
+
+          <!-- 活動・めあて・考察（活動名からAIで生成） -->
+          <div class="mb-3" style="background:var(--sheet);border:1px solid var(--field-line);border-radius:12px;padding:14px;">
+            <label class="form-label small fw-semibold mb-1" style="color:var(--lake-text);">
+              <i class="bi bi-flag me-1"></i>活動
+            </label>
+            <div class="d-flex gap-2 align-items-start flex-wrap">
+              <input type="text" name="activity_name" class="form-control" style="flex:1;min-width:180px;"
+                     x-model="activityName" maxlength="100"
+                     placeholder="例：クッキー作り／かるた／トンボストロー">
+              <button type="button" class="ai-btn px-3 py-2" style="font-size:0.82rem;white-space:nowrap;"
+                      @click="generateActivityPlan()" :disabled="planning || !activityName.trim()">
+                <i class="bi bi-stars me-1"></i>
+                <span x-show="!planning">AIでめあて・考察を生成</span>
+                <span x-show="planning">生成中...</span>
+              </button>
+            </div>
+            <p class="text-muted mb-0 mt-1" style="font-size:0.72rem;">
+              活動名を入れて生成すると、観察の観点（めあて）と考察の下書きが入ります。メモを先に書いておくと、考察はその内容を踏まえます。
+            </p>
+            <p x-show="planErrorMsg" class="text-danger small mb-0 mt-1" x-text="planErrorMsg"></p>
+            <div x-show="activityAim || activityReflection" x-transition class="mt-2">
+              <label class="form-label small fw-semibold mb-1">めあて・観点</label>
+              <textarea name="activity_aim" class="form-control form-control-sm mb-2" rows="4" x-model="activityAim"></textarea>
+              <label class="form-label small fw-semibold mb-1">考察</label>
+              <textarea name="activity_reflection" class="form-control form-control-sm" rows="3" x-model="activityReflection"></textarea>
+            </div>
+            <template x-if="!(activityAim || activityReflection)">
+              <div>
+                <input type="hidden" name="activity_aim" value="">
+                <input type="hidden" name="activity_reflection" value="">
+              </div>
             </template>
           </div>
 
@@ -1333,8 +1427,57 @@ document.addEventListener('keydown', function(e) {
 /**
  * 新規日誌フォーム：1メモ→AI一括生成
  */
-function journalCreateForm(generateUrl) {
+/**
+ * 活動名 → めあて・考察の生成（作成・編集フォーム共通）
+ */
+function activityPlanMixin(planUrl, init) {
+  init = init || {};
   return {
+    activityName:       init.name       || '',
+    activityAim:        init.aim        || '',
+    activityReflection: init.reflection || '',
+    planning:           false,
+    planErrorMsg:       '',
+
+    // 一括生成のタグ文脈に活動名も含める
+    _tagsWithActivity(tagNames) {
+      const a = (this.activityName || '').trim();
+      if (!a) return tagNames || '';
+      return '活動：' + a + (tagNames ? '、' + tagNames : '');
+    },
+
+    async generateActivityPlan() {
+      const activity = (this.activityName || '').trim();
+      if (!activity) { this.planErrorMsg = '活動名を入力してから生成してください。'; return; }
+      this.planErrorMsg = '';
+      this.planning     = true;
+      const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
+      try {
+        const fd = new FormData();
+        fd.append('activity', activity);
+        fd.append('memo', this.memo || '');
+        fd.append('tags', this._tagNames || '');
+        fd.append('csrfmiddlewaretoken', csrf);
+        const res  = await fetch(planUrl, { method: 'POST', body: fd });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.error) {
+          this.planErrorMsg = data.error || `サーバーエラー (${res.status})`;
+          return;
+        }
+        this.activityAim        = data.aim_text   || '';
+        this.activityReflection = data.reflection || '';
+      } catch(e) {
+        this.planErrorMsg = '通信エラー: ' + e.message;
+      } finally {
+        this.planning = false;
+      }
+    }
+  };
+}
+
+function journalCreateForm(generateUrl, planUrl) {
+  return {
+    ...activityPlanMixin(planUrl),
     memo:                '',
     generating:          false,
     generated:           false,
@@ -1364,7 +1507,7 @@ function journalCreateForm(generateUrl) {
       try {
         const fd = new FormData();
         fd.append('memo', this.memo);
-        fd.append('tags', tagNames);
+        fd.append('tags', this._tagsWithActivity(tagNames));
         fd.append('csrfmiddlewaretoken', csrf);
         const res  = await fetch(generateUrl, { method: 'POST', body: fd });
         if (!res.ok) {
@@ -1416,8 +1559,9 @@ function journalCreateForm(generateUrl) {
 /**
  * 編集フォーム：既存の記録文章を表示しつつ、AIで再生成も可能
  */
-function journalEditForm(generateUrl, initialResult, initSupportTags = [], initDomains = [], initActivityTags = []) {
+function journalEditForm(generateUrl, initialResult, initSupportTags = [], initDomains = [], initActivityTags = [], planUrl = '', initActivity = {}) {
   return {
+    ...activityPlanMixin(planUrl, initActivity),
     memo:                '',
     generating:          false,
     result:              initialResult,
@@ -1440,7 +1584,7 @@ function journalEditForm(generateUrl, initialResult, initSupportTags = [], initD
       try {
         const fd = new FormData();
         fd.append('memo', this.memo);
-        fd.append('tags', tagNames);
+        fd.append('tags', this._tagsWithActivity(tagNames));
         fd.append('csrfmiddlewaretoken', csrf);
         const res = await fetch(generateUrl, { method: 'POST', body: fd });
         if (!res.ok) { this.errorMsg = `サーバーエラー (${res.status})`; return; }

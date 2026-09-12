@@ -19,7 +19,7 @@
   <link rel="stylesheet"
         href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   <!-- カスタムCSS（みちのーとデザインシステム） -->
-  <link rel="stylesheet" href="{% static 'css/base.css' %}?v=20260912g">
+  <link rel="stylesheet" href="{% static 'css/base.css' %}?v=20260912h">
 
   {% block extra_css %}{% endblock %}
 </head>
@@ -38,8 +38,8 @@
         <i class="bi bi-heart-pulse-fill"></i>
       </div>
       <div>
-        <div class="sidebar-brand-name">放デイ業務支援</div>
-        <div class="sidebar-brand-sub">{{ user.facility.name|default:"施設名未設定" }}</div>
+        <div class="sidebar-brand-name">{{ user.facility.name|default:"放デイ業務支援" }}</div>
+        <div class="sidebar-brand-sub">放課後等デイサービス</div>
       </div>
     </a>
 

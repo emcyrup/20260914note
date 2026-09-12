@@ -353,6 +353,9 @@ class DailyRecordCreateView(LoginRequiredMixin, View):
             'domain_cognition_behavior': 'domain_cognition_behavior' in p,
             'domain_language_comm':    'domain_language_comm' in p,
             'domain_social':           'domain_social' in p,
+            'activity_name':           p.get('activity_name', '').strip()[:100],
+            'activity_aim':            p.get('activity_aim', ''),
+            'activity_reflection':     p.get('activity_reflection', ''),
             'observation_memo':        p.get('observation_memo', ''),
             'support_memo':            p.get('support_memo', ''),
             'reaction_memo':           p.get('reaction_memo', ''),
@@ -422,6 +425,9 @@ class DailyRecordUpdateView(LoginRequiredMixin, View):
         record.domain_cognition_behavior = 'domain_cognition_behavior' in p
         record.domain_language_comm    = 'domain_language_comm' in p
         record.domain_social           = 'domain_social' in p
+        record.activity_name           = p.get('activity_name', '').strip()[:100]
+        record.activity_aim            = p.get('activity_aim', '')
+        record.activity_reflection     = p.get('activity_reflection', '')
         record.observation_memo        = p.get('observation_memo', '')
         record.support_memo            = p.get('support_memo', '')
         record.reaction_memo           = p.get('reaction_memo', '')
@@ -570,3 +576,83 @@ class AiGenerateAllView(LoginRequiredMixin, View):
             return JsonResponse({'error': 'AIの返答を解析できませんでした。もう一度お試しください。'}, status=500)
         except Exception as e:
             return JsonResponse({'error': f'AIでの処理中にエラーが発生しました: {str(e)}'}, status=500)
+
+
+# =============================================
+# AI めあて・考察の生成（活動名 → 観察の観点と考察の下書き）
+# =============================================
+class AiActivityPlanView(LoginRequiredMixin, View):
+    """
+    「クッキー作り」「かるた」など活動名を入力すると、
+    紙の業務日誌の「めあて：」に相当する観察の観点と、考察の下書きを生成する。
+    メモが入力済みならそれを踏まえた考察に、未入力なら活動から想定される観点で下書きする。
+    """
+
+    SYSTEM_PROMPT = """あなたは放課後等デイサービスの児童発達支援管理責任者を補助するAIです。
+職員が入力した「活動」から、業務日誌に書く「めあて」と「考察」を作成してください。
+対象は発達に特性のある小学生〜高校生です。安全・役割分担・感覚・言語・社会性など、
+活動の性質に合った観点を選び、抽象的な言葉ではなく現場で観察できる行動で書いてください。
+
+必ず以下のJSON形式のみで返してください。余分な説明は不要です。
+{
+  "aim": "活動全体のめあて（1文・30字以内。例：役割分担、気を付けて調理道具をつかおう）",
+  "viewpoints": ["観察の観点1", "観察の観点2", "観察の観点3"],
+  "reflection": "考察（120〜180字・です/ます調）"
+}
+
+viewpoints は3〜4項目、各20字以内で、職員が活動中に見るポイントを書いてください。
+reflection は、【職員のメモ】がある場合はその事実に基づいて本人の様子と次回への示唆を書き、
+メモがない場合は「（下書き）」で始め、観点に沿って確認すべき点を示す下書きにしてください。"""
+
+    def post(self, request):
+        activity = request.POST.get('activity', '').strip()
+        memo     = request.POST.get('memo', '').strip()
+        tags     = request.POST.get('tags', '').strip()
+
+        if not activity:
+            return JsonResponse({'error': '活動名を入力してから生成してください。'}, status=400)
+        if not settings.ANTHROPIC_API_KEY:
+            return JsonResponse({'error': 'ANTHROPIC_API_KEY が設定されていません。施設設定または .env を確認してください。'}, status=500)
+
+        user_content = f'【活動】\n{activity}'
+        if tags:
+            user_content += f'\n\n【選択されたタグ（活動・支援内容）】\n{tags}'
+        if memo:
+            user_content += f'\n\n【職員のメモ】\n{memo}'
+
+        try:
+            client   = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+            response = client.messages.create(
+                model='claude-opus-5',
+                max_tokens=1500,
+                output_config={'effort': 'medium'},
+                system=self.SYSTEM_PROMPT,
+                messages=[{'role': 'user', 'content': user_content}],
+            )
+            # 思考ブロックが先頭に来ることがあるため、テキストブロックだけを取り出す
+            raw = ''.join(b.text for b in response.content if b.type == 'text').strip()
+            start = raw.find('{')
+            end   = raw.rfind('}') + 1
+            data  = json.loads(raw[start:end])
+
+            aim        = str(data.get('aim', '')).strip()
+            viewpoints = [str(v).strip() for v in data.get('viewpoints', []) if str(v).strip()]
+            aim_text   = aim
+            if viewpoints:
+                aim_text += ('\n' if aim_text else '') + '\n'.join(f'・{v}' for v in viewpoints)
+            return JsonResponse({
+                'aim':        aim,
+                'viewpoints': viewpoints,
+                'aim_text':   aim_text,
+                'reflection': str(data.get('reflection', '')).strip(),
+            })
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'AIの返答を解析できませんでした。もう一度お試しください。'}, status=500)
+        except anthropic.AuthenticationError:
+            return JsonResponse({'error': 'Anthropic APIキーが無効です。設定を確認してください。'}, status=500)
+        except anthropic.RateLimitError:
+            return JsonResponse({'error': 'AIの利用上限に達しました。少し待ってからもう一度お試しください。'}, status=503)
+        except anthropic.APIStatusError as e:
+            return JsonResponse({'error': f'AIサービスでエラーが発生しました（{e.status_code}）。'}, status=502)
+        except anthropic.APIConnectionError:
+            return JsonResponse({'error': 'AIサービスに接続できませんでした。ネットワークを確認してください。'}, status=502)

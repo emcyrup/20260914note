@@ -75,6 +75,12 @@ class DailyRecord(models.Model):
         ActivityTag, blank=True, related_name='records', verbose_name='活動タグ'
     )
 
+    # --- 活動・めあて・考察（紙の業務日誌の「活動：／めあて：」に相当） ---
+    # 活動名を入力すると、めあて（観察の観点）と考察の下書きをAIで生成できる
+    activity_name       = models.CharField(max_length=100, blank=True, verbose_name='活動')
+    activity_aim        = models.TextField(blank=True, verbose_name='めあて・観点')
+    activity_reflection = models.TextField(blank=True, verbose_name='考察')
+
     # 支援内容タグ（複数選択可・加算集計に使用）
     support_tags = models.ManyToManyField(
         SupportContentTag, blank=True, related_name='records', verbose_name='支援内容タグ'

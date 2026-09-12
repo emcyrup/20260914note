@@ -98,8 +98,8 @@ body::before {
   right: auto;
   z-index: 200;
   display: flex;
-  width: 240px;
-  padding: 24px 18px 18px;
+  width: 264px;
+  padding: 26px 18px 18px;
   overflow-y: auto;
   color: #eff3ed;
   background: linear-gradient(150deg, #16333b 0%, #10292f 74%);
@@ -128,19 +128,19 @@ body::before {
 
 .sidebar-brand-icon {
   display: grid;
-  width: 40px;
-  height: 40px;
+  width: 46px;
+  height: 46px;
   border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 50% 50% 50% 12px;
+  border-radius: 50%;
   place-items: center;
   color: #cad6bd;
-  font-size: 18px;
+  font-size: 22px;
   flex-shrink: 0;
 }
 
 .sidebar-brand-name {
   font-family: var(--font-display);
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: 0.06em;
   color: #eff3ed;
@@ -148,7 +148,7 @@ body::before {
 }
 
 .sidebar-brand-sub {
-  font-size: 11px;
+  font-size: 12px;
   color: rgba(239, 243, 237, 0.55);
   letter-spacing: 0.06em;
 }
@@ -174,13 +174,13 @@ body::before {
 .sidebar-nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 44px;
-  padding: 0 12px;
-  border-radius: 10px;
+  gap: 12px;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 12px;
   color: rgba(239, 243, 237, 0.72);
   text-decoration: none;
-  font-size: 13px;
+  font-size: 14px;
   transition: background 160ms ease, color 160ms ease, transform 160ms ease;
 }
 
@@ -297,7 +297,7 @@ body::before {
    ============================================= */
 .main-area {
   min-height: 100vh;
-  margin-left: 240px;
+  margin-left: 264px;
 }
 
 /* スティッキートップバー */
@@ -840,6 +840,16 @@ textarea.form-control {
   background: var(--lake-text);
   color: #fff;
   transform: translateY(-1px);
+}
+
+/* =============================================
+   ホームの見出し
+   ============================================= */
+.dash-heading {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--lake-text);
+  margin-bottom: 14px;
 }
 
 /* =============================================

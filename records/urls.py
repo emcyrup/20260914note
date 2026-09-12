@@ -10,6 +10,7 @@ urlpatterns = [
     path('<int:pk>/edit/', views.DailyRecordUpdateView.as_view(), name='update'),
     path('ai/polish/', views.AiPolishView.as_view(), name='ai_polish'),
     path('ai/generate-all/', views.AiGenerateAllView.as_view(), name='ai_generate_all'),
+    path('ai/activity-plan/', views.AiActivityPlanView.as_view(), name='ai_activity_plan'),
     path('photo/<int:photo_pk>/delete/', views.DailyRecordPhotoDeleteView.as_view(), name='photo_delete'),
     path('memo/create/', views.StaffMemoCreateView.as_view(), name='memo_create'),
     path('memo/<int:pk>/delete/', views.StaffMemoDeleteView.as_view(), name='memo_delete'),
