@@ -15,7 +15,7 @@
 
 | 役割 | 技術 |
 |---|---|
-| バックエンド | Python 3 / Django 6 |
+| バックエンド | Python 3.12 以上 / Django 6 |
 | データベース | PostgreSQL（pgvector拡張対応） |
 | フロントエンド | Bootstrap 5 / HTMX / Alpine.js |
 | AI | Anthropic Claude API |
@@ -62,7 +62,9 @@ DYLD_LIBRARY_PATH=/opt/homebrew/lib python manage.py runserver
 | `SECRET_KEY` | Djangoのシークレットキー（本番では長いランダム文字列を使用） |
 | `DEBUG` | 開発時は `True`、本番は `False` |
 | `DJANGO_ALLOWED_HOSTS` | アクセスを許可するホスト名（例: `example.com,localhost`） |
-| `DATABASE_URL` | PostgreSQL接続URL（例: `postgresql://user:pass@localhost/dbname`）。空欄の場合はSQLiteを使用 |
+| `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_HOST` / `DB_PORT` | PostgreSQL の接続情報。`DB_NAME` が空欄の場合はSQLiteを使用 |
+| `CSRF_TRUSTED_ORIGINS` | リバースプロキシ越しのHTTPSで使うオリジン（例: `https://app.example.com`） |
+| `MEDIA_ROOT` | 写真などアップロードファイルの保存先（Dockerではボリュームを割り当てる） |
 | `ANTHROPIC_API_KEY` | Anthropic Claude APIキー |
 | `LINE_CHANNEL_ACCESS_TOKEN` | LINE Messaging APIのチャネルアクセストークン |
 | `LINE_CHANNEL_SECRET` | LINE Messaging APIのチャネルシークレット |
@@ -104,6 +106,84 @@ pip install -r requirements.txt
 python manage.py migrate
 python manage.py collectstatic --noinput
 # Gunicornを再起動（systemctlまたはプロセスを再起動）
+```
+
+## AWS へのデプロイ（最小コスト構成）
+
+Lightsail 1台に Docker Compose（Caddy → Gunicorn/Django → PostgreSQL）を載せる構成です。
+インフラは Terraform（`infra/terraform/`）、デプロイは GitHub Actions（`.github/workflows/deploy.yml`）が行います。
+
+```
+GitHub (main に push)
+  └─ Actions: テスト → Docker イメージを GHCR に push → SSH でサーバーへ
+                                                          │
+Lightsail（固定IP・2GB）                                   ▼
+  └─ docker compose: caddy(443, 自動HTTPS) → app(8000) → db(PostgreSQL)
+                      └─ /media は Caddy が配信          └─ 毎日 3:30 pg_dump → S3（30日保持）
+```
+
+月額の目安：Lightsail 2GB プラン 約 $7 ＋ S3 数十円（RDS を使わないぶん安い。代わりに DB はサーバー内のコンテナで、可用性は1台分）。
+
+### 1. インフラを作る（手元で1回）
+
+```bash
+# 前提: aws CLI にログイン済み、terraform >= 1.5、~/.ssh/id_ed25519.pub がある
+cd infra/terraform
+cp terraform.tfvars.example terraform.tfvars   # 必要に応じて編集
+terraform init
+terraform apply
+terraform output          # static_ip / backup_bucket / backup_iam_user が出る
+```
+
+DNS の A レコードを `static_ip` に向けてください（ドメインなしでも `http://<IP>` で検証できます）。
+
+### 2. サーバーに .env を置く（1回）
+
+```bash
+ssh ubuntu@<static_ip>
+# 初回起動時に deploy/setup-server.sh が Docker などを入れている（cloud-init のログ: /var/log/cloud-init-output.log）
+nano /opt/dayservice/.env      # deploy/.env.production.example を元に作成
+```
+
+S3 バックアップを使う場合は、Terraform が作った IAM ユーザーのアクセスキーを発行して `.env` に書きます。
+
+```bash
+aws iam create-access-key --user-name <backup_iam_user>
+```
+
+### 3. GitHub Secrets を登録する（1回）
+
+| Secret | 値 |
+|---|---|
+| `DEPLOY_HOST` | `terraform output static_ip` |
+| `DEPLOY_SSH_KEY` | `~/.ssh/id_ed25519` の中身（Terraform に登録した公開鍵の対） |
+| `GHCR_PULL_TOKEN` | `read:packages` 権限の Personal Access Token（リポジトリが Public なら不要） |
+
+### 4. デプロイする
+
+`main` に push するだけです（Actions → Deploy から手動実行も可）。初回はデプロイ後に管理者を作成します。
+
+```bash
+ssh ubuntu@<static_ip>
+cd /opt/dayservice && docker compose exec app python manage.py createsuperuser
+```
+
+### 運用
+
+```bash
+cd /opt/dayservice
+docker compose ps                       # 状態
+docker compose logs -f app              # アプリのログ
+docker compose exec app python manage.py shell
+./backup.sh                             # 手動バックアップ（毎日 3:30 に自動実行）
+# 復元: gunzip -c backups/db-YYYYMMDD-HHMMSS.sql.gz | docker compose exec -T db psql -U dayservice dayservice
+```
+
+ローカルで本番イメージを試す場合:
+
+```bash
+docker build -t dayservice .
+docker run --rm -p 8000:8000 -e SECRET_KEY=dev -e DEBUG=True -e DJANGO_ALLOWED_HOSTS=localhost dayservice
 ```
 
 ## LINE Webhook の設定

@@ -2,8 +2,16 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from django.http import HttpResponse
+
+
+def healthz(request):
+    """コンテナ／ロードバランサーのヘルスチェック用（認証なし・DBに触らない）"""
+    return HttpResponse('ok', content_type='text/plain')
+
 
 urlpatterns = [
+    path('healthz/', healthz, name='healthz'),
     path('admin/', admin.site.urls),
     path('accounts/', include('accounts.urls')),
     path('', include('facilities.urls')),

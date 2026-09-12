@@ -1,0 +1,10 @@
+aws_region          = "ap-northeast-1"
+name                = "dayservice"
+bundle_id           = "small_3_0"
+ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+
+# 事務所の固定IPがあれば SSH を絞る（GitHub Actions からのデプロイには 0.0.0.0/0 が必要）
+# ssh_allowed_cidrs = ["203.0.113.10/32"]
+
+enable_backup_bucket = true
+# backup_bucket_name = "dayservice-backups-xxxx"   # 空なら自動生成

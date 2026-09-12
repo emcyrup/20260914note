@@ -105,7 +105,11 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = config('STATIC_ROOT', default=str(BASE_DIR / 'staticfiles'))
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+# Docker ではボリュームを割り当てるため環境変数で差し替えられるようにする
+MEDIA_ROOT = Path(config('MEDIA_ROOT', default=str(BASE_DIR / 'media')))
+
+# リバースプロキシ（Caddy/Nginx）越しの HTTPS で POST を受けるために必要（例: https://app.example.com）
+CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -128,8 +132,10 @@ if not DEBUG:
     # セッションIDとCSRFトークンをHTTPSのみで送信（通信傍受対策）
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    # HTTPアクセスをHTTPSへ強制リダイレクト
-    SECURE_SSL_REDIRECT = True
+    # HTTPアクセスをHTTPSへ強制リダイレクト（ドメイン未設定で http://IP 検証中だけ False にできる）
+    SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=True, cast=bool)
+    # コンテナのヘルスチェックはHTTPで来るためリダイレクト対象から外す
+    SECURE_REDIRECT_EXEMPT = [r'^healthz/$']
     # ブラウザに1年間HTTPSを強制させる（HSTS）
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True

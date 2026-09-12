@@ -1,0 +1,63 @@
+# =============================================
+# 本番用 Docker Compose（Lightsail / EC2 1台構成）
+#   caddy（HTTPS終端・写真配信） → app（Gunicorn/Django） → db（PostgreSQL）
+#   サーバー上では /opt/dayservice に置き、同じ場所の .env を読む
+# =============================================
+name: dayservice
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-dayservice}
+      POSTGRES_USER: ${DB_USER:-dayservice}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD を .env に設定してください}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-dayservice} -d ${DB_NAME:-dayservice}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    # GitHub Actions がビルドして GHCR に push したイメージ。デプロイ時に APP_IMAGE で固定する
+    image: ${APP_IMAGE:-ghcr.io/emcyrup/20260914note:latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      MEDIA_ROOT: /app/media
+      STATIC_ROOT: /app/staticfiles
+    volumes:
+      - media:/app/media
+    expose:
+      - "8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # 例: DOMAIN=app.example.com → Let's Encrypt で自動HTTPS。未設定なら http://<IP> で待ち受け
+      DOMAIN: ${DOMAIN:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - media:/srv/media:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
+  media:
+  caddy_data:
+  caddy_config:

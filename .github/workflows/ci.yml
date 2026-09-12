@@ -1,0 +1,36 @@
+# Pull Request と main 以外への push でテストを回す（デプロイはしない）
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      # WeasyPrint が import 時に必要とする描画ライブラリ
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Django check & tests
+        env:
+          SECRET_KEY: ci-only-secret-key
+          DEBUG: "True"
+          DJANGO_ALLOWED_HOSTS: localhost
+        run: |
+          python manage.py check
+          python manage.py test --noinput
