@@ -1,8 +1,9 @@
 # =============================================
-# main への push → テスト → イメージを GHCR に push → Lightsail に SSH でデプロイ
+# main への push → テスト → イメージを GHCR に push → Compute Engine に SSH でデプロイ
 #
 # 必要な GitHub Secrets（Settings → Secrets and variables → Actions）
 #   DEPLOY_HOST      : サーバーの固定IP（terraform output static_ip）
+#   DEPLOY_USER      : サーバーのログインユーザー（terraform の ssh_user。既定 deploy）
 #   DEPLOY_SSH_KEY   : Terraform に登録した公開鍵に対応する秘密鍵（ed25519 の中身）
 #   GHCR_PULL_TOKEN  : サーバーがイメージを取得するための PAT（read:packages）。
 #                      リポジトリが Public なら不要
@@ -21,6 +22,7 @@ permissions:
 env:
   IMAGE: ghcr.io/${{ github.repository }}
   APP_DIR: /opt/dayservice
+  DEPLOY_USER: ${{ secrets.DEPLOY_USER || 'deploy' }}
 
 jobs:
   test:
@@ -94,7 +96,7 @@ jobs:
         run: |
           rsync -az -e "ssh -i ~/.ssh/deploy_key" \
             deploy/docker-compose.yml deploy/Caddyfile deploy/backup.sh \
-            "ubuntu@${{ secrets.DEPLOY_HOST }}:${{ env.APP_DIR }}/"
+            "${{ env.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:${{ env.APP_DIR }}/"
 
       - name: Pull image, migrate, restart
         env:
@@ -102,7 +104,7 @@ jobs:
           GHCR_USER: ${{ github.actor }}
           GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
         run: |
-          ssh -i ~/.ssh/deploy_key "ubuntu@${{ secrets.DEPLOY_HOST }}" \
+          ssh -i ~/.ssh/deploy_key "${{ env.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
             "APP_IMAGE='$APP_IMAGE' GHCR_USER='$GHCR_USER' GHCR_PULL_TOKEN='$GHCR_PULL_TOKEN' bash -s" <<'REMOTE'
             set -euo pipefail
             cd /opt/dayservice

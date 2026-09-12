@@ -1,20 +1,24 @@
 #!/bin/bash
 # =============================================
-# サーバー初期設定（Ubuntu 22.04）
-#   Terraform の user_data として起動時に1回実行される。手動で流しても可（冪等）
+# サーバー初期設定（Ubuntu 22.04 / Compute Engine）
+#   Terraform がメタデータ user-data に載せ、初回起動時に cloud-init が1回実行する。手動で流しても可（冪等）
+#   - deploy ユーザー（メタデータの ssh-keys と同じ名前）
 #   - Docker / Docker Compose plugin
-#   - AWS CLI（バックアップの S3 送信用・任意）
+#   - スワップ 2GB（e2-micro でも PDF 生成が落ちないように）
 #   - /opt/dayservice（compose・Caddyfile・.env を置く場所）
 #   - 毎日 3:30 の DB バックアップ cron
 # =============================================
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
-DEPLOY_USER=ubuntu
+DEPLOY_USER=deploy
 APP_DIR=/opt/dayservice
 
+# デプロイ用ユーザー（GCE のゲストエージェントがメタデータの公開鍵をこのユーザーに配る）
+id -u "$DEPLOY_USER" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$DEPLOY_USER"
+
 apt-get update
-apt-get install -y --no-install-recommends ca-certificates curl git unzip
+apt-get install -y --no-install-recommends ca-certificates curl git
 
 # Docker（公式スクリプト）
 if ! command -v docker >/dev/null 2>&1; then
@@ -22,13 +26,18 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 usermod -aG docker "$DEPLOY_USER" || true
 
-# AWS CLI v2（S3 バックアップ用。不要なら削っても動作に影響なし）
-if ! command -v aws >/dev/null 2>&1; then
-  tmp=$(mktemp -d)
-  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "$tmp/awscliv2.zip"
-  unzip -q "$tmp/awscliv2.zip" -d "$tmp"
-  "$tmp/aws/install" >/dev/null
-  rm -rf "$tmp"
+# gcloud（GCE の Ubuntu イメージには入っている。無ければ apt で）
+if ! command -v gcloud >/dev/null 2>&1; then
+  apt-get install -y --no-install-recommends google-cloud-cli || true
+fi
+
+# スワップ 2GB（メモリが少ないマシンでも WeasyPrint の PDF 生成が落ちないように）
+if [ ! -f /swapfile ]; then
+  fallocate -l 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
 
 # アプリ配置先
@@ -36,8 +45,8 @@ mkdir -p "$APP_DIR/backups"
 chown -R "$DEPLOY_USER:$DEPLOY_USER" "$APP_DIR"
 
 # 毎日 3:30 に DB バックアップ（backup.sh は GitHub Actions のデプロイで配置される）
-cat > /etc/cron.d/dayservice-backup <<'CRON'
-30 3 * * * ubuntu [ -x /opt/dayservice/backup.sh ] && /opt/dayservice/backup.sh >> /opt/dayservice/backups/backup.log 2>&1
+cat > /etc/cron.d/dayservice-backup <<CRON
+30 3 * * * $DEPLOY_USER [ -x $APP_DIR/backup.sh ] && $APP_DIR/backup.sh >> $APP_DIR/backups/backup.log 2>&1
 CRON
 chmod 644 /etc/cron.d/dayservice-backup
 

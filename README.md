@@ -108,63 +108,73 @@ python manage.py collectstatic --noinput
 # Gunicornを再起動（systemctlまたはプロセスを再起動）
 ```
 
-## AWS へのデプロイ（最小コスト構成）
+## GCP へのデプロイ（最小コスト構成）
 
-Lightsail 1台に Docker Compose（Caddy → Gunicorn/Django → PostgreSQL）を載せる構成です。
+Compute Engine 1台に Docker Compose（Caddy → Gunicorn/Django → PostgreSQL）を載せる構成です。
 インフラは Terraform（`infra/terraform/`）、デプロイは GitHub Actions（`.github/workflows/deploy.yml`）が行います。
 
 ```
 GitHub (main に push)
   └─ Actions: テスト → Docker イメージを GHCR に push → SSH でサーバーへ
                                                           │
-Lightsail（固定IP・2GB）                                   ▼
+Compute Engine（固定IP・e2-small）                          ▼
   └─ docker compose: caddy(443, 自動HTTPS) → app(8000) → db(PostgreSQL)
-                      └─ /media は Caddy が配信          └─ 毎日 3:30 pg_dump → S3（30日保持）
+                      └─ /media は Caddy が配信          └─ 毎日 3:30 pg_dump → Cloud Storage（30日保持）
 ```
 
-月額の目安：Lightsail 2GB プラン 約 $7 ＋ S3 数十円（RDS を使わないぶん安い。代わりに DB はサーバー内のコンテナで、可用性は1台分）。
+月額の目安（東京 asia-northeast1・e2-small）：VM 約 $16 ＋ ディスク 約 $1.5 ＋ 外部IP 約 $3.7 ＋ Cloud Storage 数十円 ≒ **約 $21**。
+`machine_type = "e2-micro"` にすると約 $13、さらに `region = "us-central1"` にすると Always Free 枠で VM 代が $0 になります（日本からの遅延は増えます）。
+Cloud SQL を使わないぶん安く、代わりに DB はサーバー内のコンテナで可用性は1台分です。
 
-### 1. インフラを作る（手元で1回）
+### 1. GCP プロジェクトと手元の準備（1回）
 
 ```bash
-# 前提: aws CLI にログイン済み、terraform >= 1.5、~/.ssh/id_ed25519.pub がある
+brew install --cask google-cloud-sdk && brew install terraform
+gcloud auth login
+gcloud projects create dayservice-prod-123456 --name="放デイ業務支援"   # ID は世界で一意
+gcloud billing accounts list
+gcloud billing projects link dayservice-prod-123456 --billing-account=XXXXXX-XXXXXX-XXXXXX
+gcloud config set project dayservice-prod-123456
+gcloud auth application-default login          # Terraform が使う認証
+```
+
+### 2. インフラを作る（1回）
+
+```bash
 cd infra/terraform
-cp terraform.tfvars.example terraform.tfvars   # 必要に応じて編集
+cp terraform.tfvars.example terraform.tfvars   # project_id を書き換える
 terraform init
 terraform apply
-terraform output          # static_ip / backup_bucket / backup_iam_user が出る
+terraform output          # static_ip / ssh_command / backup_bucket が出る
 ```
 
 DNS の A レコードを `static_ip` に向けてください（ドメインなしでも `http://<IP>` で検証できます）。
 
-### 2. サーバーに .env を置く（1回）
+### 3. サーバーに .env を置く（1回）
 
 ```bash
-ssh ubuntu@<static_ip>
-# 初回起動時に deploy/setup-server.sh が Docker などを入れている（cloud-init のログ: /var/log/cloud-init-output.log）
+ssh deploy@<static_ip>
+# 初回起動時に deploy/setup-server.sh が Docker などを入れている（ログ: /var/log/cloud-init-output.log）
 nano /opt/dayservice/.env      # deploy/.env.production.example を元に作成
 ```
 
-S3 バックアップを使う場合は、Terraform が作った IAM ユーザーのアクセスキーを発行して `.env` に書きます。
+バックアップを Cloud Storage に送るには `.env` に `BACKUP_GCS_BUCKET=<terraform output backup_bucket>` を足すだけです（VM のサービスアカウントで認証されるためキーは不要）。
 
-```bash
-aws iam create-access-key --user-name <backup_iam_user>
-```
-
-### 3. GitHub Secrets を登録する（1回）
+### 4. GitHub Secrets を登録する（1回）
 
 | Secret | 値 |
 |---|---|
 | `DEPLOY_HOST` | `terraform output static_ip` |
 | `DEPLOY_SSH_KEY` | `~/.ssh/id_ed25519` の中身（Terraform に登録した公開鍵の対） |
+| `DEPLOY_USER` | `deploy`（terraform の `ssh_user` を変えた場合のみ。省略時は `deploy`） |
 | `GHCR_PULL_TOKEN` | `read:packages` 権限の Personal Access Token（リポジトリが Public なら不要） |
 
-### 4. デプロイする
+### 5. デプロイする
 
 `main` に push するだけです（Actions → Deploy から手動実行も可）。初回はデプロイ後に管理者を作成します。
 
 ```bash
-ssh ubuntu@<static_ip>
+ssh deploy@<static_ip>
 cd /opt/dayservice && docker compose exec app python manage.py createsuperuser
 ```
 
@@ -178,6 +188,9 @@ docker compose exec app python manage.py shell
 ./backup.sh                             # 手動バックアップ（毎日 3:30 に自動実行）
 # 復元: gunzip -c backups/db-YYYYMMDD-HHMMSS.sql.gz | docker compose exec -T db psql -U dayservice dayservice
 ```
+
+全部消すときは、バケットを空にしてから `terraform destroy` します：
+`gcloud storage rm -r gs://<backup_bucket>/db && cd infra/terraform && terraform destroy`
 
 ローカルで本番イメージを試す場合:
 

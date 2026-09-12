@@ -1,7 +1,18 @@
-variable "aws_region" {
-  description = "リージョン（東京）"
+variable "project_id" {
+  description = "GCP プロジェクト ID（例: dayservice-prod-123456）"
   type        = string
-  default     = "ap-northeast-1"
+}
+
+variable "region" {
+  description = "リージョン。東京は asia-northeast1。Always Free 枠を使うなら us-central1 / us-west1 / us-east1"
+  type        = string
+  default     = "asia-northeast1"
+}
+
+variable "zone" {
+  description = "ゾーン（region 内）"
+  type        = string
+  default     = "asia-northeast1-a"
 }
 
 variable "name" {
@@ -10,17 +21,31 @@ variable "name" {
   default     = "dayservice"
 }
 
-variable "bundle_id" {
+variable "machine_type" {
   description = <<-EOT
-    Lightsail のプラン。2GB メモリ（WeasyPrint の PDF 生成と PostgreSQL 同居に十分）で最安のもの。
-    最新の ID と価格は `aws lightsail get-bundles --region ap-northeast-1` で確認できる。
+    VM の種類。
+      e2-small : 2GB メモリ・共有2vCPU。東京で月 約 $16。PDF 生成と PostgreSQL 同居に余裕がある（既定）
+      e2-micro : 1GB メモリ。東京で月 約 $8。スワップ2GBを自動で作るので小規模なら動く。
+                 us-central1 / us-west1 / us-east1 なら Always Free 枠で VM 代 $0
   EOT
   type        = string
-  default     = "small_3_0"
+  default     = "e2-small"
+}
+
+variable "disk_size_gb" {
+  description = "ブートディスク容量（pd-standard）。写真とDBがここに入る"
+  type        = number
+  default     = 30
+}
+
+variable "ssh_user" {
+  description = "サーバーのログインユーザー名（GitHub Actions のデプロイもこのユーザーで行う）"
+  type        = string
+  default     = "deploy"
 }
 
 variable "ssh_public_key_path" {
-  description = "サーバーに登録する SSH 公開鍵（GitHub Actions のデプロイにも同じ鍵ペアを使う）"
+  description = "サーバーに登録する SSH 公開鍵（GitHub Actions には対になる秘密鍵を登録する）"
   type        = string
   default     = "~/.ssh/id_ed25519.pub"
 }
@@ -32,13 +57,13 @@ variable "ssh_allowed_cidrs" {
 }
 
 variable "enable_backup_bucket" {
-  description = "DB バックアップ用の S3 バケットと IAM ユーザーを作るか"
+  description = "DB バックアップ用の Cloud Storage バケットを作るか"
   type        = bool
   default     = true
 }
 
 variable "backup_bucket_name" {
-  description = "バックアップ用バケット名（空なら name-backups- に乱数を付けて自動生成）"
+  description = "バックアップ用バケット名（世界で一意）。空なら name-backups-project_id で自動生成"
   type        = string
   default     = ""
 }
