@@ -28,24 +28,37 @@ class HealthzTests(SimpleTestCase):
 class HttpsSwitchTests(SimpleTestCase):
     """SECURE_SSL_REDIRECT=False（IP検証モード）では Cookie に Secure が付かず HTTP でログインできる"""
 
-    def test_settings_follow_single_switch(self):
-        import importlib, os
-        from decouple import config as _config  # noqa: F401
-        os.environ['SECRET_KEY'] = 'x'
-        os.environ['DEBUG'] = 'False'
-        os.environ['SECURE_SSL_REDIRECT'] = 'False'
-        import config.settings as s
-        importlib.reload(s)
-        try:
-            self.assertFalse(s.SECURE_SSL_REDIRECT)
-            self.assertFalse(s.SESSION_COOKIE_SECURE)
-            self.assertFalse(s.CSRF_COOKIE_SECURE)
-            self.assertFalse(hasattr(s, 'SECURE_HSTS_SECONDS'))
-            os.environ['SECURE_SSL_REDIRECT'] = 'True'
-            importlib.reload(s)
-            self.assertTrue(s.SESSION_COOKIE_SECURE)
-            self.assertEqual(s.SECURE_HSTS_SECONDS, 31536000)
-        finally:
-            for k in ('SECRET_KEY', 'DEBUG', 'SECURE_SSL_REDIRECT'):
-                os.environ.pop(k, None)
-            importlib.reload(s)
+    @staticmethod
+    def _load_settings(**env):
+        """
+        settings.py を Django が使っている本体とは別のモジュールとして読み込む。
+        環境変数は一時的に上書きし、終わったら元に戻す（.env の有無に依存しない）。
+        """
+        import importlib.util
+        import os
+        from pathlib import Path
+        from unittest import mock
+
+        path = Path(__file__).resolve().parent / 'settings.py'
+        base = {'SECRET_KEY': 'test-only', 'DEBUG': 'False', 'DJANGO_ALLOWED_HOSTS': 'localhost'}
+        base.update(env)
+        with mock.patch.dict(os.environ, base, clear=False):
+            spec = importlib.util.spec_from_file_location('settings_probe', path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        return module
+
+    def test_http_mode_disables_secure_cookies_and_hsts(self):
+        s = self._load_settings(SECURE_SSL_REDIRECT='False')
+        self.assertFalse(s.SECURE_SSL_REDIRECT)
+        self.assertFalse(s.SESSION_COOKIE_SECURE)
+        self.assertFalse(s.CSRF_COOKIE_SECURE)
+        self.assertFalse(hasattr(s, 'SECURE_HSTS_SECONDS'))
+
+    def test_https_mode_is_the_default(self):
+        s = self._load_settings()
+        self.assertTrue(s.SECURE_SSL_REDIRECT)
+        self.assertTrue(s.SESSION_COOKIE_SECURE)
+        self.assertTrue(s.CSRF_COOKIE_SECURE)
+        self.assertEqual(s.SECURE_HSTS_SECONDS, 31536000)
+        self.assertEqual(s.SECURE_REDIRECT_EXEMPT, [r'^healthz/$'])
