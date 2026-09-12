@@ -110,6 +110,8 @@ python manage.py collectstatic --noinput
 
 ## GCP へのデプロイ（最小コスト構成）
 
+> ターミナルや Terraform を使わず **Cloud Console の画面だけ**で構築する手順は [docs/DEPLOY_GCP_CONSOLE.md](docs/DEPLOY_GCP_CONSOLE.md) を参照してください。以下は CLI / Terraform で行う手順です。
+
 Compute Engine 1台に Docker Compose（Caddy → Gunicorn/Django → PostgreSQL）を載せる構成です。
 インフラは Terraform（`infra/terraform/`）、デプロイは GitHub Actions（`.github/workflows/deploy.yml`）が行います。
 
