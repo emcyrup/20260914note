@@ -127,15 +127,19 @@ LINE_CHANNEL_SECRET = config('LINE_CHANNEL_SECRET', default='')
 
 # 本番環境（DEBUG=False）のみ有効にするHTTPSセキュリティ設定
 if not DEBUG:
-    # NginxプロキシからのHTTPSを正しく認識する
+    # HTTPS で運用するか。ドメイン未設定で http://IP を検証する間だけ False にする
+    # （False の間は Cookie の Secure 属性も外れ、HTTP でログインできる）
+    USE_HTTPS = config('SECURE_SSL_REDIRECT', default=True, cast=bool)
+    # Caddy/NginxプロキシからのHTTPSを正しく認識する
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     # セッションIDとCSRFトークンをHTTPSのみで送信（通信傍受対策）
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
-    # HTTPアクセスをHTTPSへ強制リダイレクト（ドメイン未設定で http://IP 検証中だけ False にできる）
-    SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=True, cast=bool)
+    SESSION_COOKIE_SECURE = USE_HTTPS
+    CSRF_COOKIE_SECURE = USE_HTTPS
+    # HTTPアクセスをHTTPSへ強制リダイレクト
+    SECURE_SSL_REDIRECT = USE_HTTPS
     # コンテナのヘルスチェックはHTTPで来るためリダイレクト対象から外す
     SECURE_REDIRECT_EXEMPT = [r'^healthz/$']
-    # ブラウザに1年間HTTPSを強制させる（HSTS）
-    SECURE_HSTS_SECONDS = 31536000
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    if USE_HTTPS:
+        # ブラウザに1年間HTTPSを強制させる（HSTS）
+        SECURE_HSTS_SECONDS = 31536000
+        SECURE_HSTS_INCLUDE_SUBDOMAINS = True

@@ -23,3 +23,29 @@ class HealthzTests(SimpleTestCase):
         res = self.client.get('/accounts/login/')
         self.assertEqual(res.status_code, 301)
         self.assertTrue(res['Location'].startswith('https://'))
+
+
+class HttpsSwitchTests(SimpleTestCase):
+    """SECURE_SSL_REDIRECT=False（IP検証モード）では Cookie に Secure が付かず HTTP でログインできる"""
+
+    def test_settings_follow_single_switch(self):
+        import importlib, os
+        from decouple import config as _config  # noqa: F401
+        os.environ['SECRET_KEY'] = 'x'
+        os.environ['DEBUG'] = 'False'
+        os.environ['SECURE_SSL_REDIRECT'] = 'False'
+        import config.settings as s
+        importlib.reload(s)
+        try:
+            self.assertFalse(s.SECURE_SSL_REDIRECT)
+            self.assertFalse(s.SESSION_COOKIE_SECURE)
+            self.assertFalse(s.CSRF_COOKIE_SECURE)
+            self.assertFalse(hasattr(s, 'SECURE_HSTS_SECONDS'))
+            os.environ['SECURE_SSL_REDIRECT'] = 'True'
+            importlib.reload(s)
+            self.assertTrue(s.SESSION_COOKIE_SECURE)
+            self.assertEqual(s.SECURE_HSTS_SECONDS, 31536000)
+        finally:
+            for k in ('SECRET_KEY', 'DEBUG', 'SECURE_SSL_REDIRECT'):
+                os.environ.pop(k, None)
+            importlib.reload(s)
