@@ -180,6 +180,18 @@ ssh deploy@<static_ip>
 cd /opt/dayservice && docker compose exec app python manage.py createsuperuser
 ```
 
+### サンプルデータを入れる（任意）
+
+画面の動きを確認したいときは、架空の利用者6名・予定・日誌・請求データをまとめて投入できます（利用者の備考に「サンプルデータ」と入ります）。
+
+```bash
+cd /opt/dayservice
+docker compose exec app python manage.py seed_demo            # 投入
+docker compose exec app python manage.py seed_demo --reset    # 消して入れ直す
+```
+
+サンプルだけを消すには、管理画面で備考が「サンプルデータ」の利用者を削除します（予定・日誌・請求は連動して消えます）。
+
 ### 運用
 
 ```bash

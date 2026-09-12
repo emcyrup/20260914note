@@ -165,6 +165,15 @@ exit
 
 `/admin/` にログイン → **施設** を追加 → **職員アカウント** で自分に所属施設と権限区分（管理者）を設定 → `/` でホームが開く。
 
+## 8-2. サンプルデータを入れる（任意）
+
+画面の動きを確認したいとき（`/opt/dayservice` で）：
+
+```bash
+docker compose exec app python manage.py seed_demo            # 架空の利用者6名・予定・日誌・請求を投入
+docker compose exec app python manage.py seed_demo --reset    # 消して入れ直す
+```
+
 ## 9. 運用
 
 ```bash
