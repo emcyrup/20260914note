@@ -1,3 +1,340 @@
-from django.shortcuts import render
+from datetime import date
 
-# Create your views here.
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Count, Q
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils import timezone
+from django.views import View
+
+from beneficiaries.models import Beneficiary
+from esignatures.models import EsignatureRecord
+
+from .forms import (
+    AssessmentForm, ConsentDeliveryForm, MonitoringRecordForm, MonitoringSettingForm, PlanDraftForm, PlanGoalForm,
+    StaffMeetingForm, SupportPlanForm,
+)
+from .models import MonitoringRecord, PlanGoal, SupportPlan
+
+STEP_FORMS = {
+    SupportPlan.STEP_ASSESSMENT: AssessmentForm,
+    SupportPlan.STEP_DRAFT:      PlanDraftForm,
+    SupportPlan.STEP_MEETING:    StaffMeetingForm,
+    SupportPlan.STEP_CONSENT:    ConsentDeliveryForm,
+    SupportPlan.STEP_MONITORING: MonitoringSettingForm,
+}
+
+
+class PlanMixin(LoginRequiredMixin):
+    """自施設の計画だけを扱う"""
+
+    def get_plan(self, pk):
+        return get_object_or_404(
+            SupportPlan.objects.select_related('beneficiary', 'manager'),
+            pk=pk, facility=self.request.user.facility,
+        )
+
+
+# =============================================
+# 一覧
+# =============================================
+class PlanListView(LoginRequiredMixin, View):
+    def get(self, request):
+        facility = request.user.facility
+        status = request.GET.get('status', 'open')
+        qs = SupportPlan.objects.filter(facility=facility).select_related('beneficiary', 'manager')
+        if status == 'open':
+            qs = qs.exclude(status=SupportPlan.STATUS_CLOSED)
+        elif status in dict(SupportPlan.STATUS_CHOICES):
+            qs = qs.filter(status=status)
+        plans = list(qs)
+        overdue = [p for p in plans if p.monitoring_overdue]
+        # 計画が1つもない在籍中の利用者
+        no_plan = Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE).annotate(
+            n=Count('support_plans', filter=~Q(support_plans__status=SupportPlan.STATUS_CLOSED))
+        ).filter(n=0)
+        return render(request, 'support_plans/list.html', {
+            'plans': plans, 'status': status, 'overdue': overdue, 'no_plan': no_plan,
+            'steps': SupportPlan.STEPS, 'today': date.today(),
+        })
+
+
+# =============================================
+# 新規作成
+# =============================================
+class PlanCreateView(LoginRequiredMixin, View):
+    def _beneficiaries(self, request):
+        return Beneficiary.objects.filter(facility=request.user.facility, status=Beneficiary.STATUS_ACTIVE)
+
+    def _default_title(self, beneficiary):
+        n = beneficiary.support_plans.count() + 1
+        return f'第{n}期 個別支援計画'
+
+    def get(self, request):
+        b_id = request.GET.get('beneficiary')
+        beneficiary = self._beneficiaries(request).filter(pk=b_id).first() if b_id else None
+        form = SupportPlanForm(facility=request.user.facility,
+                               initial={'title': self._default_title(beneficiary) if beneficiary else '第1期 個別支援計画'})
+        return render(request, 'support_plans/form.html', {
+            'form': form, 'beneficiaries': self._beneficiaries(request), 'selected': beneficiary,
+        })
+
+    def post(self, request):
+        beneficiary = get_object_or_404(self._beneficiaries(request), pk=request.POST.get('beneficiary'))
+        form = SupportPlanForm(request.POST, facility=request.user.facility)
+        if not form.is_valid():
+            return render(request, 'support_plans/form.html', {
+                'form': form, 'beneficiaries': self._beneficiaries(request), 'selected': beneficiary,
+            })
+        plan = form.save(commit=False)
+        plan.facility = request.user.facility
+        plan.beneficiary = beneficiary
+        plan.created_by = request.user
+        plan.save()
+        for n, _ in SupportPlan.STEPS:
+            plan.get_step(n)
+        messages.success(request, f'{beneficiary.full_name} さんの「{plan.title}」を作成しました。ステップ1 アセスメントから始めてください。')
+        return redirect('support_plans:step', pk=plan.pk, n=SupportPlan.STEP_ASSESSMENT)
+
+
+# =============================================
+# 詳細（進捗の全体像）
+# =============================================
+class PlanDetailView(PlanMixin, View):
+    def get(self, request, pk):
+        plan = self.get_plan(pk)
+        return render(request, 'support_plans/detail.html', {
+            'plan': plan, 'progress': plan.step_progress(), 'today': date.today(),
+            'goals': plan.goals.all(),
+            'monitoring_records': plan.monitoring_records.all()[:5],
+            'successor': getattr(plan, 'successor', None),
+        })
+
+
+# =============================================
+# 各ステップ
+# =============================================
+class PlanStepView(PlanMixin, View):
+    template_name = 'support_plans/step.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        self.plan = self.get_plan(kwargs['pk'])
+        self.n = kwargs['n']
+        if self.n not in dict(SupportPlan.STEPS):
+            return redirect('support_plans:detail', pk=self.plan.pk)
+        if not self.plan.can_open_step(self.n):
+            prev = dict(SupportPlan.STEPS)[self.n - 1]
+            messages.warning(request, f'ステップ{self.n - 1}「{prev}」が完了していないため、ステップ{self.n} はまだ開けません。')
+            return redirect('support_plans:step', pk=self.plan.pk, n=self.plan.current_step)
+        self.step = self.plan.get_step(self.n)
+        self.readonly = self.plan.is_step_done(self.n) or self.plan.status == SupportPlan.STATUS_CLOSED
+        return super().dispatch(request, *args, **kwargs)
+
+    def _context(self, form, **extra):
+        plan = self.plan
+        ctx = {
+            'plan': plan, 'n': self.n, 'step': self.step, 'form': form, 'readonly': self.readonly,
+            'label': dict(SupportPlan.STEPS)[self.n],
+            'description': SupportPlan.STEP_DESCRIPTIONS[self.n],
+            'progress': plan.step_progress(),
+            'requirements': self.step.requirements(),
+            'today': date.today(),
+            'can_reopen': plan.can_reopen_step(self.n),
+            'is_last': self.n == SupportPlan.STEP_MONITORING,
+        }
+        if self.n == SupportPlan.STEP_DRAFT:
+            edit_id = self.request.GET.get('goal')
+            editing = plan.goals.filter(pk=edit_id).first() if edit_id else None
+            ctx['goals_long']  = plan.goals.filter(goal_type=PlanGoal.TYPE_LONG)
+            ctx['goals_short'] = plan.goals.filter(goal_type=PlanGoal.TYPE_SHORT)
+            ctx['editing_goal'] = editing
+            ctx['goal_form'] = extra.pop('goal_form', None) or PlanGoalForm(instance=editing, facility=plan.facility)
+            ctx['assessment'] = plan.get_step(SupportPlan.STEP_ASSESSMENT)
+        if self.n == SupportPlan.STEP_MEETING:
+            ctx['goals'] = plan.goals.all()
+        if self.n == SupportPlan.STEP_CONSENT:
+            ctx['signatures'] = EsignatureRecord.objects.filter(target_type='support_plan', target_id=plan.pk)
+            ctx['guardians'] = plan.beneficiary.guardians.all()
+        if self.n == SupportPlan.STEP_MONITORING:
+            ctx['records'] = plan.monitoring_records.select_related('conducted_by')
+            ctx['record_form'] = extra.pop('record_form', None) or MonitoringRecordForm(
+                facility=plan.facility,
+                initial={'date': date.today(), 'conducted_by': self.request.user, 'next_due': self._suggest_next_due()},
+            )
+            ctx['goals'] = plan.goals.all()
+            ctx['successor'] = getattr(plan, 'successor', None)
+            ctx['next_due'] = plan.next_monitoring_due
+            ctx['overdue'] = plan.monitoring_overdue
+        ctx.update(extra)
+        return ctx
+
+    def _suggest_next_due(self):
+        from .models import _add_months
+        return _add_months(date.today(), self.step.interval_months)
+
+    def get(self, request, pk, n):
+        form = STEP_FORMS[n](instance=self.step, facility=self.plan.facility)
+        if self.readonly:
+            for field in form.fields.values():
+                field.widget.attrs['disabled'] = True
+        return render(request, self.template_name, self._context(form))
+
+    def post(self, request, pk, n):
+        if self.readonly:
+            messages.info(request, 'このステップは完了済みです。修正する場合は「完了を取り消して修正」を押してください。')
+            return redirect('support_plans:step', pk=pk, n=n)
+        form = STEP_FORMS[n](request.POST, instance=self.step, facility=self.plan.facility)
+        if not form.is_valid():
+            messages.error(request, '入力内容に誤りがあります。')
+            return render(request, self.template_name, self._context(form))
+        form.save()
+        action = request.POST.get('action', 'save')
+        if action == 'complete':
+            remaining = self.plan.complete_step(n, request.user)
+            if remaining:
+                messages.warning(request, 'まだ完了できません。残り：' + '、'.join(remaining))
+                return redirect('support_plans:step', pk=pk, n=n)
+            label = dict(SupportPlan.STEPS)[n]
+            if n < SupportPlan.STEP_MONITORING:
+                nxt = dict(SupportPlan.STEPS)[n + 1]
+                messages.success(request, f'ステップ{n}「{label}」を完了しました。次はステップ{n + 1}「{nxt}」です。')
+                return redirect('support_plans:step', pk=pk, n=n + 1)
+        messages.success(request, '保存しました。')
+        return redirect('support_plans:step', pk=pk, n=n)
+
+
+class PlanStepReopenView(PlanMixin, View):
+    def post(self, request, pk, n):
+        plan = self.get_plan(pk)
+        if not plan.can_reopen_step(n):
+            messages.error(request, 'このステップは取り消せません（直前に完了したステップだけ修正できます）。')
+            return redirect('support_plans:detail', pk=pk)
+        plan.reopen_step(n)
+        messages.info(request, f'ステップ{n}「{dict(SupportPlan.STEPS)[n]}」の完了を取り消しました。修正後にもう一度完了してください。')
+        return redirect('support_plans:step', pk=pk, n=n)
+
+
+# =============================================
+# ステップ2：目標
+# =============================================
+class GoalSaveView(PlanMixin, View):
+    def post(self, request, pk, goal_pk=None):
+        plan = self.get_plan(pk)
+        if plan.current_step != SupportPlan.STEP_DRAFT:
+            messages.error(request, '目標はステップ2「計画（原案）の作成」の間だけ編集できます。')
+            return redirect('support_plans:detail', pk=pk)
+        goal = get_object_or_404(plan.goals, pk=goal_pk) if goal_pk else None
+        form = PlanGoalForm(request.POST, instance=goal, facility=plan.facility)
+        if not form.is_valid():
+            view = PlanStepView()
+            view.request, view.plan, view.n = request, plan, SupportPlan.STEP_DRAFT
+            view.step, view.readonly = plan.get_step(SupportPlan.STEP_DRAFT), False
+            draft_form = PlanDraftForm(instance=view.step, facility=plan.facility)
+            messages.error(request, '目標の入力内容に誤りがあります。')
+            return render(request, view.template_name, view._context(draft_form, goal_form=form, editing_goal=goal))
+        g = form.save(commit=False)
+        g.plan = plan
+        if not goal_pk:
+            g.order = plan.goals.filter(goal_type=g.goal_type).count()
+        g.save()
+        messages.success(request, f'{g.get_goal_type_display()}を{"更新" if goal_pk else "追加"}しました。')
+        return redirect('support_plans:step', pk=pk, n=SupportPlan.STEP_DRAFT)
+
+
+class GoalDeleteView(PlanMixin, View):
+    def post(self, request, pk, goal_pk):
+        plan = self.get_plan(pk)
+        if plan.current_step != SupportPlan.STEP_DRAFT:
+            messages.error(request, '目標はステップ2の間だけ削除できます。')
+            return redirect('support_plans:detail', pk=pk)
+        goal = get_object_or_404(plan.goals, pk=goal_pk)
+        goal.delete()
+        messages.success(request, '目標を削除しました。')
+        return redirect('support_plans:step', pk=pk, n=SupportPlan.STEP_DRAFT)
+
+
+# =============================================
+# ステップ5：モニタリング記録
+# =============================================
+class MonitoringRecordCreateView(PlanMixin, View):
+    def post(self, request, pk):
+        plan = self.get_plan(pk)
+        if plan.current_step != SupportPlan.STEP_MONITORING or plan.status == SupportPlan.STATUS_CLOSED:
+            messages.error(request, 'モニタリングはステップ5に進んでから記録できます。')
+            return redirect('support_plans:detail', pk=pk)
+        form = MonitoringRecordForm(request.POST, facility=plan.facility)
+        if not form.is_valid():
+            view = PlanStepView()
+            view.request, view.plan, view.n = request, plan, SupportPlan.STEP_MONITORING
+            view.step, view.readonly = plan.get_step(SupportPlan.STEP_MONITORING), False
+            setting_form = MonitoringSettingForm(instance=view.step, facility=plan.facility)
+            messages.error(request, 'モニタリング記録の入力内容に誤りがあります。')
+            return render(request, view.template_name, view._context(setting_form, record_form=form))
+        rec = form.save(commit=False)
+        rec.plan = plan
+        rec.save()
+        step = plan.get_step(SupportPlan.STEP_MONITORING)
+        if not step.completed_at:
+            step.completed_at = timezone.now()
+            step.completed_by = request.user
+            step.save(update_fields=['completed_at', 'completed_by'])
+        if rec.review_needed:
+            messages.warning(request, 'モニタリングを記録しました。見直しが必要と判断したので「次の計画を作成」から新しい計画を始められます。')
+        else:
+            messages.success(request, f'モニタリングを記録しました。次回期限：{rec.next_due or "未設定"}')
+        return redirect('support_plans:step', pk=pk, n=SupportPlan.STEP_MONITORING)
+
+
+class MonitoringRecordDeleteView(PlanMixin, View):
+    def post(self, request, pk, record_pk):
+        plan = self.get_plan(pk)
+        rec = get_object_or_404(plan.monitoring_records, pk=record_pk)
+        rec.delete()
+        messages.success(request, 'モニタリング記録を削除しました。')
+        return redirect('support_plans:step', pk=pk, n=SupportPlan.STEP_MONITORING)
+
+
+# =============================================
+# 見直し → 次の計画
+# =============================================
+class SuccessorCreateView(PlanMixin, View):
+    def post(self, request, pk):
+        plan = self.get_plan(pk)
+        if hasattr(plan, 'successor') and plan.successor:
+            return redirect('support_plans:detail', pk=plan.successor.pk)
+        if plan.current_step != SupportPlan.STEP_MONITORING:
+            messages.error(request, '次の計画はモニタリング（ステップ5）まで進んでから作成できます。')
+            return redirect('support_plans:detail', pk=pk)
+        n = plan.beneficiary.support_plans.count() + 1
+        new = SupportPlan.objects.create(
+            facility=plan.facility, beneficiary=plan.beneficiary, title=f'第{n}期 個別支援計画',
+            manager=plan.manager, predecessor=plan, created_by=request.user,
+        )
+        for s, _ in SupportPlan.STEPS:
+            new.get_step(s)
+        # 前回のアセスメントを下書きとして引き継ぐ
+        old_a, new_a = plan.get_step(1), new.get_step(1)
+        new_a.condition, new_a.environment, new_a.wishes = old_a.condition, old_a.environment, old_a.wishes
+        new_a.save()
+        messages.success(request, f'「{new.title}」を作成しました。前回のアセスメント内容を下書きとして引き継いでいます。ステップ1 から見直してください。')
+        return redirect('support_plans:step', pk=new.pk, n=SupportPlan.STEP_ASSESSMENT)
+
+
+# =============================================
+# 印刷用（交付する計画書）
+# =============================================
+class PlanPrintView(PlanMixin, View):
+    def get(self, request, pk):
+        plan = self.get_plan(pk)
+        return render(request, 'support_plans/print.html', {
+            'plan': plan,
+            'assessment': plan.get_step(1), 'draft': plan.get_step(2), 'meeting': plan.get_step(3),
+            'consent': plan.get_step(4),
+            'goals_long': plan.goals.filter(goal_type=PlanGoal.TYPE_LONG),
+            'goals_short': plan.goals.filter(goal_type=PlanGoal.TYPE_SHORT),
+            'signatures': EsignatureRecord.objects.filter(target_type='support_plan', target_id=plan.pk),
+            'facility': plan.facility, 'today': date.today(),
+        })

@@ -48,6 +48,13 @@ class SaveSignatureView(LoginRequiredMixin, View):
             from records.models import DailyRecord
             if not DailyRecord.objects.filter(pk=int(target_id), facility=facility).exists():
                 return JsonResponse({'ok': False, 'error': '対象の日誌が見つかりません'})
+        elif target_type == 'support_plan':
+            from support_plans.models import SupportPlan
+            plan = SupportPlan.objects.filter(pk=int(target_id), facility=facility).first()
+            if not plan:
+                return JsonResponse({'ok': False, 'error': '対象の支援計画が見つかりません'})
+            if plan.current_step != SupportPlan.STEP_CONSENT:
+                return JsonResponse({'ok': False, 'error': '同意の署名はステップ4「説明・同意・交付」で行います'})
 
         # base64 → バイナリに変換
         if ',' in image_data:

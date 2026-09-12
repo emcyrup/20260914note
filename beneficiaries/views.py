@@ -84,6 +84,10 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
         # 受給者証の期限アラート判定用
         ctx['today'] = today
         ctx['cert_expiry_soon'] = today + datetime.timedelta(days=30)
+        # 個別支援計画（進行中のものを先頭に）
+        plans = list(b.support_plans.select_related('manager'))
+        ctx['support_plans'] = plans
+        ctx['current_plan'] = next((p for p in plans if p.status != 'closed'), None)
         return ctx
 
 

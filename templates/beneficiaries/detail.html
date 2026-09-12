@@ -106,15 +106,58 @@
     <div class="d-flex align-items-center gap-1 flex-wrap">
       <div class="flow-step"><i class="bi bi-chat-dots"></i>相談支援</div>
       <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
-      <div class="flow-step"><i class="bi bi-clipboard2-check"></i>アセスメント</div>
+      {% if current_plan %}
+      <a href="{% url 'support_plans:step' current_plan.pk 1 %}" class="flow-step"><i class="bi bi-clipboard2-check"></i>アセスメント</a>
       <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
-      <div class="flow-step"><i class="bi bi-file-earmark-text"></i>支援計画</div>
+      <a href="{% url 'support_plans:detail' current_plan.pk %}" class="flow-step"><i class="bi bi-file-earmark-text"></i>支援計画</a>
+      {% else %}
+      <a href="{% url 'support_plans:create' %}?beneficiary={{ beneficiary.pk }}" class="flow-step"><i class="bi bi-clipboard2-check"></i>アセスメント</a>
+      <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
+      <a href="{% url 'support_plans:create' %}?beneficiary={{ beneficiary.pk }}" class="flow-step"><i class="bi bi-file-earmark-text"></i>支援計画</a>
+      {% endif %}
       <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
       <a href="{% url 'records:list' beneficiary.pk %}" class="flow-step"><i class="bi bi-journal-text"></i>日誌</a>
       <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
+      {% if current_plan and current_plan.current_step == 5 %}
+      <a href="{% url 'support_plans:step' current_plan.pk 5 %}" class="flow-step"><i class="bi bi-graph-up"></i>モニタリング</a>
+      {% else %}
       <div class="flow-step"><i class="bi bi-graph-up"></i>モニタリング</div>
+      {% endif %}
       <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
       <div class="flow-step"><i class="bi bi-arrow-repeat"></i>次の計画</div>
+    </div>
+
+    <!-- 個別支援計画の状況 -->
+    <div class="mt-3 pt-3" style="border-top:1px solid #eee;">
+      <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+        <div class="section-title mb-0">個別支援計画</div>
+        {% if not current_plan %}
+        <a href="{% url 'support_plans:create' %}?beneficiary={{ beneficiary.pk }}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>計画を作る</a>
+        {% endif %}
+      </div>
+      {% if current_plan %}
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+          <a href="{% url 'support_plans:detail' current_plan.pk %}" class="fw-bold">{{ current_plan.title }}</a>
+          <span class="badge {% if current_plan.status == 'active' %}text-bg-success{% else %}text-bg-info{% endif %} ms-1">{{ current_plan.get_status_display }}</span>
+          <div class="small text-muted">ステップ{{ current_plan.current_step }}：{{ current_plan.get_current_step_display }}
+            {% if current_plan.status == 'active' and current_plan.next_monitoring_due %}　次回モニタリング {{ current_plan.next_monitoring_due|date:'Y/n/j' }}{% if current_plan.monitoring_overdue %}<span class="text-danger fw-bold">（期限超過）</span>{% endif %}{% endif %}
+          </div>
+        </div>
+        <div class="d-flex align-items-center gap-2" style="min-width:220px;">
+          <div class="stepper-bar flex-grow-1"><span style="width: {{ current_plan.progress_percent }}%;"></span></div>
+          <a href="{% url 'support_plans:step' current_plan.pk current_plan.current_step %}" class="btn btn-sm btn-primary">続きを進める</a>
+        </div>
+      </div>
+      {% else %}
+      <div class="small text-muted">計画はまだありません。アセスメントから5つのステップで作成します。</div>
+      {% endif %}
+      {% if support_plans|length > 1 or support_plans and not current_plan %}
+      <div class="small text-muted mt-2">
+        過去の計画：
+        {% for p in support_plans %}{% if p != current_plan %}<a href="{% url 'support_plans:detail' p.pk %}">{{ p.title }}</a>（{{ p.get_status_display }}）{% if not forloop.last %}　{% endif %}{% endif %}{% endfor %}
+      </div>
+      {% endif %}
     </div>
   </div>
 

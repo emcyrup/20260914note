@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ plan.beneficiary.full_name }} {{ plan.title }} — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}{{ plan.beneficiary.full_name }} さんの{{ plan.title }}{% endblock %}
+{% block nav_plans %}active{% endblock %}
+
+{% block content %}
+<div class="px-2">
+
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+      <a href="{% url 'support_plans:list' %}" class="text-muted small"><i class="bi bi-arrow-left me-1"></i>計画一覧</a>
+      <span class="text-muted small mx-1">/</span>
+      <a href="{% url 'beneficiaries:detail' plan.beneficiary.pk %}" class="text-muted small">{{ plan.beneficiary.full_name }}</a>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{% url 'support_plans:print' plan.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>計画書を印刷</a>
+      {% if plan.status != 'closed' %}
+      <a href="{% url 'support_plans:step' plan.pk plan.current_step %}" class="btn btn-sm btn-primary">
+        <i class="bi bi-play-fill me-1"></i>ステップ{{ plan.current_step }} を進める
+      </a>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div>
+          <span class="badge {% if plan.status == 'active' %}text-bg-success{% elif plan.status == 'closed' %}text-bg-secondary{% else %}text-bg-info{% endif %} me-2">{{ plan.get_status_display }}</span>
+          <span class="small text-muted">児発管：{{ plan.manager|default:'未設定' }}　作成：{{ plan.created_at|date:'Y/n/j' }}</span>
+        </div>
+        <div class="small text-muted">
+          {% if plan.predecessor %}前の計画：<a href="{% url 'support_plans:detail' plan.predecessor.pk %}">{{ plan.predecessor.title }}</a>{% endif %}
+          {% if successor %}　次の計画：<a href="{% url 'support_plans:detail' successor.pk %}">{{ successor.title }}</a>{% endif %}
+        </div>
+      </div>
+      {% include 'support_plans/_stepper.html' with progress=progress plan=plan %}
+    </div>
+  </div>
+
+  <div class="row g-3">
+    {% for s in progress %}
+    <div class="col-md-6 col-xl-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+            <div class="d-flex align-items-center gap-2">
+              <span class="stepper-num {% if s.state == 'done' %}bg-success text-white{% elif s.state == 'current' %}bg-primary text-white{% endif %}">{{ s.n }}</span>
+              <div class="fw-bold">{{ s.label }}</div>
+            </div>
+            <span class="step-status is-{{ s.state }}">
+              {% if s.state == 'done' %}<i class="bi bi-check-circle-fill"></i>完了
+              {% elif s.state == 'current' %}<i class="bi bi-pencil-fill"></i>{% if s.n == 5 and plan.status == 'active' %}実施中{% else %}進行中{% endif %}
+              {% else %}<i class="bi bi-lock-fill"></i>未着手{% endif %}
+            </span>
+          </div>
+          <div class="small text-muted mb-2">{{ s.description }}</div>
+          {% if s.state == 'done' %}
+          <div class="small text-muted mb-2"><i class="bi bi-person-check me-1"></i>{{ s.completed_by|default:'—' }}　{{ s.completed_at|date:'Y/n/j H:i' }}</div>
+          {% endif %}
+          <ul class="req-list mb-3">
+            {% for r in s.requirements %}
+            <li class="{% if r.done %}is-done{% else %}is-todo{% endif %}">
+              <i class="bi {% if r.done %}bi-check-circle-fill{% else %}bi-circle{% endif %}"></i><span>{{ r.label }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+          {% if s.state != 'locked' %}
+          <a href="{% url 'support_plans:step' plan.pk s.n %}" class="btn btn-sm {% if s.state == 'current' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+            {% if s.state == 'done' %}内容を見る{% elif s.n == 5 %}モニタリングを記録{% else %}入力を続ける{% endif %}
+          </a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+</div>
+{% endblock %}

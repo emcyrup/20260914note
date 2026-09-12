@@ -1,0 +1,314 @@
+{% extends 'base.html' %}
+
+{% block title %}ステップ{{ n }} {{ label }} — {{ plan.beneficiary.full_name }}{% endblock %}
+{% block page_title %}{{ plan.beneficiary.full_name }} さんの{{ plan.title }}{% endblock %}
+{% block nav_plans %}active{% endblock %}
+
+{% block content %}
+<div class="px-2">
+
+  <div class="mb-2">
+    <a href="{% url 'support_plans:list' %}" class="text-muted small"><i class="bi bi-arrow-left me-1"></i>計画一覧</a>
+    <span class="text-muted small mx-1">/</span>
+    <a href="{% url 'support_plans:detail' plan.pk %}" class="text-muted small">{{ plan.title }} の全体</a>
+  </div>
+
+  <!-- 進捗 -->
+  <div class="card mb-3">
+    <div class="card-body">
+      {% include 'support_plans/_stepper.html' with progress=progress plan=plan active_n=n %}
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <!-- 右：このステップの残り項目 -->
+    <div class="col-lg-4 order-lg-2">
+      <div class="card mb-3" style="position: sticky; top: 12px;">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="fw-bold mb-0">このステップの項目</h6>
+          </div>
+          <ul class="req-list">
+            {% for r in requirements %}
+            <li class="{% if r.done %}is-done{% else %}is-todo{% endif %}">
+              <i class="bi {% if r.done %}bi-check-circle-fill{% else %}bi-circle{% endif %}"></i><span>{{ r.label }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+          <hr>
+          {% if readonly %}
+          <div class="small text-muted">完了済み。次のステップは
+            {% if n < 5 %}<a href="{% url 'support_plans:step' plan.pk n|add:1 %}">ステップ{{ n|add:1 }}</a>{% endif %}
+          </div>
+          {% elif is_last %}
+          <div class="small text-muted">モニタリングは計画の期間中くり返します。記録を残すと次回期限が更新されます。</div>
+          {% else %}
+          <div class="small text-muted">すべてにチェックが付くと「保存してステップ{{ n }}を完了」でステップ{{ n|add:1 }}に進めます。途中保存はいつでもできます。</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <!-- 左：入力 -->
+    <div class="col-lg-8 order-lg-1">
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <div class="step-hero mb-2">
+            <span class="stepper-num {% if readonly %}bg-success text-white{% else %}bg-primary text-white{% endif %}">{{ n }}</span>
+            <div>
+              <h5 class="fw-bold mb-0">{{ label }}</h5>
+              <div class="small text-muted">{{ description }}</div>
+            </div>
+            <span class="ms-auto step-status {% if readonly %}is-done{% elif overdue %}is-overdue{% else %}is-current{% endif %}">
+              {% if readonly %}<i class="bi bi-check-circle-fill"></i>完了（{{ step.completed_at|date:'Y/n/j' }} {{ step.completed_by|default:'' }}）
+              {% elif n == 5 and plan.status == 'active' %}<i class="bi bi-arrow-repeat"></i>実施中
+              {% else %}<i class="bi bi-pencil-fill"></i>進行中{% endif %}
+            </span>
+          </div>
+
+          {% if readonly %}
+          <div class="readonly-note mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span><i class="bi bi-lock me-1"></i>このステップは完了済みのため読み取り専用です。</span>
+            {% if can_reopen %}
+            <form method="post" action="{% url 'support_plans:step_reopen' plan.pk n %}"
+                  onsubmit="return confirm('ステップ{{ n }} の完了を取り消して修正しますか？\n完了し直すまで次のステップには進めません。');">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-counterclockwise me-1"></i>完了を取り消して修正</button>
+            </form>
+            {% endif %}
+          </div>
+          {% endif %}
+
+          {# ---------- ステップ2：参考としてアセスメントを表示 ---------- #}
+          {% if n == 2 %}
+          <details class="mb-3">
+            <summary class="small fw-bold" style="cursor:pointer;">アセスメントの内容を見る（面談 {{ assessment.interview_date|date:'Y/n/j' }}）</summary>
+            <div class="small mt-2" style="white-space:pre-wrap;">
+              <div class="fw-bold text-muted">心身の状況</div>{{ assessment.condition }}
+              <div class="fw-bold text-muted mt-2">置かれている環境</div>{{ assessment.environment }}
+              <div class="fw-bold text-muted mt-2">希望する生活</div>{{ assessment.wishes }}
+            </div>
+          </details>
+          {% endif %}
+
+          {# ---------- ステップ3：原案の要約 ---------- #}
+          {% if n == 3 %}
+          <details class="mb-3" open>
+            <summary class="small fw-bold" style="cursor:pointer;">原案（ステップ2）の内容</summary>
+            <div class="small mt-2">
+              <div class="fw-bold text-muted">支援の方針</div>
+              <div style="white-space:pre-wrap;">{{ plan.draft.policy }}</div>
+              {% for g in goals %}
+              <div class="goal-item mt-2">
+                <div class="goal-type">{{ g.get_goal_type_display }}{% if g.target_date %}　達成時期 {{ g.target_date|date:'Y/n/j' }}{% endif %}</div>
+                <div class="fw-bold">{{ g.content }}</div>
+                {% if g.support_content %}<div class="text-muted" style="white-space:pre-wrap;">{{ g.support_content }}</div>{% endif %}
+              </div>
+              {% endfor %}
+            </div>
+          </details>
+          {% endif %}
+
+          <form method="post" id="stepForm">
+            {% csrf_token %}
+            <div class="row g-3">
+              {% for field in form %}
+              <div class="{% if field.field.widget.input_type == 'date' or field.name == 'interviewed_with' or field.name == 'interviewer' or field.name == 'explained_to' or field.name == 'explained_by' or field.name == 'consent_method' or field.name == 'consent_signer' or field.name == 'consultation_office' or field.name == 'interval_months' %}col-sm-6{% else %}col-12{% endif %}">
+                {% include 'support_plans/_field.html' with field=field %}
+              </div>
+              {% endfor %}
+            </div>
+
+            {% if n == 4 %}
+            {# ---------- ステップ4：電子サイン ---------- #}
+            <div class="mt-3 p-3 rounded-3" style="background: var(--paper);">
+              <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                  <div class="fw-bold"><i class="bi bi-pen me-1"></i>同意の署名（電子サイン）</div>
+                  <div class="small text-muted">同意の方法が「電子サイン」のときは、ここで保護者に署名してもらうと同意が完了します。</div>
+                </div>
+                <div class="d-flex gap-2">
+                  <a href="{% url 'support_plans:print' plan.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>計画書を表示・印刷</a>
+                  {% if not readonly %}
+                  <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#signatureModal"><i class="bi bi-pen me-1"></i>署名してもらう</button>
+                  {% endif %}
+                </div>
+              </div>
+              {% if signatures %}
+              <div class="d-flex flex-wrap gap-3 mt-3">
+                {% for sig in signatures %}
+                <div class="text-center">
+                  <img src="{{ sig.signature_image.url }}" alt="署名" style="height:70px;background:#fff;border:1px solid var(--line);border-radius:8px;">
+                  <div class="small">{{ sig.signer_name }}（{{ sig.relationship }}）{{ sig.signed_at|date:'Y/n/j' }}</div>
+                </div>
+                {% endfor %}
+              </div>
+              {% else %}
+              <div class="small text-danger mt-2"><i class="bi bi-circle me-1"></i>まだ署名がありません</div>
+              {% endif %}
+            </div>
+            {% endif %}
+
+            {% if not readonly %}
+            <div class="d-flex justify-content-end gap-2 mt-4 flex-wrap">
+              <button type="submit" name="action" value="save" class="btn btn-outline-secondary"><i class="bi bi-save me-1"></i>途中保存</button>
+              {% if not is_last %}
+              <button type="submit" name="action" value="complete" class="btn btn-primary"
+                      onclick="return confirm('ステップ{{ n }}「{{ label }}」を完了して次に進みますか？');">
+                <i class="bi bi-check2-circle me-1"></i>保存してステップ{{ n }}を完了
+              </button>
+              {% endif %}
+            </div>
+            {% endif %}
+          </form>
+        </div>
+      </div>
+
+      {# ---------- ステップ2：目標 ---------- #}
+      {% if n == 2 %}
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="fw-bold mb-3"><i class="bi bi-bullseye me-1"></i>目標（長期・短期）と具体的な支援内容</h6>
+          <div class="mb-3">
+            <div class="small fw-bold text-muted mb-1">長期目標（{{ goals_long|length }}）</div>
+            {% for g in goals_long %}
+            <div class="goal-item">
+              <div class="d-flex justify-content-between gap-2">
+                <div>
+                  <div class="fw-bold">{{ g.content }}</div>
+                  <div class="small text-muted">達成時期：{{ g.target_date|date:'Y/n/j'|default:'未設定' }}{% if g.frequency %}　{{ g.frequency }}{% endif %}</div>
+                  {% if g.support_content %}<div class="small mt-1" style="white-space:pre-wrap;">{{ g.support_content }}</div>{% endif %}
+                </div>
+                {% if not readonly %}
+                <div class="d-flex gap-1 flex-none">
+                  <a href="?goal={{ g.pk }}#goalForm" class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil"></i></a>
+                  <form method="post" action="{% url 'support_plans:goal_delete' plan.pk g.pk %}" onsubmit="return confirm('この目標を削除しますか？');">{% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button></form>
+                </div>
+                {% endif %}
+              </div>
+            </div>
+            {% empty %}<div class="small text-danger"><i class="bi bi-circle me-1"></i>長期目標がまだありません</div>{% endfor %}
+          </div>
+          <div class="mb-3">
+            <div class="small fw-bold text-muted mb-1">短期目標（{{ goals_short|length }}）</div>
+            {% for g in goals_short %}
+            <div class="goal-item">
+              <div class="d-flex justify-content-between gap-2">
+                <div>
+                  <div class="fw-bold">{{ g.content }}</div>
+                  <div class="small text-muted">達成時期：{{ g.target_date|date:'Y/n/j'|default:'未設定' }}{% if g.frequency %}　{{ g.frequency }}{% endif %}</div>
+                  {% if g.support_content %}<div class="small mt-1" style="white-space:pre-wrap;">{{ g.support_content }}</div>
+                  {% else %}<div class="small text-danger">具体的な支援内容が未記入</div>{% endif %}
+                </div>
+                {% if not readonly %}
+                <div class="d-flex gap-1 flex-none">
+                  <a href="?goal={{ g.pk }}#goalForm" class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil"></i></a>
+                  <form method="post" action="{% url 'support_plans:goal_delete' plan.pk g.pk %}" onsubmit="return confirm('この目標を削除しますか？');">{% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button></form>
+                </div>
+                {% endif %}
+              </div>
+            </div>
+            {% empty %}<div class="small text-danger"><i class="bi bi-circle me-1"></i>短期目標がまだありません</div>{% endfor %}
+          </div>
+
+          {% if not readonly %}
+          <form method="post" id="goalForm" class="p-3 rounded-3" style="background: var(--paper);"
+                action="{% if editing_goal %}{% url 'support_plans:goal_edit' plan.pk editing_goal.pk %}{% else %}{% url 'support_plans:goal_add' plan.pk %}{% endif %}">
+            {% csrf_token %}
+            <div class="fw-bold mb-2">{% if editing_goal %}目標を編集{% else %}目標を追加{% endif %}</div>
+            <div class="row g-2">
+              <div class="col-sm-4">{% include 'support_plans/_field.html' with field=goal_form.goal_type required=True %}</div>
+              <div class="col-sm-8">{% include 'support_plans/_field.html' with field=goal_form.content required=True %}</div>
+              <div class="col-sm-4">{% include 'support_plans/_field.html' with field=goal_form.target_date required=True %}</div>
+              <div class="col-sm-8">{% include 'support_plans/_field.html' with field=goal_form.frequency %}</div>
+              <div class="col-12">{% include 'support_plans/_field.html' with field=goal_form.support_content %}</div>
+            </div>
+            <div class="d-flex justify-content-end gap-2 mt-2">
+              {% if editing_goal %}<a href="{% url 'support_plans:step' plan.pk 2 %}" class="btn btn-sm btn-outline-secondary">やめる</a>{% endif %}
+              <button class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>{% if editing_goal %}更新{% else %}追加{% endif %}</button>
+            </div>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      {# ---------- ステップ5：モニタリング記録 ---------- #}
+      {% if n == 5 %}
+      <div class="card mb-3">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <h6 class="fw-bold mb-0"><i class="bi bi-graph-up me-1"></i>モニタリング記録</h6>
+            <div class="small">
+              次回期限：
+              {% if next_due %}<span class="{% if overdue %}text-danger fw-bold{% endif %}">{{ next_due|date:'Y/n/j' }}{% if overdue %}（期限超過）{% endif %}</span>{% else %}—{% endif %}
+            </div>
+          </div>
+
+          {% for r in records %}
+          <div class="goal-item">
+            <div class="d-flex justify-content-between gap-2">
+              <div>
+                <div class="fw-bold">{{ r.date|date:'Y/n/j' }}　{{ r.get_achievement_display }}
+                  {% if r.review_needed %}<span class="badge text-bg-warning ms-1">見直しが必要</span>{% endif %}
+                </div>
+                <div class="small text-muted">面談：{{ r.interviewed_with|default:'—' }}　担当：{{ r.conducted_by|default:'—' }}　次回期限：{{ r.next_due|date:'Y/n/j'|default:'—' }}</div>
+                <div class="small mt-1" style="white-space:pre-wrap;">{{ r.implementation }}</div>
+                {% if r.achievement_detail %}<div class="small mt-1 text-muted" style="white-space:pre-wrap;">{{ r.achievement_detail }}</div>{% endif %}
+                {% if r.review_reason %}<div class="small mt-1 text-danger" style="white-space:pre-wrap;">{{ r.review_reason }}</div>{% endif %}
+              </div>
+              {% if not readonly %}
+              <form method="post" action="{% url 'support_plans:monitoring_delete' plan.pk r.pk %}" class="flex-none" onsubmit="return confirm('この記録を削除しますか？');">{% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button></form>
+              {% endif %}
+            </div>
+          </div>
+          {% empty %}
+          <div class="small text-danger mb-2"><i class="bi bi-circle me-1"></i>まだモニタリングを記録していません</div>
+          {% endfor %}
+
+          {% if not readonly %}
+          <form method="post" action="{% url 'support_plans:monitoring_add' plan.pk %}" class="p-3 rounded-3 mt-3" style="background: var(--paper);">
+            {% csrf_token %}
+            <div class="fw-bold mb-2">モニタリングを記録する</div>
+            <div class="row g-2">
+              <div class="col-sm-4">{% include 'support_plans/_field.html' with field=record_form.date required=True %}</div>
+              <div class="col-sm-4">{% include 'support_plans/_field.html' with field=record_form.interviewed_with %}</div>
+              <div class="col-sm-4">{% include 'support_plans/_field.html' with field=record_form.conducted_by %}</div>
+              <div class="col-12">{% include 'support_plans/_field.html' with field=record_form.implementation required=True %}</div>
+              <div class="col-sm-4">{% include 'support_plans/_field.html' with field=record_form.achievement %}</div>
+              <div class="col-sm-8">{% include 'support_plans/_field.html' with field=record_form.achievement_detail %}</div>
+              <div class="col-12">{% include 'support_plans/_field.html' with field=record_form.review_needed %}</div>
+              <div class="col-12">{% include 'support_plans/_field.html' with field=record_form.review_reason %}</div>
+              <div class="col-sm-4">{% include 'support_plans/_field.html' with field=record_form.next_due %}</div>
+            </div>
+            <div class="d-flex justify-content-end mt-2">
+              <button class="btn btn-primary"><i class="bi bi-check2-circle me-1"></i>記録する</button>
+            </div>
+          </form>
+
+          <div class="mt-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div class="small text-muted">目標の達成や状況の変化で見直しが必要になったら、次の計画を作成します（前回のアセスメントを引き継ぎます）。</div>
+            {% if successor %}
+            <a href="{% url 'support_plans:detail' successor.pk %}" class="btn btn-sm btn-outline-primary">次の計画「{{ successor.title }}」を開く</a>
+            {% else %}
+            <form method="post" action="{% url 'support_plans:successor' plan.pk %}" onsubmit="return confirm('次の計画を作成しますか？\n新しい計画の交付・サービス開始で、この計画は「終了」になります。');">
+              {% csrf_token %}
+              <button class="btn btn-sm btn-outline-primary"><i class="bi bi-arrow-repeat me-1"></i>見直して次の計画を作成</button>
+            </form>
+            {% endif %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+    </div>
+
+  </div>
+
+</div>
+
+{% if n == 4 and not readonly %}
+{% include 'esignatures/signature_modal.html' with target_type='support_plan' target_id=plan.pk guardians=guardians %}
+{% endif %}
+{% endblock %}

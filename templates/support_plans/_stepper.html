@@ -1,0 +1,30 @@
+{% comment %}
+5ステップの進捗バー。progress = plan.step_progress()
+{% endcomment %}
+<ol class="stepper mb-2">
+  {% for s in progress %}
+  {% if s.state == 'locked' %}
+  <li class="stepper-item is-locked" title="ステップ{{ s.n|add:'-1' }} が完了すると開けます">
+    <div class="d-flex align-items-center gap-2">
+      <span class="stepper-num"><i class="bi bi-lock-fill" style="font-size:12px;"></i></span>
+      <span class="stepper-label">{{ s.label }}</span>
+    </div>
+    <span class="stepper-meta">未着手</span>
+  </li>
+  {% else %}
+  <a class="stepper-item {% if s.state == 'done' %}is-done{% elif s.state == 'current' %}is-current{% endif %}{% if s.n == active_n %} is-active{% endif %}"
+     href="{% url 'support_plans:step' plan.pk s.n %}">
+    <div class="d-flex align-items-center gap-2">
+      <span class="stepper-num">{% if s.state == 'done' %}<i class="bi bi-check-lg"></i>{% else %}{{ s.n }}{% endif %}</span>
+      <span class="stepper-label">{{ s.label }}</span>
+    </div>
+    <span class="stepper-meta">
+      {% if s.state == 'done' %}完了 {{ s.completed_at|date:'n/j' }}
+      {% elif s.n == 5 %}{% if s.done_count == s.total %}実施中{% else %}残り {{ s.remaining|length }} 件{% endif %}
+      {% else %}{{ s.done_count }}/{{ s.total }} 完了{% if s.remaining %}・残り {{ s.remaining|length }} 件{% endif %}{% endif %}
+    </span>
+  </a>
+  {% endif %}
+  {% endfor %}
+</ol>
+<div class="stepper-bar mb-1"><span style="width: {{ plan.progress_percent }}%;"></span></div>

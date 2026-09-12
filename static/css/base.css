@@ -1164,3 +1164,100 @@ textarea.form-control {
     padding: 10px 8px;
   }
 }
+
+/* =========================================================
+   個別支援計画：5ステップの進捗表示
+   ========================================================= */
+.stepper {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.stepper-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 12px 10px;
+  border-radius: 14px;
+  border: 1.5px solid var(--line);
+  background: var(--sheet);
+  color: var(--ink-soft);
+  text-decoration: none;
+  min-width: 0;
+  position: relative;
+}
+a.stepper-item:hover { border-color: var(--lake); color: var(--lake-text); }
+.stepper-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 13px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  flex: none;
+}
+.stepper-label {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--ink);
+}
+.stepper-item .stepper-meta { font-size: 11.5px; color: var(--ink-soft); }
+.stepper-item.is-done { border-color: var(--sage); background: var(--sage-soft); }
+.stepper-item.is-done .stepper-num { background: var(--sage); color: #fff; }
+.stepper-item.is-current { border-color: var(--lake); background: var(--lake-soft); box-shadow: 0 0 0 3px rgba(78,125,137,0.15); }
+.stepper-item.is-current .stepper-num { background: var(--lake); color: #fff; }
+.stepper-item.is-locked { opacity: 0.6; background: var(--paper); }
+.stepper-item.is-locked .stepper-label { color: var(--ink-soft); }
+.stepper-bar {
+  height: 6px; border-radius: 999px; background: var(--paper); overflow: hidden;
+}
+.stepper-bar > span { display: block; height: 100%; background: var(--lake); border-radius: 999px; }
+
+/* ステップの残り項目チェックリスト */
+.req-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.req-list li {
+  display: flex; align-items: flex-start; gap: 8px;
+  font-size: 13.5px; color: var(--ink);
+}
+.req-list li i { font-size: 16px; line-height: 1.3; flex: none; }
+.req-list li.is-done { color: var(--ink-soft); }
+.req-list li.is-done i { color: var(--color-success); }
+.req-list li.is-todo i { color: var(--cinnabar); }
+
+/* ステップページの見出し */
+.step-hero {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+}
+.step-hero .stepper-num { width: 40px; height: 40px; font-size: 17px; }
+.step-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 700;
+}
+.step-status.is-done    { background: var(--sage-soft); color: var(--color-success); }
+.step-status.is-current { background: var(--lake-soft); color: var(--lake-text); }
+.step-status.is-locked  { background: var(--paper); color: var(--ink-soft); }
+.step-status.is-overdue { background: var(--cinnabar-soft); color: var(--cinnabar-text); }
+
+/* 目標カード */
+.goal-item {
+  border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; background: #fff;
+}
+.goal-item + .goal-item { margin-top: 8px; }
+.goal-item .goal-type { font-size: 11px; font-weight: 700; color: var(--lake-text); letter-spacing: .05em; }
+
+.readonly-note {
+  background: var(--paper); border-radius: 12px; padding: 10px 14px; font-size: 13px; color: var(--ink-soft);
+}
+
+@media (max-width: 767.98px) {
+  .stepper { grid-template-columns: 1fr; gap: 6px; }
+  .stepper-item { flex-direction: row; align-items: center; padding: 10px 12px; }
+  .stepper-item .stepper-meta { margin-left: auto; text-align: right; }
+}

@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+
+{% block title %}新しい個別支援計画 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}新しい個別支援計画{% endblock %}
+{% block nav_plans %}active{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 640px;">
+  <div class="mb-3">
+    <a href="{% url 'support_plans:list' %}" class="text-muted small"><i class="bi bi-arrow-left me-1"></i>計画一覧に戻る</a>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="fw-bold mb-2">作成の流れ</h6>
+      <ol class="mb-0 small" style="padding-left: 1.2rem;">
+        <li>アセスメント（情報収集・面談）</li>
+        <li>個別支援計画（原案）の作成</li>
+        <li>担当者会議の開催（個別支援会議）</li>
+        <li>説明・同意・交付</li>
+        <li>モニタリング（実施状況の把握・見直し）</li>
+      </ol>
+      <div class="text-muted small mt-2">各ステップの項目がすべて揃うと「完了」でき、次のステップに進めます。</div>
+    </div>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="mb-3">
+          <label class="form-label">利用者 <span class="text-danger">*</span></label>
+          <select name="beneficiary" class="form-select" required>
+            <option value="">-- 選択してください --</option>
+            {% for b in beneficiaries %}
+            <option value="{{ b.pk }}" {% if selected and selected.pk == b.pk %}selected{% endif %}>{{ b.full_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">{{ form.title.label }} <span class="text-danger">*</span></label>
+          {{ form.title }}
+          {% for e in form.title.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+        </div>
+        <div class="mb-1">
+          <label class="form-label">{{ form.manager.label }}</label>
+          {{ form.manager }}
+          <div class="form-text">計画の作成を指揮する児童発達支援管理責任者（サービス管理責任者）</div>
+        </div>
+      </div>
+    </div>
+    <div class="d-flex gap-2 justify-content-end">
+      <a href="{% url 'support_plans:list' %}" class="btn btn-outline-secondary">キャンセル</a>
+      <button type="submit" class="btn btn-primary"><i class="bi bi-play-fill me-1"></i>作成してステップ1へ</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

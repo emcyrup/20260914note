@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>個別支援計画書 {{ plan.beneficiary.full_name }}</title>
+<style>
+  body { font-family: "BIZ UDPGothic", "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif; color: #172d31; margin: 0; padding: 24px; font-size: 12.5px; line-height: 1.6; }
+  .sheet { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 20px; text-align: center; letter-spacing: .1em; margin: 0 0 4px; }
+  .sub { text-align: center; color: #486064; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+  th, td { border: 1px solid #b7b0a3; padding: 6px 8px; vertical-align: top; text-align: left; }
+  th { background: #f3efe7; width: 22%; font-weight: 700; white-space: nowrap; }
+  .pre { white-space: pre-wrap; }
+  h2 { font-size: 14px; border-left: 4px solid #4e7d89; padding-left: 8px; margin: 18px 0 8px; }
+  .sig { display: flex; gap: 24px; align-items: flex-end; flex-wrap: wrap; }
+  .sig img { height: 60px; border-bottom: 1px solid #333; }
+  .toolbar { text-align: right; margin-bottom: 12px; }
+  .toolbar button { padding: 8px 16px; border-radius: 8px; border: 1px solid #4e7d89; background: #4e7d89; color: #fff; cursor: pointer; }
+  @media print { .toolbar { display: none; } body { padding: 0; } }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <div class="toolbar"><button onclick="window.print()">印刷する</button></div>
+  <h1>個別支援計画書</h1>
+  <div class="sub">{{ facility.name }}　{{ plan.title }}</div>
+
+  <table>
+    <tr><th>利用者氏名</th><td>{{ plan.beneficiary.full_name }}（{{ plan.beneficiary.full_name_kana }}）</td>
+        <th>生年月日</th><td>{{ plan.beneficiary.date_of_birth|date:'Y年n月j日' }}</td></tr>
+    <tr><th>計画期間</th><td>{{ draft.period_start|date:'Y年n月j日'|default:'—' }} 〜 {{ draft.period_end|date:'Y年n月j日'|default:'—' }}</td>
+        <th>児童発達支援管理責任者</th><td>{{ plan.manager|default:'—' }}</td></tr>
+    <tr><th>作成日</th><td>{{ draft.completed_at|date:'Y年n月j日'|default:'—' }}</td>
+        <th>サービス開始日</th><td>{{ consent.service_start_date|date:'Y年n月j日'|default:'—' }}</td></tr>
+  </table>
+
+  <h2>本人・家族の意向</h2>
+  <table><tr><td class="pre">{{ draft.family_wishes|default:assessment.wishes }}</td></tr></table>
+
+  <h2>総合的な支援の方針</h2>
+  <table><tr><td class="pre">{{ draft.policy }}</td></tr></table>
+
+  <h2>長期目標</h2>
+  <table>
+    <tr><th style="width:50%">目標</th><th>達成時期</th><th>頻度・時間</th></tr>
+    {% for g in goals_long %}
+    <tr><td>{{ g.content }}{% if g.support_content %}<div class="pre" style="color:#486064;">{{ g.support_content }}</div>{% endif %}</td><td>{{ g.target_date|date:'Y年n月j日'|default:'—' }}</td><td>{{ g.frequency }}</td></tr>
+    {% empty %}<tr><td colspan="3">—</td></tr>{% endfor %}
+  </table>
+
+  <h2>短期目標と具体的な支援内容</h2>
+  <table>
+    <tr><th style="width:30%">目標</th><th style="width:40%">具体的な支援内容</th><th>達成時期</th><th>頻度・時間</th></tr>
+    {% for g in goals_short %}
+    <tr><td>{{ g.content }}</td><td class="pre">{{ g.support_content }}</td><td>{{ g.target_date|date:'Y年n月j日'|default:'—' }}</td><td>{{ g.frequency }}</td></tr>
+    {% empty %}<tr><td colspan="4">—</td></tr>{% endfor %}
+  </table>
+
+  {% if draft.notes %}
+  <h2>留意事項</h2>
+  <table><tr><td class="pre">{{ draft.notes }}</td></tr></table>
+  {% endif %}
+
+  <h2>担当者会議</h2>
+  <table>
+    <tr><th>開催日</th><td>{{ meeting.meeting_date|date:'Y年n月j日'|default:'—' }}</td><th>出席者</th><td class="pre">{{ meeting.attendees }}{% if meeting.beneficiary_attended %}／本人{% endif %}{% if meeting.guardian_attended %}／保護者{% endif %}</td></tr>
+    {% if meeting.revised %}<tr><th>修正内容</th><td colspan="3" class="pre">{{ meeting.revision_summary }}</td></tr>{% endif %}
+  </table>
+
+  <h2>説明・同意</h2>
+  <p>上記の個別支援計画について説明を受け、内容に同意します。</p>
+  <table>
+    <tr><th>説明日</th><td>{{ consent.explained_date|date:'Y年n月j日'|default:'　　　年　　月　　日' }}</td><th>説明者</th><td>{{ consent.explained_by|default:'' }}</td></tr>
+    <tr><th>同意日</th><td>{% if consent.consent_method == 'paper' %}{{ consent.consent_date|date:'Y年n月j日'|default:'　　　年　　月　　日' }}{% else %}{% with s=signatures.first %}{{ s.signed_at|date:'Y年n月j日'|default:'　　　年　　月　　日' }}{% endwith %}{% endif %}</td>
+        <th>署名</th><td>
+          <div class="sig">
+            {% for s in signatures %}<div><img src="{{ s.signature_image.url }}" alt="署名"><div>{{ s.signer_name }}（{{ s.relationship }}）</div></div>
+            {% empty %}<span style="display:inline-block;width:220px;border-bottom:1px solid #333;">&nbsp;</span>{% endfor %}
+          </div>
+        </td></tr>
+  </table>
+  <p style="color:#486064;">交付：本人・家族 {{ consent.delivered_to_user_date|date:'Y年n月j日'|default:'—' }}／相談支援事業所（{{ consent.consultation_office|default:'—' }}）{{ consent.delivered_to_office_date|date:'Y年n月j日'|default:'—' }}</p>
+</div>
+</body>
+</html>

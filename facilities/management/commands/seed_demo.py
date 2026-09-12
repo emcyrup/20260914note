@@ -26,6 +26,7 @@ from billing.models import BillingMatrixEntry
 from facilities.models import Facility, SupportContentTag
 from records.models import ActivityTag, DailyRecord, StaffMemo
 from schedules.models import ScheduledVisit
+from support_plans.models import MonitoringRecord, PlanGoal, SupportPlan
 
 SAMPLE_MARK = 'サンプルデータ'
 
@@ -161,6 +162,8 @@ class Command(BaseCommand):
     def _reset(self, facility):
         bens = Beneficiary.objects.filter(facility=facility, notes__contains=SAMPLE_MARK)
         n = bens.count()
+        # 支援計画は PROTECT なので先に消す
+        SupportPlan.objects.filter(beneficiary__in=bens).delete()
         # 予定・日誌・請求・保護者・受給者証は利用者の削除でカスケードされる
         bens.delete()
         StaffMemo.objects.filter(facility=facility, content__in=MEMOS).delete()
@@ -295,9 +298,119 @@ class Command(BaseCommand):
             n_records += 1
         counts['日誌'] = n_records
 
+        # --- 個別支援計画：進み具合の違う計画を用意 ---
+        counts['個別支援計画'] = self._create_plans(facility, beneficiaries, staff, today)
+
         # --- スタッフメモ ---
         for content in MEMOS:
             StaffMemo.objects.get_or_create(facility=facility, content=content, defaults={'author': staff})
         counts['スタッフメモ'] = len(MEMOS)
 
         return counts
+
+    # ------------------------------------------------------------------
+    def _create_plans(self, facility, beneficiaries, staff, today):
+        """ステップ1〜5のそれぞれの状態にある計画を作る（動きを確認しやすくする）"""
+        D = datetime.timedelta
+
+        def new_plan(ben, title='第1期 個別支援計画'):
+            p = SupportPlan.objects.create(facility=facility, beneficiary=ben, title=title,
+                                           manager=staff, created_by=staff)
+            for n, _ in SupportPlan.STEPS:
+                p.get_step(n)
+            return p
+
+        def fill_assessment(p, ben, when):
+            a = p.get_step(1)
+            a.interview_date = when
+            a.interviewed_with = '本人・母'
+            a.interviewer = staff
+            a.condition = (f'{ben.disability_type}。好きな活動には集中して取り組めるが、予定の変更や大人数の場面で不安が強くなる。'
+                           '言葉での説明より視覚的な手がかりがあると理解しやすい。')
+            a.environment = f'小学{max(1, min(6, today.year - ben.date_of_birth.year - 6))}年生。放課後は週{sum([ben.weekday_mon, ben.weekday_tue, ben.weekday_wed, ben.weekday_thu, ben.weekday_fri, ben.weekday_sat])}回利用。家庭では母が主に対応。学校では通級を利用。'
+            a.wishes = '本人：友だちと一緒に遊びたい、工作をたくさんやりたい。\n家族：気持ちを言葉で伝えられるようになってほしい。集団の場に慣れてほしい。'
+            a.save()
+
+        def fill_draft(p, start):
+            d = p.get_step(2)
+            d.period_start = start
+            d.period_end = start + D(days=182)
+            d.family_wishes = '友だちと関わりながら、自分の気持ちを言葉で伝えられるようになる。'
+            d.policy = '本人の得意な活動（工作・クッキング）を軸に成功体験を積み、少人数から集団活動へ段階的に広げる。視覚支援と事前予告で見通しを持てるようにする。'
+            d.save()
+            PlanGoal.objects.create(plan=p, goal_type='long', content='友だちと協力して活動に参加できる',
+                                    target_date=start + D(days=182), order=0)
+            PlanGoal.objects.create(plan=p, goal_type='short', content='活動の順番を待って、自分の役割をやり切る',
+                                    target_date=start + D(days=91), order=0,
+                                    support_content='役割を絵カードで提示し、順番待ちの間は職員が横について声かけする。できたら具体的にほめる。',
+                                    frequency='週2回・活動の前半')
+            PlanGoal.objects.create(plan=p, goal_type='short', content='困ったときに「手伝って」と職員に伝えられる',
+                                    target_date=start + D(days=91), order=1,
+                                    support_content='困っている様子が見えたら先回りせず「どうしたい？」と聞き、言えたら必ず応じる。',
+                                    frequency='毎回')
+
+        def fill_meeting(p, when):
+            m = p.get_step(3)
+            m.meeting_date = when
+            m.attendees = '児発管、担当職員2名、相談支援専門員'
+            m.beneficiary_attended = True
+            m.guardian_attended = True
+            m.opinions = '短期目標は本人の負担にならない範囲で良い。家庭でも「手伝って」を練習してもらう。'
+            m.revised = True
+            m.revision_summary = '短期目標2の支援内容に家庭との連携を追記。'
+            m.save()
+
+        def fill_consent(p, when, start):
+            c = p.get_step(4)
+            c.explained_date = when
+            c.explained_to = '本人・母'
+            c.explained_by = staff
+            c.consent_method = 'paper'
+            c.consent_date = when
+            c.consent_signer = f'{p.beneficiary.last_name} {p.beneficiary.guardians.first().first_name}'
+            c.delivered_to_user_date = when
+            c.consultation_office = '相談支援事業所 サンプル'
+            c.delivered_to_office_date = when + D(days=2)
+            c.service_start_date = start
+            c.save()
+
+        n = 0
+        # 1人目：実施中（モニタリング1回済み、次回は先）
+        p = new_plan(beneficiaries[0]); n += 1
+        start = today - D(days=120)
+        fill_assessment(p, beneficiaries[0], start - D(days=20)); p.complete_step(1, staff)
+        fill_draft(p, start); p.complete_step(2, staff)
+        fill_meeting(p, start - D(days=10)); p.complete_step(3, staff)
+        fill_consent(p, start - D(days=5), start); p.complete_step(4, staff)
+        MonitoringRecord.objects.create(
+            plan=p, date=today - D(days=30), interviewed_with='本人・母', conducted_by=staff,
+            implementation='絵カードでの役割提示は毎回実施。順番待ちの声かけは職員により差があるため統一する。',
+            achievement='progressing', achievement_detail='「手伝って」は週に1〜2回言えるようになった。',
+            next_due=today + D(days=60),
+        )
+        # 2人目：実施中だがモニタリング期限超過
+        p = new_plan(beneficiaries[1]); n += 1
+        start = today - D(days=150)
+        fill_assessment(p, beneficiaries[1], start - D(days=20)); p.complete_step(1, staff)
+        fill_draft(p, start); p.complete_step(2, staff)
+        fill_meeting(p, start - D(days=10)); p.complete_step(3, staff)
+        fill_consent(p, start - D(days=5), start); p.complete_step(4, staff)
+        # 3人目：ステップ4（説明・同意待ち）
+        p = new_plan(beneficiaries[2]); n += 1
+        start = today + D(days=7)
+        fill_assessment(p, beneficiaries[2], today - D(days=21)); p.complete_step(1, staff)
+        fill_draft(p, start); p.complete_step(2, staff)
+        fill_meeting(p, today - D(days=3)); p.complete_step(3, staff)
+        c = p.get_step(4); c.explained_date = today - D(days=1); c.explained_to = '母'; c.explained_by = staff; c.save()
+        # 4人目：ステップ2（目標を入力中）
+        p = new_plan(beneficiaries[3]); n += 1
+        fill_assessment(p, beneficiaries[3], today - D(days=7)); p.complete_step(1, staff)
+        d = p.get_step(2); d.period_start = today + D(days=14); d.period_end = today + D(days=196)
+        d.policy = '運動遊びを通して体の使い方に自信を持てるようにする。'; d.save()
+        PlanGoal.objects.create(plan=p, goal_type='long', content='苦手な運動にも自分から挑戦できる', target_date=today + D(days=196))
+        # 5人目：ステップ1（面談の途中）
+        p = new_plan(beneficiaries[4]); n += 1
+        a = p.get_step(1); a.interview_date = today - D(days=2); a.interviewed_with = '本人・母'; a.interviewer = staff
+        a.condition = '（面談メモ）好きなこと：電車、パズル。苦手：大きな音。'; a.save()
+        # 6人目：計画なし（一覧の「計画がまだ無い利用者」に出る）
+        return n
