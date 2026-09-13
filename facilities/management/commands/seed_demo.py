@@ -277,13 +277,19 @@ class Command(BaseCommand):
                 continue
             act_name, aim, reflection, atags, stags, domains = rng.choice(ACTIVITIES)
             name = v.beneficiary.first_name
+            # 「めあて」1行目と「・観点」の行に分け、観点には はい／いいえ を付ける
+            aim_lines = [ln.strip() for ln in aim.split('\n') if ln.strip()]
+            aim_line = next((ln for ln in aim_lines if not ln.startswith('・')), '')
+            viewpoints = [{'text': ln.lstrip('・'), 'answer': rng.choice(['yes', 'yes', 'yes', 'no'])}
+                          for ln in aim_lines if ln.startswith('・')]
             entry = datetime.time(rng.choice([13, 14, 15]), rng.choice([0, 15, 30, 45]))
             exit_ = datetime.time(rng.choice([17, 18]), rng.choice([0, 15, 30]))
             rec = DailyRecord.objects.create(
                 facility=facility, beneficiary=v.beneficiary, date=v.date, author=staff,
                 entry_time=entry, exit_time=exit_,
                 health_condition=rng.choice(['good', 'good', 'good', 'normal']),
-                activity_name=act_name, activity_aim=aim,
+                activity_name=act_name, activity_aim=aim_line,
+                activity_viewpoints=viewpoints,
                 activity_reflection=reflection.format(name=name),
                 observation_memo=f'{act_name}。声かけで参加、後半は自分から。',
                 observation_text=rng.choice(OBSERVATIONS).format(act=act_name),

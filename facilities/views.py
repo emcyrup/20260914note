@@ -21,6 +21,12 @@ class DashboardView(LoginRequiredMixin, TemplateView):
     """
     template_name = 'facilities/dashboard.html'
 
+    def get(self, request, *args, **kwargs):
+        # かんたん3ステップの画面では「きょうの きろく」がホーム
+        if request.user.ui_theme == 'simple':
+            return redirect('records:simple_home')
+        return super().get(request, *args, **kwargs)
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         facility = self.request.user.facility

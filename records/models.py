@@ -78,7 +78,9 @@ class DailyRecord(models.Model):
     # --- 活動・めあて・考察（紙の業務日誌の「活動：／めあて：」に相当） ---
     # 活動名を入力すると、めあて（観察の観点）と考察の下書きをAIで生成できる
     activity_name       = models.CharField(max_length=100, blank=True, verbose_name='活動')
-    activity_aim        = models.TextField(blank=True, verbose_name='めあて・観点')
+    activity_aim        = models.TextField(blank=True, verbose_name='めあて')
+    # 観察の観点。[{"text": "順番を待てるか", "answer": "yes" | "no" | null}, ...]
+    activity_viewpoints = models.JSONField(default=list, blank=True, verbose_name='観点（はい／いいえ）')
     activity_reflection = models.TextField(blank=True, verbose_name='考察')
 
     # 支援内容タグ（複数選択可・加算集計に使用）
@@ -121,6 +123,39 @@ class DailyRecord(models.Model):
 
     def __str__(self):
         return f'{self.date} {self.beneficiary.full_name} ({self.get_status_display()})'
+
+    VIEWPOINT_ANSWERS = {'yes': 'はい', 'no': 'いいえ'}
+
+    @staticmethod
+    def clean_viewpoints(value):
+        """画面から届いた観点（JSON文字列 or list）を正規化して返す"""
+        import json as _json
+        if isinstance(value, str):
+            try:
+                value = _json.loads(value) if value.strip() else []
+            except ValueError:
+                return []
+        if not isinstance(value, list):
+            return []
+        out = []
+        for v in value[:12]:
+            if isinstance(v, str):
+                v = {'text': v}
+            if not isinstance(v, dict):
+                continue
+            text = str(v.get('text', '')).strip()[:100]
+            if not text:
+                continue
+            answer = v.get('answer')
+            out.append({'text': text, 'answer': answer if answer in ('yes', 'no') else None})
+        return out
+
+    @property
+    def viewpoint_rows(self):
+        """テンプレート用：観点と回答ラベル"""
+        return [{'text': v.get('text', ''), 'answer': v.get('answer'),
+                 'label': self.VIEWPOINT_ANSWERS.get(v.get('answer'), '未確認')}
+                for v in (self.activity_viewpoints or [])]
 
     @property
     def has_ai_content(self):

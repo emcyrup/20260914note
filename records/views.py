@@ -4,9 +4,10 @@ from datetime import date, timedelta
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views import View
 from django.views.generic import TemplateView
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
 from django.http import JsonResponse
+from django.urls import reverse
 from django.conf import settings
 import anthropic
 
@@ -358,6 +359,7 @@ class DailyRecordCreateView(LoginRequiredMixin, View):
             'domain_social':           'domain_social' in p,
             'activity_name':           p.get('activity_name', '').strip()[:100],
             'activity_aim':            p.get('activity_aim', ''),
+            'activity_viewpoints':     DailyRecord.clean_viewpoints(p.get('activity_viewpoints', '')),
             'activity_reflection':     p.get('activity_reflection', ''),
             'observation_memo':        p.get('observation_memo', ''),
             'support_memo':            p.get('support_memo', ''),
@@ -399,6 +401,9 @@ class DailyRecordCreateView(LoginRequiredMixin, View):
         if p.get('send_line') == '1' and record.status == DailyRecord.STATUS_CONFIRMED:
             _send_line_for_record(request, record)
 
+        nxt = p.get('next', '')
+        if nxt.startswith('/') and not nxt.startswith('//'):
+            return redirect(nxt)
         return redirect(f'/records/{beneficiary_pk}/?selected={record.pk}')
 
 
@@ -430,6 +435,7 @@ class DailyRecordUpdateView(LoginRequiredMixin, View):
         record.domain_social           = 'domain_social' in p
         record.activity_name           = p.get('activity_name', '').strip()[:100]
         record.activity_aim            = p.get('activity_aim', '')
+        record.activity_viewpoints     = DailyRecord.clean_viewpoints(p.get('activity_viewpoints', ''))
         record.activity_reflection     = p.get('activity_reflection', '')
         record.observation_memo        = p.get('observation_memo', '')
         record.support_memo            = p.get('support_memo', '')
@@ -621,6 +627,9 @@ reflection は、【職員のメモ】がある場合はその事実に基づい
         activity = request.POST.get('activity', '').strip()
         memo     = request.POST.get('memo', '').strip()
         tags     = request.POST.get('tags', '').strip()
+        # 既に観点が出ていて「はい／いいえ」を付けた場合は、その結果を踏まえて考察を作り直す
+        viewpoints = DailyRecord.clean_viewpoints(request.POST.get('viewpoints', ''))
+        answered   = [v for v in viewpoints if v['answer']]
 
         if not activity:
             return JsonResponse({'error': '活動名を入力してから生成してください。'}, status=400)
@@ -632,6 +641,12 @@ reflection は、【職員のメモ】がある場合はその事実に基づい
             user_content += f'\n\n【選択されたタグ（活動・支援内容）】\n{tags}'
         if memo:
             user_content += f'\n\n【職員のメモ】\n{memo}'
+        if answered:
+            lines = '\n'.join(f'・{v["text"]} → {DailyRecord.VIEWPOINT_ANSWERS[v["answer"]]}' for v in answered)
+            user_content += ('\n\n【観点ごとの職員の確認結果（はい＝できていた／いいえ＝できていなかった）】\n' + lines +
+                             '\n\nこの確認結果を事実として考察を書いてください。「（下書き）」は付けず、'
+                             '「いいえ」の観点には次回に向けた具体的な手立てを1つ添えてください。'
+                             'viewpoints は上の観点をそのまま同じ順番・同じ文言で返してください。')
 
         try:
             client   = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
@@ -652,13 +667,18 @@ reflection は、【職員のメモ】がある場合はその事実に基づい
                 raise json.JSONDecodeError('object expected', raw, 0)
 
             aim        = str(data.get('aim', '')).strip()
-            viewpoints = [str(v).strip() for v in data.get('viewpoints', []) if str(v).strip()]
+            new_points = [str(v).strip()[:100] for v in data.get('viewpoints', []) if str(v).strip()]
+            if answered:
+                # 職員が確認した観点はそのまま（回答つき）で返す
+                result_points = viewpoints
+            else:
+                result_points = [{'text': v, 'answer': None} for v in new_points]
             aim_text   = aim
-            if viewpoints:
-                aim_text += ('\n' if aim_text else '') + '\n'.join(f'・{v}' for v in viewpoints)
+            if new_points:
+                aim_text += ('\n' if aim_text else '') + '\n'.join(f'・{v}' for v in new_points)
             return JsonResponse({
                 'aim':        aim,
-                'viewpoints': viewpoints,
+                'viewpoints': result_points,
                 'aim_text':   aim_text,
                 'reflection': str(data.get('reflection', '')).strip(),
             })
@@ -676,3 +696,67 @@ reflection は、【職員のメモ】がある場合はその事実に基づい
         except Exception as e:  # noqa: BLE001 — 画面に理由を返し、詳細はログに残す
             logger.exception('活動プラン生成で予期しないエラー')
             return JsonResponse({'error': f'AIでの処理中にエラーが発生しました: {type(e).__name__}: {e}'}, status=500)
+
+
+# =============================================
+# かんたん3ステップ（メニューを隠し、その日にやることだけを順番に出す画面）
+# =============================================
+class SimpleHomeView(LoginRequiredMixin, View):
+    """きょうの きろく：今日来る子の一覧と、記録の状態"""
+
+    def get(self, request):
+        facility = request.user.facility
+        try:
+            day = date.fromisoformat(request.GET.get('date', ''))
+        except ValueError:
+            day = date.today()
+        visits = (ScheduledVisit.objects.filter(facility=facility, date=day)
+                  .exclude(status='absent').select_related('beneficiary')
+                  .order_by('beneficiary__last_name_kana'))
+        records = {r.beneficiary_id: r for r in DailyRecord.objects.filter(facility=facility, date=day)}
+        rows = []
+        seen = set()
+        for v in visits:
+            rows.append({'beneficiary': v.beneficiary, 'record': records.get(v.beneficiary_id)})
+            seen.add(v.beneficiary_id)
+        # 予定に無いが記録がある子も並べる
+        for b_id, r in records.items():
+            if b_id not in seen:
+                rows.append({'beneficiary': r.beneficiary, 'record': r})
+        others = Beneficiary.objects.filter(facility=facility, status='active').exclude(pk__in=seen | set(records))
+        done = sum(1 for r in rows if r['record'] and r['record'].status == DailyRecord.STATUS_CONFIRMED)
+        return render(request, 'records/simple_home.html', {
+            'day': day, 'today': date.today(), 'rows': rows, 'others': others,
+            'done': done, 'total': len(rows),
+            'prev_day': day - timedelta(days=1), 'next_day': day + timedelta(days=1),
+        })
+
+
+class SimpleRecordView(LoginRequiredMixin, View):
+    """①メモを入れる ②下書きをつくる ③確認して確定 の3ステップ画面"""
+
+    def get(self, request, beneficiary_pk):
+        facility = request.user.facility
+        beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=facility)
+        try:
+            day = date.fromisoformat(request.GET.get('date', ''))
+        except ValueError:
+            day = date.today()
+        record = DailyRecord.objects.filter(beneficiary=beneficiary, date=day).first()
+        editing = request.GET.get('edit') == '1'
+        return render(request, 'records/simple_record.html', {
+            'beneficiary': beneficiary, 'day': day, 'record': record,
+            'confirmed': bool(record and record.status == DailyRecord.STATUS_CONFIRMED and not editing),
+            'init': {
+                'memo':        record.observation_memo if record else '',
+                'activity':    record.activity_name if record else '',
+                'observation': record.observation_text if record else '',
+                'support':     record.support_text if record else '',
+                'reaction':    record.reaction_text if record else '',
+                'parent':      record.parent_message_draft if record else '',
+                'viewpoints':  record.activity_viewpoints if record else [],
+                'aim':         record.activity_aim if record else '',
+                'reflection':  record.activity_reflection if record else '',
+            },
+            'next_url': reverse('records:simple_home') + f'?date={day.isoformat()}',
+        })

@@ -666,14 +666,22 @@
         </div>
 
         <!-- 活動・めあて・考察 -->
-        {% if selected_record.activity_name or selected_record.activity_aim or selected_record.activity_reflection %}
+        {{ selected_record.activity_viewpoints|json_script:"selectedViewpoints" }}
+        {% if selected_record.activity_name or selected_record.activity_aim or selected_record.activity_viewpoints or selected_record.activity_reflection %}
         <div class="detail-section">
           <div class="detail-section-label">活動・めあて</div>
           {% if selected_record.activity_name %}
           <p class="detail-section-text mb-1"><strong>活動：</strong>{{ selected_record.activity_name }}</p>
           {% endif %}
           {% if selected_record.activity_aim %}
-          <p class="detail-section-text" style="white-space:pre-line;"><strong>めあて：</strong>{{ selected_record.activity_aim }}</p>
+          <p class="detail-section-text mb-1" style="white-space:pre-line;"><strong>めあて：</strong>{{ selected_record.activity_aim }}</p>
+          {% endif %}
+          {% if selected_record.viewpoint_rows %}
+          <ul class="vp-list">
+            {% for v in selected_record.viewpoint_rows %}
+            <li class="vp-{{ v.answer|default:'none' }}"><span class="vp-badge">{{ v.label }}</span>{{ v.text }}</li>
+            {% endfor %}
+          </ul>
           {% endif %}
         </div>
         {% if selected_record.activity_reflection %}
@@ -918,18 +926,35 @@
               活動名を入れて生成すると、観察の観点（めあて）と考察の下書きが入ります。メモを先に書いておくと、考察はその内容を踏まえます。
             </p>
             <p x-show="planErrorMsg" class="text-danger small mb-0 mt-1" x-text="planErrorMsg"></p>
-            <div x-show="activityAim || activityReflection" x-transition class="mt-2">
-              <label class="form-label small fw-semibold mb-1">めあて・観点</label>
-              <textarea name="activity_aim" class="form-control form-control-sm mb-2" rows="4" x-model="activityAim"></textarea>
-              <label class="form-label small fw-semibold mb-1">考察</label>
-              <textarea name="activity_reflection" class="form-control form-control-sm" rows="3" x-model="activityReflection"></textarea>
-            </div>
-            <template x-if="!(activityAim || activityReflection)">
-              <div>
-                <input type="hidden" name="activity_aim" value="">
-                <input type="hidden" name="activity_reflection" value="">
+            <input type="hidden" name="activity_aim" :value="activityAim">
+            <input type="hidden" name="activity_viewpoints" :value="JSON.stringify(activityViewpoints)">
+            <input type="hidden" name="activity_reflection" :value="activityReflection">
+            <div x-show="activityAim || activityViewpoints.length || activityReflection" x-transition class="mt-2">
+              <label class="form-label small fw-semibold mb-1">めあて</label>
+              <input type="text" class="form-control form-control-sm mb-2" x-model="activityAim" placeholder="活動全体のめあて">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <label class="form-label small fw-semibold mb-0">観点（できていたら「はい」、できていなければ「いいえ」）</label>
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0" style="min-height:28px;font-size:0.72rem;" @click="addViewpoint()"><i class="bi bi-plus"></i> 観点を追加</button>
               </div>
-            </template>
+              <template x-for="(v, i) in activityViewpoints" :key="i">
+                <div class="vp-row">
+                  <input type="text" class="form-control form-control-sm vp-text" x-model="v.text" maxlength="100">
+                  <div class="vp-answers">
+                    <button type="button" class="vp-btn vp-yes" :class="{'is-on': v.answer === 'yes'}" @click="v.answer = (v.answer === 'yes' ? null : 'yes')">はい</button>
+                    <button type="button" class="vp-btn vp-no"  :class="{'is-on': v.answer === 'no'}"  @click="v.answer = (v.answer === 'no' ? null : 'no')">いいえ</button>
+                    <button type="button" class="vp-del" title="削除" @click="activityViewpoints.splice(i, 1)"><i class="bi bi-x"></i></button>
+                  </div>
+                </div>
+              </template>
+              <div class="d-flex justify-content-between align-items-center mt-2 mb-1 flex-wrap gap-1">
+                <label class="form-label small fw-semibold mb-0">考察</label>
+                <button type="button" class="ai-btn px-2 py-1" style="font-size:0.72rem;" @click="generateActivityPlan(true)"
+                        :disabled="planning || !activityViewpoints.some(v => v.answer)" title="はい／いいえの結果をもとに考察を書き直します">
+                  <i class="bi bi-arrow-repeat me-1"></i><span x-show="!planning">はい／いいえを反映して考察を作り直す</span><span x-show="planning">生成中...</span>
+                </button>
+              </div>
+              <textarea class="form-control form-control-sm" rows="3" x-model="activityReflection"></textarea>
+            </div>
           </div>
 
           <!-- ③ メモ入力（1箇所） -->
@@ -1072,6 +1097,7 @@
               {
                 name:       '{{ selected_record.activity_name|escapejs }}',
                 aim:        '{{ selected_record.activity_aim|escapejs }}',
+                viewpoints: JSON.parse(document.getElementById('selectedViewpoints').textContent),
                 reflection: '{{ selected_record.activity_reflection|escapejs }}'
               }
             )">
@@ -1204,18 +1230,35 @@
               活動名を入れて生成すると、観察の観点（めあて）と考察の下書きが入ります。メモを先に書いておくと、考察はその内容を踏まえます。
             </p>
             <p x-show="planErrorMsg" class="text-danger small mb-0 mt-1" x-text="planErrorMsg"></p>
-            <div x-show="activityAim || activityReflection" x-transition class="mt-2">
-              <label class="form-label small fw-semibold mb-1">めあて・観点</label>
-              <textarea name="activity_aim" class="form-control form-control-sm mb-2" rows="4" x-model="activityAim"></textarea>
-              <label class="form-label small fw-semibold mb-1">考察</label>
-              <textarea name="activity_reflection" class="form-control form-control-sm" rows="3" x-model="activityReflection"></textarea>
-            </div>
-            <template x-if="!(activityAim || activityReflection)">
-              <div>
-                <input type="hidden" name="activity_aim" value="">
-                <input type="hidden" name="activity_reflection" value="">
+            <input type="hidden" name="activity_aim" :value="activityAim">
+            <input type="hidden" name="activity_viewpoints" :value="JSON.stringify(activityViewpoints)">
+            <input type="hidden" name="activity_reflection" :value="activityReflection">
+            <div x-show="activityAim || activityViewpoints.length || activityReflection" x-transition class="mt-2">
+              <label class="form-label small fw-semibold mb-1">めあて</label>
+              <input type="text" class="form-control form-control-sm mb-2" x-model="activityAim" placeholder="活動全体のめあて">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <label class="form-label small fw-semibold mb-0">観点（できていたら「はい」、できていなければ「いいえ」）</label>
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0" style="min-height:28px;font-size:0.72rem;" @click="addViewpoint()"><i class="bi bi-plus"></i> 観点を追加</button>
               </div>
-            </template>
+              <template x-for="(v, i) in activityViewpoints" :key="i">
+                <div class="vp-row">
+                  <input type="text" class="form-control form-control-sm vp-text" x-model="v.text" maxlength="100">
+                  <div class="vp-answers">
+                    <button type="button" class="vp-btn vp-yes" :class="{'is-on': v.answer === 'yes'}" @click="v.answer = (v.answer === 'yes' ? null : 'yes')">はい</button>
+                    <button type="button" class="vp-btn vp-no"  :class="{'is-on': v.answer === 'no'}"  @click="v.answer = (v.answer === 'no' ? null : 'no')">いいえ</button>
+                    <button type="button" class="vp-del" title="削除" @click="activityViewpoints.splice(i, 1)"><i class="bi bi-x"></i></button>
+                  </div>
+                </div>
+              </template>
+              <div class="d-flex justify-content-between align-items-center mt-2 mb-1 flex-wrap gap-1">
+                <label class="form-label small fw-semibold mb-0">考察</label>
+                <button type="button" class="ai-btn px-2 py-1" style="font-size:0.72rem;" @click="generateActivityPlan(true)"
+                        :disabled="planning || !activityViewpoints.some(v => v.answer)" title="はい／いいえの結果をもとに考察を書き直します">
+                  <i class="bi bi-arrow-repeat me-1"></i><span x-show="!planning">はい／いいえを反映して考察を作り直す</span><span x-show="planning">生成中...</span>
+                </button>
+              </div>
+              <textarea class="form-control form-control-sm" rows="3" x-model="activityReflection"></textarea>
+            </div>
           </div>
 
           <!-- メモ入力（任意・AIで再生成する場合に使う） -->
@@ -1435,9 +1478,12 @@ function activityPlanMixin(planUrl, init) {
   return {
     activityName:       init.name       || '',
     activityAim:        init.aim        || '',
+    activityViewpoints: Array.isArray(init.viewpoints) ? init.viewpoints.map(v => typeof v === 'string' ? {text: v, answer: null} : v) : [],
     activityReflection: init.reflection || '',
     planning:           false,
     planErrorMsg:       '',
+
+    addViewpoint() { this.activityViewpoints.push({text: '', answer: null}); },
 
     // 一括生成のタグ文脈に活動名も含める
     _tagsWithActivity(tagNames) {
@@ -1446,7 +1492,8 @@ function activityPlanMixin(planUrl, init) {
       return '活動：' + a + (tagNames ? '、' + tagNames : '');
     },
 
-    async generateActivityPlan() {
+    // withAnswers=true のときは、はい／いいえの結果をもとに考察だけ作り直す（観点は保持）
+    async generateActivityPlan(withAnswers) {
       const activity = (this.activityName || '').trim();
       if (!activity) { this.planErrorMsg = '活動名を入力してから生成してください。'; return; }
       this.planErrorMsg = '';
@@ -1457,6 +1504,7 @@ function activityPlanMixin(planUrl, init) {
         fd.append('activity', activity);
         fd.append('memo', this.memo || '');
         fd.append('tags', this._tagNames || '');
+        if (withAnswers) fd.append('viewpoints', JSON.stringify(this.activityViewpoints.filter(v => (v.text || '').trim())));
         fd.append('csrfmiddlewaretoken', csrf);
         const res  = await fetch(planUrl, { method: 'POST', body: fd });
         const data = await res.json().catch(() => ({}));
@@ -1464,8 +1512,11 @@ function activityPlanMixin(planUrl, init) {
           this.planErrorMsg = data.error || `サーバーエラー (${res.status})`;
           return;
         }
-        this.activityAim        = data.aim_text   || '';
+        this.activityAim        = data.aim        || '';
         this.activityReflection = data.reflection || '';
+        if (!withAnswers) {
+          this.activityViewpoints = (data.viewpoints || []).map(v => typeof v === 'string' ? {text: v, answer: null} : {text: v.text, answer: v.answer || null});
+        }
       } catch(e) {
         this.planErrorMsg = '通信エラー: ' + e.message;
       } finally {

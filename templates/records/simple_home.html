@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+
+{% block title %}きょうの きろく — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}きょうの きろく{% endblock %}
+
+{% block content %}
+<div class="simple-wrap">
+
+  <div class="simple-daynav">
+    <a href="?date={{ prev_day|date:'Y-m-d' }}" class="simple-daybtn" aria-label="前の日"><i class="bi bi-chevron-left"></i></a>
+    <div class="simple-day">
+      <div class="simple-day-date">{{ day|date:'n月j日' }}（{{ day|date:'D' }}）{% if day == today %}<span class="simple-today">きょう</span>{% endif %}</div>
+      <div class="simple-day-sub">きろく {{ done }} / {{ total }} 人 おわり</div>
+    </div>
+    <a href="?date={{ next_day|date:'Y-m-d' }}" class="simple-daybtn" aria-label="次の日"><i class="bi bi-chevron-right"></i></a>
+  </div>
+
+  {% if rows %}
+  <div class="simple-list">
+    {% for r in rows %}
+    <a href="{% url 'records:simple_record' r.beneficiary.pk %}?date={{ day|date:'Y-m-d' }}"
+       class="simple-item {% if r.record and r.record.status == 'confirmed' %}is-done{% elif r.record %}is-draft{% endif %}">
+      <span class="simple-item-num">{{ forloop.counter }}</span>
+      <span class="simple-item-name">{{ r.beneficiary.full_name }} <small>さん</small></span>
+      <span class="simple-item-state">
+        {% if r.record and r.record.status == 'confirmed' %}<i class="bi bi-check-circle-fill"></i> おわり
+        {% elif r.record %}<i class="bi bi-pencil-fill"></i> とちゅう
+        {% else %}<i class="bi bi-circle"></i> まだ{% endif %}
+      </span>
+      <i class="bi bi-chevron-right simple-item-arrow"></i>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="simple-empty">きょうの よていは ありません</div>
+  {% endif %}
+
+  {% if others %}
+  <details class="simple-others">
+    <summary>よてい に ない こ を きろくする</summary>
+    <div class="simple-list mt-2">
+      {% for b in others %}
+      <a href="{% url 'records:simple_record' b.pk %}?date={{ day|date:'Y-m-d' }}" class="simple-item is-other">
+        <span class="simple-item-name">{{ b.full_name }} <small>さん</small></span>
+        <i class="bi bi-chevron-right simple-item-arrow"></i>
+      </a>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+
+</div>
+{% endblock %}

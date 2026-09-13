@@ -5,6 +5,8 @@ app_name = 'records'
 
 urlpatterns = [
     path('', views.RecordsDashboardView.as_view(), name='dashboard'),
+    path('simple/', views.SimpleHomeView.as_view(), name='simple_home'),
+    path('simple/<int:beneficiary_pk>/', views.SimpleRecordView.as_view(), name='simple_record'),
     path('<int:beneficiary_pk>/', views.DailyRecordListView.as_view(), name='list'),
     path('<int:beneficiary_pk>/new/', views.DailyRecordCreateView.as_view(), name='create'),
     path('<int:pk>/edit/', views.DailyRecordUpdateView.as_view(), name='update'),

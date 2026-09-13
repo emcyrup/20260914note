@@ -19,11 +19,11 @@
   <link rel="stylesheet"
         href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   <!-- カスタムCSS（みちのーとデザインシステム） -->
-  <link rel="stylesheet" href="{% static 'css/base.css' %}?v=20260913b">
+  <link rel="stylesheet" href="{% static 'css/base.css' %}?v=20260913c">
 
   {% block extra_css %}{% endblock %}
 </head>
-<body>
+<body class="{% if user.is_authenticated %}theme-{{ user.ui_theme }}{% endif %}">
 
 {% if user.is_authenticated %}
 <!-- ========== アプリシェル（サイドバー＋メインエリア） ========== -->
@@ -33,7 +33,7 @@
   <nav class="sidebar" id="sidebar">
 
     <!-- ブランドロゴ -->
-    <a class="sidebar-brand" href="{% url 'facilities:dashboard' %}">
+    <a class="sidebar-brand" href="{% if user.ui_theme == 'simple' %}{% url 'records:simple_home' %}{% else %}{% url 'facilities:dashboard' %}{% endif %}">
       <div class="sidebar-brand-icon">
         <i class="bi bi-heart-pulse-fill"></i>
       </div>
@@ -80,7 +80,7 @@
           <span>支援計画</span>
         </a>
       </li>
-      <li>
+      <li class="nav-secondary">
         <a class="sidebar-nav-item {% block nav_line %}{% endblock %}"
            href="{% url 'line_integration:delivery_log' %}">
           <i class="bi bi-chat-dots"></i>
@@ -88,22 +88,22 @@
         </a>
       </li>
 
-      <li class="sidebar-nav-label">請求</li>
-      <li>
+      <li class="sidebar-nav-label nav-secondary">請求</li>
+      <li class="nav-secondary">
         <a class="sidebar-nav-item {% block nav_billing_matrix %}{% endblock %}"
            href="{% url 'billing:matrix' %}">
           <i class="bi bi-grid-3x3"></i>
           <span>請求マトリックス</span>
         </a>
       </li>
-      <li>
+      <li class="nav-secondary">
         <a class="sidebar-nav-item {% block nav_billing_copayment %}{% endblock %}"
            href="{% url 'billing:copayment_list' %}">
           <i class="bi bi-shield-check"></i>
           <span>上限額管理</span>
         </a>
       </li>
-      <li>
+      <li class="nav-secondary">
         <a class="sidebar-nav-item {% block nav_billing_invoice %}{% endblock %}"
            href="{% url 'billing:invoice_list' %}">
           <i class="bi bi-file-earmark-text"></i>
@@ -111,8 +111,8 @@
         </a>
       </li>
 
-      <li class="sidebar-nav-label">設定</li>
-      <li>
+      <li class="sidebar-nav-label nav-secondary">設定</li>
+      <li class="nav-secondary">
         <a class="sidebar-nav-item {% block nav_settings %}{% endblock %}"
            href="{% url 'facilities:settings' %}">
           <i class="bi bi-gear"></i>
@@ -130,6 +130,7 @@
           {{ user.display_name|default:user.username }}
         </div>
         <div class="sidebar-user-role">{{ user.get_role_display }}</div>
+        <a href="{% url 'accounts:theme' %}" class="sidebar-theme-link"><i class="bi bi-palette me-1"></i>画面の見た目</a>
       </div>
       <form method="post" action="{% url 'accounts:logout' %}" style="display:inline;">
         {% csrf_token %}
@@ -146,21 +147,31 @@
     <!-- スティッキートップバー -->
     <div class="topbar {% block topbar_class %}{% endblock %}">
       <!-- ハンバーガーボタン（スマートフォンのみ表示） -->
+      {% if user.ui_theme == 'simple' %}
+      <a class="sidebar-toggle-btn simple-home-link" href="{% url 'records:simple_home' %}" aria-label="きょうの きろく へ">
+        <i class="bi bi-house"></i>
+      </a>
+      {% else %}
       <button class="sidebar-toggle-btn" id="sidebarToggle"
               aria-label="メニューを開く" onclick="toggleSidebar()">
         <i class="bi bi-list"></i>
       </button>
+      {% endif %}
       <div class="topbar-title-wrap">
         <h1 class="topbar-title">{% block page_title %}{% endblock %}</h1>
       </div>
       {% block topbar_nav %}{% endblock %}
       <div class="d-flex align-items-center gap-2 flex-shrink-0">
         {% block topbar_actions %}{% endblock %}
+        {% if user.ui_theme == 'simple' %}
+        <a href="{% url 'accounts:theme' %}" class="btn-memo" title="画面の見た目"><i class="bi bi-palette"></i><span>画面</span></a>
+        {% else %}
         <!-- メモを書くボタン（全画面共通） -->
         <button type="button" class="btn-memo"
                 data-bs-toggle="modal" data-bs-target="#globalMemoModal">
           <i class="bi bi-pencil-square"></i><span>メモ</span>
         </button>
+        {% endif %}
       </div>
     </div>
 

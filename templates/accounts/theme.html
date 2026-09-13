@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+
+{% block title %}画面の見た目 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}画面の見た目{% endblock %}
+
+{% block content %}
+<div class="px-2">
+
+  <p class="text-muted mb-3">同じ記録を共有したまま、使う人に合った文字の大きさ・情報量・配色を選べます。途中で変えても、たまった記録や帳票はそのままです。</p>
+
+  <div class="row g-3 mb-4">
+    {% for t in themes %}
+    <div class="col-md-6 col-xl-3">
+      <form method="post" class="h-100">
+        {% csrf_token %}
+        <input type="hidden" name="theme" value="{{ t.key }}">
+        <div class="card h-100 theme-card {% if t.key == current %}is-current{% endif %}">
+          <div class="theme-preview theme-preview-{{ t.key }}" aria-hidden="true">
+            {% if t.key == 'standard' %}
+              <div class="tp-side"><span></span><span></span><span></span></div>
+              <div class="tp-main"><div class="tp-title">日誌を記録する</div><div class="tp-box">ブロック 15分 集中 / 順番 待てた</div><div class="tp-line"></div><div class="tp-btn">確認して確定する</div></div>
+            {% elif t.key == 'large' %}
+              <div class="tp-main"><div class="tp-title">なにが ありましたか？</div><div class="tp-box">ブロック 15分<br>じゅんばん まてた</div><div class="tp-btn tp-btn-big">つくる</div></div>
+            {% elif t.key == 'stylish' %}
+              <div class="tp-main"><div class="tp-kicker">JOURNAL / NEW</div><div class="tp-title">日誌を記録する</div><div class="tp-box">ブロック 15分 集中 / 順番 待てた</div><div class="tp-line"></div><div class="tp-btn tp-btn-outline">CONFIRM</div></div>
+            {% else %}
+              <div class="tp-main"><div class="tp-step">① メモを入れる</div><div class="tp-box">ブロック 15分 集中</div><div class="tp-step tp-step-fill">② 下書きをつくる</div><div class="tp-step">③ 確認して確定</div></div>
+            {% endif %}
+          </div>
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start gap-2">
+              <div class="fw-bold">{{ t.label }}</div>
+              {% if t.key == current %}<span class="badge text-bg-success">使用中</span>{% endif %}
+            </div>
+            <div class="small" style="color:var(--lake-text);">{{ t.for }}</div>
+            <div class="small text-muted mt-1">{{ t.desc }}</div>
+          </div>
+          <div class="card-footer bg-transparent border-0 pt-0">
+            <button type="submit" class="btn btn-sm w-100 {% if t.key == current %}btn-outline-secondary{% else %}btn-primary{% endif %}">
+              {% if t.key == current %}この画面を使っています{% else %}この画面にする{% endif %}
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if staff %}
+  <div class="card">
+    <div class="card-header fw-bold"><i class="bi bi-people me-1"></i>職員ごとの割り当て（管理者）</div>
+    <div class="table-responsive">
+      <table class="table mb-0 align-middle">
+        <thead><tr><th>職員</th><th>権限区分</th><th>画面</th><th></th></tr></thead>
+        <tbody>
+          {% for s in staff %}
+          <tr>
+            <td class="fw-bold">{{ s.display_name|default:s.username }}{% if s.pk == user.pk %}<span class="badge text-bg-secondary ms-1">自分</span>{% endif %}</td>
+            <td class="small">{{ s.get_role_display }}</td>
+            <td colspan="2">
+              <form method="post" class="d-flex gap-2 align-items-center">
+                {% csrf_token %}
+                <input type="hidden" name="staff_id" value="{{ s.pk }}">
+                <select name="theme" class="form-select form-select-sm" style="max-width:220px;">
+                  {% for t in themes %}
+                  <option value="{{ t.key }}" {% if s.ui_theme == t.key %}selected{% endif %}>{{ t.label }}</option>
+                  {% endfor %}
+                </select>
+                <button class="btn btn-sm btn-outline-primary">変更</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

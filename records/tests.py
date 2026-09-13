@@ -64,7 +64,8 @@ class AiActivityPlanViewTests(TestCase):
         self.assertEqual(res.status_code, 200, res.content)
         data = res.json()
         self.assertEqual(data['aim'], payload['aim'])
-        self.assertEqual(data['viewpoints'], payload['viewpoints'])
+        self.assertEqual([v['text'] for v in data['viewpoints']], payload['viewpoints'])
+        self.assertTrue(all(v['answer'] is None for v in data['viewpoints']))
         self.assertEqual(
             data['aim_text'],
             '役割分担、気を付けて調理道具をつかおう\n・順番を待てるか\n・道具の持ち方\n・友だちへの声かけ',
@@ -149,3 +150,88 @@ class AiGenerateAllViewTests(TestCase):
             res = self.client.post(self.url, {'memo': '集中できた'})
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json()['observation'], '1行目\n2行目')
+
+
+class ViewpointTests(TestCase):
+    """観点の はい／いいえ：保存・表示・考察の作り直し"""
+
+    def setUp(self):
+        self.facility = Facility.objects.create(name='テスト施設')
+        self.user = StaffAccount.objects.create_user('staff', password='pass12345', facility=self.facility)
+        self.client.force_login(self.user)
+        from beneficiaries.models import Beneficiary
+        from datetime import date
+        self.b = Beneficiary.objects.create(facility=self.facility, last_name='山田', first_name='太郎',
+                                            date_of_birth=date(2016, 4, 1))
+
+    def test_clean_viewpoints(self):
+        from records.models import DailyRecord
+        raw = json.dumps([{'text': '順番を待てるか', 'answer': 'yes'}, {'text': '', 'answer': 'no'},
+                          {'text': '声をかけられるか', 'answer': 'maybe'}, '道具を正しく持てるか', 5])
+        self.assertEqual(DailyRecord.clean_viewpoints(raw), [
+            {'text': '順番を待てるか', 'answer': 'yes'},
+            {'text': '声をかけられるか', 'answer': None},
+            {'text': '道具を正しく持てるか', 'answer': None},
+        ])
+        self.assertEqual(DailyRecord.clean_viewpoints('not json'), [])
+
+    def test_create_saves_viewpoints_and_detail_shows_answers(self):
+        from records.models import DailyRecord
+        res = self.client.post(reverse('records:create', args=[self.b.pk]), {
+            'date': '2026-09-10', 'activity_name': 'クッキー作り', 'activity_aim': '協力して作ろう',
+            'activity_viewpoints': json.dumps([{'text': '順番を待てるか', 'answer': 'yes'},
+                                               {'text': '道具を正しく持てるか', 'answer': 'no'},
+                                               {'text': '友だちに声をかけるか', 'answer': None}]),
+            'status': 'confirmed',
+        })
+        rec = DailyRecord.objects.get(beneficiary=self.b)
+        self.assertEqual([v['answer'] for v in rec.activity_viewpoints], ['yes', 'no', None])
+        self.assertRedirects(res, f'/records/{self.b.pk}/?selected={rec.pk}')
+        res = self.client.get(f'/records/{self.b.pk}/?selected={rec.pk}')
+        self.assertContains(res, 'vp-yes')
+        self.assertContains(res, 'vp-no')
+        self.assertContains(res, '未確認')
+
+    def test_create_honors_next(self):
+        res = self.client.post(reverse('records:create', args=[self.b.pk]), {
+            'date': '2026-09-10', 'observation_memo': 'x', 'next': '/records/simple/?date=2026-09-10',
+        })
+        self.assertRedirects(res, '/records/simple/?date=2026-09-10')
+        res = self.client.post(reverse('records:create', args=[self.b.pk]), {
+            'date': '2026-09-10', 'next': '//evil.example.com/',
+        })
+        self.assertTrue(res.url.startswith('/records/'))
+
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    @mock.patch('records.views.anthropic.Anthropic')
+    def test_plan_with_answers_keeps_viewpoints(self, mock_client_cls):
+        mock_client_cls.return_value.messages.create.return_value = _fake_response(
+            '{"aim": "a", "viewpoints": ["別の観点"], "reflection": "順番を待てていました。"}')
+        vps = [{'text': '順番を待てるか', 'answer': 'yes'}, {'text': '道具を正しく持てるか', 'answer': 'no'}]
+        res = self.client.post(reverse('records:ai_activity_plan'),
+                               {'activity': 'クッキー作り', 'viewpoints': json.dumps(vps)})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['viewpoints'], vps)
+        prompt = mock_client_cls.return_value.messages.create.call_args.kwargs['messages'][0]['content']
+        self.assertIn('順番を待てるか → はい', prompt)
+        self.assertIn('道具を正しく持てるか → いいえ', prompt)
+
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    @mock.patch('records.views.anthropic.Anthropic')
+    def test_plan_without_answers_returns_new_viewpoints(self, mock_client_cls):
+        mock_client_cls.return_value.messages.create.return_value = _fake_response(
+            '{"aim": "a", "viewpoints": ["順番を待てるか", "声をかけるか"], "reflection": "r"}')
+        res = self.client.post(reverse('records:ai_activity_plan'), {'activity': 'クッキー作り'})
+        self.assertEqual(res.json()['viewpoints'],
+                         [{'text': '順番を待てるか', 'answer': None}, {'text': '声をかけるか', 'answer': None}])
+
+    def test_simple_pages_render(self):
+        from schedules.models import ScheduledVisit
+        from datetime import date
+        ScheduledVisit.objects.create(facility=self.facility, beneficiary=self.b, date=date.today())
+        res = self.client.get(reverse('records:simple_home'))
+        self.assertContains(res, '山田 太郎')
+        self.assertContains(res, 'まだ')
+        res = self.client.get(reverse('records:simple_record', args=[self.b.pk]))
+        self.assertContains(res, 'メモを入れる')
+        self.assertContains(res, '確認して確定')
