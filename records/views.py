@@ -229,6 +229,8 @@ class DailyRecordListView(LoginRequiredMixin, TemplateView):
             ctx['photos'] = ctx['selected_record'].photos.all()
             ctx['photos_count'] = ctx['photos'].count()
             ctx['can_add_photo'] = ctx['photos_count'] < MAX_PHOTOS_PER_RECORD
+            ctx['addon_suggestions'] = ctx['selected_record'].addon_suggestions.select_related('addon').order_by('status', '-created_at')
+            ctx['ai_enabled'] = bool(settings.ANTHROPIC_API_KEY)
         else:
             ctx['signatures'] = []
             ctx['photos'] = []
@@ -323,6 +325,17 @@ def _send_line_for_record(request, record):
         messages.error(request, f'LINE送信に失敗しました：{error_message}')
 
 
+def _suggest_addons_after_save(record):
+    """日誌の保存後に AI 加算提案を作る（失敗しても保存は成功扱い）"""
+    if not (settings.AI_ADDON_SUGGESTIONS and settings.ANTHROPIC_API_KEY):
+        return
+    try:
+        from ai_assist.services import generate_addon_suggestions
+        generate_addon_suggestions(record)
+    except Exception:  # noqa: BLE001
+        logger.exception('保存後の加算提案でエラー（日誌ID %s）', record.pk)
+
+
 # =============================================
 # 日誌 新規作成
 # =============================================
@@ -396,6 +409,7 @@ class DailyRecordCreateView(LoginRequiredMixin, View):
         _save_photos(request, record)
 
         messages.success(request, f'{date} の日誌を保存しました。')
+        _suggest_addons_after_save(record)
 
         # 「保存してLINE送信」ボタンが押された場合
         if p.get('send_line') == '1' and record.status == DailyRecord.STATUS_CONFIRMED:
@@ -461,6 +475,7 @@ class DailyRecordUpdateView(LoginRequiredMixin, View):
         _save_photos(request, record)
 
         messages.success(request, '日誌を更新しました。')
+        _suggest_addons_after_save(record)
         return redirect(f'/records/{record.beneficiary_id}/?selected={record.pk}')
 
 

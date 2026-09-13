@@ -4,6 +4,7 @@ from io import StringIO
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase
+from django.urls import reverse
 
 from accounts.models import StaffAccount
 from beneficiaries.models import Beneficiary, Guardian, RecipientCertificate
@@ -83,3 +84,40 @@ class SeedDemoCommandTests(TestCase):
             call_command('seed_demo', stdout=StringIO())
         call_command('seed_demo', '--facility', str(self.facility.pk), stdout=StringIO())
         self.assertEqual(Beneficiary.objects.filter(facility=self.facility).count(), 6)
+
+
+class DashboardWeekAndSupportTagPriceTests(TestCase):
+    def setUp(self):
+        from accounts.models import StaffAccount
+        self.facility = Facility.objects.create(name='F')
+        self.user = StaffAccount.objects.create_user('s', password='p', facility=self.facility)
+        self.client.force_login(self.user)
+
+    def test_dashboard_shows_week_calendar(self):
+        from datetime import date
+        from beneficiaries.models import Beneficiary
+        from schedules.models import ScheduledVisit
+        b = Beneficiary.objects.create(facility=self.facility, last_name='山田', first_name='太郎', date_of_birth=date(2016, 4, 1))
+        ScheduledVisit.objects.create(facility=self.facility, beneficiary=b, date=date.today())
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertContains(res, '今週の来所状況')
+        self.assertContains(res, '山田 太郎')
+        self.assertContains(res, 'dash-week')
+
+    def test_support_tag_price_saved_and_billed(self):
+        from datetime import date
+        from beneficiaries.models import Beneficiary
+        from billing.views import _build_invoice_context
+        from facilities.models import SupportContentTag
+        from records.models import DailyRecord
+        res = self.client.post(reverse('facilities:support_tag_add'), {'name': '教材費', 'order': 1, 'price': 200, 'is_active': 'on'})
+        tag = SupportContentTag.objects.get(name='教材費')
+        self.assertEqual(tag.price, 200)
+        b = Beneficiary.objects.create(facility=self.facility, last_name='山田', first_name='太郎', date_of_birth=date(2016, 4, 1))
+        for d in (1, 2):
+            r = DailyRecord.objects.create(facility=self.facility, beneficiary=b, date=date(2026, 9, d), author=self.user)
+            r.support_tags.add(tag)
+        ctx = _build_invoice_context(self.facility, b, 2026, 9)
+        item = next(i for i in ctx['expense_items'] if i['name'] == '教材費')
+        self.assertEqual((item['count'], item['subtotal']), (2, 400))
+        self.assertEqual(ctx['expense_total'], 400)

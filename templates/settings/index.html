@@ -164,19 +164,20 @@
         </button>
       </div>
     </div>
-    <p class="text-muted small mb-3">送迎・入浴支援などの加算に関わる支援の種類です。日誌で選択した結果が請求集計に使われます。</p>
+    <p class="text-muted small mb-3">送迎・入浴支援などの加算に関わる支援の種類です。日誌で選択した結果が請求集計に使われます。実費単価を設定すると（教材費など）、請求書に自動で加算されます。</p>
 
     {% if support_tags %}
     {% for tag in support_tags %}
     <div class="tag-row">
       <div class="tag-name">
         {{ tag.name }}
+        {% if tag.price %}<span class="badge text-bg-warning ms-2" style="font-size:0.65rem;">実費 {{ tag.price }}円</span>{% endif %}
         {% if not tag.is_active %}<span class="badge text-bg-secondary ms-1" style="font-size:0.65rem;">無効</span>{% endif %}
       </div>
       <button type="button" class="btn btn-outline-secondary btn-tag-action"
               data-bs-toggle="modal" data-bs-target="#editSupportTagModal"
               data-pk="{{ tag.pk }}" data-name="{{ tag.name }}"
-              data-order="{{ tag.order }}"
+              data-order="{{ tag.order }}" data-price="{{ tag.price }}"
               data-active="{{ tag.is_active|yesno:'true,false' }}">
         <i class="bi bi-pencil"></i>
       </button>
@@ -191,6 +192,53 @@
     {% endfor %}
     {% else %}
     <p class="text-muted small">まだタグが登録されていません。「標準タグを一括追加」か「追加」ボタンから登録してください。</p>
+    {% endif %}
+  </div>
+
+  <!-- ===== 算定要件資料（AI加算提案・チャット用） ===== -->
+  <div class="settings-card" id="reference-docs">
+    <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
+      <div class="settings-section-title mb-0">算定要件資料（AI加算提案・チャットボット用）</div>
+      {% if is_admin %}
+      <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#uploadDocModal"><i class="bi bi-upload me-1"></i>資料をアップロード</button>
+      {% endif %}
+    </div>
+    <p class="text-muted small mb-3">厚生労働省の算定基準・留意事項通知などの PDF をアップロードして「ベクトル化する」を押すと、AI加算提案とチャットボットが資料を根拠に答えられるようになります。資料が無くても動きますが、一般知識だけの判断になるため精度が下がります。{% if not ai_enabled %}<span class="text-danger">（ANTHROPIC_API_KEY が未設定のため AI 機能は動きません）</span>{% endif %}</p>
+    {% if reference_documents %}
+    <div class="table-responsive">
+      <table class="table mb-0 align-middle">
+        <thead><tr><th>資料名</th><th>状態</th><th>ページ／チャンク</th><th>アップロード</th><th></th></tr></thead>
+        <tbody>
+          {% for d in reference_documents %}
+          <tr>
+            <td class="fw-semibold">{{ d.title }}<div class="small text-muted">{{ d.file.name|cut:"reference_docs/" }}</div></td>
+            <td>
+              {% if d.is_indexed %}<span class="badge text-bg-success">ベクトル化済み {{ d.indexed_at|date:'n/j H:i' }}</span>
+              {% elif d.error %}<span class="badge text-bg-danger">失敗</span><div class="small text-danger">{{ d.error|truncatechars:80 }}</div>
+              {% else %}<span class="badge text-bg-warning">未ベクトル化</span>{% endif %}
+            </td>
+            <td class="small">{% if d.is_indexed %}{{ d.page_count }} / {{ d.chunk_count }}{% else %}—{% endif %}</td>
+            <td class="small">{{ d.uploaded_at|date:'Y/n/j' }} {{ d.uploaded_by|default:'' }}</td>
+            <td class="text-end">
+              {% if is_admin %}
+              <div class="d-flex gap-1 justify-content-end">
+                <form method="post" action="{% url 'ai_assist:document_index' d.pk %}" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='処理中…';">
+                  {% csrf_token %}<button class="btn btn-sm {% if d.is_indexed %}btn-outline-secondary{% else %}btn-primary{% endif %}">{% if d.is_indexed %}再ベクトル化{% else %}ベクトル化する{% endif %}</button>
+                </form>
+                <form method="post" action="{% url 'ai_assist:document_delete' d.pk %}" onsubmit="return confirm('「{{ d.title }}」を削除しますか？');">
+                  {% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                </form>
+              </div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="text-muted small mt-2 mb-0">⚠️ ベクトル化はページ数により数十秒かかります。完了のメッセージが出るまでページを閉じないでください。</p>
+    {% else %}
+    <p class="text-muted small">まだ資料がありません。</p>
     {% endif %}
   </div>
 
@@ -325,6 +373,36 @@
   </div>
 </div>
 
+<!-- ===== 算定要件資料アップロードモーダル ===== -->
+<div class="modal fade" id="uploadDocModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'ai_assist:document_upload' %}" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">算定要件資料をアップロード</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">PDFファイル <span class="text-danger">*</span></label>
+            <input type="file" name="file" accept="application/pdf,.pdf" class="form-control" required>
+            <div class="form-text">30MB まで。文字が埋め込まれた PDF（スキャン画像だけの PDF は読み取れません）</div>
+          </div>
+          <div class="mb-1">
+            <label class="form-label small fw-semibold">資料名（省略時はファイル名）</label>
+            <input type="text" name="title" class="form-control" placeholder="例：放課後等デイサービス 算定基準（令和6年度）">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="submit" class="btn btn-primary">アップロード</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <!-- ===== 支援タグ追加モーダル ===== -->
 <div class="modal fade" id="addSupportTagModal" tabindex="-1">
   <div class="modal-dialog">
@@ -340,9 +418,15 @@
             <label class="form-label small fw-semibold">タグ名 <span class="text-danger">*</span></label>
             <input type="text" name="name" class="form-control" placeholder="例：送迎支援（迎え）" required>
           </div>
-          <div class="mb-3">
-            <label class="form-label small fw-semibold">表示順</label>
-            <input type="number" name="order" class="form-control" value="0" min="0">
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label small fw-semibold">表示順</label>
+              <input type="number" name="order" class="form-control" value="0" min="0">
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">実費単価（円/回）</label>
+              <input type="number" name="price" class="form-control" value="0" min="0">
+            </div>
           </div>
           <div class="form-check">
             <input type="checkbox" name="is_active" id="add_support_active" class="form-check-input" checked>
@@ -373,9 +457,15 @@
             <label class="form-label small fw-semibold">タグ名 <span class="text-danger">*</span></label>
             <input type="text" name="name" id="edit_support_name" class="form-control" required>
           </div>
-          <div class="mb-3">
-            <label class="form-label small fw-semibold">表示順</label>
-            <input type="number" name="order" id="edit_support_order" class="form-control" min="0">
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label small fw-semibold">表示順</label>
+              <input type="number" name="order" id="edit_support_order" class="form-control" min="0">
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">実費単価（円/回）</label>
+              <input type="number" name="price" id="edit_support_price" class="form-control" min="0">
+            </div>
           </div>
           <div class="form-check">
             <input type="checkbox" name="is_active" id="edit_support_active" class="form-check-input">
@@ -413,6 +503,7 @@ document.getElementById('editSupportTagModal').addEventListener('show.bs.modal',
   document.getElementById('editSupportTagForm').action = `/settings/support-tags/${pk}/edit/`;
   document.getElementById('edit_support_name').value  = btn.dataset.name;
   document.getElementById('edit_support_order').value = btn.dataset.order;
+  document.getElementById('edit_support_price').value = btn.dataset.price || 0;
   document.getElementById('edit_support_active').checked = btn.dataset.active === 'true';
 });
 </script>

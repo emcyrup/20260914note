@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     'beneficiaries',
     'schedules',
     'records',
+    'ai_assist',
     'support_plans',
     'billing',
     'ai_features',
@@ -129,6 +130,8 @@ ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
 AI_PLAN_MODEL = config('AI_PLAN_MODEL', default='claude-opus-5')
 # 文章整え・一括生成に使う高速モデル
 AI_TEXT_MODEL = config('AI_TEXT_MODEL', default='claude-haiku-4-5-20251001')
+# 日誌を保存したときに AI が加算を提案する（API キーが無ければ何もしない）
+AI_ADDON_SUGGESTIONS = config('AI_ADDON_SUGGESTIONS', default=True, cast=bool)
 
 # LINE Messaging API
 LINE_CHANNEL_ACCESS_TOKEN = config('LINE_CHANNEL_ACCESS_TOKEN', default='')

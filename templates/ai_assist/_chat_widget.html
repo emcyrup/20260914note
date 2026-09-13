@@ -1,0 +1,86 @@
+{% comment %}AIチャットボット（画面右下の💬）。base.html から include{% endcomment %}
+<button type="button" class="ai-chat-fab" id="aiChatFab" aria-label="AIに質問する" title="AIに質問する">
+  <i class="bi bi-chat-dots-fill"></i>
+</button>
+<div class="ai-chat-panel" id="aiChatPanel" hidden>
+  <div class="ai-chat-head">
+    <div>
+      <div class="ai-chat-title"><i class="bi bi-stars me-1"></i>AIアシスタント</div>
+      <div class="ai-chat-sub">利用者の様子・出席日数・加算の要件などを質問できます</div>
+    </div>
+    <div class="d-flex gap-1">
+      <button type="button" class="ai-chat-iconbtn" id="aiChatClear" title="会話を消す"><i class="bi bi-trash"></i></button>
+      <button type="button" class="ai-chat-iconbtn" id="aiChatClose" title="閉じる"><i class="bi bi-x-lg"></i></button>
+    </div>
+  </div>
+  <div class="ai-chat-body" id="aiChatBody">
+    <div class="ai-msg is-bot">こんにちは。例：「佐藤さんの今月の出席日数は？」「入浴支援加算の条件は？」</div>
+  </div>
+  <form class="ai-chat-form" id="aiChatForm">
+    <textarea id="aiChatInput" rows="1" placeholder="質問を入力（Enterで送信・Shift+Enterで改行）"></textarea>
+    <button type="submit" class="ai-chat-send" id="aiChatSend"><i class="bi bi-send-fill"></i></button>
+  </form>
+  <div class="ai-chat-note">加算に関する回答は参考情報です。正確な算定要件は厚生労働省の通知・自治体の解釈をご確認ください。</div>
+</div>
+<script>
+(function () {
+  'use strict';
+  const URL_ = '{% url "ai_assist:chat" %}';
+  const KEY = 'aiChatHistory';
+  const fab = document.getElementById('aiChatFab'), panel = document.getElementById('aiChatPanel');
+  const body = document.getElementById('aiChatBody'), form = document.getElementById('aiChatForm');
+  const input = document.getElementById('aiChatInput'), send = document.getElementById('aiChatSend');
+  let history = [], pending = null, beneficiaryId = null;
+  try { history = JSON.parse(sessionStorage.getItem(KEY) || '[]'); } catch (e) { history = []; }
+
+  function csrf() { return document.cookie.match(/csrftoken=([^;]+)/)?.[1] || ''; }
+  function save() { try { sessionStorage.setItem(KEY, JSON.stringify(history.slice(-20))); } catch (e) {} }
+  function add(role, text, extra) {
+    const el = document.createElement('div');
+    el.className = 'ai-msg ' + (role === 'user' ? 'is-user' : role === 'error' ? 'is-error' : 'is-bot');
+    el.textContent = text;
+    if (extra) el.appendChild(extra);
+    body.appendChild(el); body.scrollTop = body.scrollHeight;
+    return el;
+  }
+  function render() {
+    body.innerHTML = '';
+    add('bot', 'こんにちは。例：「佐藤さんの今月の出席日数は？」「入浴支援加算の条件は？」');
+    history.forEach(h => add(h.role === 'user' ? 'user' : 'bot', h.content));
+  }
+  async function ask(message, bid) {
+    send.disabled = true; input.disabled = true;
+    const wait = add('bot', '考えています…'); wait.classList.add('is-wait');
+    try {
+      const res = await fetch(URL_, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
+        body: JSON.stringify({ message, history: history.slice(-10), beneficiary_id: bid || null }) });
+      const data = await res.json().catch(() => ({}));
+      wait.remove();
+      if (data.choices) {
+        const box = document.createElement('div'); box.className = 'ai-choices';
+        data.choices.forEach(c => {
+          const b = document.createElement('button'); b.type = 'button'; b.className = 'ai-choice'; b.textContent = c.name;
+          b.onclick = () => { box.remove(); ask(message, c.id); };
+          box.appendChild(b);
+        });
+        add('bot', data.question, box);
+        return;
+      }
+      if (!res.ok || data.error) { add('error', data.error || `サーバーエラー (${res.status})`); return; }
+      beneficiaryId = data.beneficiary ? data.beneficiary.id : null;
+      history.push({ role: 'user', content: message }, { role: 'assistant', content: data.reply }); save();
+      add('bot', data.reply);
+    } catch (e) { wait.remove(); add('error', '通信エラー: ' + e.message); }
+    finally { send.disabled = false; input.disabled = false; input.focus(); }
+  }
+  fab.addEventListener('click', () => { panel.hidden = !panel.hidden; if (!panel.hidden) { render(); input.focus(); } });
+  document.getElementById('aiChatClose').addEventListener('click', () => { panel.hidden = true; });
+  document.getElementById('aiChatClear').addEventListener('click', () => { history = []; beneficiaryId = null; save(); render(); });
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const m = input.value.trim(); if (!m) return;
+    input.value = ''; add('user', m); ask(m, beneficiaryId);
+  });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); } });
+})();
+</script>

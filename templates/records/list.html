@@ -692,6 +692,48 @@
         {% endif %}
         {% endif %}
 
+        <!-- AI加算提案 -->
+        <div class="detail-section">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+            <div class="detail-section-label mb-0"><i class="bi bi-stars me-1"></i>AI加算提案</div>
+            <form method="post" action="{% url 'ai_assist:suggestion_refresh' selected_record.pk %}">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-outline-secondary py-0" style="min-height:28px;font-size:0.72rem;" {% if not ai_enabled %}disabled title="ANTHROPIC_API_KEY が未設定です"{% endif %}>
+                <i class="bi bi-arrow-repeat me-1"></i>提案を作り直す
+              </button>
+            </form>
+          </div>
+          {% if addon_suggestions %}
+          <ul class="sugg-list">
+            {% for sg in addon_suggestions %}
+            <li class="sugg-item is-{{ sg.status }}">
+              <div class="sugg-main">
+                <div class="sugg-name">{{ sg.addon.name }} <small>{{ sg.addon.unit_count }}単位</small>
+                  {% if sg.status == 'adopted' %}<span class="badge text-bg-success ms-1">採用済み・請求マトリックスへ反映</span>
+                  {% elif sg.status == 'dismissed' %}<span class="badge text-bg-secondary ms-1">見送り</span>{% endif %}
+                </div>
+                {% if sg.reason %}<div class="sugg-reason">{{ sg.reason }}</div>{% endif %}
+                {% if sg.evidence %}<div class="sugg-evidence"><i class="bi bi-file-earmark-text me-1"></i>{{ sg.evidence }}</div>{% endif %}
+              </div>
+              <div class="sugg-actions">
+                {% if sg.status == 'pending' %}
+                <form method="post" action="{% url 'ai_assist:suggestion_decide' sg.pk 'adopt' %}">{% csrf_token %}<button class="btn btn-sm btn-primary">採用する</button></form>
+                <form method="post" action="{% url 'ai_assist:suggestion_decide' sg.pk 'dismiss' %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary">見送る</button></form>
+                {% else %}
+                <form method="post" action="{% url 'ai_assist:suggestion_decide' sg.pk 'reopen' %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary">{% if sg.status == 'adopted' %}採用を取り消す{% else %}再検討{% endif %}</button></form>
+                {% endif %}
+              </div>
+            </li>
+            {% endfor %}
+          </ul>
+          <p class="text-muted mb-0" style="font-size:0.72rem;">採用した加算は請求マトリックスのセルに「+N ◆」で入ります。ポップアップを開いて内容を確認・保存してください。</p>
+          {% else %}
+          <p class="detail-section-text text-muted" style="font-size:0.85rem;">
+            {% if ai_enabled %}この日誌から提案できる加算はありませんでした。内容を書き足して保存すると再判定します。{% else %}ANTHROPIC_API_KEY を設定すると、日誌の保存時に AI が加算を提案します。{% endif %}
+          </p>
+          {% endif %}
+        </div>
+
         <!-- 観察記録 -->
         <div class="detail-section">
           <div class="detail-section-label">OBSERVATION · 観察・活動内容</div>

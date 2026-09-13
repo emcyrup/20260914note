@@ -22,4 +22,5 @@ urlpatterns = [
     path('billing/', include('billing.urls')),
     path('esignatures/', include('esignatures.urls')),
     path('line/', include('line_integration.urls')),
+    path('ai/', include('ai_assist.urls')),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

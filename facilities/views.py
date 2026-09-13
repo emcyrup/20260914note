@@ -1,5 +1,6 @@
 import datetime
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import OuterRef, Subquery
@@ -72,12 +73,37 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             .order_by('beneficiary__last_name_kana')
         )
 
+        # 週間の来所状況（月〜日）：予定と日誌の作成状況
+        from records.models import DailyRecord
+        week_start = today - datetime.timedelta(days=today.weekday())
+        week_dates = [week_start + datetime.timedelta(days=i) for i in range(7)]
+        week_visits = (ScheduledVisit.objects
+                       .filter(facility=facility, date__range=(week_dates[0], week_dates[-1]))
+                       .exclude(status='absent').select_related('beneficiary')
+                       .order_by('date', 'beneficiary__last_name_kana'))
+        recorded = set(DailyRecord.objects
+                       .filter(facility=facility, date__range=(week_dates[0], week_dates[-1]))
+                       .values_list('beneficiary_id', 'date'))
+        by_day = {d: [] for d in week_dates}
+        for v in week_visits:
+            by_day[v.date].append({'visit': v, 'has_record': (v.beneficiary_id, v.date) in recorded})
+        weekday_names = ['月', '火', '水', '木', '金', '土', '日']
+        week_info = [{
+            'date': d, 'weekday_ja': weekday_names[d.weekday()], 'is_today': d == today,
+            'is_saturday': d.weekday() == 5, 'is_sunday': d.weekday() == 6,
+            'entries': by_day[d], 'count': len(by_day[d]),
+            'recorded': sum(1 for e in by_day[d] if e['has_record']),
+        } for d in week_dates]
+
         ctx.update({
             'today':           today,
             'soon':            soon,
             'expired_certs':   expired_certs,
             'expiring_certs':  expiring_certs,
             'today_schedules': today_schedules,
+            'week_info':       week_info,
+            'week_start':      week_dates[0],
+            'week_end':        week_dates[-1],
         })
         return ctx
 
@@ -104,6 +130,10 @@ class SettingsView(LoginRequiredMixin, TemplateView):
             for addon in addons
         ]
 
+        from ai_assist.models import ReferenceDocument
+        ctx['reference_documents'] = ReferenceDocument.objects.filter(facility=facility)
+        ctx['is_admin'] = self.request.user.is_admin or self.request.user.is_superuser
+        ctx['ai_enabled'] = bool(settings.ANTHROPIC_API_KEY)
         ctx.update({
             'facility':      facility,
             'facility_form': FacilityForm(instance=facility),

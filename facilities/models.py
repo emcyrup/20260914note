@@ -58,6 +58,9 @@ class SupportContentTag(models.Model):
     name = models.CharField(max_length=50, verbose_name='タグ名')
     order = models.PositiveIntegerField(default=0, verbose_name='表示順')
     is_active = models.BooleanField(default=True, verbose_name='有効')
+    # 実費請求する支援（教材費など）は単価を入れると請求書に自動集計される
+    price = models.PositiveIntegerField(default=0, verbose_name='実費単価（円/回）',
+                                        help_text='0 のときは実費請求しない')
 
     class Meta:
         verbose_name = '支援内容タグ'

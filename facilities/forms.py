@@ -57,10 +57,11 @@ class SupportContentTagForm(forms.ModelForm):
 
     class Meta:
         model = SupportContentTag
-        fields = ['name', 'order', 'is_active']
+        fields = ['name', 'order', 'price', 'is_active']
         widgets = {
             'name':      forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'タグ名を入力'}),
             'order':     forms.NumberInput(attrs={'class': 'form-control', 'min': '0'}),
+            'price':     forms.NumberInput(attrs={'class': 'form-control', 'min': '0'}),
             'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
         labels = {

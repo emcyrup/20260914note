@@ -20,7 +20,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 
 from beneficiaries.models import Beneficiary
-from facilities.models import AddonMaster
+from facilities.models import SupportContentTag, AddonMaster
 from schedules.models import ScheduledVisit
 
 # 地域区分別・1単位あたり単価（円）
@@ -749,15 +749,22 @@ def _build_invoice_context(facility, beneficiary, year, month):
         price__gt=0,
     ).order_by('display_order', 'name')
 
+    # 支援内容タグにも単価を設定できる（教材費など）
+    expense_support_tags = SupportContentTag.objects.filter(
+        facility=facility,
+        is_active=True,
+        price__gt=0,
+    ).order_by('order', 'name')
+
     expense_items = []
     expense_total = 0
-    for tag in expense_tags:
+    for tag, field in [(t, 'activity_tags') for t in expense_tags] + [(t, 'support_tags') for t in expense_support_tags]:
         count = DailyRecord.objects.filter(
             facility=facility,
             beneficiary=beneficiary,
             date__year=year,
             date__month=month,
-            activity_tags=tag,
+            **{field: tag},
         ).count()
         if count > 0:
             subtotal = tag.price * count
