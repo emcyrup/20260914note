@@ -6,6 +6,7 @@ from django.urls import reverse_lazy
 from django.views import View
 
 from .models import StaffAccount
+from facilities.context_processors import get_terms
 
 
 class StaffLoginView(LoginView):
@@ -79,7 +80,7 @@ class ThemeView(LoginRequiredMixin, View):
         target = request.user
         if staff_id and str(staff_id) != str(request.user.pk):
             if not (request.user.is_admin or request.user.is_superuser):
-                messages.error(request, '他の職員の画面を変えられるのは管理者だけです。')
+                messages.error(request, f'他の{get_terms(request.user)["staff"]}の画面を変えられるのは管理者だけです。')
                 return redirect('accounts:theme')
             target = get_object_or_404(StaffAccount, pk=staff_id, facility=request.user.facility)
         target.ui_theme = theme

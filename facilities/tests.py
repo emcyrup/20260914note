@@ -121,3 +121,43 @@ class DashboardWeekAndSupportTagPriceTests(TestCase):
         item = next(i for i in ctx['expense_items'] if i['name'] == '教材費')
         self.assertEqual((item['count'], item['subtotal']), (2, 400))
         self.assertEqual(ctx['expense_total'], 400)
+
+
+class TermsSweepTests(TestCase):
+    """施設の呼び方（職員／利用者）が各画面・メッセージに反映される"""
+
+    def setUp(self):
+        self.facility = Facility.objects.create(name='テスト事業所', term_staff='先生', term_beneficiary='園児')
+        self.user = StaffAccount.objects.create_user(
+            username='admin', password='pw12345678', facility=self.facility, role=StaffAccount.ROLE_ADMIN,
+        )
+        self.client.force_login(self.user)
+
+    def test_pages_use_facility_terms(self):
+        res = self.client.get(reverse('beneficiaries:list'))
+        self.assertContains(res, '園児一覧')
+        self.assertContains(res, '園児台帳')
+        res = self.client.get(reverse('billing:matrix'))
+        self.assertContains(res, '在籍中の園児がいません')
+        res = self.client.get(reverse('billing:invoice_list'))
+        self.assertContains(res, '各園児の請求書・領収書')
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertContains(res, 'ログイン中の先生')
+        res = self.client.get(reverse('accounts:theme'))
+        self.assertContains(res, '先生ごとの割り当て')
+        self.assertNotContains(res, '職員ごとの割り当て')
+
+    def test_messages_and_titles_use_terms(self):
+        res = self.client.get(reverse('beneficiaries:create'))
+        self.assertContains(res, '園児 新規登録')
+        res = self.client.post(reverse('beneficiaries:create'), {
+            'last_name': '山田', 'first_name': '太郎', 'date_of_birth': '2016-04-01',
+            'gender': 'male', 'status': 'active',
+        }, follow=True)
+        self.assertContains(res, '園児「山田 太郎」を登録しました')
+
+    def test_default_terms_without_facility(self):
+        from facilities.context_processors import get_terms
+        self.assertEqual(get_terms(None), {'staff': '職員', 'beneficiary': '利用者'})
+        self.facility.term_beneficiary = ''
+        self.assertEqual(get_terms(self.user)['beneficiary'], '利用者')

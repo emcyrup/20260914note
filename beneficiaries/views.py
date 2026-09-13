@@ -14,6 +14,7 @@ import anthropic
 
 from .models import Beneficiary, Guardian, RecipientCertificate
 from .forms import BeneficiaryForm, GuardianForm, RecipientCertificateForm
+from facilities.context_processors import get_terms
 
 
 # =============================================
@@ -104,7 +105,7 @@ class BeneficiaryCreateView(LoginRequiredMixin, CreateView):
         form.instance.facility = self.request.user.facility
         # 先に保存を完了させてからメッセージを追加する（保存失敗時にメッセージが残らないよう順番を逆にする）
         response = super().form_valid(form)
-        messages.success(self.request, f'利用者「{self.object.full_name}」を登録しました。')
+        messages.success(self.request, f'{get_terms(self.request.user)["beneficiary"]}「{self.object.full_name}」を登録しました。')
         return response
 
     def get_success_url(self):
@@ -112,7 +113,7 @@ class BeneficiaryCreateView(LoginRequiredMixin, CreateView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx['page_title'] = '利用者 新規登録'
+        ctx['page_title'] = f'{get_terms(self.request.user)["beneficiary"]} 新規登録'
         return ctx
 
 
@@ -128,7 +129,7 @@ class BeneficiaryUpdateView(LoginRequiredMixin, UpdateView):
         return Beneficiary.objects.filter(facility=self.request.user.facility)
 
     def form_valid(self, form):
-        messages.success(self.request, '利用者情報を更新しました。')
+        messages.success(self.request, f'{get_terms(self.request.user)["beneficiary"]}情報を更新しました。')
         return super().form_valid(form)
 
     def get_success_url(self):
@@ -136,7 +137,7 @@ class BeneficiaryUpdateView(LoginRequiredMixin, UpdateView):
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
-        ctx['page_title'] = f'利用者編集 — {self.object.full_name}'
+        ctx['page_title'] = f'{get_terms(self.request.user)["beneficiary"]}編集 — {self.object.full_name}'
         return ctx
 
 

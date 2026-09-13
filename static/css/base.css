@@ -1355,6 +1355,39 @@ body.theme-large .vp-btn { min-height: 52px; font-size: 19px; padding: 6px 22px;
 body.theme-large .vp-list li, body.theme-large .detail-section-text { font-size: 19px; }
 body.theme-large .modal-dialog { max-width: 960px; }
 body.theme-large a { text-decoration-thickness: 2px; }
+/* 大きな文字：補足文・小さな文言も一律で大きく（元のサイズのまま残っていた箇所） */
+body.theme-large .sidebar-brand-sub, body.theme-large .sidebar-user-role, body.theme-large .topbar-facility,
+body.theme-large .breadcrumb, body.theme-large .legend, body.theme-large .step-status, body.theme-large .goal-item .goal-type,
+body.theme-large .dash-week-dow, body.theme-large .dash-week-count small, body.theme-large .dash-week-list,
+body.theme-large .ai-chat-sub, body.theme-large .section-kicker, body.theme-large .detail-section-label { font-size: 16px !important; }
+body.theme-large .topbar-nav-item, body.theme-large .dropdown-menu, body.theme-large .alert, body.theme-large .readonly-note,
+body.theme-large .sugg-reason, body.theme-large .empty-state-text, body.theme-large .list-group-item, body.theme-large .nav-link,
+body.theme-large .form-check-label, body.theme-large .card-header, body.theme-large .toast-body { font-size: 19px; }
+body.theme-large .stepper-num { font-size: 17px; }
+body.theme-large .sidebar-nav-submenu .sidebar-nav-item { font-size: 18px; }
+body.theme-large .empty-state-title { font-size: 24px; }
+/* 画面に直接書かれた小さな文字サイズ（style="font-size:0.7rem" など）も持ち上げる */
+body.theme-large [style*="font-size:0."], body.theme-large [style*="font-size: 0."], body.theme-large [style*="font-size:."],
+body.theme-large [style*="font-size:10px"], body.theme-large [style*="font-size: 10px"],
+body.theme-large [style*="font-size:11px"], body.theme-large [style*="font-size: 11px"],
+body.theme-large [style*="font-size:12px"], body.theme-large [style*="font-size: 12px"], body.theme-large [style*="font-size: 12.5px"],
+body.theme-large [style*="font-size:13px"], body.theme-large [style*="font-size: 13px"] { font-size: 17px !important; }
+/* 大きな文字：画面ごとの独自スタイル（日誌・日誌カレンダー・利用者詳細・請求）も持ち上げる */
+body.theme-large .sidebar-theme-link { font-size: 15px; }
+body.theme-large .monthnav-label { font-size: 22px; }
+body.theme-large .sidebar-name { font-size: 24px; }
+body.theme-large .sidebar-sub, body.theme-large .sidebar-nav-count, body.theme-large .tag-chip { font-size: 15px; }
+body.theme-large .sidebar-nav-item { font-size: 20px; }
+body.theme-large .sidebar-nav-num, body.theme-large .status-badge, body.theme-large .journal-card-date .weekday { font-size: 14px; }
+body.theme-large .sidebar-back a, body.theme-large .journal-card-preview, body.theme-large .detail-meta, body.theme-large .ai-btn,
+body.theme-large .ai-done-msg, body.theme-large .jmn-item, body.theme-large .voice-btn-memo, body.theme-large .detail-label,
+body.theme-large .flow-step { font-size: 17px; }
+body.theme-large .journal-card-date .month { font-size: 15px; }
+body.theme-large .journal-card-top strong, body.theme-large .detail-value, body.theme-large .weekday-check label { font-size: 20px; }
+body.theme-large .detail-section-empty, body.theme-large .tag-toggle, body.theme-large .day-weekday, body.theme-large .visit-card { font-size: 18px; }
+body.theme-large .visit-status-label { font-size: 15px; }
+body.theme-large .no-visit, body.theme-large .memo-widget-title, body.theme-large .memo-card-meta, body.theme-large .section-title { font-size: 16px; }
+body.theme-large .add-record-btn, body.theme-large .memo-card-content { font-size: 19px; }
 
 /* =========================================================
    テーマ：スタイリッシュ（濃色の背景・装飾を抑える）

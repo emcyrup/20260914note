@@ -92,7 +92,7 @@
           <!-- 利用者名列（固定） -->
           <th class="text-nowrap px-2"
               style="min-width: 100px; position: sticky; left: 0; z-index: 2; background: #fff;">
-            利用者
+            {{ terms.beneficiary }}
           </th>
           <!-- 日付列 -->
           {% for day_info in day_headers %}
@@ -195,7 +195,7 @@
     <div class="row g-2">
       <div class="col-auto">
         <span class="fw-bold" style="color: var(--color-primary-dark);">
-          <i class="bi bi-person-check me-1"></i>登録利用者数：{{ matrix|length }}名
+          <i class="bi bi-person-check me-1"></i>登録{{ terms.beneficiary }}数：{{ matrix|length }}名
         </span>
       </div>
       <div class="col-auto">
@@ -210,8 +210,8 @@
   <div class="text-center py-5 text-muted">
     <i class="bi bi-person-x" style="font-size: 3rem;"></i>
     <p class="mt-3">
-      この施設に在籍中の利用者がいません。<br>
-      <a href="{% url 'beneficiaries:list' %}">利用者台帳</a>から利用者を登録してください。
+      この施設に在籍中の{{ terms.beneficiary }}がいません。<br>
+      <a href="{% url 'beneficiaries:list' %}">{{ terms.beneficiary }}台帳</a>から{{ terms.beneficiary }}を登録してください。
     </p>
   </div>
   {% endif %}

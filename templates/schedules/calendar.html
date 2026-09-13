@@ -89,7 +89,7 @@
   <!-- 当月予定一括作成ボタン -->
   <div class="mb-3">
     <form method="post" action="{% url 'schedules:bulk_create' year month %}"
-          onsubmit="return confirm('{{ year }}年{{ month }}月の予定を全利用者分まとめて作成します。よろしいですか？')">
+          onsubmit="return confirm('{{ year }}年{{ month }}月の予定を全{{ terms.beneficiary }}分まとめて作成します。よろしいですか？')">
       {% csrf_token %}
       <button type="submit" class="btn btn-outline-primary btn-sm">
         <i class="bi bi-calendar-plus me-1"></i>

@@ -8,7 +8,7 @@
 {% block topbar_nav %}
 <nav class="topbar-nav">
   <a class="topbar-nav-item" href="{% url 'facilities:dashboard' %}"><i class="bi bi-house"></i>ホーム</a>
-  <a class="topbar-nav-item" href="{% url 'beneficiaries:list' %}"><i class="bi bi-people"></i>利用者台帳</a>
+  <a class="topbar-nav-item" href="{% url 'beneficiaries:list' %}"><i class="bi bi-people"></i>{{ terms.beneficiary }}台帳</a>
   <a class="topbar-nav-item active" href="{% url 'records:dashboard' %}"><i class="bi bi-journal-text"></i>記録</a>
   <a class="topbar-nav-item" href="{% url 'schedules:calendar' %}"><i class="bi bi-calendar3"></i>予定</a>
   <div class="topbar-nav-divider"></div>
@@ -669,7 +669,7 @@
             <span class="status-badge status-{{ selected_record.status }}">
               {{ selected_record.get_status_display }}
             </span>
-            <button class="btn btn-sm btn-outline-secondary" title="この日誌をテンプレートにして他の利用者でも使う"
+            <button class="btn btn-sm btn-outline-secondary" title="この日誌をテンプレートにして他の{{ terms.beneficiary }}でも使う"
                     data-bs-toggle="modal" data-bs-target="#saveTemplateModal">
               <i class="bi bi-files"></i>
             </button>
@@ -891,7 +891,7 @@
             <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" @click="applyTemplate()" :disabled="!templateId || applyingTemplate">
               <span x-show="!applyingTemplate">反映</span><span x-show="applyingTemplate">…</span>
             </button>
-            <span class="small text-muted d-none d-md-inline">他の利用者の日誌から作ったテンプレートを、この利用者の名前に置き換えて入れます</span>
+            <span class="small text-muted d-none d-md-inline">他の{{ terms.beneficiary }}の日誌から作ったテンプレートを、この{{ terms.beneficiary }}の名前に置き換えて入れます</span>
           </div>
           {% endif %}
 
@@ -1199,7 +1199,7 @@
             <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" @click="applyTemplate()" :disabled="!templateId || applyingTemplate">
               <span x-show="!applyingTemplate">反映</span><span x-show="applyingTemplate">…</span>
             </button>
-            <span class="small text-muted d-none d-md-inline">他の利用者の日誌から作ったテンプレートを、この利用者の名前に置き換えて入れます</span>
+            <span class="small text-muted d-none d-md-inline">他の{{ terms.beneficiary }}の日誌から作ったテンプレートを、この{{ terms.beneficiary }}の名前に置き換えて入れます</span>
           </div>
           {% endif %}
 
@@ -1529,7 +1529,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <p class="small text-muted">活動・めあて・観点（はい／いいえは空に）・記録文・保護者向けメッセージ・タグ・5領域を保存します。文中の「{{ beneficiary.full_name }}」「{{ beneficiary.first_name }}」は <code>{名前}</code> に置き換えられ、使うときにその利用者の名前になります。写真・時刻・体調は含みません。</p>
+          <p class="small text-muted">活動・めあて・観点（はい／いいえは空に）・記録文・保護者向けメッセージ・タグ・5領域を保存します。文中の「{{ beneficiary.full_name }}」「{{ beneficiary.first_name }}」は <code>{名前}</code> に置き換えられ、使うときにその{{ terms.beneficiary }}の名前になります。写真・時刻・体調は含みません。</p>
           <label class="form-label small fw-semibold">テンプレート名</label>
           <input type="text" name="name" class="form-control" maxlength="100" required
                  value="{% if selected_record.activity_name %}{{ selected_record.activity_name }}{% else %}{{ selected_record.date|date:'n/j' }} の日誌{% endif %}">

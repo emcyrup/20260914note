@@ -391,7 +391,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <p class="small text-muted mb-3">日誌を作成する利用者を選んでください。</p>
+          <p class="small text-muted mb-3">日誌を作成する{{ terms.beneficiary }}を選んでください。</p>
           <div class="d-flex flex-column gap-2">
             {% for b in beneficiaries %}
             <a href="{% url 'records:list' b.pk %}?new_date="
@@ -402,7 +402,7 @@
               <small class="text-muted ms-1" style="font-size:0.72rem;">{{ b.full_name_kana }}</small>
             </a>
             {% empty %}
-            <p class="text-muted small">利用者が登録されていません。</p>
+            <p class="text-muted small">{{ terms.beneficiary }}が登録されていません。</p>
             {% endfor %}
           </div>
         </div>

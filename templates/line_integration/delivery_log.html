@@ -65,7 +65,7 @@
         <thead style="background-color: var(--color-primary-bg);">
           <tr>
             <th class="px-3 py-2">送信日時</th>
-            <th class="py-2">利用者</th>
+            <th class="py-2">{{ terms.beneficiary }}</th>
             <th class="py-2">送信先保護者</th>
             <th class="py-2">結果</th>
             <th class="py-2">送信内容</th>
@@ -76,7 +76,7 @@
           {% for log in logs %}
           <tr>
             <td class="px-3 py-2 text-nowrap" data-label="送信日時">{{ log.sent_at|date:"Y/m/d H:i" }}</td>
-            <td class="py-2" data-label="利用者">
+            <td class="py-2" data-label="{{ terms.beneficiary }}">
               {% if log.guardian %}
                 {{ log.guardian.beneficiary.full_name }}
               {% else %}

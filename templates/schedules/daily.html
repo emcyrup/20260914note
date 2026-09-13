@@ -162,8 +162,8 @@
   {% else %}
   <div class="card card-body text-center py-5 text-muted">
     <i class="bi bi-person-x" style="font-size: 2.5rem;"></i>
-    <p class="mt-2 mb-0">在籍中の利用者がいません。</p>
-    <a href="{% url 'beneficiaries:list' %}" class="btn btn-outline-primary mt-3">利用者台帳へ</a>
+    <p class="mt-2 mb-0">在籍中の{{ terms.beneficiary }}がいません。</p>
+    <a href="{% url 'beneficiaries:list' %}" class="btn btn-outline-primary mt-3">{{ terms.beneficiary }}台帳へ</a>
   </div>
   {% endif %}
 

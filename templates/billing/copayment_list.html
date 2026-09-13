@@ -32,7 +32,7 @@
   <!-- 説明バナー -->
   <div class="alert mb-3 small" style="background-color: var(--color-primary-bg); border: 1px solid var(--color-primary-light); color: var(--color-primary-dark);">
     <i class="bi bi-info-circle me-1"></i>
-    複数の事業所を利用する利用者の負担上限月額管理です。「入力」ボタンをタップして各利用者の実績を登録してください。
+    複数の事業所を利用する{{ terms.beneficiary }}の負担上限月額管理です。「入力」ボタンをタップして各{{ terms.beneficiary }}の実績を登録してください。
   </div>
 
   <!-- 利用者一覧 -->
@@ -41,7 +41,7 @@
     <table class="table table-bordered table-sm align-middle" style="font-size: 0.85rem;">
       <thead>
         <tr style="background-color: #f8f9fa;">
-          <th class="px-3">利用者</th>
+          <th class="px-3">{{ terms.beneficiary }}</th>
           <th class="text-center px-2">管理結果</th>
           <th class="text-center px-2">当施設負担額</th>
           <th class="text-center px-2">合計負担額</th>
@@ -85,8 +85,8 @@
   <div class="text-center py-5 text-muted">
     <i class="bi bi-person-x" style="font-size: 3rem;"></i>
     <p class="mt-3">
-      在籍中の利用者がいません。<br>
-      <a href="{% url 'beneficiaries:list' %}">利用者台帳</a>から利用者を登録してください。
+      在籍中の{{ terms.beneficiary }}がいません。<br>
+      <a href="{% url 'beneficiaries:list' %}">{{ terms.beneficiary }}台帳</a>から{{ terms.beneficiary }}を登録してください。
     </p>
   </div>
   {% endif %}

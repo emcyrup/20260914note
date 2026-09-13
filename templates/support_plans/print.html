@@ -31,7 +31,7 @@
   <div class="sub">{{ facility.name }}　{{ plan.title }}</div>
 
   <table>
-    <tr><th>利用者氏名</th><td>{{ plan.beneficiary.full_name }}（{{ plan.beneficiary.full_name_kana }}）</td>
+    <tr><th>{{ terms.beneficiary }}氏名</th><td>{{ plan.beneficiary.full_name }}（{{ plan.beneficiary.full_name_kana }}）</td>
         <th>生年月日</th><td>{{ plan.beneficiary.date_of_birth|date:'Y年n月j日' }}</td></tr>
     <tr><th>計画期間</th><td>{{ draft.period_start|date:'Y年n月j日'|default:'—' }} 〜 {{ draft.period_end|date:'Y年n月j日'|default:'—' }}</td>
         <th>児童発達支援管理責任者</th><td>{{ plan.manager|default:'—' }}</td></tr>

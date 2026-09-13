@@ -16,6 +16,7 @@ from django.views import View
 
 from beneficiaries.models import Beneficiary
 from .models import ScheduledVisit
+from facilities.context_processors import get_terms
 
 
 class CalendarView(LoginRequiredMixin, View):
@@ -226,7 +227,7 @@ class BulkCreateView(LoginRequiredMixin, View):
         )
 
         if not beneficiaries.exists():
-            messages.warning(request, '在籍中の利用者がいないため、予定を作成できませんでした。')
+            messages.warning(request, f'在籍中の{get_terms(request.user)["beneficiary"]}がいないため、予定を作成できませんでした。')
             return redirect('schedules:calendar_month', year=year, month=month)
 
         last_day  = calendar.monthrange(year, month)[1]

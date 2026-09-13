@@ -19,6 +19,7 @@ from esignatures.models import EsignatureRecord
 from facilities.models import SupportContentTag
 from schedules.models import ScheduledVisit
 from .models import DailyRecord, ActivityTag, DailyRecordPhoto, RecordTemplate, StaffMemo
+from facilities.context_processors import get_terms
 
 
 MAX_PHOTOS_PER_RECORD = 5  # 1件の日誌に添付できる写真の最大枚数
@@ -815,7 +816,7 @@ class TemplateCreateFromRecordView(LoginRequiredMixin, View):
         record = get_object_or_404(DailyRecord, pk=record_pk, facility=request.user.facility)
         name = request.POST.get('name', '').strip()
         t = RecordTemplate.from_record(record, name, request.user)
-        messages.success(request, f'テンプレート「{t.name}」を保存しました。他の利用者の「日誌を追加」で「テンプレートから入力」に出ます。')
+        messages.success(request, f'テンプレート「{t.name}」を保存しました。他の{get_terms(request.user)["beneficiary"]}の「日誌を追加」で「テンプレートから入力」に出ます。')
         return redirect(f'/records/{record.beneficiary_id}/?selected={record.pk}')
 
 
