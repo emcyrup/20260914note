@@ -1,0 +1,96 @@
+{% extends 'base.html' %}
+
+{% block title %}日誌テンプレート — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}日誌テンプレート{% endblock %}
+{% block nav_records %}active{% endblock %}
+
+{% block content %}
+<div class="px-2">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="small text-muted">
+      ある{{ terms.beneficiary }}の日誌を「テンプレートにする」で保存したものです。他の{{ terms.beneficiary }}の「日誌を追加」→「テンプレートから入力」で、文中の <code>{名前}</code> をその{{ terms.beneficiary }}の名前に置き換えて入れます。
+    </div>
+    <a href="{% url 'records:dashboard' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>記録へ</a>
+  </div>
+
+  {% if templates %}
+  <div class="row g-3">
+    {% for t in templates %}
+    <div class="col-md-6 col-xl-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+            <div>
+              <div class="fw-bold">{{ t.name }}</div>
+              <div class="small text-muted">{% if t.activity_name %}活動：{{ t.activity_name }}　{% endif %}使用 {{ t.use_count }} 回</div>
+            </div>
+            <div class="d-flex gap-1">
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editTpl{{ t.pk }}"><i class="bi bi-pencil"></i></button>
+              <form method="post" action="{% url 'records:template_delete' t.pk %}" onsubmit="return confirm('「{{ t.name }}」を削除しますか？');">{% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button></form>
+            </div>
+          </div>
+          {% if t.activity_aim %}<div class="small"><strong>めあて：</strong>{{ t.activity_aim }}</div>{% endif %}
+          {% if t.activity_viewpoints %}
+          <ul class="vp-list mb-1">{% for v in t.activity_viewpoints %}<li><span class="vp-badge">観点</span>{{ v.text }}</li>{% endfor %}</ul>
+          {% endif %}
+          {% if t.observation_text %}<div class="small text-muted mt-1" style="white-space:pre-wrap;">{{ t.observation_text|truncatechars:120 }}</div>{% endif %}
+          <div class="mt-2 d-flex flex-wrap gap-1">
+            {% for tag in t.activity_tags.all %}<span class="badge text-bg-light border">{{ tag.name }}</span>{% endfor %}
+            {% for tag in t.support_tags.all %}<span class="badge text-bg-light border">{{ tag.name }}</span>{% endfor %}
+          </div>
+          <div class="small text-muted mt-2">元：{{ t.source_beneficiary.full_name|default:'—' }}　作成：{{ t.created_by|default:'—' }} {{ t.created_at|date:'Y/n/j' }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 編集モーダル -->
+    <div class="modal fade" id="editTpl{{ t.pk }}" tabindex="-1">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <form method="post" action="{% url 'records:template_edit' t.pk %}">
+            {% csrf_token %}
+            <div class="modal-header"><h5 class="modal-title fw-bold">テンプレートを編集</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+              <p class="small text-muted">{{ terms.beneficiary }}の名前を入れる場所には <code>{名前}</code> と書いてください。</p>
+              <div class="row g-2">
+                <div class="col-md-6"><label class="form-label small fw-semibold">テンプレート名</label><input type="text" name="name" class="form-control" value="{{ t.name }}" required></div>
+                <div class="col-md-6"><label class="form-label small fw-semibold">活動</label><input type="text" name="activity_name" class="form-control" value="{{ t.activity_name }}" maxlength="100"></div>
+                <div class="col-12"><label class="form-label small fw-semibold">めあて</label><input type="text" name="activity_aim" class="form-control" value="{{ t.activity_aim }}"></div>
+                <div class="col-12"><label class="form-label small fw-semibold">観点（1行に1つ）</label><textarea name="activity_viewpoints" class="form-control" rows="3">{% for v in t.activity_viewpoints %}{{ v.text }}
+{% endfor %}</textarea></div>
+                <div class="col-12"><label class="form-label small fw-semibold">メモ</label><textarea name="observation_memo" class="form-control" rows="2">{{ t.observation_memo }}</textarea></div>
+                <div class="col-12"><label class="form-label small fw-semibold">観察・活動内容</label><textarea name="observation_text" class="form-control" rows="3">{{ t.observation_text }}</textarea></div>
+                <div class="col-12"><label class="form-label small fw-semibold">支援内容</label><textarea name="support_text" class="form-control" rows="3">{{ t.support_text }}</textarea></div>
+                <div class="col-12"><label class="form-label small fw-semibold">本人の反応</label><textarea name="reaction_text" class="form-control" rows="2">{{ t.reaction_text }}</textarea></div>
+                <div class="col-12"><label class="form-label small fw-semibold">保護者向けメッセージ</label><textarea name="parent_message_draft" class="form-control" rows="3">{{ t.parent_message_draft }}</textarea></div>
+                <div class="col-12"><label class="form-label small fw-semibold">考察</label><textarea name="activity_reflection" class="form-control" rows="3">{{ t.activity_reflection }}</textarea></div>
+                <div class="col-12">
+                  <label class="form-label small fw-semibold">5領域</label>
+                  <div class="d-flex flex-wrap gap-3">
+                    {% for k, l in domains %}<label class="small"><input type="checkbox" name="domains" value="{{ k }}" class="form-check-input me-1" {% if k in t.domains %}checked{% endif %}>{{ l }}</label>{% endfor %}
+                  </div>
+                </div>
+                <div class="col-12">
+                  <label class="form-label small fw-semibold">タグ</label>
+                  <div class="d-flex flex-wrap gap-3">
+                    {% for tag in user.facility.activity_tags.all %}{% if tag.is_active %}<label class="small"><input type="checkbox" name="activity_tags" value="{{ tag.pk }}" class="form-check-input me-1" {% if tag in t.activity_tags.all %}checked{% endif %}>{{ tag.name }}</label>{% endif %}{% endfor %}
+                    {% for tag in user.facility.support_content_tags.all %}{% if tag.is_active %}<label class="small"><input type="checkbox" name="support_tags" value="{{ tag.pk }}" class="form-check-input me-1" {% if tag in t.support_tags.all %}checked{% endif %}>{{ tag.name }}</label>{% endif %}{% endfor %}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button><button class="btn btn-primary">保存する</button></div>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card"><div class="empty-state">
+    <div class="empty-state-title">テンプレートはまだありません</div>
+    <div class="empty-state-text">日誌の詳細にある <i class="bi bi-files"></i> ボタンから、その日誌をテンプレートにできます。</div>
+  </div></div>
+  {% endif %}
+</div>
+{% endblock %}

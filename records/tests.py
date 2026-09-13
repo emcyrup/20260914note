@@ -235,3 +235,101 @@ class ViewpointTests(TestCase):
         res = self.client.get(reverse('records:simple_record', args=[self.b.pk]))
         self.assertContains(res, 'メモを入れる')
         self.assertContains(res, '確認して確定')
+
+
+class RecordTemplateTests(TestCase):
+    """日誌テンプレート：名前の置き換え、作成、反映、編集・削除、他施設からの遮断"""
+
+    def setUp(self):
+        from datetime import date
+        from beneficiaries.models import Beneficiary
+        from records.models import DailyRecord
+        self.facility = Facility.objects.create(name='テスト施設')
+        self.user = StaffAccount.objects.create_user('staff', password='pass12345', facility=self.facility)
+        self.client.force_login(self.user)
+        self.src = Beneficiary.objects.create(facility=self.facility, last_name='佐藤', first_name='はると',
+                                              last_name_kana='さとう', first_name_kana='はると',
+                                              date_of_birth=date(2016, 4, 1))
+        self.dst = Beneficiary.objects.create(facility=self.facility, last_name='山田', first_name='太郎',
+                                              date_of_birth=date(2015, 4, 1))
+        self.rec = DailyRecord.objects.create(
+            facility=self.facility, beneficiary=self.src, date=date(2026, 9, 10),
+            activity_name='クッキー作り', activity_aim='佐藤 はるとが役割分担できる',
+            activity_viewpoints=[{'text': 'はるとが順番を待てるか', 'answer': 'yes'}],
+            observation_text='はるとは友だちに声をかけていました。', support_text='見守りました。',
+            domain_social=True,
+        )
+
+    def test_anonymize_replaces_names(self):
+        from records.models import RecordTemplate
+        self.assertEqual(RecordTemplate.anonymize('佐藤 はるとと佐藤さんとはると', self.src),
+                         '{名前}と{名前}さんと{名前}')
+        self.assertEqual(RecordTemplate.anonymize('', self.src), '')
+
+    def test_from_record_and_apply_for(self):
+        from records.models import RecordTemplate
+        t = RecordTemplate.from_record(self.rec, '', self.user)
+        self.assertEqual(t.name, 'クッキー作り')
+        self.assertEqual(t.activity_aim, '{名前}が役割分担できる')
+        self.assertEqual(t.activity_viewpoints, [{'text': '{名前}が順番を待てるか', 'answer': None}])
+        self.assertEqual(t.domains, ['domain_social'])
+        self.assertEqual(t.source_beneficiary, self.src)
+        data = t.apply_for(self.dst)
+        self.assertEqual(data['activity_aim'], '太郎が役割分担できる')
+        self.assertEqual(data['observation_text'], '太郎は友だちに声をかけていました。')
+        self.assertEqual(data['activity_viewpoints'], [{'text': '太郎が順番を待てるか', 'answer': None}])
+        self.assertEqual(data['domains'], ['domain_social'])
+
+    def test_create_from_record_view_and_apply_view(self):
+        from records.models import RecordTemplate
+        res = self.client.post(reverse('records:template_from_record', args=[self.rec.pk]), {'name': 'クッキー基本'})
+        self.assertRedirects(res, f'/records/{self.src.pk}/?selected={self.rec.pk}')
+        t = RecordTemplate.objects.get(facility=self.facility)
+        self.assertEqual(t.name, 'クッキー基本')
+        self.assertEqual(t.created_by, self.user)
+
+        # 反映：利用者の名前で返り、使用回数が増える
+        res = self.client.get(reverse('records:template_apply', args=[t.pk]) + f'?beneficiary={self.dst.pk}')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['activity_aim'], '太郎が役割分担できる')
+        t.refresh_from_db()
+        self.assertEqual(t.use_count, 1)
+
+        # 日誌画面の追加モーダルにテンプレートが出る
+        res = self.client.get(f'/records/{self.dst.pk}/')
+        self.assertContains(res, 'テンプレートから入力')
+        self.assertContains(res, 'クッキー基本')
+
+    def test_list_edit_delete(self):
+        from records.models import RecordTemplate
+        t = RecordTemplate.from_record(self.rec, 'クッキー基本', self.user)
+        res = self.client.get(reverse('records:template_list'))
+        self.assertContains(res, 'クッキー基本')
+        self.assertContains(res, '{名前}が役割分担できる')
+
+        res = self.client.post(reverse('records:template_edit', args=[t.pk]), {
+            'name': 'クッキー改', 'activity_name': 'クッキー作り', 'activity_aim': '{名前}が協力できる',
+            'activity_viewpoints': '・順番を待てるか\n\n道具を正しく持てるか\n',
+            'domains': ['domain_health_life', 'domain_social'],
+        })
+        self.assertRedirects(res, reverse('records:template_list'))
+        t.refresh_from_db()
+        self.assertEqual(t.name, 'クッキー改')
+        self.assertEqual([v['text'] for v in t.activity_viewpoints], ['順番を待てるか', '道具を正しく持てるか'])
+        self.assertEqual(t.domains, ['domain_health_life', 'domain_social'])
+
+        res = self.client.post(reverse('records:template_delete', args=[t.pk]))
+        self.assertRedirects(res, reverse('records:template_list'))
+        self.assertFalse(RecordTemplate.objects.filter(pk=t.pk).exists())
+
+    def test_other_facility_is_blocked(self):
+        from records.models import RecordTemplate
+        t = RecordTemplate.from_record(self.rec, 'クッキー基本', self.user)
+        other = Facility.objects.create(name='別施設')
+        u2 = StaffAccount.objects.create_user('other', password='pass12345', facility=other)
+        self.client.force_login(u2)
+        self.assertEqual(self.client.get(reverse('records:template_apply', args=[t.pk]) + f'?beneficiary={self.dst.pk}').status_code, 404)
+        self.assertEqual(self.client.post(reverse('records:template_edit', args=[t.pk]), {'name': 'x'}).status_code, 404)
+        self.assertEqual(self.client.post(reverse('records:template_delete', args=[t.pk])).status_code, 404)
+        self.assertEqual(self.client.post(reverse('records:template_from_record', args=[self.rec.pk]), {'name': 'x'}).status_code, 404)
+        self.assertNotContains(self.client.get(reverse('records:template_list')), 'クッキー基本')

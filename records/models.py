@@ -210,3 +210,88 @@ class StaffMemo(models.Model):
 
     def __str__(self):
         return f'{self.created_at:%Y-%m-%d %H:%M} {self.author or "不明"}'
+
+
+class RecordTemplate(models.Model):
+    """
+    日誌テンプレート。ある利用者の日誌を元に作り、他の利用者の日誌入力に流用する。
+    本文中の利用者名は保存時に {名前} に置き換え、使うときにその利用者の名前に戻す。
+    """
+    NAME_PLACEHOLDER = '{名前}'
+
+    facility   = models.ForeignKey('facilities.Facility', on_delete=models.CASCADE,
+                                   related_name='record_templates', verbose_name='施設')
+    name       = models.CharField(max_length=100, verbose_name='テンプレート名')
+    source_beneficiary = models.ForeignKey('beneficiaries.Beneficiary', on_delete=models.SET_NULL, null=True, blank=True,
+                                           related_name='+', verbose_name='元になった利用者')
+    created_by = models.ForeignKey(StaffAccount, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='+', verbose_name='作成者')
+    activity_name       = models.CharField(max_length=100, blank=True, verbose_name='活動')
+    activity_aim        = models.TextField(blank=True, verbose_name='めあて')
+    activity_viewpoints = models.JSONField(default=list, blank=True, verbose_name='観点')
+    activity_reflection = models.TextField(blank=True, verbose_name='考察')
+    observation_memo    = models.TextField(blank=True, verbose_name='メモ')
+    observation_text    = models.TextField(blank=True, verbose_name='観察・活動内容')
+    support_text        = models.TextField(blank=True, verbose_name='支援内容')
+    reaction_text       = models.TextField(blank=True, verbose_name='本人の反応')
+    parent_message_draft = models.TextField(blank=True, verbose_name='保護者向けメッセージ')
+    domains       = models.JSONField(default=list, blank=True, verbose_name='5領域')
+    activity_tags = models.ManyToManyField(ActivityTag, blank=True, verbose_name='活動タグ')
+    support_tags  = models.ManyToManyField('facilities.SupportContentTag', blank=True, verbose_name='支援内容タグ')
+    use_count  = models.PositiveIntegerField(default=0, verbose_name='使用回数')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    TEXT_FIELDS = ('activity_name', 'activity_aim', 'activity_reflection', 'observation_memo',
+                   'observation_text', 'support_text', 'reaction_text', 'parent_message_draft')
+    DOMAIN_KEYS = ('domain_health_life', 'domain_motor_sensory', 'domain_cognition_behavior',
+                   'domain_language_comm', 'domain_social')
+
+    class Meta:
+        verbose_name = '日誌テンプレート'
+        verbose_name_plural = '日誌テンプレート'
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return self.name
+
+    @staticmethod
+    def anonymize(text, beneficiary):
+        """利用者の名前（姓名・名・姓、かな）を {名前} に置き換える"""
+        if not text:
+            return text
+        names = [beneficiary.full_name, beneficiary.full_name.replace(' ', ''),
+                 beneficiary.first_name, beneficiary.last_name,
+                 beneficiary.full_name_kana.replace(' ', ''), beneficiary.first_name_kana, beneficiary.last_name_kana]
+        for n in sorted({n for n in names if n and len(n) >= 2}, key=len, reverse=True):
+            text = text.replace(n, RecordTemplate.NAME_PLACEHOLDER)
+        return text
+
+    @classmethod
+    def from_record(cls, record, name, user=None):
+        b = record.beneficiary
+        t = cls(facility=record.facility, name=name[:100] or (record.activity_name or f'{record.date} の日誌'),
+                source_beneficiary=b, created_by=user)
+        for f in cls.TEXT_FIELDS:
+            setattr(t, f, cls.anonymize(getattr(record, f) or '', b))
+        # 観点は文だけ引き継ぎ、はい／いいえは空に
+        t.activity_viewpoints = [{'text': cls.anonymize(v.get('text', ''), b), 'answer': None}
+                                 for v in (record.activity_viewpoints or []) if v.get('text')]
+        t.domains = [k for k in cls.DOMAIN_KEYS if getattr(record, k, False)]
+        t.save()
+        t.activity_tags.set(record.activity_tags.all())
+        t.support_tags.set(record.support_tags.all())
+        return t
+
+    def apply_for(self, beneficiary):
+        """利用者に合わせて {名前} を戻した入力値を返す（画面のフォームに流し込む）"""
+        name = beneficiary.first_name or beneficiary.full_name
+        def fill(s):
+            return (s or '').replace(self.NAME_PLACEHOLDER, name)
+        data = {f: fill(getattr(self, f)) for f in self.TEXT_FIELDS}
+        data['activity_viewpoints'] = [{'text': fill(v.get('text', '')), 'answer': None} for v in (self.activity_viewpoints or [])]
+        data['domains'] = list(self.domains or [])
+        data['activity_tag_ids'] = list(self.activity_tags.values_list('pk', flat=True))
+        data['support_tag_ids'] = list(self.support_tags.values_list('pk', flat=True))
+        data['name'] = self.name
+        return data

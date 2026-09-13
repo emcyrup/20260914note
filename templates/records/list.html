@@ -590,6 +590,9 @@
       <h2 class="section-title-lg">日誌を、観察の根拠に。</h2>
     </div>
     <div>
+      <a href="{% url 'records:template_list' %}" class="btn btn-outline-secondary btn-sm me-1" title="日誌テンプレートの一覧・編集">
+        <i class="bi bi-files me-1"></i>テンプレート
+      </a>
       <button class="btn btn-primary btn-sm"
               data-bs-toggle="modal" data-bs-target="#newRecordModal">
         <i class="bi bi-plus me-1"></i>日誌を追加
@@ -666,6 +669,10 @@
             <span class="status-badge status-{{ selected_record.status }}">
               {{ selected_record.get_status_display }}
             </span>
+            <button class="btn btn-sm btn-outline-secondary" title="この日誌をテンプレートにして他の利用者でも使う"
+                    data-bs-toggle="modal" data-bs-target="#saveTemplateModal">
+              <i class="bi bi-files"></i>
+            </button>
             <button class="btn btn-sm btn-outline-secondary"
                     data-bs-toggle="modal" data-bs-target="#editRecordModal"
                     data-record-id="{{ selected_record.pk }}">
@@ -871,6 +878,22 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
+
+          {% if record_templates %}
+          <div class="d-flex gap-2 align-items-center mb-3 p-2 rounded-3" style="background:var(--paper);">
+            <i class="bi bi-files" style="color:var(--lake-text);"></i>
+            <select class="form-select form-select-sm" x-model="templateId" style="max-width:320px;">
+              <option value="">テンプレートから入力…</option>
+              {% for t in record_templates %}
+              <option value="{{ t.pk }}">{{ t.name }}{% if t.activity_name and t.activity_name != t.name %}（{{ t.activity_name }}）{% endif %}</option>
+              {% endfor %}
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" @click="applyTemplate()" :disabled="!templateId || applyingTemplate">
+              <span x-show="!applyingTemplate">反映</span><span x-show="applyingTemplate">…</span>
+            </button>
+            <span class="small text-muted d-none d-md-inline">他の利用者の日誌から作ったテンプレートを、この利用者の名前に置き換えて入れます</span>
+          </div>
+          {% endif %}
 
           <!-- ① 基本情報 -->
           <div class="row g-2 mb-3">
@@ -1163,6 +1186,23 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
+
+          {% if record_templates %}
+          <div class="d-flex gap-2 align-items-center mb-3 p-2 rounded-3" style="background:var(--paper);">
+            <i class="bi bi-files" style="color:var(--lake-text);"></i>
+            <select class="form-select form-select-sm" x-model="templateId" style="max-width:320px;">
+              <option value="">テンプレートから入力…</option>
+              {% for t in record_templates %}
+              <option value="{{ t.pk }}">{{ t.name }}{% if t.activity_name and t.activity_name != t.name %}（{{ t.activity_name }}）{% endif %}</option>
+              {% endfor %}
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" @click="applyTemplate()" :disabled="!templateId || applyingTemplate">
+              <span x-show="!applyingTemplate">反映</span><span x-show="applyingTemplate">…</span>
+            </button>
+            <span class="small text-muted d-none d-md-inline">他の利用者の日誌から作ったテンプレートを、この利用者の名前に置き換えて入れます</span>
+          </div>
+          {% endif %}
+
 
           <!-- 入退室時間 -->
           <div class="row g-2 mb-3">
@@ -1477,6 +1517,31 @@
   {% csrf_token %}
 </form>
 {% include 'esignatures/signature_modal.html' with target_type='daily_record' target_id=selected_record.pk guardians=beneficiary.guardians.all %}
+
+<!-- ===== テンプレートに保存 ===== -->
+<div class="modal fade" id="saveTemplateModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="{% url 'records:template_from_record' selected_record.pk %}">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold"><i class="bi bi-files me-2"></i>この日誌をテンプレートにする</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted">活動・めあて・観点（はい／いいえは空に）・記録文・保護者向けメッセージ・タグ・5領域を保存します。文中の「{{ beneficiary.full_name }}」「{{ beneficiary.first_name }}」は <code>{名前}</code> に置き換えられ、使うときにその利用者の名前になります。写真・時刻・体調は含みません。</p>
+          <label class="form-label small fw-semibold">テンプレート名</label>
+          <input type="text" name="name" class="form-control" maxlength="100" required
+                 value="{% if selected_record.activity_name %}{{ selected_record.activity_name }}{% else %}{{ selected_record.date|date:'n/j' }} の日誌{% endif %}">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>保存する</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 {% endif %}
 
 <!-- ===== ライトボックス ===== -->
@@ -1535,6 +1600,30 @@ function activityPlanMixin(planUrl, init) {
     planErrorMsg:       '',
 
     addViewpoint() { this.activityViewpoints.push({text: '', answer: null}); },
+
+    // テンプレートから入力
+    templateId: '', applyingTemplate: false,
+    async applyTemplate() {
+      if (!this.templateId) return;
+      this.applyingTemplate = true;
+      try {
+        const res = await fetch(`/records/templates/${this.templateId}/apply/?beneficiary={{ beneficiary.pk }}`);
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok || d.error) { alert(d.error || `テンプレートを読み込めませんでした (${res.status})`); return; }
+        this.activityName = d.activity_name || ''; this.activityAim = d.activity_aim || '';
+        this.activityViewpoints = d.activity_viewpoints || []; this.activityReflection = d.activity_reflection || '';
+        if ('memo' in this && d.observation_memo) this.memo = d.observation_memo;
+        if (this.result) {
+          this.result.observation = d.observation_text || ''; this.result.support = d.support_text || '';
+          this.result.reaction = d.reaction_text || ''; this.result.parent_message = d.parent_message_draft || '';
+        }
+        if ('generated' in this) this.generated = true;
+        if (Array.isArray(this.selectedTags)) this.selectedTags = d.activity_tag_ids || [];
+        if (Array.isArray(this.selectedSupportTags)) this.selectedSupportTags = d.support_tag_ids || [];
+        if (Array.isArray(this.selectedDomains)) this.selectedDomains = d.domains || [];
+      } catch (e) { alert('通信エラー: ' + e.message); }
+      finally { this.applyingTemplate = false; }
+    },
 
     // 一括生成のタグ文脈に活動名も含める
     _tagsWithActivity(tagNames) {

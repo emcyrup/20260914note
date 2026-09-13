@@ -6,6 +6,7 @@ from django.views import View
 from django.views.generic import TemplateView
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
+from django.db import models
 from django.http import JsonResponse
 from django.urls import reverse
 from django.conf import settings
@@ -17,7 +18,7 @@ from beneficiaries.models import Beneficiary
 from esignatures.models import EsignatureRecord
 from facilities.models import SupportContentTag
 from schedules.models import ScheduledVisit
-from .models import DailyRecord, ActivityTag, DailyRecordPhoto, StaffMemo
+from .models import DailyRecord, ActivityTag, DailyRecordPhoto, RecordTemplate, StaffMemo
 
 
 MAX_PHOTOS_PER_RECORD = 5  # 1件の日誌に添付できる写真の最大枚数
@@ -200,6 +201,9 @@ class DailyRecordListView(LoginRequiredMixin, TemplateView):
         # 新規入力モーダル用タグ一覧
         activity_tags = ActivityTag.objects.filter(facility=facility, is_active=True)
         support_tags  = SupportContentTag.objects.filter(facility=facility, is_active=True)
+
+        # 日誌テンプレート（他の利用者の日誌から作ったもの）
+        ctx['record_templates'] = RecordTemplate.objects.filter(facility=facility).order_by('-use_count', '-updated_at')
 
         # 支援計画への導線（進行中の計画があればそのステップへ）
         current_plan = beneficiary.support_plans.exclude(status='closed').order_by('-created_at').first()
@@ -786,3 +790,69 @@ class SimpleRecordView(LoginRequiredMixin, View):
             },
             'next_url': reverse('records:simple_home') + f'?date={day.isoformat()}',
         })
+
+
+# =============================================
+# 日誌テンプレート（ある利用者の日誌を他の利用者に流用する）
+# =============================================
+
+
+class TemplateListView(LoginRequiredMixin, View):
+    def get(self, request):
+        facility = request.user.facility
+        templates = (RecordTemplate.objects.filter(facility=facility)
+                     .select_related('source_beneficiary', 'created_by').prefetch_related('activity_tags', 'support_tags'))
+        return render(request, 'records/templates.html', {
+            'templates': templates,
+            'domains': [('domain_health_life', '健康・生活'), ('domain_motor_sensory', '運動・感覚'),
+                        ('domain_cognition_behavior', '認知・行動'), ('domain_language_comm', '言語・コミュニケーション'),
+                        ('domain_social', '人間関係・社会性')],
+        })
+
+
+class TemplateCreateFromRecordView(LoginRequiredMixin, View):
+    def post(self, request, record_pk):
+        record = get_object_or_404(DailyRecord, pk=record_pk, facility=request.user.facility)
+        name = request.POST.get('name', '').strip()
+        t = RecordTemplate.from_record(record, name, request.user)
+        messages.success(request, f'テンプレート「{t.name}」を保存しました。他の利用者の「日誌を追加」で「テンプレートから入力」に出ます。')
+        return redirect(f'/records/{record.beneficiary_id}/?selected={record.pk}')
+
+
+class TemplateApplyView(LoginRequiredMixin, View):
+    """テンプレートを利用者に合わせた入力値（JSON）で返す"""
+
+    def get(self, request, pk):
+        t = get_object_or_404(RecordTemplate, pk=pk, facility=request.user.facility)
+        b = get_object_or_404(Beneficiary, pk=request.GET.get('beneficiary'), facility=request.user.facility)
+        data = t.apply_for(b)
+        RecordTemplate.objects.filter(pk=t.pk).update(use_count=models.F('use_count') + 1)
+        return JsonResponse(data)
+
+
+class TemplateUpdateView(LoginRequiredMixin, View):
+    def post(self, request, pk):
+        t = get_object_or_404(RecordTemplate, pk=pk, facility=request.user.facility)
+        p = request.POST
+        t.name = p.get('name', '').strip()[:100] or t.name
+        for f in RecordTemplate.TEXT_FIELDS:
+            if f in p:
+                setattr(t, f, p.get(f, '')[:100] if f == 'activity_name' else p.get(f, ''))
+        if 'activity_viewpoints' in p:
+            t.activity_viewpoints = [{'text': ln.strip().lstrip('・-').strip()[:100], 'answer': None}
+                                     for ln in p.get('activity_viewpoints', '').splitlines() if ln.strip()]
+        t.domains = [k for k in RecordTemplate.DOMAIN_KEYS if k in p.getlist('domains')]
+        t.save()
+        t.activity_tags.set(ActivityTag.objects.filter(facility=t.facility, pk__in=p.getlist('activity_tags')))
+        t.support_tags.set(SupportContentTag.objects.filter(facility=t.facility, pk__in=p.getlist('support_tags')))
+        messages.success(request, f'テンプレート「{t.name}」を更新しました。')
+        return redirect('records:template_list')
+
+
+class TemplateDeleteView(LoginRequiredMixin, View):
+    def post(self, request, pk):
+        t = get_object_or_404(RecordTemplate, pk=pk, facility=request.user.facility)
+        name = t.name
+        t.delete()
+        messages.success(request, f'テンプレート「{name}」を削除しました。')
+        return redirect('records:template_list')
