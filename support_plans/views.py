@@ -1,5 +1,6 @@
 from datetime import date
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count, Q
@@ -144,6 +145,7 @@ class PlanStepView(PlanMixin, View):
             'today': date.today(),
             'can_reopen': plan.can_reopen_step(self.n),
             'is_last': self.n == SupportPlan.STEP_MONITORING,
+            'ai_enabled': bool(settings.ANTHROPIC_API_KEY),
         }
         if self.n == SupportPlan.STEP_DRAFT:
             edit_id = self.request.GET.get('goal')
@@ -153,6 +155,9 @@ class PlanStepView(PlanMixin, View):
             ctx['editing_goal'] = editing
             ctx['goal_form'] = extra.pop('goal_form', None) or PlanGoalForm(instance=editing, facility=plan.facility)
             ctx['assessment'] = plan.get_step(SupportPlan.STEP_ASSESSMENT)
+            from datetime import timedelta
+            ctx['draft_start'] = date.today() - timedelta(days=91)
+            ctx['draft_end'] = date.today()
         if self.n == SupportPlan.STEP_MEETING:
             ctx['goals'] = plan.goals.all()
         if self.n == SupportPlan.STEP_CONSENT:
@@ -326,6 +331,59 @@ class SuccessorCreateView(PlanMixin, View):
 # =============================================
 # 印刷用（交付する計画書）
 # =============================================
+def _print_context(plan):
+    return {
+        'plan': plan,
+        'assessment': plan.get_step(1), 'draft': plan.get_step(2), 'meeting': plan.get_step(3),
+        'consent': plan.get_step(4),
+        'goals': plan.goals.all(),
+        'goals_long': plan.goals.filter(goal_type=PlanGoal.TYPE_LONG),
+        'goals_short': plan.goals.filter(goal_type=PlanGoal.TYPE_SHORT),
+        'signatures': EsignatureRecord.objects.filter(target_type='support_plan', target_id=plan.pk),
+        'records': plan.monitoring_records.select_related('conducted_by').order_by('date'),
+        'facility': plan.facility, 'today': date.today(),
+    }
+
+
+def _pdf_response(request, template, ctx, ascii_name, utf8_name):
+    """WeasyPrint で PDF を返す（画像は絶対URLで解決）"""
+    import urllib.parse
+
+    from django.http import HttpResponse
+    from weasyprint import HTML
+
+    ctx = dict(ctx, pdf=True)
+    html = render(request, template, ctx).content.decode('utf-8')
+    pdf = HTML(string=html, base_url=request.build_absolute_uri('/')).write_pdf()
+    res = HttpResponse(pdf, content_type='application/pdf')
+    res['Content-Disposition'] = f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{urllib.parse.quote(utf8_name)}'
+    return res
+
+
+class PlanPdfView(PlanMixin, View):
+    """個別支援計画書 PDF"""
+
+    def get(self, request, pk):
+        plan = self.get_plan(pk)
+        return _pdf_response(request, 'support_plans/print.html', _print_context(plan),
+                             f'support_plan_{plan.pk}.pdf', f'個別支援計画書_{plan.beneficiary.full_name}_{plan.title}.pdf')
+
+
+class MonitoringReportView(PlanMixin, View):
+    """モニタリング報告書（HTML 表示・印刷）"""
+
+    def get(self, request, pk):
+        plan = self.get_plan(pk)
+        return render(request, 'support_plans/monitoring_report.html', _print_context(plan))
+
+
+class MonitoringReportPdfView(PlanMixin, View):
+    def get(self, request, pk):
+        plan = self.get_plan(pk)
+        return _pdf_response(request, 'support_plans/monitoring_report.html', _print_context(plan),
+                             f'monitoring_{plan.pk}.pdf', f'モニタリング報告書_{plan.beneficiary.full_name}_{plan.title}.pdf')
+
+
 class PlanPrintView(PlanMixin, View):
     def get(self, request, pk):
         plan = self.get_plan(pk)
@@ -338,3 +396,113 @@ class PlanPrintView(PlanMixin, View):
             'signatures': EsignatureRecord.objects.filter(target_type='support_plan', target_id=plan.pk),
             'facility': plan.facility, 'today': date.today(),
         })
+
+
+# =============================================
+# AI 支援：アセスメント下書き・原案下書き・根拠の記録
+# =============================================
+class AssessmentDraftView(PlanMixin, View):
+    """過去の日誌からアセスメントの下書き（JSON を返し、画面側で入力欄に入れる）"""
+
+    def post(self, request, pk):
+        from django.conf import settings
+        from django.http import JsonResponse
+
+        from . import ai
+
+        plan = self.get_plan(pk)
+        if plan.current_step != SupportPlan.STEP_ASSESSMENT:
+            return JsonResponse({'error': 'アセスメントは完了済みです。'}, status=400)
+        if not settings.ANTHROPIC_API_KEY:
+            return JsonResponse({'error': 'ANTHROPIC_API_KEY が設定されていません。'}, status=500)
+        try:
+            months = max(1, min(24, int(request.POST.get('months', 6))))
+        except ValueError:
+            months = 6
+        try:
+            data, n = ai.assessment_draft(plan, months=months)
+        except Exception as e:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).exception('アセスメント下書きでエラー')
+            return JsonResponse({'error': f'AIでの処理中にエラーが発生しました: {type(e).__name__}: {e}'}, status=500)
+        if not data:
+            return JsonResponse({'error': f'直近 {months} か月の日誌がありません。'}, status=404)
+        return JsonResponse({'draft': data, 'records': n, 'months': months})
+
+
+class PlanDraftView(PlanMixin, View):
+    """期間の日誌から原案（方針・目標）を下書きし、根拠の記録をひもづける"""
+
+    def post(self, request, pk):
+        from django.conf import settings
+
+        from . import ai
+
+        plan = self.get_plan(pk)
+        if plan.current_step != SupportPlan.STEP_DRAFT:
+            messages.error(request, '原案の下書きはステップ2の間だけ作れます。')
+            return redirect('support_plans:detail', pk=pk)
+        if not settings.ANTHROPIC_API_KEY:
+            messages.error(request, 'ANTHROPIC_API_KEY が設定されていないため AI は使えません。')
+            return redirect('support_plans:step', pk=pk, n=2)
+        start, end = _period_from_request(request)
+        try:
+            created, n = ai.plan_draft(plan, start, end)
+        except Exception as e:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).exception('原案下書きでエラー')
+            messages.error(request, f'AIでの処理中にエラーが発生しました: {type(e).__name__}: {e}')
+            return redirect('support_plans:step', pk=pk, n=2)
+        if n == 0:
+            messages.warning(request, f'{start} 〜 {end} の日誌がないため下書きを作れませんでした。期間を広げてください。')
+        else:
+            messages.success(request, f'{start} 〜 {end} の日誌 {n} 件から、方針と目標 {created} 件の下書きを作りました。根拠の記録をひもづけています。内容を確認・修正してください（下書きのままでは計画になりません）。')
+        return redirect('support_plans:step', pk=pk, n=2)
+
+
+def _period_from_request(request):
+    """期間（既定：今日から3か月前まで）"""
+    from datetime import timedelta
+    today = date.today()
+    try:
+        start = date.fromisoformat(request.POST.get('start') or request.GET.get('start') or '')
+    except ValueError:
+        start = today - timedelta(days=91)
+    try:
+        end = date.fromisoformat(request.POST.get('end') or request.GET.get('end') or '')
+    except ValueError:
+        end = today
+    if start > end:
+        start, end = end, start
+    return start, end
+
+
+class GoalEvidenceView(PlanMixin, View):
+    """目標の根拠になった記録を選ぶ（期間内の日誌を関連度順に並べる）"""
+
+    def get(self, request, pk, goal_pk):
+        from . import ai
+
+        plan = self.get_plan(pk)
+        goal = get_object_or_404(plan.goals, pk=goal_pk)
+        start, end = _period_from_request(request)
+        candidates = ai.find_evidence(plan.beneficiary, goal.content + ' ' + goal.support_content, start, end, top_k=30)
+        linked = set(goal.evidence_records.values_list('pk', flat=True))
+        linked_records = goal.evidence_records.order_by('date')
+        return render(request, 'support_plans/goal_evidence.html', {
+            'plan': plan, 'goal': goal, 'start': start, 'end': end,
+            'candidates': candidates, 'linked': linked, 'linked_records': linked_records,
+            'readonly': plan.current_step != SupportPlan.STEP_DRAFT,
+        })
+
+    def post(self, request, pk, goal_pk):
+        plan = self.get_plan(pk)
+        goal = get_object_or_404(plan.goals, pk=goal_pk)
+        if plan.current_step != SupportPlan.STEP_DRAFT:
+            messages.error(request, '根拠の記録はステップ2の間だけ変更できます。')
+            return redirect('support_plans:detail', pk=pk)
+        from records.models import DailyRecord
+        ids = request.POST.getlist('record_ids')
+        goal.evidence_records.set(DailyRecord.objects.filter(pk__in=ids, beneficiary=plan.beneficiary))
+        messages.success(request, f'「{goal.content}」の根拠として日誌 {goal.evidence_records.count()} 件をひもづけました。')
+        return redirect('support_plans:step', pk=pk, n=2)

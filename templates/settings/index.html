@@ -45,7 +45,7 @@
   <!-- ===== 施設基本情報 ===== -->
   <div class="settings-card">
     <div class="settings-section-title">施設基本情報</div>
-    <form method="post" action="{% url 'facilities:facility_update' %}">
+    <form method="post" action="{% url 'facilities:facility_update' %}" enctype="multipart/form-data">
       {% csrf_token %}
       <div class="row g-3">
         <div class="col-md-6">
@@ -91,6 +91,37 @@
         <div class="col-md-6">
           <label class="form-label small fw-semibold">LINEチャネルシークレット</label>
           {{ facility_form.line_channel_secret }}
+        </div>
+
+        <div class="col-12"><hr class="my-1"><div class="small fw-bold" style="color:var(--lake-text);">呼び方・ロゴ・配色（画面のメニューと見出しに反映されます）</div></div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold">職員の呼び方</label>
+          {{ facility_form.term_staff }}
+          <div class="form-text">例：支援員／先生／職員</div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold">利用者の呼び方</label>
+          {{ facility_form.term_beneficiary }}
+          <div class="form-text">例：利用児／園児／ご利用者様</div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold">コーポレートカラー</label>
+          <div class="d-flex align-items-center gap-2">
+            {{ facility_form.brand_color }}
+            {% if facility.brand_color %}<span class="small text-muted">{{ facility.brand_color }}</span>{% endif %}
+          </div>
+          <div class="form-text">見出し・ボタン・進捗の色。標準に戻すには #4e7d89</div>
+          {% for e in facility_form.brand_color.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold">ロゴ画像</label>
+          {{ facility_form.logo }}
+          {% if facility.logo %}
+          <div class="d-flex align-items-center gap-2 mt-1">
+            <img src="{{ facility.logo.url }}" alt="ロゴ" style="height:32px;border-radius:6px;background:#fff;">
+            <label class="small"><input type="checkbox" name="logo-clear" class="form-check-input me-1">削除</label>
+          </div>
+          {% endif %}
         </div>
       </div>
       <div class="mt-3 text-end">

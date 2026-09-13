@@ -1,0 +1,103 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ terms.staff }}・運用管理 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}{{ terms.staff }}・運用管理{% endblock %}
+{% block nav_staff %}active{% endblock %}
+
+{% block content %}
+<div class="px-2">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="small text-muted">{{ terms.staff }}のログインID・権限区分・画面の見た目を管理します。権限区分「管理者」はこの画面・施設設定・算定要件資料を扱えます。</div>
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addStaffModal"><i class="bi bi-person-plus me-1"></i>{{ terms.staff }}を追加</button>
+  </div>
+
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table mb-0 align-middle staff-table">
+        <thead><tr><th>表示名</th><th>ログインID</th><th>権限区分</th><th>画面</th><th>状態</th><th>最終ログイン</th><th></th></tr></thead>
+        <tbody>
+          {% for s in staff %}
+          <tr class="{% if not s.is_active %}text-muted{% endif %}">
+            <td class="fw-bold">{{ s.display_name|default:'—' }}{% if s.pk == user.pk %}<span class="badge text-bg-secondary ms-1">自分</span>{% endif %}</td>
+            <td>{{ s.username }}</td>
+            <td>{{ s.get_role_display }}</td>
+            <td class="small">{{ s.get_ui_theme_display }}</td>
+            <td>{% if s.is_active %}<span class="badge text-bg-success">有効</span>{% else %}<span class="badge text-bg-secondary">無効</span>{% endif %}</td>
+            <td class="small">{{ s.last_login|date:'Y/n/j H:i'|default:'—' }}</td>
+            <td class="text-end">
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editStaffModal"
+                      data-pk="{{ s.pk }}" data-name="{{ s.display_name }}" data-username="{{ s.username }}" data-role="{{ s.role }}" data-theme="{{ s.ui_theme }}" data-active="{{ s.is_active|yesno:'true,false' }}">
+                <i class="bi bi-pencil"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <p class="small text-muted mt-2">スーパーユーザー（初期の管理アカウント）は /admin/ からも管理できます。退職した{{ terms.staff }}は削除せず「無効」にすると記録の記録者名が残ります。</p>
+</div>
+
+<!-- 追加モーダル -->
+<div class="modal fade" id="addStaffModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'accounts:staff' %}">
+        {% csrf_token %}
+        <div class="modal-header"><h5 class="modal-title fw-bold">{{ terms.staff }}を追加</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          {% for field in form %}
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}</label>
+            {{ field }}
+            {% for e in field.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+          </div>
+          {% endfor %}
+          <div class="form-text">初期パスワードは本人に伝え、初回ログイン後に変更してもらってください。</div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button><button class="btn btn-primary">追加する</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- 編集モーダル -->
+<div class="modal fade" id="editStaffModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" id="editStaffForm">
+        {% csrf_token %}
+        <div class="modal-header"><h5 class="modal-title fw-bold">{{ terms.staff }}を編集 <small class="text-muted" id="edit_staff_username"></small></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="mb-3"><label class="form-label small fw-semibold">表示名</label><input type="text" name="display_name" id="edit_staff_name" class="form-control"></div>
+          <div class="row g-2 mb-3">
+            <div class="col-6"><label class="form-label small fw-semibold">権限区分</label>
+              <select name="role" id="edit_staff_role" class="form-select">{% for v, l in roles %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select></div>
+            <div class="col-6"><label class="form-label small fw-semibold">画面の見た目</label>
+              <select name="ui_theme" id="edit_staff_theme" class="form-select">{% for v, l in themes %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select></div>
+          </div>
+          <div class="mb-3"><label class="form-label small fw-semibold">新しいパスワード</label><input type="password" name="new_password" class="form-control" placeholder="変更しない場合は空のまま（8文字以上）" autocomplete="new-password"></div>
+          <div class="form-check"><input type="checkbox" name="is_active" id="edit_staff_active" class="form-check-input"><label class="form-check-label small" for="edit_staff_active">有効（ログインできる）</label></div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button><button class="btn btn-primary">保存する</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('editStaffModal').addEventListener('show.bs.modal', function (e) {
+  const b = e.relatedTarget;
+  document.getElementById('editStaffForm').action = '/accounts/staff/' + b.dataset.pk + '/update/';
+  document.getElementById('edit_staff_username').textContent = b.dataset.username;
+  document.getElementById('edit_staff_name').value = b.dataset.name;
+  document.getElementById('edit_staff_role').value = b.dataset.role;
+  document.getElementById('edit_staff_theme').value = b.dataset.theme;
+  document.getElementById('edit_staff_active').checked = b.dataset.active === 'true';
+});
+{% if show_add %}new bootstrap.Modal(document.getElementById('addStaffModal')).show();{% endif %}
+</script>
+{% endblock %}

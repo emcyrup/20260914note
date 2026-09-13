@@ -74,7 +74,7 @@
   <!-- パンくず -->
   <div class="mb-3">
     <a href="{% url 'beneficiaries:list' %}" class="text-muted small text-decoration-none">
-      <i class="bi bi-people me-1"></i>利用者一覧
+      <i class="bi bi-people me-1"></i>{{ terms.beneficiary }}一覧
     </a>
     <span class="text-muted small mx-1">/</span>
     <span class="small">{{ beneficiary.full_name }}</span>
@@ -89,7 +89,7 @@
         {{ beneficiary.last_name|first }}
       </div>
       <div>
-        <div class="section-title">利用者</div>
+        <div class="section-title">{{ terms.beneficiary }}</div>
         <h2 class="fw-bold mb-0" style="font-size:1.6rem;">{{ beneficiary.full_name }}</h2>
         <div class="text-muted small">{{ beneficiary.full_name_kana }}
           <span class="ms-2 badge {% if beneficiary.status == 'active' %}text-bg-success{% else %}text-bg-secondary{% endif %}" style="font-size:0.7rem;">
@@ -353,7 +353,7 @@
         <div class="modal-header">
           <div>
             <div class="section-title">EDIT PROFILE</div>
-            <h5 class="modal-title fw-bold mb-0">利用者情報を編集</h5>
+            <h5 class="modal-title fw-bold mb-0">{{ terms.beneficiary }}情報を編集</h5>
           </div>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>

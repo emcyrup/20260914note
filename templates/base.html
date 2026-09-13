@@ -19,7 +19,14 @@
   <link rel="stylesheet"
         href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   <!-- カスタムCSS（みちのーとデザインシステム） -->
-  <link rel="stylesheet" href="{% static 'css/base.css' %}?v=20260913e">
+  <link rel="stylesheet" href="{% static 'css/base.css' %}?v=20260913f">
+  {% if branding.color %}
+  <style>
+    :root { --lake: {{ branding.color }}; --lake-text: {{ branding.color }}; --tab-active: {{ branding.color }};
+            --color-primary: {{ branding.color }}; --color-primary-dark: {{ branding.color }}; }
+    .sidebar-nav-item.active { box-shadow: inset 3px 0 0 {{ branding.color }}; }
+  </style>
+  {% endif %}
 
   {% block extra_css %}{% endblock %}
 </head>
@@ -34,8 +41,8 @@
 
     <!-- ブランドロゴ -->
     <a class="sidebar-brand" href="{% if user.ui_theme == 'simple' %}{% url 'records:simple_home' %}{% else %}{% url 'facilities:dashboard' %}{% endif %}">
-      <div class="sidebar-brand-icon">
-        <i class="bi bi-heart-pulse-fill"></i>
+      <div class="sidebar-brand-icon {% if branding.logo %}has-logo{% endif %}">
+        {% if branding.logo %}<img src="{{ branding.logo.url }}" alt="{{ user.facility.name }}">{% else %}<i class="bi bi-heart-pulse-fill"></i>{% endif %}
       </div>
       <div>
         <div class="sidebar-brand-name">{{ user.facility.name|default:"放デイ業務支援" }}</div>
@@ -56,7 +63,7 @@
         <a class="sidebar-nav-item {% block nav_beneficiaries %}{% endblock %}"
            href="{% url 'beneficiaries:list' %}">
           <i class="bi bi-people"></i>
-          <span>利用者台帳</span>
+          <span>{{ terms.beneficiary }}台帳</span>
         </a>
       </li>
       <li>
@@ -112,6 +119,15 @@
       </li>
 
       <li class="sidebar-nav-label nav-secondary">設定</li>
+      {% if user.is_admin or user.is_superuser %}
+      <li class="nav-secondary">
+        <a class="sidebar-nav-item {% block nav_staff %}{% endblock %}"
+           href="{% url 'accounts:staff' %}">
+          <i class="bi bi-person-badge"></i>
+          <span>{{ terms.staff }}・運用管理</span>
+        </a>
+      </li>
+      {% endif %}
       <li class="nav-secondary">
         <a class="sidebar-nav-item {% block nav_settings %}{% endblock %}"
            href="{% url 'facilities:settings' %}">

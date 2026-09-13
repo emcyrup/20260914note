@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>モニタリング報告書 {{ plan.beneficiary.full_name }}</title>
+<style>
+  body { font-family: "BIZ UDPGothic", "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif; color: #172d31; margin: 0; padding: 24px; font-size: 12.5px; line-height: 1.6; }
+  .sheet { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 20px; text-align: center; letter-spacing: .1em; margin: 0 0 4px; }
+  .sub { text-align: center; color: #486064; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+  th, td { border: 1px solid #b7b0a3; padding: 6px 8px; vertical-align: top; text-align: left; }
+  th { background: #f3efe7; width: 22%; font-weight: 700; white-space: nowrap; }
+  .pre { white-space: pre-wrap; }
+  h2 { font-size: 14px; border-left: 4px solid #4e7d89; padding-left: 8px; margin: 18px 0 8px; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: #d5e4e9; color: #3f6974; }
+  .badge.no { background: #f3dfd6; color: #a24932; }
+  .badge.yes { background: #e3e9da; color: #3b6d11; }
+  .toolbar { text-align: right; margin-bottom: 12px; }
+  .toolbar a, .toolbar button { padding: 8px 16px; border-radius: 8px; border: 1px solid #4e7d89; background: #4e7d89; color: #fff; cursor: pointer; text-decoration: none; margin-left: 6px; }
+  .toolbar a.outline { background: #fff; color: #4e7d89; }
+  @media print { .toolbar { display: none; } body { padding: 0; } }
+  @page { size: A4; margin: 16mm; }
+</style>
+</head>
+<body>
+<div class="sheet">
+  {% if not pdf %}
+  <div class="toolbar"><a class="outline" href="{% url 'support_plans:monitoring_pdf' plan.pk %}">PDFをダウンロード</a><button onclick="window.print()">印刷する</button></div>
+  {% endif %}
+  <h1>モニタリング報告書</h1>
+  <div class="sub">{{ facility.name }}　{{ plan.title }}</div>
+
+  <table>
+    <tr><th>利用者氏名</th><td>{{ plan.beneficiary.full_name }}（{{ plan.beneficiary.full_name_kana }}）</td>
+        <th>生年月日</th><td>{{ plan.beneficiary.date_of_birth|date:'Y年n月j日' }}</td></tr>
+    <tr><th>計画期間</th><td>{{ draft.period_start|date:'Y年n月j日'|default:'—' }} 〜 {{ draft.period_end|date:'Y年n月j日'|default:'—' }}</td>
+        <th>児童発達支援管理責任者</th><td>{{ plan.manager|default:'—' }}</td></tr>
+    <tr><th>サービス開始日</th><td>{{ consent.service_start_date|date:'Y年n月j日'|default:'—' }}</td>
+        <th>作成日</th><td>{{ today|date:'Y年n月j日' }}</td></tr>
+  </table>
+
+  <h2>支援の方針と目標</h2>
+  <table><tr><th>総合的な支援の方針</th><td class="pre">{{ draft.policy|default:'—' }}</td></tr></table>
+  <table>
+    <tr><th style="width:12%">区分</th><th style="width:38%">目標</th><th>具体的な支援内容</th><th style="width:14%">達成時期</th></tr>
+    {% for g in goals %}
+    <tr><td>{{ g.get_goal_type_display }}</td><td>{{ g.content }}</td><td class="pre">{{ g.support_content }}</td><td>{{ g.target_date|date:'Y/n/j'|default:'—' }}</td></tr>
+    {% empty %}<tr><td colspan="4">—</td></tr>{% endfor %}
+  </table>
+
+  <h2>モニタリングの記録（{{ records|length }}回）</h2>
+  {% for r in records %}
+  <table>
+    <tr><th>実施日</th><td>{{ r.date|date:'Y年n月j日' }}</td><th>面談相手</th><td>{{ r.interviewed_with|default:'—' }}</td></tr>
+    <tr><th>担当職員</th><td>{{ r.conducted_by|default:'—' }}</td><th>目標の達成状況</th><td><span class="badge {% if r.achievement == 'achieved' %}yes{% elif r.achievement == 'not_yet' %}no{% endif %}">{{ r.get_achievement_display }}</span></td></tr>
+    <tr><th>計画通りに支援できているか</th><td colspan="3" class="pre">{{ r.implementation }}</td></tr>
+    {% if r.achievement_detail %}<tr><th>達成状況の詳細・本人の変化</th><td colspan="3" class="pre">{{ r.achievement_detail }}</td></tr>{% endif %}
+    <tr><th>計画の見直し</th><td colspan="3">{% if r.review_needed %}<span class="badge no">見直しが必要</span> <span class="pre">{{ r.review_reason }}</span>{% else %}不要（計画を継続）{% endif %}</td></tr>
+    <tr><th>次回モニタリング期限</th><td colspan="3">{{ r.next_due|date:'Y年n月j日'|default:'—' }}</td></tr>
+  </table>
+  {% empty %}
+  <table><tr><td>まだモニタリングの記録がありません。</td></tr></table>
+  {% endfor %}
+
+  <h2>署名</h2>
+  <table>
+    <tr><th>児童発達支援管理責任者</th><td style="height:36px;">{{ plan.manager|default:'' }}</td><th>保護者確認</th><td style="height:36px;"></td></tr>
+  </table>
+</div>
+</body>
+</html>

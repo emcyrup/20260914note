@@ -33,6 +33,15 @@ class Facility(models.Model):
         default=False, verbose_name='令和8年6月以降新規指定事業所',
         help_text='令和8年6月1日以降に新規指定された事業所の場合はチェック'
     )
+    # 呼び方の置き換え（メニューと見出しに反映）
+    term_staff = models.CharField(max_length=20, default='職員', verbose_name='職員の呼び方',
+                                  help_text='例：支援員／先生／職員')
+    term_beneficiary = models.CharField(max_length=20, default='利用者', verbose_name='利用者の呼び方',
+                                        help_text='例：利用児／園児／ご利用者様')
+    # ロゴと配色
+    logo = models.ImageField(upload_to='facility_logos/', blank=True, null=True, verbose_name='ロゴ画像')
+    brand_color = models.CharField(max_length=7, blank=True, verbose_name='コーポレートカラー',
+                                   help_text='#4e7d89 のような16進数。空なら標準色')
     line_channel_access_token = models.TextField(blank=True, verbose_name='LINEチャネルアクセストークン')
     line_channel_secret = models.CharField(max_length=100, blank=True, verbose_name='LINEチャネルシークレット')
     created_at = models.DateTimeField(auto_now_add=True)

@@ -36,7 +36,7 @@
       <table class="table mb-0 align-middle">
         <thead>
           <tr>
-            <th>利用者</th>
+            <th>{{ terms.beneficiary }}</th>
             <th>計画名</th>
             <th style="min-width:220px;">進捗</th>
             <th>状態</th>
@@ -93,7 +93,7 @@
 
   {% if no_plan %}
   <div class="card">
-    <div class="card-header fw-bold"><i class="bi bi-person-exclamation me-1"></i>計画がまだ無い利用者</div>
+    <div class="card-header fw-bold"><i class="bi bi-person-exclamation me-1"></i>計画がまだ無い{{ terms.beneficiary }}</div>
     <div class="card-body d-flex flex-wrap gap-2">
       {% for b in no_plan %}
       <a href="{% url 'support_plans:create' %}?beneficiary={{ b.pk }}" class="btn btn-sm btn-outline-primary">

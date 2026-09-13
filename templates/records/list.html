@@ -529,7 +529,7 @@
         <span class="sidebar-nav-num">02</span>概要
       </span>
       <a href="{% url 'beneficiaries:detail' beneficiary.pk %}" class="sidebar-nav-item">
-        <span class="sidebar-nav-num">03</span>利用者情報
+        <span class="sidebar-nav-num">03</span>{{ terms.beneficiary }}情報
       </a>
       <a href="{% url 'records:list' beneficiary.pk %}" class="sidebar-nav-item active">
         <span class="sidebar-nav-num">04</span>日誌を確認
@@ -538,19 +538,22 @@
       <span class="sidebar-nav-item sidebar-nav-future">
         <span class="sidebar-nav-num">05</span>連絡帳
       </span>
-      <span class="sidebar-nav-item sidebar-nav-future">
-        <span class="sidebar-nav-num">06</span>モニタリング
-      </span>
-      <span class="sidebar-nav-item sidebar-nav-future">
-        <span class="sidebar-nav-num">07</span>アセスメント
-      </span>
-      <span class="sidebar-nav-item sidebar-nav-future">
-        <span class="sidebar-nav-num">08</span>計画書をつくる
-      </span>
+      {% if current_plan and plan_step_urls.5 %}
+      <a href="{{ plan_step_urls.5 }}" class="sidebar-nav-item"><span class="sidebar-nav-num">06</span>モニタリング</a>
+      {% else %}
+      <span class="sidebar-nav-item sidebar-nav-future" title="計画のステップ4まで完了すると開けます"><span class="sidebar-nav-num">06</span>モニタリング</span>
+      {% endif %}
+      {% if current_plan %}
+      <a href="{{ plan_step_urls.1 }}" class="sidebar-nav-item"><span class="sidebar-nav-num">07</span>アセスメント</a>
+      <a href="{% url 'support_plans:detail' current_plan.pk %}" class="sidebar-nav-item"><span class="sidebar-nav-num">08</span>計画書をつくる<span class="sidebar-nav-count" title="現在のステップ">{{ current_plan.current_step }}</span></a>
+      {% else %}
+      <a href="{% url 'support_plans:create' %}?beneficiary={{ beneficiary.pk }}" class="sidebar-nav-item"><span class="sidebar-nav-num">07</span>アセスメント</a>
+      <a href="{% url 'support_plans:create' %}?beneficiary={{ beneficiary.pk }}" class="sidebar-nav-item"><span class="sidebar-nav-num">08</span>計画書をつくる</a>
+      {% endif %}
     </nav>
     <div class="sidebar-back">
       <a href="{% url 'beneficiaries:list' %}">
-        <i class="bi bi-people me-1"></i>利用者一覧へ
+        <i class="bi bi-people me-1"></i>{{ terms.beneficiary }}一覧へ
       </a>
     </div>
   </aside>
@@ -563,15 +566,21 @@
     <span class="jmn-item future"><i class="bi bi-chat-text"></i>相談支援案</span>
     <span class="jmn-item future"><i class="bi bi-person-lines-fill"></i>概要</span>
     <a class="jmn-item" href="{% url 'beneficiaries:detail' beneficiary.pk %}">
-      <i class="bi bi-person"></i>利用者情報
+      <i class="bi bi-person"></i>{{ terms.beneficiary }}情報
     </a>
     <a class="jmn-item active" href="{% url 'records:list' beneficiary.pk %}">
       <i class="bi bi-journal-text"></i>日誌
     </a>
     <span class="jmn-item future"><i class="bi bi-envelope"></i>連絡帳</span>
-    <span class="jmn-item future"><i class="bi bi-clipboard-check"></i>モニタリング</span>
-    <span class="jmn-item future"><i class="bi bi-graph-up"></i>アセスメント</span>
-    <span class="jmn-item future"><i class="bi bi-file-earmark-text"></i>計画書</span>
+    {% if current_plan and plan_step_urls.5 %}<a class="jmn-item" href="{{ plan_step_urls.5 }}"><i class="bi bi-clipboard-check"></i>モニタリング</a>
+    {% else %}<span class="jmn-item future"><i class="bi bi-clipboard-check"></i>モニタリング</span>{% endif %}
+    {% if current_plan %}
+    <a class="jmn-item" href="{{ plan_step_urls.1 }}"><i class="bi bi-graph-up"></i>アセスメント</a>
+    <a class="jmn-item" href="{% url 'support_plans:detail' current_plan.pk %}"><i class="bi bi-file-earmark-text"></i>計画書</a>
+    {% else %}
+    <a class="jmn-item" href="{% url 'support_plans:create' %}?beneficiary={{ beneficiary.pk }}"><i class="bi bi-graph-up"></i>アセスメント</a>
+    <a class="jmn-item" href="{% url 'support_plans:create' %}?beneficiary={{ beneficiary.pk }}"><i class="bi bi-file-earmark-text"></i>計画書</a>
+    {% endif %}
   </nav>
 
   <!-- ページヘッダー -->

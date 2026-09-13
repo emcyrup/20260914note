@@ -17,7 +17,23 @@ class FacilityForm(forms.ModelForm):
             'region_category', 'standard_close_time',
             'base_unit_count', 'is_new_facility_r8',
             'line_channel_access_token', 'line_channel_secret',
+            'term_staff', 'term_beneficiary', 'logo', 'brand_color',
         ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in ('term_staff', 'term_beneficiary'):
+            self.fields[name].widget.attrs.update({'class': 'form-control'})
+        self.fields['logo'].widget.attrs.update({'class': 'form-control', 'accept': 'image/*'})
+        self.fields['brand_color'].widget = forms.TextInput(attrs={'type': 'color', 'class': 'form-control form-control-color'})
+        self.fields['brand_color'].required = False
+
+    def clean_brand_color(self):
+        v = (self.cleaned_data.get('brand_color') or '').strip().lower()
+        import re
+        if v and not re.fullmatch(r'#[0-9a-f]{6}', v):
+            raise forms.ValidationError('#4e7d89 のような形式で入力してください。')
+        return v
         widgets = {
             'name':                     forms.TextInput(attrs={'class': 'form-control'}),
             'office_number':            forms.TextInput(attrs={'class': 'form-control'}),

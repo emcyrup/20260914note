@@ -1,0 +1,9 @@
+{% with ev=g.evidence_records.all %}
+<div class="small mt-1 d-flex align-items-center gap-2 flex-wrap">
+  <span class="text-muted"><i class="bi bi-journal-check me-1"></i>根拠になった記録：</span>
+  {% for r in ev %}
+  <a href="{% url 'records:list' plan.beneficiary.pk %}?selected={{ r.pk }}" class="badge rounded-pill text-bg-light border" title="{{ r.observation_text|truncatechars:80 }}">{{ r.date|date:'n/j' }}</a>
+  {% empty %}<span class="text-muted">なし</span>{% endfor %}
+  {% if not readonly %}<a href="{% url 'support_plans:goal_evidence' plan.pk g.pk %}" class="ms-1">選ぶ</a>{% endif %}
+</div>
+{% endwith %}

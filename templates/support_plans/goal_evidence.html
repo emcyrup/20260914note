@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+
+{% block title %}根拠の記録 — {{ plan.beneficiary.full_name }}{% endblock %}
+{% block page_title %}{{ plan.beneficiary.full_name }} さんの{{ plan.title }}{% endblock %}
+{% block nav_plans %}active{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 900px;">
+  <div class="mb-2">
+    <a href="{% url 'support_plans:step' plan.pk 2 %}" class="text-muted small"><i class="bi bi-arrow-left me-1"></i>ステップ2 計画（原案）に戻る</a>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="goal-type">{{ goal.get_goal_type_display }}</div>
+      <h5 class="fw-bold mb-1">{{ goal.content }}</h5>
+      {% if goal.support_content %}<div class="small text-muted" style="white-space:pre-wrap;">{{ goal.support_content }}</div>{% endif %}
+      <div class="small mt-2">
+        現在ひもづいている記録：
+        {% for r in linked_records %}<span class="badge rounded-pill text-bg-light border">{{ r.date|date:'Y/n/j' }}</span> {% empty %}<span class="text-muted">なし</span>{% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <form method="get" class="d-flex gap-2 align-items-center flex-wrap mb-3">
+    <span class="small fw-bold">期間</span>
+    <input type="date" name="start" value="{{ start|date:'Y-m-d' }}" class="form-control form-control-sm" style="width:auto;">
+    <span class="small">〜</span>
+    <input type="date" name="end" value="{{ end|date:'Y-m-d' }}" class="form-control form-control-sm" style="width:auto;">
+    <button class="btn btn-sm btn-outline-secondary">この期間で探す</button>
+    <span class="small text-muted">目標の文と関連が強い順に並びます</span>
+  </form>
+
+  <form method="post">
+    {% csrf_token %}
+    {% for r in linked_records %}{% if r.date < start or r.date > end %}<input type="hidden" name="record_ids" value="{{ r.pk }}">{% endif %}{% endfor %}
+    <div class="card">
+      {% if candidates %}
+      <div class="table-responsive">
+        <table class="table mb-0 align-middle">
+          <thead><tr><th style="width:44px;"></th><th style="width:110px;">日付</th><th>記録</th><th style="width:70px;">関連</th></tr></thead>
+          <tbody>
+            {% for c in candidates %}
+            <tr>
+              <td><input type="checkbox" name="record_ids" value="{{ c.record.pk }}" class="form-check-input" {% if c.record.pk in linked %}checked{% endif %} {% if readonly %}disabled{% endif %}></td>
+              <td class="fw-bold"><a href="{% url 'records:list' plan.beneficiary.pk %}?selected={{ c.record.pk }}" target="_blank">{{ c.record.date|date:'Y/n/j' }}</a></td>
+              <td class="small">{% if c.record.activity_name %}<span class="badge text-bg-light border me-1">{{ c.record.activity_name }}</span>{% endif %}{{ c.snippet }}{% if c.snippet|length >= 120 %}…{% endif %}</td>
+              <td class="small text-muted">{% if c.score > 0 %}{{ c.score }}{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state"><div class="empty-state-title">この期間の日誌がありません</div></div>
+      {% endif %}
+    </div>
+    {% if not readonly %}
+    <div class="d-flex justify-content-end gap-2 mt-3">
+      <a href="{% url 'support_plans:step' plan.pk 2 %}" class="btn btn-outline-secondary">やめる</a>
+      <button class="btn btn-primary"><i class="bi bi-journal-check me-1"></i>選んだ記録を根拠にする</button>
+    </div>
+    {% endif %}
+  </form>
+</div>
+{% endblock %}

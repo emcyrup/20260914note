@@ -201,6 +201,17 @@ class DailyRecordListView(LoginRequiredMixin, TemplateView):
         activity_tags = ActivityTag.objects.filter(facility=facility, is_active=True)
         support_tags  = SupportContentTag.objects.filter(facility=facility, is_active=True)
 
+        # 支援計画への導線（進行中の計画があればそのステップへ）
+        current_plan = beneficiary.support_plans.exclude(status='closed').order_by('-created_at').first()
+        ctx['current_plan'] = current_plan
+        ctx['plan_step_urls'] = {}
+        if current_plan:
+            from django.urls import reverse as _rev
+            ctx['plan_step_urls'] = {
+                n: _rev('support_plans:step', args=[current_plan.pk, n]) if current_plan.can_open_step(n) else None
+                for n in (1, 5)
+            }
+
         ctx.update({
             'beneficiary':     beneficiary,
             'records':         records,

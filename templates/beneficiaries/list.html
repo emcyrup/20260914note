@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
 {% block title %}利用者一覧 — 放課後等デイサービス業務支援{% endblock %}
-{% block page_title %}利用者台帳{% endblock %}
+{% block page_title %}{{ terms.beneficiary }}台帳{% endblock %}
 {% block nav_beneficiaries %}active{% endblock %}
 
 {% block content %}
@@ -10,7 +10,7 @@
   <!-- ページヘッダー -->
   <div class="d-flex justify-content-between align-items-center mb-3">
     <h5 class="mb-0 fw-bold">
-      <i class="bi bi-people-fill me-2"></i>利用者一覧
+      <i class="bi bi-people-fill me-2"></i>{{ terms.beneficiary }}一覧
     </h5>
     <a href="{% url 'beneficiaries:create' %}" class="btn btn-primary">
       <i class="bi bi-person-plus-fill me-1"></i>新規登録
@@ -66,10 +66,10 @@
   {% else %}
   <div class="text-center text-muted py-5">
     <i class="bi bi-people fs-1 d-block mb-2"></i>
-    利用者が登録されていません。
+    {{ terms.beneficiary }}が登録されていません。
     <div class="mt-2">
       <a href="{% url 'beneficiaries:create' %}" class="btn btn-primary btn-sm">
-        最初の利用者を登録する
+        最初の{{ terms.beneficiary }}を登録する
       </a>
     </div>
   </div>

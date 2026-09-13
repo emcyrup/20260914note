@@ -105,3 +105,64 @@ class ThemeTests(TestCase):
         self.client.post(reverse('accounts:theme'), {'theme': 'neon'})
         self.staff.refresh_from_db()
         self.assertEqual(self.staff.ui_theme, 'standard')
+
+
+class StaffManagementTests(TestCase):
+    def setUp(self):
+        self.facility = Facility.objects.create(name='F')
+        self.admin = StaffAccount.objects.create_user('adm', password='pass12345', facility=self.facility, role=StaffAccount.ROLE_ADMIN)
+        self.staff = StaffAccount.objects.create_user('stf', password='pass12345', facility=self.facility, role=StaffAccount.ROLE_STAFF)
+
+    def test_staff_cannot_open(self):
+        self.client.force_login(self.staff)
+        self.assertRedirects(self.client.get(reverse('accounts:staff')), reverse('facilities:dashboard'))
+
+    def test_admin_adds_and_updates_staff(self):
+        self.client.force_login(self.admin)
+        res = self.client.get(reverse('accounts:staff'))
+        self.assertContains(res, 'stf')
+        res = self.client.post(reverse('accounts:staff'), {'username': 'new1', 'display_name': '新人', 'role': 'staff',
+                                                           'ui_theme': 'large', 'password': 'secret123'})
+        self.assertRedirects(res, reverse('accounts:staff'))
+        u = StaffAccount.objects.get(username='new1')
+        self.assertEqual((u.facility, u.ui_theme, u.display_name), (self.facility, 'large', '新人'))
+        self.assertTrue(u.check_password('secret123'))
+        res = self.client.post(reverse('accounts:staff_update', args=[u.pk]),
+                               {'display_name': '新人2', 'role': 'office', 'ui_theme': 'standard', 'new_password': 'another99'})
+        u.refresh_from_db()
+        self.assertEqual((u.display_name, u.role, u.is_active), ('新人2', 'office', False))
+        self.assertTrue(u.check_password('another99'))
+        # 自分を無効にはできない
+        self.client.post(reverse('accounts:staff_update', args=[self.admin.pk]), {'display_name': 'a', 'role': 'admin', 'ui_theme': 'standard'})
+        self.admin.refresh_from_db()
+        self.assertTrue(self.admin.is_active)
+
+    def test_other_facility_staff_not_editable(self):
+        other = StaffAccount.objects.create_user('o', password='p', facility=Facility.objects.create(name='G'))
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.post(reverse('accounts:staff_update', args=[other.pk]), {'display_name': 'x', 'role': 'admin', 'ui_theme': 'standard', 'is_active': 'on'}).status_code, 404)
+
+
+class BrandingTests(TestCase):
+    def test_terms_and_color_applied(self):
+        facility = Facility.objects.create(name='F', term_beneficiary='利用児', term_staff='支援員', brand_color='#aa3366')
+        user = StaffAccount.objects.create_user('adm', password='p', facility=facility, role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(user)
+        res = self.client.get(reverse('beneficiaries:list'))
+        self.assertContains(res, '利用児台帳')
+        self.assertContains(res, '利用児一覧')
+        self.assertContains(res, '支援員・運用管理')
+        self.assertContains(res, '--lake: #aa3366')
+
+    def test_invalid_color_rejected(self):
+        facility = Facility.objects.create(name='F')
+        user = StaffAccount.objects.create_user('adm', password='p', facility=facility, role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(user)
+        self.client.post(reverse('facilities:facility_update'), {'name': 'F', 'region_category': facility.region_category,
+                                                                  'base_unit_count': 604, 'brand_color': 'red', 'term_staff': '先生', 'term_beneficiary': '園児'})
+        facility.refresh_from_db()
+        self.assertEqual(facility.brand_color, '')
+        self.client.post(reverse('facilities:facility_update'), {'name': 'F', 'region_category': facility.region_category,
+                                                                  'base_unit_count': 604, 'brand_color': '#112233', 'term_staff': '先生', 'term_beneficiary': '園児'})
+        facility.refresh_from_db()
+        self.assertEqual((facility.brand_color, facility.term_staff), ('#112233', '先生'))

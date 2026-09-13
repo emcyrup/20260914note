@@ -1,6 +1,9 @@
+import json
 from datetime import date, timedelta
+from types import SimpleNamespace
+from unittest import mock
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from accounts.models import StaffAccount
@@ -230,3 +233,91 @@ class MonitoringAndSuccessorTests(PlanFlowTestBase):
                     reverse('support_plans:print', args=[self.plan.pk]), reverse('support_plans:create'),
                     reverse('beneficiaries:detail', args=[self.b.pk]), *[self.step_url(n) for n in range(1, 6)]):
             self.assertEqual(self.client.get(url).status_code, 200, url)
+
+
+class PdfAndAiTests(PlanFlowTestBase):
+    def test_plan_pdf_and_monitoring_report(self):
+        self.fill_assessment(); self.plan.complete_step(1, self.user)
+        self.fill_draft();      self.plan.complete_step(2, self.user)
+        self.fill_meeting();    self.plan.complete_step(3, self.user)
+        self.fill_consent();    self.plan.complete_step(4, self.user)
+        res = self.client.get(reverse('support_plans:pdf', args=[self.plan.pk]))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+        self.assertTrue(res.content.startswith(b'%PDF'))
+        res = self.client.get(reverse('support_plans:monitoring_report', args=[self.plan.pk]))
+        self.assertContains(res, 'モニタリング報告書')
+        res = self.client.get(reverse('support_plans:monitoring_pdf', args=[self.plan.pk]))
+        self.assertTrue(res.content.startswith(b'%PDF'))
+
+    def _records(self):
+        from records.models import DailyRecord
+        recs = []
+        for i, (act, obs) in enumerate([('ブロック', '「かして」と伝えて順番を待った'), ('工作', '困ったときに支援員へ声をかけた'),
+                                          ('おやつ', '自分から出来事を報告する場面が増えた')]):
+            recs.append(DailyRecord.objects.create(facility=self.facility, beneficiary=self.b, author=self.user,
+                                                   date=date.today() - timedelta(days=10 * (i + 1)),
+                                                   activity_name=act, observation_text=obs))
+        return recs
+
+    def test_find_evidence_ranks_related_records(self):
+        from . import ai
+        recs = self._records()
+        hits = ai.find_evidence(self.b, '気持ちを言葉で伝える 順番を待つ', date.today() - timedelta(days=60), date.today())
+        self.assertEqual(len(hits), 3)
+        self.assertEqual(hits[0]['record'], recs[0])
+
+    def test_goal_evidence_page_and_save(self):
+        recs = self._records()
+        self.fill_assessment(); self.plan.complete_step(1, self.user)
+        g = PlanGoal.objects.create(plan=self.plan, goal_type='short', content='順番を待てる', support_content='声かけ')
+        url = reverse('support_plans:goal_evidence', args=[self.plan.pk, g.pk])
+        res = self.client.get(url)
+        self.assertContains(res, '順番を待てる')
+        self.assertContains(res, 'かして')
+        res = self.client.post(url, {'record_ids': [recs[0].pk, recs[1].pk]})
+        self.assertRedirects(res, self.step_url(2))
+        self.assertEqual(g.evidence_records.count(), 2)
+        res = self.client.get(self.step_url(2))
+        self.assertContains(res, '根拠になった記録')
+        # 印刷にも出る
+        res = self.client.get(reverse('support_plans:print', args=[self.plan.pk]))
+        self.assertContains(res, '根拠：')
+
+    @override_settings(ANTHROPIC_API_KEY='k')
+    @mock.patch('support_plans.ai.anthropic.Anthropic')
+    def test_ai_assessment_draft(self, mock_cls):
+        self._records()
+        mock_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(
+            type='text', text='{"condition": "c", "environment": "e", "wishes": "w"}')])
+        res = self.client.post(reverse('support_plans:ai_assessment', args=[self.plan.pk]), {'months': 6})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['draft'], {'condition': 'c', 'environment': 'e', 'wishes': 'w'})
+        self.assertEqual(res.json()['records'], 3)
+        self.assertIn('かして', mock_cls.return_value.messages.create.call_args.kwargs['messages'][0]['content'])
+
+    @override_settings(ANTHROPIC_API_KEY='k')
+    @mock.patch('support_plans.ai.anthropic.Anthropic')
+    def test_ai_plan_draft_creates_goals_with_evidence(self, mock_cls):
+        recs = self._records()
+        self.fill_assessment(); self.plan.complete_step(1, self.user)
+        d1 = recs[0].date.isoformat()
+        mock_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(
+            type='text', text=json.dumps({'policy': '方針', 'family_wishes': '意向', 'goals': [
+                {'type': 'long', 'content': '友だちと協力できる', 'evidence_dates': [d1]},
+                {'type': 'short', 'content': '順番を待てる', 'support_content': '声かけ', 'frequency': '毎回', 'evidence_dates': [d1, '1999-01-01']},
+            ]}))])
+        res = self.client.post(reverse('support_plans:ai_draft', args=[self.plan.pk]),
+                               {'start': (date.today() - timedelta(days=60)).isoformat(), 'end': date.today().isoformat()})
+        self.assertRedirects(res, self.step_url(2))
+        d = self.plan.get_step(2)
+        self.assertEqual(d.policy, '方針')
+        goals = list(self.plan.goals.order_by('goal_type'))
+        self.assertEqual(len(goals), 2)
+        short = self.plan.goals.get(goal_type='short')
+        self.assertEqual(list(short.evidence_records.all()), [recs[0]])
+        self.assertIsNotNone(short.target_date)
+
+    def test_journal_menu_links_to_plan(self):
+        res = self.client.get(reverse('records:list', args=[self.b.pk]))
+        self.assertContains(res, reverse('support_plans:detail', args=[self.plan.pk]))

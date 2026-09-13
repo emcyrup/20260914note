@@ -14,7 +14,12 @@
       <a href="{% url 'beneficiaries:detail' plan.beneficiary.pk %}" class="text-muted small">{{ plan.beneficiary.full_name }}</a>
     </div>
     <div class="d-flex gap-2">
-      <a href="{% url 'support_plans:print' plan.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>計画書を印刷</a>
+      <a href="{% url 'support_plans:print' plan.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>計画書</a>
+      <a href="{% url 'support_plans:pdf' plan.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-pdf me-1"></i>計画書PDF</a>
+      {% if plan.current_step == 5 %}
+      <a href="{% url 'support_plans:monitoring_report' plan.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-graph-up me-1"></i>モニタリング報告書</a>
+      <a href="{% url 'support_plans:monitoring_pdf' plan.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-pdf me-1"></i>報告書PDF</a>
+      {% endif %}
       {% if plan.status != 'closed' %}
       <a href="{% url 'support_plans:step' plan.pk plan.current_step %}" class="btn btn-sm btn-primary">
         <i class="bi bi-play-fill me-1"></i>ステップ{{ plan.current_step }} を進める

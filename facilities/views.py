@@ -152,7 +152,7 @@ class FacilityUpdateView(LoginRequiredMixin, View):
 
     def post(self, request):
         facility = request.user.facility
-        form = FacilityForm(request.POST, instance=facility)
+        form = FacilityForm(request.POST, request.FILES, instance=facility)
         if form.is_valid():
             form.save()
             messages.success(request, '施設情報を更新しました。')

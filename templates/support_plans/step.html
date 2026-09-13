@@ -109,6 +109,42 @@
           </details>
           {% endif %}
 
+          {% if n == 1 and not readonly %}
+          <div class="p-3 rounded-3 mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2" style="background: var(--paper);">
+            <div>
+              <div class="fw-bold"><i class="bi bi-stars me-1"></i>過去の日誌から AI で下書き</div>
+              <div class="small text-muted">直近の日誌を読んで「心身の状況」「置かれている環境」「希望する生活」の下書きを入れます。面談で確認して直してください。</div>
+            </div>
+            <div class="d-flex gap-2 align-items-center">
+              <select id="aiMonths" class="form-select form-select-sm" style="width:auto;">
+                <option value="3">直近3か月</option><option value="6" selected>直近6か月</option><option value="12">直近12か月</option>
+              </select>
+              <button type="button" class="btn btn-sm btn-primary" id="aiAssessBtn" {% if not ai_enabled %}disabled title="ANTHROPIC_API_KEY が未設定です"{% endif %}>
+                <i class="bi bi-stars me-1"></i>下書きを作る
+              </button>
+            </div>
+            <div id="aiAssessMsg" class="small w-100"></div>
+          </div>
+          {% endif %}
+          {% if n == 2 and not readonly %}
+          <form method="post" action="{% url 'support_plans:ai_draft' plan.pk %}" class="p-3 rounded-3 mb-3" style="background: var(--paper);"
+                onsubmit="this.querySelector('button[type=submit]').disabled=true;this.querySelector('button[type=submit]').textContent='作成中…（30秒ほど）';">
+            {% csrf_token %}
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+              <div>
+                <div class="fw-bold"><i class="bi bi-stars me-1"></i>期間の日誌から AI で原案の下書き</div>
+                <div class="small text-muted">アセスメントと期間内の日誌をもとに、方針と目標（長期1〜2・短期2〜3）を下書きし、根拠になった日誌をひもづけます。方針が空のときだけ埋め、目標は追加されます。</div>
+              </div>
+              <div class="d-flex gap-2 align-items-center flex-wrap">
+                <input type="date" name="start" value="{{ draft_start|date:'Y-m-d' }}" class="form-control form-control-sm" style="width:auto;">
+                <span class="small">〜</span>
+                <input type="date" name="end" value="{{ draft_end|date:'Y-m-d' }}" class="form-control form-control-sm" style="width:auto;">
+                <button type="submit" class="btn btn-sm btn-primary" {% if not ai_enabled %}disabled title="ANTHROPIC_API_KEY が未設定です"{% endif %}><i class="bi bi-stars me-1"></i>下書きを作る</button>
+              </div>
+            </div>
+          </form>
+          {% endif %}
+
           <form method="post" id="stepForm">
             {% csrf_token %}
             <div class="row g-3">
@@ -178,6 +214,7 @@
                   <div class="fw-bold">{{ g.content }}</div>
                   <div class="small text-muted">達成時期：{{ g.target_date|date:'Y/n/j'|default:'未設定' }}{% if g.frequency %}　{{ g.frequency }}{% endif %}</div>
                   {% if g.support_content %}<div class="small mt-1" style="white-space:pre-wrap;">{{ g.support_content }}</div>{% endif %}
+                  {% include 'support_plans/_goal_evidence.html' with g=g %}
                 </div>
                 {% if not readonly %}
                 <div class="d-flex gap-1 flex-none">
@@ -199,6 +236,7 @@
                   <div class="small text-muted">達成時期：{{ g.target_date|date:'Y/n/j'|default:'未設定' }}{% if g.frequency %}　{{ g.frequency }}{% endif %}</div>
                   {% if g.support_content %}<div class="small mt-1" style="white-space:pre-wrap;">{{ g.support_content }}</div>
                   {% else %}<div class="small text-danger">具体的な支援内容が未記入</div>{% endif %}
+                  {% include 'support_plans/_goal_evidence.html' with g=g %}
                 </div>
                 {% if not readonly %}
                 <div class="d-flex gap-1 flex-none">
@@ -239,9 +277,13 @@
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <h6 class="fw-bold mb-0"><i class="bi bi-graph-up me-1"></i>モニタリング記録</h6>
+            <div class="d-flex gap-2 align-items-center flex-wrap">
+              <a href="{% url 'support_plans:monitoring_report' plan.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary py-0" style="min-height:28px;font-size:0.72rem;"><i class="bi bi-printer me-1"></i>報告書</a>
+              <a href="{% url 'support_plans:monitoring_pdf' plan.pk %}" class="btn btn-sm btn-outline-secondary py-0" style="min-height:28px;font-size:0.72rem;"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</a>
             <div class="small">
               次回期限：
               {% if next_due %}<span class="{% if overdue %}text-danger fw-bold{% endif %}">{{ next_due|date:'Y/n/j' }}{% if overdue %}（期限超過）{% endif %}</span>{% else %}—{% endif %}
+            </div>
             </div>
           </div>
 
@@ -310,5 +352,33 @@
 
 {% if n == 4 and not readonly %}
 {% include 'esignatures/signature_modal.html' with target_type='support_plan' target_id=plan.pk guardians=guardians %}
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if n == 1 and not readonly %}
+<script>
+(function () {
+  const btn = document.getElementById('aiAssessBtn'); if (!btn) return;
+  const msg = document.getElementById('aiAssessMsg');
+  btn.addEventListener('click', async function () {
+    const fields = {condition: 'id_condition', environment: 'id_environment', wishes: 'id_wishes'};
+    const filled = Object.values(fields).some(id => (document.getElementById(id)?.value || '').trim());
+    if (filled && !confirm('入力済みの内容を AI の下書きで置き換えますか？')) return;
+    btn.disabled = true; msg.textContent = '日誌を読んでいます…（20〜40秒）'; msg.className = 'small w-100 text-muted';
+    try {
+      const fd = new FormData(); fd.append('months', document.getElementById('aiMonths').value);
+      fd.append('csrfmiddlewaretoken', document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '');
+      const res = await fetch('{% url "support_plans:ai_assessment" plan.pk %}', { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) { msg.textContent = data.error || `サーバーエラー (${res.status})`; msg.className = 'small w-100 text-danger'; return; }
+      for (const [k, id] of Object.entries(fields)) { const el = document.getElementById(id); if (el) el.value = data.draft[k] || ''; }
+      msg.textContent = `日誌 ${data.records} 件（直近${data.months}か月）から下書きを入れました。面談で確認し、修正してから保存してください。`;
+      msg.className = 'small w-100 text-success';
+    } catch (e) { msg.textContent = '通信エラー: ' + e.message; msg.className = 'small w-100 text-danger'; }
+    finally { btn.disabled = false; }
+  });
+})();
+</script>
 {% endif %}
 {% endblock %}

@@ -299,6 +299,9 @@ class PlanGoal(models.Model):
     frequency   = models.CharField(max_length=100, blank=True, verbose_name='頻度・時間',
                                    help_text='例：週3回・活動の前半30分')
     order       = models.PositiveSmallIntegerField(default=0)
+    # 目標の根拠になった日誌（あとから「なぜこう書いたか」をたどれる）
+    evidence_records = models.ManyToManyField('records.DailyRecord', blank=True, related_name='evidence_for_goals',
+                                              verbose_name='根拠になった記録')
 
     class Meta:
         ordering = ['goal_type', 'order', 'pk']

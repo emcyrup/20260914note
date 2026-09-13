@@ -156,7 +156,7 @@
         <div class="card-body" style="background-color: var(--paper) !important;">
           <div class="d-grid gap-2">
             <a href="{% url 'records:dashboard' %}" class="btn btn-outline-primary">日誌を入力する</a>
-            <a href="{% url 'beneficiaries:list' %}" class="btn btn-outline-primary">利用者を確認する</a>
+            <a href="{% url 'beneficiaries:list' %}" class="btn btn-outline-primary">{{ terms.beneficiary }}を確認する</a>
             <a href="{% url 'schedules:calendar' %}" class="btn btn-outline-primary">今月の予定を確認する</a>
             <a href="{% url 'billing:matrix' %}" class="btn btn-outline-primary">請求マトリックスを開く</a>
             <a href="{% url 'schedules:daily' today.year today.month today.day %}" class="btn btn-outline-primary">今日の出欠をまとめて入力</a>

@@ -138,7 +138,7 @@ BACKUP_GCS_BUCKET=dayservice-backups-<プロジェクトID>
 
 ## 6. ドメインを向ける（任意）
 
-ドメイン管理画面で A レコードを固定IPに向ける。HTTPS が自動で付き、LINE の Webhook に必要。
+ドメイン管理画面で A レコードを固定IPに向ける。HTTPS が自動で付き、音声入力と LINE の Webhook に必要。詳しい手順は [HTTPS.md](HTTPS.md)。
 
 ## 7. GitHub Secrets と main ブランチ
 

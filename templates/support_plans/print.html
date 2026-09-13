@@ -16,13 +16,17 @@
   .sig { display: flex; gap: 24px; align-items: flex-end; flex-wrap: wrap; }
   .sig img { height: 60px; border-bottom: 1px solid #333; }
   .toolbar { text-align: right; margin-bottom: 12px; }
-  .toolbar button { padding: 8px 16px; border-radius: 8px; border: 1px solid #4e7d89; background: #4e7d89; color: #fff; cursor: pointer; }
+  .toolbar a, .toolbar button { padding: 8px 16px; border-radius: 8px; border: 1px solid #4e7d89; background: #4e7d89; color: #fff; cursor: pointer; text-decoration: none; margin-left: 6px; }
+  .toolbar a.outline { background: #fff; color: #4e7d89; }
+  @page { size: A4; margin: 16mm; }
   @media print { .toolbar { display: none; } body { padding: 0; } }
 </style>
 </head>
 <body>
 <div class="sheet">
-  <div class="toolbar"><button onclick="window.print()">印刷する</button></div>
+  {% if not pdf %}
+  <div class="toolbar"><a class="outline" href="{% url 'support_plans:pdf' plan.pk %}">PDFをダウンロード</a><button onclick="window.print()">印刷する</button></div>
+  {% endif %}
   <h1>個別支援計画書</h1>
   <div class="sub">{{ facility.name }}　{{ plan.title }}</div>
 
@@ -45,7 +49,7 @@
   <table>
     <tr><th style="width:50%">目標</th><th>達成時期</th><th>頻度・時間</th></tr>
     {% for g in goals_long %}
-    <tr><td>{{ g.content }}{% if g.support_content %}<div class="pre" style="color:#486064;">{{ g.support_content }}</div>{% endif %}</td><td>{{ g.target_date|date:'Y年n月j日'|default:'—' }}</td><td>{{ g.frequency }}</td></tr>
+    <tr><td>{{ g.content }}{% if g.support_content %}<div class="pre" style="color:#486064;">{{ g.support_content }}</div>{% endif %}{% if g.evidence_records.exists %}<div style="color:#486064;font-size:11px;">根拠：{% for r in g.evidence_records.all %}{{ r.date|date:'n/j' }}{% if not forloop.last %}、{% endif %}{% endfor %}</div>{% endif %}</td><td>{{ g.target_date|date:'Y年n月j日'|default:'—' }}</td><td>{{ g.frequency }}</td></tr>
     {% empty %}<tr><td colspan="3">—</td></tr>{% endfor %}
   </table>
 
@@ -53,7 +57,7 @@
   <table>
     <tr><th style="width:30%">目標</th><th style="width:40%">具体的な支援内容</th><th>達成時期</th><th>頻度・時間</th></tr>
     {% for g in goals_short %}
-    <tr><td>{{ g.content }}</td><td class="pre">{{ g.support_content }}</td><td>{{ g.target_date|date:'Y年n月j日'|default:'—' }}</td><td>{{ g.frequency }}</td></tr>
+    <tr><td>{{ g.content }}{% if g.evidence_records.exists %}<div style="color:#486064;font-size:11px;">根拠：{% for r in g.evidence_records.all %}{{ r.date|date:'n/j' }}{% if not forloop.last %}、{% endif %}{% endfor %}</div>{% endif %}</td><td class="pre">{{ g.support_content }}</td><td>{{ g.target_date|date:'Y年n月j日'|default:'—' }}</td><td>{{ g.frequency }}</td></tr>
     {% empty %}<tr><td colspan="4">—</td></tr>{% endfor %}
   </table>
 
