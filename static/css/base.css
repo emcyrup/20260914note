@@ -1359,7 +1359,7 @@ body.theme-large a { text-decoration-thickness: 2px; }
 /* =========================================================
    テーマ：スタイリッシュ（濃色の背景・装飾を抑える）
    ========================================================= */
-body.theme-stylish {
+body.theme-stylish, body.mode-dark, html.prefers-dark body.mode-auto { 
   --paper: #0f1f24; --sheet: #16333b; --ink: #eef3f1; --ink-soft: #a9bcc0; --line: #2c4a52; --line-dark: #3f6069;
   --field-line: #3f6069; --lake: #7fd3c3; --lake-text: #7fd3c3; --lake-soft: #1f3f47;
   --color-primary: #7fd3c3; --color-primary-bg: #1f3f47; --color-primary-light: #1f3f47; --color-primary-dark: #a8e6da;
@@ -1372,52 +1372,52 @@ body.theme-stylish {
   background: #0f1f24;
 }
 body.theme-stylish::before { display: none; }
-body.theme-stylish .sidebar { background: #0b171b; box-shadow: none; }
-body.theme-stylish .sidebar-nav-item.active { box-shadow: inset 3px 0 0 #7fd3c3; }
-body.theme-stylish .topbar { background: rgba(15, 31, 36, 0.9); border-bottom-color: #2c4a52; }
-body.theme-stylish .card, body.theme-stylish .info-card, body.theme-stylish .modal-content, body.theme-stylish .dropdown-menu,
-body.theme-stylish .goal-item, body.theme-stylish .stepper-item {
+body.theme-stylish .sidebar, body.mode-dark .sidebar, html.prefers-dark body.mode-auto .sidebar { background: #0b171b; box-shadow: none; }
+body.theme-stylish .sidebar-nav-item.active, body.mode-dark .sidebar-nav-item.active, html.prefers-dark body.mode-auto .sidebar-nav-item.active { box-shadow: inset 3px 0 0 #7fd3c3; }
+body.theme-stylish .topbar, body.mode-dark .topbar, html.prefers-dark body.mode-auto .topbar { background: rgba(15, 31, 36, 0.9); border-bottom-color: #2c4a52; }
+body.theme-stylish .card, body.theme-stylish .info-card, body.theme-stylish .modal-content, body.theme-stylish .dropdown-menu, body.mode-dark .card, body.mode-dark .info-card, body.mode-dark .modal-content, body.mode-dark .dropdown-menu, html.prefers-dark body.mode-auto .card, html.prefers-dark body.mode-auto .info-card, html.prefers-dark body.mode-auto .modal-content, html.prefers-dark body.mode-auto .dropdown-menu,
+body.theme-stylish .goal-item, body.theme-stylish .stepper-item, body.mode-dark .goal-item, body.mode-dark .stepper-item, html.prefers-dark body.mode-auto .goal-item, html.prefers-dark body.mode-auto .stepper-item { 
   background: var(--sheet); border-color: var(--line); color: var(--ink); box-shadow: none;
 }
-body.theme-stylish .card-header, body.theme-stylish .modal-header, body.theme-stylish .modal-footer { background: transparent; border-color: var(--line); color: var(--ink); }
-body.theme-stylish .form-control, body.theme-stylish .form-select, body.theme-stylish .simple-textarea, body.theme-stylish .simple-input {
+body.theme-stylish .card-header, body.theme-stylish .modal-header, body.theme-stylish .modal-footer, body.mode-dark .card-header, body.mode-dark .modal-header, body.mode-dark .modal-footer, html.prefers-dark body.mode-auto .card-header, html.prefers-dark body.mode-auto .modal-header, html.prefers-dark body.mode-auto .modal-footer { background: transparent; border-color: var(--line); color: var(--ink); }
+body.theme-stylish .form-control, body.theme-stylish .form-select, body.theme-stylish .simple-textarea, body.theme-stylish .simple-input, body.mode-dark .form-control, body.mode-dark .form-select, body.mode-dark .simple-textarea, body.mode-dark .simple-input, html.prefers-dark body.mode-auto .form-control, html.prefers-dark body.mode-auto .form-select, html.prefers-dark body.mode-auto .simple-textarea, html.prefers-dark body.mode-auto .simple-input { 
   background: #0f2429; color: var(--ink); border-color: var(--field-line);
 }
-body.theme-stylish .form-control::placeholder { color: #6f8a90; }
-body.theme-stylish .form-control:disabled, body.theme-stylish .form-select:disabled { background: #14292f; color: var(--ink-soft); }
-body.theme-stylish .table { --bs-table-bg: transparent; --bs-table-color: var(--ink); --bs-table-border-color: var(--line);
+body.theme-stylish .form-control::placeholder, body.mode-dark .form-control::placeholder, html.prefers-dark body.mode-auto .form-control::placeholder { color: #6f8a90; }
+body.theme-stylish .form-control:disabled, body.theme-stylish .form-select:disabled, body.mode-dark .form-control:disabled, body.mode-dark .form-select:disabled, html.prefers-dark body.mode-auto .form-control:disabled, html.prefers-dark body.mode-auto .form-select:disabled { background: #14292f; color: var(--ink-soft); }
+body.theme-stylish .table, body.mode-dark .table, html.prefers-dark body.mode-auto .table { --bs-table-bg: transparent; --bs-table-color: var(--ink); --bs-table-border-color: var(--line);
   --bs-table-striped-bg: rgba(255,255,255,.03); --bs-table-hover-bg: rgba(255,255,255,.05); color: var(--ink); }
-body.theme-stylish .table thead th { background: #0f2429; color: var(--ink-soft); border-color: var(--line); }
-body.theme-stylish .text-muted, body.theme-stylish .detail-label, body.theme-stylish .section-title { color: var(--ink-soft) !important; }
-body.theme-stylish .text-dark { color: var(--ink) !important; }
-body.theme-stylish .bg-white, body.theme-stylish .bg-light { background-color: var(--sheet) !important; color: var(--ink); }
+body.theme-stylish .table thead th, body.mode-dark .table thead th, html.prefers-dark body.mode-auto .table thead th { background: #0f2429; color: var(--ink-soft); border-color: var(--line); }
+body.theme-stylish .text-muted, body.theme-stylish .detail-label, body.theme-stylish .section-title, body.mode-dark .text-muted, body.mode-dark .detail-label, body.mode-dark .section-title, html.prefers-dark body.mode-auto .text-muted, html.prefers-dark body.mode-auto .detail-label, html.prefers-dark body.mode-auto .section-title { color: var(--ink-soft) !important; }
+body.theme-stylish .text-dark, body.mode-dark .text-dark, html.prefers-dark body.mode-auto .text-dark { color: var(--ink) !important; }
+body.theme-stylish .bg-white, body.theme-stylish .bg-light, body.mode-dark .bg-white, body.mode-dark .bg-light, html.prefers-dark body.mode-auto .bg-white, html.prefers-dark body.mode-auto .bg-light { background-color: var(--sheet) !important; color: var(--ink); }
 body.theme-stylish .btn-primary { background: transparent; border: 1.5px solid #7fd3c3; color: #7fd3c3; box-shadow: none; letter-spacing: .06em; }
 body.theme-stylish .btn-primary:hover, body.theme-stylish .btn-primary:focus { background: #7fd3c3; color: #0f1f24; border-color: #7fd3c3; }
-body.theme-stylish .btn-outline-secondary { border-color: var(--line-dark); color: var(--ink-soft); }
-body.theme-stylish .btn-outline-secondary:hover { background: var(--line); color: var(--ink); }
-body.theme-stylish .btn-outline-primary { border-color: #7fd3c3; color: #7fd3c3; }
+body.theme-stylish .btn-outline-secondary, body.mode-dark .btn-outline-secondary, html.prefers-dark body.mode-auto .btn-outline-secondary { border-color: var(--line-dark); color: var(--ink-soft); }
+body.theme-stylish .btn-outline-secondary:hover, body.mode-dark .btn-outline-secondary:hover, html.prefers-dark body.mode-auto .btn-outline-secondary:hover { background: var(--line); color: var(--ink); }
+body.theme-stylish .btn-outline-primary, body.mode-dark .btn-outline-primary, html.prefers-dark body.mode-auto .btn-outline-primary { border-color: #7fd3c3; color: #7fd3c3; }
 body.theme-stylish .btn-memo { background: transparent; border: 1px solid #7fd3c3; color: #7fd3c3; box-shadow: none; }
 body.theme-stylish .subnav .btn-primary.disabled { background: #7fd3c3; color: #0f1f24; }
-body.theme-stylish .alert { background: var(--sheet); border-color: var(--line); color: var(--ink); }
-body.theme-stylish .alert-warning { border-color: var(--color-warning); }
-body.theme-stylish .alert-danger { border-color: var(--color-danger); }
-body.theme-stylish .badge.text-bg-secondary { background-color: var(--line) !important; color: var(--ink) !important; }
-body.theme-stylish .badge.text-bg-info { background-color: #1f3f47 !important; color: #7fd3c3 !important; }
-body.theme-stylish .badge.text-bg-success { background-color: #1e3b32 !important; color: #8fd9b6 !important; }
-body.theme-stylish .badge.text-bg-warning { background-color: #3e3322 !important; color: #f0c97a !important; }
-body.theme-stylish .stepper-num { background: #0f2429; color: var(--ink-soft); }
-body.theme-stylish .stepper-item.is-done { background: #1e3b32; border-color: #8fd9b6; }
-body.theme-stylish .stepper-item.is-current { background: #1f3f47; border-color: #7fd3c3; box-shadow: none; }
-body.theme-stylish .stepper-item.is-locked { background: #12262b; }
-body.theme-stylish .stepper-bar { background: #0f2429; }
-body.theme-stylish .readonly-note, body.theme-stylish .empty-state { background: #0f2429; color: var(--ink-soft); }
-body.theme-stylish .vp-btn { background: #0f2429; color: var(--ink-soft); border-color: var(--line-dark); }
-body.theme-stylish .vp-badge { background: #0f2429; }
-body.theme-stylish .btn-close { filter: invert(1) grayscale(1); }
-body.theme-stylish hr { border-color: var(--line); opacity: 1; }
-body.theme-stylish .calendar-table td { background: var(--sheet); }
-body.theme-stylish [style*="background:#fff"], body.theme-stylish [style*="background: #fff"],
-body.theme-stylish [style*="background:#f8fffe"], body.theme-stylish [style*="background:var(--sheet)"] { background: var(--sheet) !important; color: var(--ink); }
+body.theme-stylish .alert, body.mode-dark .alert, html.prefers-dark body.mode-auto .alert { background: var(--sheet); border-color: var(--line); color: var(--ink); }
+body.theme-stylish .alert-warning, body.mode-dark .alert-warning, html.prefers-dark body.mode-auto .alert-warning { border-color: var(--color-warning); }
+body.theme-stylish .alert-danger, body.mode-dark .alert-danger, html.prefers-dark body.mode-auto .alert-danger { border-color: var(--color-danger); }
+body.theme-stylish .badge.text-bg-secondary, body.mode-dark .badge.text-bg-secondary, html.prefers-dark body.mode-auto .badge.text-bg-secondary { background-color: var(--line) !important; color: var(--ink) !important; }
+body.theme-stylish .badge.text-bg-info, body.mode-dark .badge.text-bg-info, html.prefers-dark body.mode-auto .badge.text-bg-info { background-color: #1f3f47 !important; color: #7fd3c3 !important; }
+body.theme-stylish .badge.text-bg-success, body.mode-dark .badge.text-bg-success, html.prefers-dark body.mode-auto .badge.text-bg-success { background-color: #1e3b32 !important; color: #8fd9b6 !important; }
+body.theme-stylish .badge.text-bg-warning, body.mode-dark .badge.text-bg-warning, html.prefers-dark body.mode-auto .badge.text-bg-warning { background-color: #3e3322 !important; color: #f0c97a !important; }
+body.theme-stylish .stepper-num, body.mode-dark .stepper-num, html.prefers-dark body.mode-auto .stepper-num { background: #0f2429; color: var(--ink-soft); }
+body.theme-stylish .stepper-item.is-done, body.mode-dark .stepper-item.is-done, html.prefers-dark body.mode-auto .stepper-item.is-done { background: #1e3b32; border-color: #8fd9b6; }
+body.theme-stylish .stepper-item.is-current, body.mode-dark .stepper-item.is-current, html.prefers-dark body.mode-auto .stepper-item.is-current { background: #1f3f47; border-color: #7fd3c3; box-shadow: none; }
+body.theme-stylish .stepper-item.is-locked, body.mode-dark .stepper-item.is-locked, html.prefers-dark body.mode-auto .stepper-item.is-locked { background: #12262b; }
+body.theme-stylish .stepper-bar, body.mode-dark .stepper-bar, html.prefers-dark body.mode-auto .stepper-bar { background: #0f2429; }
+body.theme-stylish .readonly-note, body.theme-stylish .empty-state, body.mode-dark .readonly-note, body.mode-dark .empty-state, html.prefers-dark body.mode-auto .readonly-note, html.prefers-dark body.mode-auto .empty-state { background: #0f2429; color: var(--ink-soft); }
+body.theme-stylish .vp-btn, body.mode-dark .vp-btn, html.prefers-dark body.mode-auto .vp-btn { background: #0f2429; color: var(--ink-soft); border-color: var(--line-dark); }
+body.theme-stylish .vp-badge, body.mode-dark .vp-badge, html.prefers-dark body.mode-auto .vp-badge { background: #0f2429; }
+body.theme-stylish .btn-close, body.mode-dark .btn-close, html.prefers-dark body.mode-auto .btn-close { filter: invert(1) grayscale(1); }
+body.theme-stylish hr, body.mode-dark hr, html.prefers-dark body.mode-auto hr { border-color: var(--line); opacity: 1; }
+body.theme-stylish .calendar-table td, body.mode-dark .calendar-table td, html.prefers-dark body.mode-auto .calendar-table td { background: var(--sheet); }
+body.theme-stylish [style*="background:#fff"], body.theme-stylish [style*="background: #fff"], body.mode-dark [style*="background:#fff"], body.mode-dark [style*="background: #fff"], html.prefers-dark body.mode-auto [style*="background:#fff"], html.prefers-dark body.mode-auto [style*="background: #fff"],
+body.theme-stylish [style*="background:#f8fffe"], body.theme-stylish [style*="background:var(--sheet)"], body.mode-dark [style*="background:#f8fffe"], body.mode-dark [style*="background:var(--sheet)"], html.prefers-dark body.mode-auto [style*="background:#f8fffe"], html.prefers-dark body.mode-auto [style*="background:var(--sheet)"] { background: var(--sheet) !important; color: var(--ink); }
 
 /* =========================================================
    テーマ：かんたん3ステップ（メニューを隠す）
@@ -1492,8 +1492,8 @@ body.theme-simple .flash-messages { padding: 12px 16px 0; max-width: 760px; marg
 .simple-card .vp-row { padding: 10px 0; }
 .simple-card .vp-text { font-size: 18px; font-weight: 700; }
 .simple-card .vp-btn { min-height: 48px; font-size: 18px; padding: 6px 22px; }
-body.theme-stylish .simple-card, body.theme-stylish .simple-item, body.theme-stylish .simple-daybtn { background: var(--sheet); }
-body.theme-stylish .simple-btn-outline { background: transparent; }
+body.theme-stylish .simple-card, body.theme-stylish .simple-item, body.theme-stylish .simple-daybtn, body.mode-dark .simple-card, body.mode-dark .simple-item, body.mode-dark .simple-daybtn, html.prefers-dark body.mode-auto .simple-card, html.prefers-dark body.mode-auto .simple-item, html.prefers-dark body.mode-auto .simple-daybtn { background: var(--sheet); }
+body.theme-stylish .simple-btn-outline, body.mode-dark .simple-btn-outline, html.prefers-dark body.mode-auto .simple-btn-outline { background: transparent; }
 
 /* ホーム：今週の来所状況 */
 .dash-week th, .dash-week td { width: 14.28%; vertical-align: top; padding: 8px 6px; }
@@ -1554,9 +1554,9 @@ body.theme-stylish .simple-btn-outline { background: transparent; }
 .ai-chat-send { width: 44px; border: 0; border-radius: 12px; background: var(--lake); color: #fff; font-size: 16px; cursor: pointer; }
 .ai-chat-send:disabled { opacity: .5; }
 .ai-chat-note { font-size: 10.5px; color: var(--ink-soft); padding: 0 12px 10px; }
-body.theme-stylish .ai-chat-panel, body.theme-stylish .ai-msg.is-bot { background: var(--sheet); }
-body.theme-stylish .ai-msg.is-bot { background: #0f2429; }
-body.theme-stylish .ai-choice, body.theme-stylish .ai-chat-form textarea { background: #0f2429; color: var(--ink); }
+body.theme-stylish .ai-chat-panel, body.theme-stylish .ai-msg.is-bot, body.mode-dark .ai-chat-panel, body.mode-dark .ai-msg.is-bot, html.prefers-dark body.mode-auto .ai-chat-panel, html.prefers-dark body.mode-auto .ai-msg.is-bot { background: var(--sheet); }
+body.theme-stylish .ai-msg.is-bot, body.mode-dark .ai-msg.is-bot, html.prefers-dark body.mode-auto .ai-msg.is-bot { background: #0f2429; }
+body.theme-stylish .ai-choice, body.theme-stylish .ai-chat-form textarea, body.mode-dark .ai-choice, body.mode-dark .ai-chat-form textarea, html.prefers-dark body.mode-auto .ai-choice, html.prefers-dark body.mode-auto .ai-chat-form textarea { background: #0f2429; color: var(--ink); }
 body.theme-large .ai-msg { font-size: 18px; }
 body.theme-large .ai-chat-form textarea { font-size: 18px; }
 @media (max-width: 640px) { .ai-chat-fab { right: 14px; bottom: 14px; width: 52px; height: 52px; } .ai-chat-panel { right: 8px; left: 8px; width: auto; bottom: 76px; } }
@@ -1566,3 +1566,27 @@ body.theme-large .ai-chat-form textarea { font-size: 18px; }
 .sidebar-brand-icon.has-logo img { width: 100%; height: 100%; object-fit: contain; border-radius: 8px; }
 /* 職員・運用管理 */
 .staff-table td { vertical-align: middle; }
+
+/* ダークモード（テーマから独立）：スタイリッシュと同じ配色。主要ボタンは塗りのまま */
+body.mode-dark::before, html.prefers-dark body.mode-auto::before { display: none; }
+body.mode-dark .btn-primary, html.prefers-dark body.mode-auto .btn-primary { background: #7fd3c3; border-color: #7fd3c3; color: #0f1f24; box-shadow: none; }
+body.mode-dark .btn-primary:hover, html.prefers-dark body.mode-auto .btn-primary:hover { background: #a8e6da; border-color: #a8e6da; color: #0f1f24; }
+body.mode-dark .btn-memo, html.prefers-dark body.mode-auto .btn-memo { background: #7fd3c3; color: #0f1f24; box-shadow: none; }
+body.mode-dark .subnav .btn-primary.disabled, html.prefers-dark body.mode-auto .subnav .btn-primary.disabled { background: #7fd3c3; color: #0f1f24; }
+
+/* 表示の細かい設定（見た目ページ） */
+.pref-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.pref-swatch { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px; border-radius: 999px; border: 1.5px solid var(--line); cursor: pointer; font-size: 12.5px; background: var(--sheet); }
+.pref-swatch input { display: none; }
+.pref-swatch span.dot { width: 20px; height: 20px; border-radius: 50%; border: 1px solid rgba(0,0,0,.15); display: inline-block; }
+.pref-swatch:has(input:checked) { border-color: var(--lake); box-shadow: 0 0 0 2px var(--lake-soft); }
+.pref-preview { border: 1px dashed var(--line-dark); border-radius: 12px; padding: 14px; }
+
+/* ダーク／スタイリッシュ：Bootstrap のリスト・ページネーション */
+body.theme-stylish .list-group-item, body.mode-dark .list-group-item, html.prefers-dark body.mode-auto .list-group-item {
+  background: var(--sheet); color: var(--ink); border-color: var(--line);
+}
+body.theme-stylish .theme-card .card-body, body.mode-dark .theme-card .card-body, html.prefers-dark body.mode-auto .theme-card .card-body,
+body.theme-stylish .pref-swatch, body.mode-dark .pref-swatch, html.prefers-dark body.mode-auto .pref-swatch { color: var(--ink); }
+body.theme-stylish .pref-preview, body.mode-dark .pref-preview, html.prefers-dark body.mode-auto .pref-preview { color: var(--ink); }
+body.theme-stylish .btn-outline-secondary:disabled, body.mode-dark .btn-outline-secondary:disabled, html.prefers-dark body.mode-auto .btn-outline-secondary:disabled { color: var(--ink-soft); border-color: var(--line); }

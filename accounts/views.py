@@ -41,9 +41,36 @@ class ThemeView(LoginRequiredMixin, View):
             staff = StaffAccount.objects.filter(facility=request.user.facility, is_active=True).order_by('username')
         return render(request, self.template_name, {
             'themes': themes, 'staff': staff, 'current': request.user.ui_theme,
+            'prefs': request.user.prefs,
+            'font_choices': StaffAccount.FONT_CHOICES, 'mode_choices': StaffAccount.MODE_CHOICES,
+            'scale_choices': StaffAccount.SCALE_CHOICES, 'bg_presets': StaffAccount.BG_PRESETS,
+            'font_stacks_json': __import__('json').dumps(StaffAccount.FONT_STACKS),
         })
 
+    def _save_prefs(self, request):
+        import re
+        u = request.user
+        font = request.POST.get('font', 'biz')
+        mode = request.POST.get('mode', 'light')
+        bg = (request.POST.get('bg_custom') or request.POST.get('bg') or '').strip().lower()
+        if request.POST.get('bg_reset'):
+            bg = ''
+        try:
+            scale = int(request.POST.get('scale', 100))
+        except ValueError:
+            scale = 100
+        if font not in StaffAccount.FONT_STACKS or mode not in dict(StaffAccount.MODE_CHOICES) \
+                or scale not in dict(StaffAccount.SCALE_CHOICES) or (bg and not re.fullmatch(r'#[0-9a-f]{6}', bg)):
+            messages.error(request, '設定の値が正しくありません。')
+            return redirect('accounts:theme')
+        u.ui_prefs = {'font': font, 'mode': mode, 'scale': scale, 'bg': bg}
+        u.save(update_fields=['ui_prefs'])
+        messages.success(request, '表示の設定を保存しました。')
+        return redirect('accounts:theme')
+
     def post(self, request):
+        if request.POST.get('form') == 'prefs':
+            return self._save_prefs(request)
         theme = request.POST.get('theme', '')
         if theme not in dict(StaffAccount.THEME_CHOICES):
             messages.error(request, '画面の種類が正しくありません。')

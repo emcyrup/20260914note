@@ -71,7 +71,7 @@ class ThemeTests(TestCase):
         self.staff.refresh_from_db()
         self.assertEqual(self.staff.ui_theme, 'large')
         res = self.client.get(reverse('facilities:dashboard'))
-        self.assertContains(res, 'class="theme-large"')
+        self.assertContains(res, 'class="theme-large mode-light"')
 
     def test_simple_theme_redirects_home_and_hides_menu(self):
         self.client.force_login(self.staff)
@@ -80,7 +80,7 @@ class ThemeTests(TestCase):
         res = self.client.get(reverse('facilities:dashboard'))
         self.assertRedirects(res, reverse('records:simple_home'))
         res = self.client.get(reverse('records:simple_home'))
-        self.assertContains(res, 'class="theme-simple"')
+        self.assertContains(res, 'class="theme-simple mode-light"')
         self.assertContains(res, 'きょうの きろく')
 
     def test_staff_cannot_change_others(self):
@@ -166,3 +166,47 @@ class BrandingTests(TestCase):
                                                                   'base_unit_count': 604, 'brand_color': '#112233', 'term_staff': '先生', 'term_beneficiary': '園児'})
         facility.refresh_from_db()
         self.assertEqual((facility.brand_color, facility.term_staff), ('#112233', '先生'))
+
+
+class DisplayPrefsTests(TestCase):
+    def setUp(self):
+        self.facility = Facility.objects.create(name='F')
+        self.user = StaffAccount.objects.create_user('u', password='p', facility=self.facility)
+        self.client.force_login(self.user)
+
+    def test_defaults(self):
+        p = self.user.prefs
+        self.assertEqual((p['font'], p['mode'], p['scale'], p['bg']), ('biz', 'light', 100, ''))
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertContains(res, 'mode-light')
+        self.assertContains(res, 'BIZ+UDPGothic')
+
+    def test_save_and_apply(self):
+        res = self.client.post(reverse('accounts:theme'), {'form': 'prefs', 'font': 'mincho', 'mode': 'dark', 'scale': 115, 'bg': '#1e1e1e'})
+        self.assertRedirects(res, reverse('accounts:theme'))
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.ui_prefs, {'font': 'mincho', 'mode': 'dark', 'scale': 115, 'bg': '#1e1e1e'})
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertContains(res, 'theme-standard mode-dark')
+        self.assertContains(res, 'Noto+Serif+JP')
+        self.assertContains(res, 'zoom: 115%')
+        self.assertContains(res, '--paper: #1e1e1e')
+
+    def test_custom_color_and_reset(self):
+        self.client.post(reverse('accounts:theme'), {'form': 'prefs', 'font': 'biz', 'mode': 'auto', 'scale': 100, 'bg': '', 'bg_custom': '#AABBCC'})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.prefs['bg'], '#aabbcc')
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertContains(res, 'prefers-color-scheme: dark')
+        self.client.post(reverse('accounts:theme'), {'form': 'prefs', 'font': 'biz', 'mode': 'light', 'scale': 100, 'bg': '#ffffff', 'bg_reset': '1'})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.prefs['bg'], '')
+
+    def test_invalid_values_rejected(self):
+        self.client.post(reverse('accounts:theme'), {'form': 'prefs', 'font': 'comic', 'mode': 'dark', 'scale': 100})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.ui_prefs, {})
+        self.user.ui_prefs = {'font': 'zzz', 'scale': 'big', 'bg': 'red', 'mode': 'neon'}
+        self.assertEqual(self.user.prefs['font'], 'biz')
+        self.assertEqual(self.user.prefs['scale'], 100)
+        self.assertEqual(self.user.prefs['bg'], '')

@@ -15,7 +15,7 @@ class StaffAccountAdmin(UserAdmin):
 
     fieldsets = (
         (None, {'fields': ('username', 'password')}),
-        ('施設・権限', {'fields': ('facility', 'role', 'display_name', 'ui_theme')}),
+        ('施設・権限', {'fields': ('facility', 'role', 'display_name', 'ui_theme', 'ui_prefs')}),
         ('個人情報', {'fields': ('first_name', 'last_name', 'email')}),
         ('権限', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
         ('重要な日付', {'fields': ('last_login', 'date_joined')}),

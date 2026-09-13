@@ -54,6 +54,57 @@ class StaffAccount(AbstractUser):
     }
     ui_theme = models.CharField(max_length=20, choices=THEME_CHOICES, default=THEME_STANDARD,
                                 verbose_name='画面の見た目')
+    # 細かい表示設定（フォント・ライト/ダーク・背景色・文字の大きさ）。テーマとは独立に効く
+    ui_prefs = models.JSONField(default=dict, blank=True, verbose_name='表示の細かい設定')
+
+    FONT_CHOICES = [
+        ('biz',     'BIZ UDPゴシック（標準・読みやすいユニバーサルデザイン）'),
+        ('noto',    'Noto Sans JP（ゴシック）'),
+        ('rounded', 'M PLUS Rounded 1c（丸ゴシック・やわらかい）'),
+        ('mincho',  'Noto Serif JP（明朝）'),
+        ('system',  '端末の標準フォント'),
+    ]
+    FONT_STACKS = {
+        'biz':     '"BIZ UDPGothic", "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif',
+        'noto':    '"Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif',
+        'rounded': '"M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", "Yu Gothic", sans-serif',
+        'mincho':  '"Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", serif',
+        'system':  'system-ui, -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif',
+    }
+    FONT_GOOGLE = {
+        'biz':     'BIZ+UDPGothic:wght@400;700',
+        'noto':    'Noto+Sans+JP:wght@400;700',
+        'rounded': 'M+PLUS+Rounded+1c:wght@400;700',
+        'mincho':  'Noto+Serif+JP:wght@400;700',
+    }
+    MODE_CHOICES = [('light', 'ライト'), ('dark', 'ダーク'), ('auto', '端末の設定に合わせる')]
+    SCALE_CHOICES = [(90, '小さめ 90%'), (100, '標準 100%'), (115, '大きめ 115%'), (130, 'かなり大きめ 130%')]
+    BG_PRESETS = [
+        ('', '標準（テーマの色）'), ('#ffffff', '白'), ('#f3efe7', '生成り'), ('#eaf2f5', '薄い水色'),
+        ('#eef3e8', '薄い緑'), ('#f8ecec', '薄い桃'), ('#fbf3dc', '薄い黄'),
+        ('#0f1f24', '濃紺（ダーク向け）'), ('#1e1e1e', '墨（ダーク向け）'),
+    ]
+
+    @property
+    def prefs(self):
+        """正規化した表示設定（テンプレート用）"""
+        p = self.ui_prefs if isinstance(self.ui_prefs, dict) else {}
+        font = p.get('font') if p.get('font') in self.FONT_STACKS else 'biz'
+        mode = p.get('mode') if p.get('mode') in dict(self.MODE_CHOICES) else 'light'
+        try:
+            scale = int(p.get('scale', 100))
+        except (TypeError, ValueError):
+            scale = 100
+        if scale not in dict(self.SCALE_CHOICES):
+            scale = 100
+        bg = str(p.get('bg', '') or '').lower()
+        import re as _re
+        if not _re.fullmatch(r'#[0-9a-f]{6}', bg):
+            bg = ''
+        return {
+            'font': font, 'font_stack': self.FONT_STACKS[font], 'font_google': self.FONT_GOOGLE.get(font, ''),
+            'mode': mode, 'scale': scale, 'bg': bg,
+        }
 
     class Meta:
         verbose_name = '職員アカウント'
