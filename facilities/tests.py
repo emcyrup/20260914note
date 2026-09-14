@@ -220,3 +220,32 @@ class SeedDemoCreateFacilityTests(TestCase):
         self.assertEqual(admin.facility.name, 'あおば')
         self.assertIn('作成し', out.getvalue())
         self.assertTrue(Beneficiary.objects.filter(facility=admin.facility).exists())
+
+
+class CreateFacilityCommandTests(TestCase):
+    def test_create_with_admin_and_copy(self):
+        src = Facility.objects.create(name='本店', term_beneficiary='園児', use_billing=False, journal_sections=['support', 'observation'])
+        out = StringIO()
+        call_command('create_facility', 'あおば教室', '--admin', 'aoba', '--password', 'pw12345678',
+                     '--copy-settings-from', str(src.pk), '--office-number', '1234567890', stdout=out)
+        f = Facility.objects.get(name='あおば教室')
+        self.assertEqual(f.term_beneficiary, '園児')
+        self.assertFalse(f.use_billing)
+        self.assertEqual(f.journal_sections, ['support', 'observation'])
+        self.assertEqual(f.office_number, '1234567890')
+        u = StaffAccount.objects.get(username='aoba')
+        self.assertEqual(u.facility, f)
+        self.assertTrue(u.is_admin)
+        self.assertTrue(u.check_password('pw12345678'))
+        self.assertGreater(ActivityTag.objects.filter(facility=f).count(), 10)
+        self.assertGreater(SupportContentTag.objects.filter(facility=f).count(), 10)
+        self.assertEqual(ActivityTag.objects.filter(facility=src).count(), 0)
+        # 同名・同ユーザーは拒否
+        with self.assertRaises(CommandError):
+            call_command('create_facility', 'あおば教室', stdout=StringIO())
+        with self.assertRaises(CommandError):
+            call_command('create_facility', '別', '--admin', 'aoba', '--password', 'pw12345678', stdout=StringIO())
+        # ログインして自施設だけ見える
+        self.client.login(username='aoba', password='pw12345678')
+        res = self.client.get(reverse('beneficiaries:list'))
+        self.assertContains(res, '園児')
