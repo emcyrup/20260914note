@@ -1,12 +1,20 @@
+import datetime
+
+from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import login
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LoginView, LogoutView
+from django.db import transaction
+from django.db.models import F
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
+from django.utils import timezone
 from django.views import View
 
 from .middleware import SESSION_KEY as DEV_FACILITY_SESSION_KEY
-from .models import StaffAccount
+from .models import StaffAccount, StaffInvitation
 from facilities.context_processors import get_terms
 from facilities.models import Facility
 
@@ -18,6 +26,11 @@ class StaffLoginView(LoginView):
     """
     template_name = 'accounts/login.html'
     redirect_authenticated_user = True  # ログイン済みならトップページへ
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['signup_enabled'] = settings.ALLOW_FACILITY_SIGNUP
+        return ctx
 
 
 class StaffLogoutView(LogoutView):
@@ -137,11 +150,13 @@ class StaffListView(AdminOnlyMixin, View):
     template_name = 'accounts/staff.html'
 
     def get(self, request):
-        from .forms import StaffCreateForm
+        from .forms import InvitationForm, StaffCreateForm
         staff = StaffAccount.objects.filter(facility=request.user.facility).order_by('-is_active', 'role', 'username')
+        invitations = StaffInvitation.objects.filter(facility=request.user.facility).select_related('created_by')[:30]
         return render(request, self.template_name, {
             'staff': staff, 'form': StaffCreateForm(), 'roles': StaffAccount.ROLE_CHOICES,
             'themes': StaffAccount.THEME_CHOICES,
+            'invitations': invitations, 'invitation_form': InvitationForm(),
         })
 
     def post(self, request):
@@ -188,3 +203,111 @@ class StaffUpdateView(AdminOnlyMixin, View):
             note = ''
         messages.success(request, f'{u.display_name or u.username} さんの情報を保存しました{note}。')
         return redirect('accounts:staff')
+
+
+# =============================================
+# 自己登録：招待リンク（職員）／新しい事業所の登録
+# =============================================
+class InvitationCreateView(AdminOnlyMixin, View):
+    """招待リンクを発行する（管理者）"""
+
+    def post(self, request):
+        from .forms import InvitationForm
+        form = InvitationForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, '招待リンクの入力内容を確認してください：' + '；'.join(f'{v[0]}' for v in form.errors.values()))
+            return redirect('accounts:staff')
+        inv = form.save(commit=False)
+        inv.facility = request.user.facility
+        inv.created_by = request.user
+        inv.expires_at = timezone.now() + datetime.timedelta(days=form.cleaned_data['expires_days'])
+        inv.save()
+        messages.success(request, f'招待リンクを発行しました（{inv.get_role_display()}・{inv.max_uses}回・'
+                                  f'{timezone.localtime(inv.expires_at):%-m/%-d %H:%M} まで）。URL をコピーして本人に渡してください。')
+        return redirect('accounts:staff')
+
+
+class InvitationRevokeView(AdminOnlyMixin, View):
+    """招待リンクを取り消す（管理者）"""
+
+    def post(self, request, pk):
+        inv = get_object_or_404(StaffInvitation, pk=pk, facility=request.user.facility)
+        inv.is_active = False
+        inv.save(update_fields=['is_active'])
+        messages.success(request, '招待リンクを取り消しました。')
+        return redirect('accounts:staff')
+
+
+class JoinView(View):
+    """招待リンクから、本人が自分のアカウントを作る（ログイン不要）"""
+    template_name = 'accounts/join.html'
+
+    def _invitation(self, token):
+        inv = StaffInvitation.objects.filter(token=token).select_related('facility').first()
+        if inv is None:
+            raise Http404
+        return inv
+
+    def get(self, request, token):
+        from .forms import JoinForm
+        inv = self._invitation(token)
+        return render(request, self.template_name, {'inv': inv, 'form': JoinForm(), 'usable': inv.is_usable})
+
+    def post(self, request, token):
+        from .forms import JoinForm
+        inv = self._invitation(token)
+        if not inv.is_usable:
+            return render(request, self.template_name, {'inv': inv, 'form': JoinForm(), 'usable': False})
+        form = JoinForm(request.POST)
+        if not form.is_valid():
+            return render(request, self.template_name, {'inv': inv, 'form': form, 'usable': True})
+        with transaction.atomic():
+            # 同時利用で回数を超えないよう、行ロックしてから数える
+            inv = StaffInvitation.objects.select_for_update().get(pk=inv.pk)
+            if not inv.is_usable:
+                return render(request, self.template_name, {'inv': inv, 'form': JoinForm(), 'usable': False})
+            user = StaffAccount.objects.create_user(
+                username=form.cleaned_data['username'], password=form.cleaned_data['password1'],
+                facility=inv.facility, role=inv.role, display_name=form.cleaned_data['display_name'],
+            )
+            StaffInvitation.objects.filter(pk=inv.pk).update(used_count=F('used_count') + 1)
+        login(request, user)
+        messages.success(request, f'{user.display_name} さんのアカウントを作りました。「{inv.facility.name}」の{inv.get_role_display()}としてログインしています。')
+        return redirect('facilities:dashboard')
+
+
+class SignupView(View):
+    """新しい事業所として登録する（ALLOW_FACILITY_SIGNUP=True のときだけ。ログイン不要）"""
+    template_name = 'accounts/signup.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if not settings.ALLOW_FACILITY_SIGNUP:
+            raise Http404
+        if request.user.is_authenticated:
+            messages.info(request, 'ログイン中は新しい事業所を登録できません。いったんログアウトしてください。')
+            return redirect('facilities:dashboard')
+        return super().dispatch(request, *args, **kwargs)
+
+    def _form(self, data=None):
+        from .forms import FacilitySignupForm
+        return FacilitySignupForm(data, require_code=bool(settings.SIGNUP_CODE))
+
+    def get(self, request):
+        return render(request, self.template_name, {'form': self._form()})
+
+    def post(self, request):
+        from facilities.services import create_facility
+        form = self._form(request.POST)
+        if not form.is_valid():
+            return render(request, self.template_name, {'form': form})
+        d = form.cleaned_data
+        with transaction.atomic():
+            facility = create_facility(d['facility_name'], d.get('office_number') or '')
+            user = StaffAccount.objects.create_user(
+                username=d['username'], password=d['password1'], facility=facility,
+                role=StaffAccount.ROLE_ADMIN, display_name=d['display_name'],
+            )
+        login(request, user)
+        messages.success(request, f'事業所「{facility.name}」を登録し、管理者アカウントを作りました。'
+                                  '施設設定で呼び方や使う機能を確認し、「職員・運用管理」の招待リンクで職員を招待してください。')
+        return redirect('facilities:settings')

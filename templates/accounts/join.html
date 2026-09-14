@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+
+{% block title %}アカウント登録 — 放課後等デイサービス業務支援{% endblock %}
+
+{% block content %}
+  <div class="card" style="width: 100%; max-width: 480px;">
+    <div class="card-body p-4 p-md-5">
+      <div class="text-center mb-4">
+        <div class="mb-2" style="color: var(--lake); font-size: 2.5rem;"><i class="bi bi-person-plus-fill"></i></div>
+        <h1 class="h4 fw-bold" style="font-family: var(--font-display); color: var(--ink);">{{ inv.facility.name }}</h1>
+        <p class="text-muted small mb-0">{{ inv.facility.term_staff|default:'職員' }}アカウントの登録（{{ inv.get_role_display }}）</p>
+      </div>
+
+      {% if not usable %}
+      <div class="alert alert-warning small">
+        <i class="bi bi-exclamation-triangle me-1"></i>この招待リンクは使えません（{{ inv.status_label }}）。管理者に新しいリンクを発行してもらってください。
+      </div>
+      <div class="text-center"><a href="{% url 'accounts:login' %}" class="btn btn-outline-secondary">ログイン画面へ</a></div>
+      {% else %}
+      {% if form.non_field_errors %}<div class="alert alert-danger py-2 small">{{ form.non_field_errors|join:' ' }}</div>{% endif %}
+      <form method="post">
+        {% csrf_token %}
+        {% for field in form %}
+        <div class="mb-3">
+          <label for="{{ field.id_for_label }}" class="form-label fw-semibold">{{ field.label }}</label>
+          {{ field }}
+          {% for e in field.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+        </div>
+        {% endfor %}
+        <div class="form-text mb-3">パスワードは8文字以上で、ログインIDや名前と似ていないものにしてください。</div>
+        <div class="d-grid">
+          <button type="submit" class="btn btn-primary btn-lg"><i class="bi bi-check-lg me-1"></i>登録してログイン</button>
+        </div>
+      </form>
+      <p class="small text-muted text-center mt-3 mb-0">有効期限 {{ inv.expires_at|date:'n/j H:i' }} まで</p>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}

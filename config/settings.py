@@ -131,6 +131,12 @@ LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/accounts/login/'
 
 # Anthropic Claude API
+# 自己登録
+# ALLOW_FACILITY_SIGNUP=True にすると、ログイン画面から「新しい事業所として登録」ができる（事業所＋管理者を自分で作る）。
+# SIGNUP_CODE を設定すると、そのコードを知っている人だけが登録できる。職員の自己登録は招待リンク（管理者が発行）で常に可能。
+ALLOW_FACILITY_SIGNUP = config('ALLOW_FACILITY_SIGNUP', default=False, cast=bool)
+SIGNUP_CODE = config('SIGNUP_CODE', default='')
+
 ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
 # 活動→めあて・考察の生成に使うモデル（利用できない場合は .env で差し替える）
 AI_PLAN_MODEL = config('AI_PLAN_MODEL', default='claude-opus-5')

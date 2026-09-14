@@ -1,5 +1,9 @@
+import secrets
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.urls import reverse
+from django.utils import timezone
 
 
 class StaffAccount(AbstractUser):
@@ -135,3 +139,57 @@ class StaffAccount(AbstractUser):
     @property
     def is_child_dev_manager(self):
         return self.role == self.ROLE_CHILD_DEV_MANAGER
+
+
+def _new_token():
+    return secrets.token_urlsafe(24)
+
+
+class StaffInvitation(models.Model):
+    """
+    職員の招待リンク。管理者が発行し、URL を渡された本人が自分でアカウントを作る。
+    発行した施設・権限区分で作られ、期限と回数で無効になる。
+    """
+    facility   = models.ForeignKey('facilities.Facility', on_delete=models.CASCADE, related_name='invitations', verbose_name='施設')
+    token      = models.CharField(max_length=64, unique=True, default=_new_token, editable=False)
+    role       = models.CharField(max_length=20, choices=StaffAccount.ROLE_CHOICES, default=StaffAccount.ROLE_STAFF, verbose_name='権限区分')
+    note       = models.CharField(max_length=100, blank=True, verbose_name='メモ', help_text='誰に渡すか（例：4月入職の3名）')
+    max_uses   = models.PositiveSmallIntegerField(default=1, verbose_name='使える回数')
+    used_count = models.PositiveSmallIntegerField(default=0, verbose_name='使われた回数')
+    expires_at = models.DateTimeField(verbose_name='有効期限')
+    is_active  = models.BooleanField(default=True, verbose_name='有効')
+    created_by = models.ForeignKey(StaffAccount, on_delete=models.SET_NULL, null=True, blank=True, related_name='+', verbose_name='発行者')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = '職員の招待リンク'
+        verbose_name_plural = '職員の招待リンク'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.facility} / {self.get_role_display()} / {self.note or self.token[:8]}'
+
+    @property
+    def is_expired(self):
+        return timezone.now() >= self.expires_at
+
+    @property
+    def is_used_up(self):
+        return self.used_count >= self.max_uses
+
+    @property
+    def is_usable(self):
+        return self.is_active and not self.is_expired and not self.is_used_up
+
+    @property
+    def status_label(self):
+        if not self.is_active:
+            return '取り消し'
+        if self.is_expired:
+            return '期限切れ'
+        if self.is_used_up:
+            return '使用済み'
+        return '有効'
+
+    def get_absolute_url(self):
+        return reverse('accounts:join', args=[self.token])

@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+
+{% block title %}新しい事業所の登録 — 放課後等デイサービス業務支援{% endblock %}
+
+{% block content %}
+  <div class="card" style="width: 100%; max-width: 520px;">
+    <div class="card-body p-4 p-md-5">
+      <div class="text-center mb-4">
+        <div class="mb-2" style="color: var(--lake); font-size: 2.5rem;"><i class="bi bi-building-add"></i></div>
+        <h1 class="h4 fw-bold" style="font-family: var(--font-display); color: var(--ink);">新しい事業所の登録</h1>
+        <p class="text-muted small mb-0">事業所と、その管理者アカウントを作ります。職員はあとから招待リンクで追加できます。</p>
+      </div>
+      {% if form.non_field_errors %}<div class="alert alert-danger py-2 small">{{ form.non_field_errors|join:' ' }}</div>{% endif %}
+      <form method="post">
+        {% csrf_token %}
+        {% for field in form %}
+        <div class="mb-3">
+          <label for="{{ field.id_for_label }}" class="form-label fw-semibold">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}</label>
+          {{ field }}
+          {% for e in field.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+        </div>
+        {% endfor %}
+        <div class="d-grid">
+          <button type="submit" class="btn btn-primary btn-lg"><i class="bi bi-check-lg me-1"></i>登録して始める</button>
+        </div>
+      </form>
+      <p class="small text-center mt-3 mb-0"><a href="{% url 'accounts:login' %}">すでにアカウントがある方はログイン</a></p>
+    </div>
+  </div>
+{% endblock %}

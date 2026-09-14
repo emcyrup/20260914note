@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
-from .models import StaffAccount
+from .models import StaffAccount, StaffInvitation
 
 
 @admin.register(StaffAccount)
@@ -26,3 +26,10 @@ class StaffAccountAdmin(UserAdmin):
             'fields': ('username', 'password1', 'password2', 'facility', 'role', 'display_name'),
         }),
     )
+
+
+@admin.register(StaffInvitation)
+class StaffInvitationAdmin(admin.ModelAdmin):
+    list_display = ['facility', 'role', 'note', 'status_label', 'used_count', 'max_uses', 'expires_at', 'created_by', 'created_at']
+    list_filter = ['facility', 'role', 'is_active']
+    readonly_fields = ['token', 'used_count', 'created_at']

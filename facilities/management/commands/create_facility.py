@@ -15,14 +15,8 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from accounts.models import StaffAccount
-from facilities.models import Facility, SupportContentTag
-from facilities.views import ActivityTagLoadDefaultsView, SupportTagLoadDefaultsView
-from records.models import ActivityTag
-
-COPY_FIELDS = [
-    'region_category', 'standard_close_time', 'base_unit_count', 'is_new_facility_r8',
-    'term_staff', 'term_beneficiary', 'brand_color', 'use_billing', 'use_line', 'journal_sections',
-]
+from facilities.models import Facility
+from facilities.services import COPY_FIELDS, create_facility  # noqa: F401  (COPY_FIELDS は互換のため公開)
 
 
 class Command(BaseCommand):
@@ -55,24 +49,19 @@ class Command(BaseCommand):
                 raise CommandError('パスワードは8文字以上にしてください')
 
         with transaction.atomic():
-            facility = Facility(name=name, office_number=o.get('office_number') or '')
+            src = None
             if o.get('copy_settings_from'):
                 try:
                     src = Facility.objects.get(pk=o['copy_settings_from'])
                 except Facility.DoesNotExist:
                     raise CommandError(f'施設ID {o["copy_settings_from"]} は存在しません（一覧: {self._list()}）')
-                for f in COPY_FIELDS:
-                    setattr(facility, f, getattr(src, f))
+            facility = create_facility(name, o.get('office_number') or '', copy_from=src,
+                                       default_tags=not o.get('no_default_tags'))
+            if src is not None:
                 self.stdout.write(f'設定を「{src.name}」からコピーしました（呼び方・配色・使う機能・日誌の項目・単位数）')
-            facility.save()
             self.stdout.write(self.style.SUCCESS(f'施設「{facility.name}」を作成しました（ID {facility.pk}）'))
-
             if not o.get('no_default_tags'):
-                for tag_name, order in ActivityTagLoadDefaultsView.DEFAULT_TAGS:
-                    ActivityTag.objects.create(facility=facility, name=tag_name, display_order=order)
-                for tag_name, order in SupportTagLoadDefaultsView.DEFAULT_TAGS:
-                    SupportContentTag.objects.create(facility=facility, name=tag_name, order=order)
-                self.stdout.write(f'標準タグを入れました（活動 {len(ActivityTagLoadDefaultsView.DEFAULT_TAGS)} 件・支援内容 {len(SupportTagLoadDefaultsView.DEFAULT_TAGS)} 件）')
+                self.stdout.write('標準の活動タグ・支援内容タグを入れました')
 
             if o.get('admin'):
                 StaffAccount.objects.create_user(

@@ -300,3 +300,138 @@ class DeveloperFacilitySwitchTests(TestCase):
         call_command('set_developer', 'adm', '--off', stdout=out)
         self.admin.refresh_from_db()
         self.assertFalse(self.admin.is_developer)
+
+
+class SelfRegistrationTests(TestCase):
+    """自己登録：招待リンクによる職員登録、新しい事業所の登録"""
+
+    def setUp(self):
+        self.facility = Facility.objects.create(name='みちのて')
+        self.admin = StaffAccount.objects.create_user('adm', password='pass12345', facility=self.facility, role=StaffAccount.ROLE_ADMIN)
+
+    def _invite(self, **kw):
+        from django.utils import timezone
+        import datetime
+        from .models import StaffInvitation
+        d = dict(facility=self.facility, role=StaffAccount.ROLE_STAFF, max_uses=1,
+                 expires_at=timezone.now() + datetime.timedelta(days=7), created_by=self.admin)
+        d.update(kw)
+        return StaffInvitation.objects.create(**d)
+
+    def test_admin_issues_and_revokes_invitation(self):
+        from .models import StaffInvitation
+        self.client.force_login(self.admin)
+        res = self.client.post(reverse('accounts:invitation_add'), {'role': 'office', 'note': '4月入職', 'max_uses': 3, 'expires_days': 3})
+        self.assertRedirects(res, reverse('accounts:staff'))
+        inv = StaffInvitation.objects.get(facility=self.facility)
+        self.assertEqual((inv.role, inv.note, inv.max_uses, inv.created_by), ('office', '4月入職', 3, self.admin))
+        self.assertTrue(inv.is_usable)
+        res = self.client.get(reverse('accounts:staff'))
+        self.assertContains(res, inv.get_absolute_url())
+        self.assertContains(res, '招待リンクを発行')
+        res = self.client.post(reverse('accounts:invitation_revoke', args=[inv.pk]))
+        inv.refresh_from_db()
+        self.assertFalse(inv.is_active)
+        self.assertEqual(inv.status_label, '取り消し')
+
+    def test_non_admin_cannot_issue(self):
+        staff = StaffAccount.objects.create_user('stf', password='pass12345', facility=self.facility)
+        self.client.force_login(staff)
+        res = self.client.post(reverse('accounts:invitation_add'), {'role': 'admin', 'max_uses': 1, 'expires_days': 7})
+        self.assertRedirects(res, reverse('facilities:dashboard'))
+        from .models import StaffInvitation
+        self.assertFalse(StaffInvitation.objects.exists())
+
+    def test_other_facility_admin_cannot_revoke(self):
+        inv = self._invite()
+        other = StaffAccount.objects.create_user('o', password='pass12345', facility=Facility.objects.create(name='G'), role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(other)
+        self.assertEqual(self.client.post(reverse('accounts:invitation_revoke', args=[inv.pk])).status_code, 404)
+
+    def test_join_creates_account_and_logs_in(self):
+        inv = self._invite(role=StaffAccount.ROLE_CHILD_DEV_MANAGER)
+        url = reverse('accounts:join', args=[inv.token])
+        res = self.client.get(url)
+        self.assertContains(res, 'みちのて')
+        self.assertContains(res, '児発管')
+        res = self.client.post(url, {'username': 'hanako', 'display_name': '山田 花子', 'password1': 'kaede-2026!', 'password2': 'kaede-2026!'})
+        self.assertRedirects(res, reverse('facilities:dashboard'), fetch_redirect_response=False)
+        u = StaffAccount.objects.get(username='hanako')
+        self.assertEqual((u.facility, u.role, u.display_name), (self.facility, 'child_dev_manager', '山田 花子'))
+        self.assertTrue(u.check_password('kaede-2026!'))
+        inv.refresh_from_db()
+        self.assertEqual(inv.used_count, 1)
+        self.assertFalse(inv.is_usable)
+        # ログイン済みになっている
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertContains(res, '山田 花子')
+        # 使い切ったリンクは登録できない
+        res = self.client.post(url, {'username': 'taro', 'display_name': 't', 'password1': 'kaede-2026!', 'password2': 'kaede-2026!'})
+        self.assertContains(res, '使用済み')
+        self.assertFalse(StaffAccount.objects.filter(username='taro').exists())
+
+    def test_join_validation(self):
+        inv = self._invite()
+        url = reverse('accounts:join', args=[inv.token])
+        # 既存ID・パスワード不一致・短いパスワード
+        res = self.client.post(url, {'username': 'adm', 'display_name': 'x', 'password1': 'kaede-2026!', 'password2': 'kaede-2026!'})
+        self.assertContains(res, 'すでに使われています')
+        res = self.client.post(url, {'username': 'new', 'display_name': 'x', 'password1': 'kaede-2026!', 'password2': 'other'})
+        self.assertContains(res, '一致しません')
+        res = self.client.post(url, {'username': 'new', 'display_name': 'x', 'password1': '1234', 'password2': '1234'})
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(StaffAccount.objects.filter(username='new').exists())
+        inv.refresh_from_db()
+        self.assertEqual(inv.used_count, 0)
+
+    def test_expired_or_revoked_or_unknown(self):
+        import datetime
+        from django.utils import timezone
+        inv = self._invite(expires_at=timezone.now() - datetime.timedelta(minutes=1))
+        res = self.client.get(reverse('accounts:join', args=[inv.token]))
+        self.assertContains(res, '期限切れ')
+        inv2 = self._invite(is_active=False)
+        res = self.client.get(reverse('accounts:join', args=[inv2.token]))
+        self.assertContains(res, '取り消し')
+        self.assertEqual(self.client.get(reverse('accounts:join', args=['no-such-token'])).status_code, 404)
+
+    def test_signup_disabled_by_default(self):
+        with self.settings(ALLOW_FACILITY_SIGNUP=False):
+            self.assertEqual(self.client.get(reverse('accounts:signup')).status_code, 404)
+            res = self.client.get(reverse('accounts:login'))
+            self.assertNotContains(res, '新しい事業所として登録')
+
+    def test_signup_creates_facility_and_admin(self):
+        from records.models import ActivityTag
+        with self.settings(ALLOW_FACILITY_SIGNUP=True, SIGNUP_CODE=''):
+            res = self.client.get(reverse('accounts:login'))
+            self.assertContains(res, '新しい事業所として登録')
+            res = self.client.get(reverse('accounts:signup'))
+            self.assertContains(res, '事業所名')
+            self.assertNotContains(res, '登録コード')
+            res = self.client.post(reverse('accounts:signup'), {
+                'facility_name': 'あおば教室', 'office_number': '1234567890', 'display_name': '佐藤 太郎',
+                'username': 'aoba_admin', 'password1': 'aoba-2026!!', 'password2': 'aoba-2026!!'})
+            self.assertRedirects(res, reverse('facilities:settings'), fetch_redirect_response=False)
+        f = Facility.objects.get(name='あおば教室')
+        u = StaffAccount.objects.get(username='aoba_admin')
+        self.assertEqual((u.facility, u.role, f.office_number), (f, 'admin', '1234567890'))
+        self.assertTrue(ActivityTag.objects.filter(facility=f).exists())
+        # 同名の事業所は登録できない
+        with self.settings(ALLOW_FACILITY_SIGNUP=True, SIGNUP_CODE=''):
+            self.client.logout()
+            res = self.client.post(reverse('accounts:signup'), {
+                'facility_name': 'あおば教室', 'display_name': 'x', 'username': 'x2', 'password1': 'aoba-2026!!', 'password2': 'aoba-2026!!'})
+            self.assertContains(res, 'すでに登録されています')
+
+    def test_signup_code_required(self):
+        with self.settings(ALLOW_FACILITY_SIGNUP=True, SIGNUP_CODE='abc123'):
+            res = self.client.get(reverse('accounts:signup'))
+            self.assertContains(res, '登録コード')
+            data = {'facility_name': 'こもれび', 'display_name': 'x', 'username': 'komo', 'password1': 'komo-2026!!', 'password2': 'komo-2026!!'}
+            res = self.client.post(reverse('accounts:signup'), {**data, 'signup_code': 'wrong'})
+            self.assertContains(res, '登録コードが正しくありません')
+            self.assertFalse(Facility.objects.filter(name='こもれび').exists())
+            res = self.client.post(reverse('accounts:signup'), {**data, 'signup_code': 'abc123'})
+            self.assertRedirects(res, reverse('facilities:settings'), fetch_redirect_response=False)
+            self.assertTrue(Facility.objects.filter(name='こもれび').exists())

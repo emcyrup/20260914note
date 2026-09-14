@@ -10,4 +10,8 @@ urlpatterns = [
     path('switch-facility/', views.SwitchFacilityView.as_view(), name='switch_facility'),
     path('staff/', views.StaffListView.as_view(), name='staff'),
     path('staff/<int:pk>/update/', views.StaffUpdateView.as_view(), name='staff_update'),
+    path('staff/invitations/add/', views.InvitationCreateView.as_view(), name='invitation_add'),
+    path('staff/invitations/<int:pk>/revoke/', views.InvitationRevokeView.as_view(), name='invitation_revoke'),
+    path('join/<str:token>/', views.JoinView.as_view(), name='join'),
+    path('signup/', views.SignupView.as_view(), name='signup'),
 ]

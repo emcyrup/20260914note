@@ -37,6 +37,71 @@
     </div>
   </div>
   <p class="small text-muted mt-2">スーパーユーザー（初期の管理アカウント）は /admin/ からも管理できます。退職した{{ terms.staff }}は削除せず「無効」にすると記録の記録者名が残ります。</p>
+
+  <!-- 招待リンク -->
+  <div class="d-flex justify-content-between align-items-center mt-4 mb-2 flex-wrap gap-2">
+    <div>
+      <div class="fw-bold"><i class="bi bi-link-45deg me-1"></i>招待リンク（{{ terms.staff }}が自分でアカウントを作る）</div>
+      <div class="small text-muted">リンクを渡された本人がログインID・表示名・パスワードを決めて登録します。権限区分はここで決めたものになり、期限と回数を過ぎると使えなくなります。</div>
+    </div>
+    <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#inviteModal"><i class="bi bi-plus-lg me-1"></i>招待リンクを発行</button>
+  </div>
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table mb-0 align-middle">
+        <thead><tr><th>メモ</th><th>権限区分</th><th>回数</th><th>有効期限</th><th>状態</th><th>URL</th><th></th></tr></thead>
+        <tbody>
+          {% for inv in invitations %}
+          <tr class="{% if not inv.is_usable %}text-muted{% endif %}">
+            <td>{{ inv.note|default:'—' }}<div class="small text-muted">{{ inv.created_at|date:'n/j' }} {{ inv.created_by|default:'' }}</div></td>
+            <td>{{ inv.get_role_display }}</td>
+            <td>{{ inv.used_count }} / {{ inv.max_uses }}</td>
+            <td class="small">{{ inv.expires_at|date:'Y/n/j H:i' }}</td>
+            <td>{% if inv.is_usable %}<span class="badge text-bg-success">有効</span>{% else %}<span class="badge text-bg-secondary">{{ inv.status_label }}</span>{% endif %}</td>
+            <td style="max-width:260px;">
+              {% if inv.is_usable %}
+              <div class="input-group input-group-sm">
+                <input type="text" class="form-control font-monospace" readonly value="{{ request.scheme }}://{{ request.get_host }}{{ inv.get_absolute_url }}" id="inv_url_{{ inv.pk }}">
+                <button type="button" class="btn btn-outline-secondary js-copy" data-target="inv_url_{{ inv.pk }}" title="コピー"><i class="bi bi-clipboard"></i></button>
+              </div>
+              {% else %}<span class="small">—</span>{% endif %}
+            </td>
+            <td class="text-end">
+              {% if inv.is_usable %}
+              <form method="post" action="{% url 'accounts:invitation_revoke' inv.pk %}" onsubmit="return confirm('この招待リンクを取り消しますか？');">{% csrf_token %}<button class="btn btn-sm btn-outline-danger">取り消し</button></form>
+              {% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="7" class="text-center text-muted py-3">まだ招待リンクはありません。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 招待リンク発行モーダル -->
+<div class="modal fade" id="inviteModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'accounts:invitation_add' %}">
+        {% csrf_token %}
+        <div class="modal-header"><h5 class="modal-title fw-bold">招待リンクを発行</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          {% for field in invitation_form %}
+          <div class="mb-3">
+            <label class="form-label small fw-semibold">{{ field.label }}</label>
+            {{ field }}
+            {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+          </div>
+          {% endfor %}
+          <div class="form-text">発行後に表示される URL を、メールや LINE で本人に渡してください。誰でも登録できるリンクなので、公開の場所には貼らないでください。</div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button><button class="btn btn-primary">発行する</button></div>
+      </form>
+    </div>
+  </div>
 </div>
 
 <!-- 追加モーダル -->
@@ -99,5 +164,12 @@ document.getElementById('editStaffModal').addEventListener('show.bs.modal', func
   document.getElementById('edit_staff_active').checked = b.dataset.active === 'true';
 });
 {% if show_add %}new bootstrap.Modal(document.getElementById('addStaffModal')).show();{% endif %}
+document.querySelectorAll('.js-copy').forEach(function (b) {
+  b.addEventListener('click', function () {
+    const i = document.getElementById(b.dataset.target); i.select();
+    const done = function () { b.innerHTML = '<i class="bi bi-check-lg"></i>'; setTimeout(function () { b.innerHTML = '<i class="bi bi-clipboard"></i>'; }, 1500); };
+    if (navigator.clipboard) { navigator.clipboard.writeText(i.value).then(done); } else { document.execCommand('copy'); done(); }
+  });
+});
 </script>
 {% endblock %}

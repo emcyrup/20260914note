@@ -60,6 +60,11 @@
         {% endif %}
       </form>
 
+      {% if signup_enabled %}
+      <p class="small text-center mt-4 mb-0"><a href="{% url 'accounts:signup' %}"><i class="bi bi-building-add me-1"></i>新しい事業所として登録する</a></p>
+      {% endif %}
+      <p class="small text-muted text-center mt-2 mb-0">{{ terms.staff }}のアカウントは、管理者からの招待リンクで作れます。</p>
+
     </div>
   </div>
 {% endblock %}
