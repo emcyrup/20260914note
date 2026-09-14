@@ -218,9 +218,9 @@ python manage.py collectstatic --noinput
 # Gunicornを再起動（systemctlまたはプロセスを再起動）
 ```
 
-## AWS 開発環境（外部 nginx＋既存 PostgreSQL の共用サーバー）へのデプロイ
+## AWS 開発環境（共用サーバー：sudo なし・Docker なし・venv＋Gunicorn）へのデプロイ
 
-`https://st-michinotedemo.ai-labo.cloud/` のように、サーバーの nginx が HTTPS を終端して `127.0.0.1:8029` へ中継し、DB もサーバー上の PostgreSQL を使う構成向けです。`deploy/docker-compose.external.yml`（app コンテナのみ）、`deploy/.env.dev-aws.example`、`deploy/nginx.example.conf`、ワークフロー **Deploy (dev)**（`develop` への push または手動実行）を使います。手順と GCP からのデータ移行は [docs/DEPLOY_AWS_DEV.md](docs/DEPLOY_AWS_DEV.md) を参照してください。
+`https://st-michinotedemo.ai-labo.cloud/` のように、プロバイダ管理の nginx が HTTPS を終端して割り当てポート（8029）の Gunicorn に中継し、DB もプロバイダ管理の PostgreSQL を使う構成向けです。サーバー上では `deploy/venv-deploy.sh` が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行い、ワークフロー **Deploy (dev)**（`develop` への push または手動実行）がそれを SSH で呼びます。`.env` の雛形は `deploy/.env.dev-aws.example`。手順と GCP からのデータ移行は [docs/DEPLOY_AWS_DEV.md](docs/DEPLOY_AWS_DEV.md) を参照してください（Docker が使えるサーバー向けの `deploy/docker-compose.external.yml` も同じ文書に載せています）。
 
 ## GCP へのデプロイ（最小コスト構成）
 

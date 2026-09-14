@@ -112,9 +112,13 @@ class ReportExportView(LoginRequiredMixin, View):
         return response
 
     def _pdf(self, request, report, ctx):
-        from weasyprint import HTML
         html = render(request, 'reports/print.html', ctx).content.decode('utf-8')
-        pdf = HTML(string=html, base_url=request.build_absolute_uri('/')).write_pdf()
+        try:
+            from weasyprint import HTML
+            pdf = HTML(string=html, base_url=request.build_absolute_uri('/')).write_pdf()
+        except (ImportError, OSError) as e:  # サーバーに WeasyPrint の共有ライブラリ（pango 等）が無い
+            return HttpResponse(f'PDF を作成できません（サーバーに PDF 用ライブラリがありません）: {e}\n「画面で見る」から印刷してください。',
+                                status=500, content_type='text/plain; charset=utf-8')
         response = HttpResponse(pdf, content_type='application/pdf')
         self._content_disposition(response, f'{report.key}.pdf', f'{report.filename}.pdf')
         return response

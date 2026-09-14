@@ -1,5 +1,6 @@
 # =============================================
-# 外部 nginx（HTTPS 終端）と外部 PostgreSQL がある共用サーバー向けの Compose
+# 外部 nginx（HTTPS 終端）と外部 PostgreSQL がある、Docker が使えるサーバー向けの Compose
+#   ※ 現在の AWS 開発環境（sudo なし・Docker なし）では使わない。そちらは deploy/venv-deploy.sh
 #   nginx（ホスト、:443） → app（127.0.0.1:${APP_PORT}） → PostgreSQL（ホスト or 別ホスト）
 #   例: AWS の開発環境 https://st-michinotedemo.ai-labo.cloud/ → 127.0.0.1:8029
 #

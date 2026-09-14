@@ -350,11 +350,17 @@ def _pdf_response(request, template, ctx, ascii_name, utf8_name):
     import urllib.parse
 
     from django.http import HttpResponse
-    from weasyprint import HTML
+    try:
+        from weasyprint import HTML
+    except (ImportError, OSError) as e:
+        return HttpResponse(f'PDF を作成できません（WeasyPrint が使えません）: {e}', status=500, content_type='text/plain; charset=utf-8')
 
     ctx = dict(ctx, pdf=True)
     html = render(request, template, ctx).content.decode('utf-8')
-    pdf = HTML(string=html, base_url=request.build_absolute_uri('/')).write_pdf()
+    try:
+        pdf = HTML(string=html, base_url=request.build_absolute_uri('/')).write_pdf()
+    except OSError as e:  # サーバーに WeasyPrint の共有ライブラリ（pango 等）が無い
+        return HttpResponse(f'PDF を作成できません（サーバーに PDF 用ライブラリがありません）: {e}', status=500, content_type='text/plain; charset=utf-8')
     res = HttpResponse(pdf, content_type='application/pdf')
     res['Content-Disposition'] = f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{urllib.parse.quote(utf8_name)}'
     return res
