@@ -20,13 +20,11 @@ services:
       DB_PORT: ${DB_PORT:-5432}
       MEDIA_ROOT: /app/media
       STATIC_ROOT: /app/staticfiles
-      # nginx に /media/ の alias を書けない場合は Django が配信する（既定 True。alias を設定したら False に）
-      SERVE_MEDIA: ${SERVE_MEDIA:-True}
     ports:
       # ホストの loopback だけに公開。外からは nginx 経由のみ
       - "127.0.0.1:${APP_PORT:-8029}:8000"
     volumes:
-      # 写真・紙の日誌・ロゴなど。ホストの ./media に置くので nginx からも alias で配信できる
+      # 写真・紙の日誌・ロゴなど（Django がログイン確認のうえ配信する。nginx で直接配信しない）
       - ./media:/app/media
     extra_hosts:
       - "host.docker.internal:host-gateway"

@@ -1,9 +1,8 @@
 from django.contrib import admin
-from django.urls import path, include, re_path
-from django.conf import settings
-from django.conf.urls.static import static
+from django.urls import path, include
 from django.http import HttpResponse
-from django.views.static import serve
+
+from facilities.media import ProtectedMediaView
 
 
 def healthz(request):
@@ -26,8 +25,7 @@ urlpatterns = [
     path('esignatures/', include('esignatures.urls')),
     path('line/', include('line_integration.urls')),
     path('ai/', include('ai_assist.urls')),
-] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-
-# 前段のプロキシが /media/ を配信しない構成（外部 nginx の共用サーバーなど）では Django が配信する
-if settings.SERVE_MEDIA and not settings.DEBUG:
-    urlpatterns += [re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT})]
+    # アップロードファイルはログイン中の職員の事業所のものだけ返す（署名 URL なら外部からも可）。
+    # 前段の nginx / Caddy で /media/ を直接配信しないこと。
+    path('media/<path:path>', ProtectedMediaView.as_view(), name='protected_media'),
+]

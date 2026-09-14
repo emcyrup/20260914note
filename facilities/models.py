@@ -1,4 +1,5 @@
 from django.db import models
+from .uploads import logo_upload_to
 
 
 class Facility(models.Model):
@@ -39,7 +40,7 @@ class Facility(models.Model):
     term_beneficiary = models.CharField(max_length=20, default='利用者', verbose_name='利用者の呼び方',
                                         help_text='例：利用児／園児／ご利用者様')
     # ロゴと配色
-    logo = models.ImageField(upload_to='facility_logos/', blank=True, null=True, verbose_name='ロゴ画像')
+    logo = models.ImageField(upload_to=logo_upload_to, blank=True, null=True, verbose_name='ロゴ画像')
     brand_color = models.CharField(max_length=7, blank=True, verbose_name='コーポレートカラー',
                                    help_text='#4e7d89 のような16進数。空なら標準色')
     line_channel_access_token = models.TextField(blank=True, verbose_name='LINEチャネルアクセストークン')

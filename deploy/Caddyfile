@@ -2,11 +2,7 @@
 {$SITE_ADDRESS} {
 	encode gzip
 
-	# 日誌の写真などアップロードファイルは Caddy が直接配信する
-	handle_path /media/* {
-		root * /srv/media
-		file_server
-	}
+	# /media/ は Django が配信する（ログイン中の職員の事業所のファイルだけ返す）。Caddy で直接配信しないこと。
 
 	reverse_proxy app:8000
 }

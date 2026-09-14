@@ -4,6 +4,7 @@
 """
 
 from django.db import models
+from facilities.uploads import signature_upload_to
 
 
 class EsignatureRecord(models.Model):
@@ -22,7 +23,7 @@ class EsignatureRecord(models.Model):
     signer_name    = models.CharField(max_length=100, verbose_name='署名者氏名')
     relationship   = models.CharField(max_length=50, blank=True, verbose_name='続柄')
     signed_at      = models.DateTimeField(auto_now_add=True, verbose_name='署名日時')
-    signature_image = models.ImageField(upload_to='signatures/%Y/%m/', verbose_name='署名画像')
+    signature_image = models.ImageField(upload_to=signature_upload_to, verbose_name='署名画像')
     # 署名対象の種別とID（日次記録・支援計画・モニタリングに汎用対応）
     target_type    = models.CharField(max_length=30, choices=TARGET_TYPE_CHOICES, verbose_name='対象種別')
     target_id      = models.PositiveIntegerField(verbose_name='対象ID')

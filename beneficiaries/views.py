@@ -316,13 +316,12 @@ class RegenerateLineCodeView(LoginRequiredMixin, View):
     古いコードは無効になり、新しいコードが発行される。
     """
     def post(self, request, guardian_pk):
-        from .models import _generate_line_code
         guardian = get_object_or_404(
             Guardian, pk=guardian_pk,
             beneficiary__facility=request.user.facility
         )
-        guardian.line_registration_code = _generate_line_code()
-        guardian.save()
-        messages.success(request, f'{guardian}のLINE登録コードを再発行しました。')
+        guardian.issue_line_code()
+        guardian.save(update_fields=['line_registration_code', 'line_code_expires_at'])
+        messages.success(request, f'{guardian}のLINE登録コードを再発行しました（72時間有効）。')
         return redirect('beneficiaries:detail', pk=guardian.beneficiary_id)
 

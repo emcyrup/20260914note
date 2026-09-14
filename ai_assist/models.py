@@ -2,6 +2,7 @@
 AI支援：算定要件資料・加算提案・（チャットは状態を持たない）
 """
 from django.db import models
+from facilities.uploads import reference_doc_upload_to
 
 
 class ReferenceDocument(models.Model):
@@ -9,7 +10,7 @@ class ReferenceDocument(models.Model):
     facility    = models.ForeignKey('facilities.Facility', on_delete=models.CASCADE,
                                     related_name='reference_documents', verbose_name='施設')
     title       = models.CharField(max_length=200, verbose_name='資料名')
-    file        = models.FileField(upload_to='reference_docs/%Y/%m/', verbose_name='PDFファイル')
+    file        = models.FileField(upload_to=reference_doc_upload_to, verbose_name='PDFファイル')
     uploaded_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
                                     related_name='+', verbose_name='アップロード者')
     uploaded_at = models.DateTimeField(auto_now_add=True, verbose_name='アップロード日時')

@@ -1,9 +1,11 @@
 from django.contrib import admin
+from facilities.admin_mixins import FacilityScopedAdmin
+
 from .models import ActivityTag, DailyRecord
 
 
 @admin.register(ActivityTag)
-class ActivityTagAdmin(admin.ModelAdmin):
+class ActivityTagAdmin(FacilityScopedAdmin):
     list_display = ['name', 'facility', 'display_order', 'is_active', 'price']
     list_filter = ['facility', 'is_active']
     list_editable = ['display_order', 'is_active', 'price']
@@ -12,7 +14,7 @@ class ActivityTagAdmin(admin.ModelAdmin):
 
 
 @admin.register(DailyRecord)
-class DailyRecordAdmin(admin.ModelAdmin):
+class DailyRecordAdmin(FacilityScopedAdmin):
     list_display = ['date', 'beneficiary', 'health_condition', 'status', 'author']
     list_filter = ['facility', 'status', 'health_condition']
     search_fields = ['beneficiary__last_name', 'beneficiary__first_name']

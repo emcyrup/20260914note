@@ -2,6 +2,7 @@ from django.db import models
 from facilities.models import Facility, SupportContentTag
 from beneficiaries.models import Beneficiary
 from accounts.models import StaffAccount
+from facilities.uploads import paper_scan_upload_to, photo_upload_to
 
 
 class ActivityTag(models.Model):
@@ -174,7 +175,7 @@ class DailyRecordPhoto(models.Model):
         related_name='photos', verbose_name='日誌'
     )
     photo        = models.ImageField(
-        upload_to='daily_record_photos/%Y/%m/', verbose_name='写真'
+        upload_to=photo_upload_to, verbose_name='写真'
     )
     order        = models.PositiveSmallIntegerField(default=0, verbose_name='表示順')
     uploaded_at  = models.DateTimeField(auto_now_add=True)
@@ -314,7 +315,7 @@ class PaperScan(models.Model):
     uploaded_by = models.ForeignKey(StaffAccount, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='取り込んだ人')
     beneficiary = models.ForeignKey(Beneficiary, on_delete=models.SET_NULL, null=True, blank=True,
                                     related_name='paper_scans', verbose_name='利用者')
-    image       = models.ImageField(upload_to='paper_scans/%Y/%m/', verbose_name='画像')
+    image       = models.ImageField(upload_to=paper_scan_upload_to, verbose_name='画像')
     status      = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_PENDING, verbose_name='状態')
     extracted   = models.JSONField(default=dict, blank=True, verbose_name='読み取り結果')
     error       = models.TextField(blank=True, verbose_name='エラー')

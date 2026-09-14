@@ -17,6 +17,7 @@ from .forms import (
     StaffMeetingForm, SupportPlanForm,
 )
 from .models import MonitoringRecord, PlanGoal, SupportPlan
+from config.pdf import media_url_fetcher
 
 STEP_FORMS = {
     SupportPlan.STEP_ASSESSMENT: AssessmentForm,
@@ -358,7 +359,7 @@ def _pdf_response(request, template, ctx, ascii_name, utf8_name):
     ctx = dict(ctx, pdf=True)
     html = render(request, template, ctx).content.decode('utf-8')
     try:
-        pdf = HTML(string=html, base_url=request.build_absolute_uri('/')).write_pdf()
+        pdf = HTML(string=html, base_url=request.build_absolute_uri('/'), url_fetcher=media_url_fetcher).write_pdf()
     except OSError as e:  # サーバーに WeasyPrint の共有ライブラリ（pango 等）が無い
         return HttpResponse(f'PDF を作成できません（サーバーに PDF 用ライブラリがありません）: {e}', status=500, content_type='text/plain; charset=utf-8')
     res = HttpResponse(pdf, content_type='application/pdf')

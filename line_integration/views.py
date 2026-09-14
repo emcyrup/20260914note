@@ -9,7 +9,9 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.cache import cache
 from django.http import HttpResponse
+from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.decorators import method_decorator
 from django.views import View
@@ -34,10 +36,21 @@ class LineWebhookView(View):
     - TextMessage   : お子様のお名前を送ってもらい、保護者とLINE User IDを紐づける
     """
 
-    def post(self, request):
-        facility = Facility.objects.first()
-        if not facility or not facility.line_channel_secret:
-            logger.error('LINE Webhook: 施設設定にチャネルシークレットが未設定')
+    LINK_FAIL_LIMIT = 5          # この回数を超えて間違えた LINE ユーザーは
+    LINK_FAIL_WINDOW = 60 * 60   # この秒数の間、照合しない
+
+    @staticmethod
+    def resolve_facility(facility_pk):
+        """URL の事業所ID から事業所を決める。旧 URL（ID なし）は LINE を設定した事業所が1つだけのときに限り許す"""
+        if facility_pk is not None:
+            return Facility.objects.filter(pk=facility_pk).exclude(line_channel_secret='').first()
+        configured = list(Facility.objects.exclude(line_channel_secret='')[:2])
+        return configured[0] if len(configured) == 1 else None
+
+    def post(self, request, facility_pk=None):
+        facility = self.resolve_facility(facility_pk)
+        if facility is None:
+            logger.error('LINE Webhook: 事業所を特定できないか、チャネルシークレットが未設定（facility_pk=%s）', facility_pk)
             return HttpResponse(status=200)  # LINEには常に200を返す（500だとLINEが無限リトライする）
 
         from linebot.v3 import WebhookHandler
@@ -65,8 +78,8 @@ class LineWebhookView(View):
                         type='text',
                         text=(
                             '友だち追加ありがとうございます。\n\n'
-                            '施設からお知らせした6桁の登録コードを送信してください。\n'
-                            '例：123456\n\n'
+                            '施設からお知らせした登録コード（8文字）を送信してください。\n'
+                            '例：ABCD2345\n\n'
                             '登録コードは施設スタッフにお問い合わせください。'
                         )
                     )]
@@ -75,12 +88,12 @@ class LineWebhookView(View):
         @handler.add(MessageEvent, message=TextMessageContent)
         def handle_text(event):
             """
-            テキストメッセージ受信：6桁の登録コードで保護者と自動紐づけ。
+            テキストメッセージ受信：登録コード（8文字・72時間有効・1回限り）で保護者と自動紐づけ。
             コード方式を採用することで同姓同名・表記ゆれの問題を根本解決する。
-            すでに連携済みの場合はスキップする。
+            すでに連携済みの場合はスキップする。間違いが続いた LINE ユーザーは一定時間照合しない。
             """
             line_user_id = event.source.user_id
-            text = event.message.text.strip()
+            text = event.message.text.strip().upper().replace(' ', '')
 
             # 連携済みならスキップ
             if Guardian.objects.filter(line_user_id=line_user_id, line_linked=True).exists():
@@ -89,25 +102,38 @@ class LineWebhookView(View):
             with ApiClient(config) as api_client:
                 api = MessagingApi(api_client)
 
-                # 登録コード（6桁数字）でGuardianを検索
+                fail_key = f'line_link_fail:{line_user_id}'
+                fails = cache.get(fail_key, 0)
+                if fails >= self.LINK_FAIL_LIMIT:
+                    reply_text = '登録コードの間違いが続いたため、しばらく受け付けられません。1時間ほどしてからもう一度お試しください。'
+                    api.reply_message(ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[LineTextMessage(type='text', text=reply_text)]
+                    ))
+                    return
+
+                # この事業所の、未連携で期限内の登録コードだけを照合する
                 guardian = Guardian.objects.filter(
                     beneficiary__facility=facility,
                     line_registration_code=text,
-                    line_linked=False,  # 未連携の保護者のみ対象
+                    line_linked=False,
+                    line_code_expires_at__gt=timezone.now(),
                 ).select_related('beneficiary').first()
 
                 if guardian:
-                    guardian.line_user_id = line_user_id
-                    guardian.line_linked = True
+                    guardian.mark_line_linked(line_user_id)
                     guardian.save()
+                    cache.delete(fail_key)
                     reply_text = (
                         f'{guardian.beneficiary.full_name}様の保護者として登録しました。\n'
                         'これからお子様の様子をお届けします。'
                     )
                 else:
+                    cache.set(fail_key, fails + 1, self.LINK_FAIL_WINDOW)
                     reply_text = (
-                        '登録コードが見つかりませんでした。\n'
-                        '施設からお知らせした6桁の数字をそのまま送信してください。'
+                        '登録コードが見つからないか、期限が切れています。\n'
+                        '施設からお知らせした8文字の登録コードをそのまま送信してください。'
+                        '期限（発行から72時間）が過ぎている場合は、施設で再発行してもらってください。'
                     )
 
                 api.reply_message(ReplyMessageRequest(
@@ -123,7 +149,7 @@ class LineWebhookView(View):
 
         return HttpResponse(status=200)
 
-    def get(self, request):
+    def get(self, request, facility_pk=None):
         return HttpResponse(status=405)
 
 
@@ -185,14 +211,16 @@ class SendLineMessageView(LoginRequiredMixin, LineEnabledMixin, View):
             f'次回もお待ちしております。'
         )
 
-        # LINEの画像URLはHTTPS公開URLである必要があるため、本番環境でのみ正常に動作する
+        # LINE の画像 URL は HTTPS の公開 URL が必要。/media/ はログイン必須なので、
+        # 有効期限つきの署名 URL（既定 30 分。LINE が取得してキャッシュするまでの間だけ有効）を渡す
         # 1回のプッシュで最大5件のため、テキストと写真を別々に送信することで最大5枚全て送れる
+        from facilities.media import signed_media_url
         photos = list(record.photos.all())
         photo_messages = [
             LineImageMessage(
                 type='image',
-                original_content_url=request.build_absolute_uri(photo.photo.url),
-                preview_image_url=request.build_absolute_uri(photo.photo.url),
+                original_content_url=request.build_absolute_uri(signed_media_url(photo.photo.name)),
+                preview_image_url=request.build_absolute_uri(signed_media_url(photo.photo.name)),
             )
             for photo in photos
         ]

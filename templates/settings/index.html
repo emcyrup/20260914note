@@ -93,6 +93,11 @@
           <label class="form-label small fw-semibold">LINEチャネルシークレット</label>
           {{ facility_form.line_channel_secret }}
         </div>
+        <div class="col-12">
+          <label class="form-label small fw-semibold">この事業所の Webhook URL（LINE Developers に登録）</label>
+          <input type="text" class="form-control form-control-sm font-monospace" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'line_integration:webhook_facility' facility.pk %}">
+          <div class="form-text">事業所ごとに URL が違います。LINE 公式アカウントのチャネル設定で「Webhook URL」に貼り、「Webhookの利用」をオン、「応答メッセージ」をオフにしてください。</div>
+        </div>
         {% endif %}
 
         <div class="col-12"><hr class="my-1"><div class="small fw-bold" style="color:var(--lake-text);">呼び方・ロゴ・配色（画面のメニューと見出しに反映されます）</div></div>

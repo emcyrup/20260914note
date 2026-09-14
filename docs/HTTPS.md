@@ -59,7 +59,7 @@ Settings → Secrets → `DEPLOY_HOST` はそのまま IP でも配備できま�
 
 ## 6. LINE を使う場合
 
-LINE Developers のチャネル設定で Webhook URL を `https://dayservice.example.jp/line/webhook/` にし、「Webhookの利用」をオン、「応答メッセージ」をオフ。
+LINE Developers のチャネル設定で Webhook URL を施設設定に表示される事業所ごとの URL（`https://dayservice.example.jp/line/webhook/<事業所ID>/`）にし、「Webhookの利用」をオン、「応答メッセージ」をオフ。
 チャネルアクセストークンとシークレットは 施設設定 → 施設基本情報 に入力します。
 
 ## つまずいたら

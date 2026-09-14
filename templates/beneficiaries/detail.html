@@ -229,7 +229,7 @@
                 {% if features.line and not g.line_linked %}
                 <div class="mt-1 d-flex align-items-center gap-2 flex-wrap">
                   <span class="small text-muted">LINE登録コード：</span>
-                  <code style="font-size:1rem;letter-spacing:0.15em;color:var(--color-primary);font-weight:700;">{{ g.line_registration_code }}</code>
+                  {% if g.line_code_valid %}<code style="font-size:1rem;letter-spacing:0.15em;color:var(--color-primary);font-weight:700;">{{ g.line_registration_code }}</code><span class="small text-muted">{{ g.line_code_expires_at|date:'n/j H:i' }}まで</span>{% else %}<span class="small text-danger">期限切れ（再発行してください）</span>{% endif %}
                   <form method="post" action="{% url 'beneficiaries:regenerate_line_code' g.pk %}"
                         onsubmit="return confirm('登録コードを再発行しますか？\n古いコードは使えなくなります。')">
                     {% csrf_token %}

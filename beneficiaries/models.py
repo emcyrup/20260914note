@@ -1,13 +1,24 @@
-import random
-import string
+import datetime
+import secrets
 
 from django.db import models
+from django.utils import timezone
 from facilities.models import Facility
+from facilities.uploads import certificate_upload_to
+
+
+LINE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'  # 見間違えやすい 0/O/1/I を除く
+LINE_CODE_LENGTH = 8
+LINE_CODE_TTL = datetime.timedelta(hours=72)
 
 
 def _generate_line_code():
-    """LINE連携用の6桁数字コードを生成する"""
-    return ''.join(random.choices(string.digits, k=6))
+    """LINE連携用の登録コード（8文字の英数字・総当たりできない大きさ）を生成する"""
+    return ''.join(secrets.choice(LINE_CODE_ALPHABET) for _ in range(LINE_CODE_LENGTH))
+
+
+def _line_code_expiry():
+    return timezone.now() + LINE_CODE_TTL
 
 
 class Beneficiary(models.Model):
@@ -142,10 +153,11 @@ class Guardian(models.Model):
     email = models.EmailField(blank=True, verbose_name='メールアドレス')
     line_user_id = models.CharField(max_length=100, blank=True, verbose_name='LINE User ID')
     line_linked = models.BooleanField(default=False, verbose_name='LINE連携済み')
-    # LINE連携用の登録コード（6桁数字・重複不可）。保護者がLINEでこのコードを送ると自動連携する
+    # LINE連携用の登録コード（8文字の英数字・重複不可・有効期限つき）。保護者がLINEでこのコードを送ると自動連携する
     line_registration_code = models.CharField(
         max_length=10, default=_generate_line_code, unique=True, verbose_name='LINE登録コード'
     )
+    line_code_expires_at = models.DateTimeField(default=_line_code_expiry, null=True, blank=True, verbose_name='登録コードの有効期限')
     is_primary = models.BooleanField(default=False, verbose_name='主連絡先')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -153,6 +165,24 @@ class Guardian(models.Model):
     class Meta:
         verbose_name = '保護者'
         verbose_name_plural = '保護者'
+
+    @property
+    def line_code_valid(self):
+        """未連携で、期限内のコードか"""
+        return (not self.line_linked and bool(self.line_registration_code)
+                and self.line_code_expires_at is not None and self.line_code_expires_at > timezone.now())
+
+    def issue_line_code(self):
+        """登録コードを発行し直す（古いコードは無効になる）"""
+        self.line_registration_code = _generate_line_code()
+        self.line_code_expires_at = _line_code_expiry()
+
+    def mark_line_linked(self, line_user_id):
+        """連携完了。使ったコードは二度と使えないよう置き換え、期限を消す"""
+        self.line_user_id = line_user_id
+        self.line_linked = True
+        self.line_registration_code = _generate_line_code()
+        self.line_code_expires_at = None
 
     def __str__(self):
         return f'{self.last_name} {self.first_name}（{self.get_relation_display()}）'
@@ -193,7 +223,7 @@ class RecipientCertificate(models.Model):
     support_office = models.CharField(max_length=100, blank=True, verbose_name='相談支援事業所')
     # OCRで読み取った際の元画像
     scanned_image = models.ImageField(
-        upload_to='recipient_certificates/', blank=True, verbose_name='スキャン画像'
+        upload_to=certificate_upload_to, blank=True, verbose_name='スキャン画像'
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

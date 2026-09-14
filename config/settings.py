@@ -118,7 +118,6 @@ MEDIA_URL = '/media/'
 # Docker ではボリュームを割り当てるため環境変数で差し替えられるようにする
 MEDIA_ROOT = Path(config('MEDIA_ROOT', default=str(BASE_DIR / 'media')))
 # DEBUG=False でも Django が /media/ を配信する（前段の nginx/Caddy が配信できない構成向け）
-SERVE_MEDIA = config('SERVE_MEDIA', default=False, cast=bool)
 
 # リバースプロキシ（Caddy/Nginx）越しの HTTPS で POST を受けるために必要（例: https://app.example.com）
 CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())

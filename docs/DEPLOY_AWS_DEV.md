@@ -17,7 +17,7 @@
 | 実行方式 | Docker（`ghcr.io` のイメージ） | `~/env` の venv ＋ Gunicorn（`deploy/venv-deploy.sh`） |
 | HTTPS 終端 | Caddy（compose 内） | プロバイダの nginx |
 | DB | compose の `db` コンテナ | プロバイダの PostgreSQL（`localhost`） |
-| 写真の配信 | Caddy | Django（`.env` の `SERVE_MEDIA=True`） |
+| 写真の配信 | Django（ログイン中の職員の事業所のファイルだけ返す） | 同じ（nginx で `/media/` を直接配信しない） |
 | 静的ファイル | whitenoise | whitenoise（同じ） |
 | 自動配備 | `main` → Deploy | `develop` → Deploy (dev)（手動実行も可） |
 | 配置先 | `/opt/dayservice` | `~/michinotedemo` |
@@ -163,7 +163,7 @@ rm ~/dayservice.sql.gz ~/media.tgz
 | CSRF 403 | `CSRF_TRUSTED_ORIGINS` が `https://` 付きのドメインになっていない |
 | 400 Bad Request | `DJANGO_ALLOWED_HOSTS` にドメインが無い |
 | `could not connect to server` / `password authentication failed` | `.env` の `DB_HOST` `DB_NAME` `DB_USER` `DB_PASSWORD` を確認（プロバイダ発行の値） |
-| 写真が 404 | `SERVE_MEDIA=True` になっているか、`MEDIA_ROOT` が実在するパスか |
+| 写真が 404 | `MEDIA_ROOT` が実在するパスか、ログイン中の職員の事業所のファイルか（他事業所のファイルは 404） |
 | PDF ボタンで「PDF を作成できません」 | WeasyPrint のライブラリが無い → 手順7 の依頼。「画面で見る」から印刷は可能 |
 | 取り込みが 413 / AI が 504 | nginx の上限・タイムアウト → 手順7 の依頼 |
 | `pip install` が失敗 | `source ~/env/bin/activate` を忘れている、または Python が古い |
