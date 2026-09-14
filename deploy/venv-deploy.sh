@@ -41,29 +41,47 @@ echo "python: $(python --version 2>&1) ($VENV)"
 python -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)' || {
   echo "ERROR: Python $pyver は古すぎます（Django 6.1 は 3.12 以上）。プロバイダに Python 3.12 以上の venv を依頼してください"; exit 1; }
 
+running_pid() {
+  local pid
+  pid=$(cat "$PIDFILE" 2>/dev/null || true)
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then echo "$pid"; fi
+}
+
 stop() {
-  if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-    kill -TERM "$(cat "$PIDFILE")"
-    for _ in $(seq 1 20); do kill -0 "$(cat "$PIDFILE")" 2>/dev/null || break; sleep 0.5; done
-    echo "gunicorn: stopped"
+  local pid
+  pid=$(running_pid)
+  if [ -n "$pid" ]; then
+    kill -TERM "$pid"
+    for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+    echo "gunicorn: stopped (pid $pid)"
   fi
   rm -f "$PIDFILE"
 }
 
 start() {
-  gunicorn config.wsgi:application \
+  # --daemon は使わず setsid + nohup でバックグラウンド化する（SSH を切っても残る。前面起動と同じ動きになる）
+  # 制御ソケットは /run/user/<uid> に作られてログアウトで消えることがあるので使わない
+  setsid nohup gunicorn config.wsgi:application \
     --bind "0.0.0.0:$PORT" \
     --workers "$WORKERS" --threads 2 --timeout 300 \
-    --daemon --pid "$PIDFILE" \
-    --access-logfile logs/access.log --error-logfile logs/error.log --capture-output
-  echo "gunicorn: started on 0.0.0.0:$PORT (pid $(cat "$PIDFILE"))"
+    --pid "$PIDFILE" --no-control-socket \
+    --access-logfile logs/access.log --error-logfile logs/error.log --capture-output \
+    >> logs/gunicorn.out 2>&1 < /dev/null &
+  for _ in $(seq 1 20); do [ -n "$(running_pid)" ] && break; sleep 0.5; done
+  if [ -n "$(running_pid)" ]; then
+    echo "gunicorn: started on 0.0.0.0:$PORT (pid $(running_pid))"
+  else
+    echo "ERROR: gunicorn が起動しませんでした"; tail -n 30 logs/gunicorn.out logs/error.log 2>/dev/null; exit 1
+  fi
 }
 
 restart() {
-  if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+  local pid
+  pid=$(running_pid)
+  if [ -n "$pid" ]; then
     # HUP でワーカーだけ入れ替える（新しいコードと .env を読み直す。ポートは開いたまま）
-    kill -HUP "$(cat "$PIDFILE")"
-    echo "gunicorn: reloaded (pid $(cat "$PIDFILE"))"
+    kill -HUP "$pid"
+    echo "gunicorn: reloaded (pid $pid)"
   else
     start
   fi
@@ -101,4 +119,4 @@ for _ in $(seq 1 20); do
   [ "$code" = "200" ] && { echo "healthz: ok"; exit 0; }
   sleep 1
 done
-echo "ERROR: healthz が応答しません。logs/error.log を確認してください"; tail -n 30 logs/error.log; exit 1
+echo "ERROR: healthz が応答しません。logs/error.log を確認してください"; tail -n 30 logs/gunicorn.out logs/error.log 2>/dev/null; exit 1
