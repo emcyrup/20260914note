@@ -29,8 +29,17 @@ WORKERS=${WORKERS:-2}
 PIDFILE=$APP_DIR/run/gunicorn.pid
 mkdir -p run logs media
 
+# venv が無ければ作る（プロバイダ作成の ~/env が無い場合の保険）。Django 6.1 は Python 3.12 以上
+if [ ! -f "$VENV/bin/activate" ]; then
+  echo "venv: $VENV が無いので python3 で作成します（$(python3 --version 2>&1)）"
+  python3 -m venv "$VENV" || { echo "ERROR: venv を作成できません。プロバイダに python3-venv（3.12 以上）を依頼してください"; exit 1; }
+fi
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
+pyver=$(python -c 'import sys; print("%d.%d" % sys.version_info[:2])')
+echo "python: $(python --version 2>&1) ($VENV)"
+python -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)' || {
+  echo "ERROR: Python $pyver は古すぎます（Django 6.1 は 3.12 以上）。プロバイダに Python 3.12 以上の venv を依頼してください"; exit 1; }
 
 stop() {
   if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
@@ -79,6 +88,7 @@ fi
 echo "code: $(git rev-parse --short HEAD) $(git log -1 --pretty=%s | cut -c1-60)"
 
 # 2) 依存・DB・静的ファイル
+pip install --quiet --upgrade pip wheel >/dev/null 2>&1 || true
 pip install --quiet -r requirements.txt
 python manage.py migrate --noinput
 python manage.py collectstatic --noinput --clear >/dev/null
