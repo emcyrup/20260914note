@@ -29,8 +29,10 @@ class _StyledForm(forms.ModelForm):
                 field.input_formats = ['%Y-%m-%d']
             if isinstance(w, forms.Textarea) and int(w.attrs.get('rows', 10)) >= 10:
                 w.attrs['rows'] = 3  # Django 既定の 10 行は長すぎる
-            if isinstance(field, forms.ModelChoiceField) and field.queryset.model is StaffAccount and facility:
-                field.queryset = StaffAccount.objects.filter(facility=facility, is_active=True).order_by('username')
+            if isinstance(field, forms.ModelChoiceField) and field.queryset.model is StaffAccount:
+                # 施設が決まらないときは誰も選べない（他施設の職員名を出さない）
+                field.queryset = (StaffAccount.objects.filter(facility=facility, is_active=True).order_by('username')
+                                  if facility else StaffAccount.objects.none())
 
 
 class SupportPlanForm(_StyledForm):

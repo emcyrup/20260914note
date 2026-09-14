@@ -90,7 +90,7 @@ class DashboardWeekAndSupportTagPriceTests(TestCase):
     def setUp(self):
         from accounts.models import StaffAccount
         self.facility = Facility.objects.create(name='F')
-        self.user = StaffAccount.objects.create_user('s', password='p', facility=self.facility)
+        self.user = StaffAccount.objects.create_user('s', password='p', facility=self.facility, role=StaffAccount.ROLE_ADMIN)
         self.client.force_login(self.user)
 
     def test_dashboard_shows_week_calendar(self):

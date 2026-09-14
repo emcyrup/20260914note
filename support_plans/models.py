@@ -370,7 +370,8 @@ class ConsentDelivery(StepBase):
 
     def has_esignature(self):
         from esignatures.models import EsignatureRecord
-        return EsignatureRecord.objects.filter(target_type='support_plan', target_id=self.plan_id).exists()
+        return EsignatureRecord.objects.filter(target_type='support_plan', target_id=self.plan_id,
+                                               facility_id=self.plan.facility_id).exists()
 
     def consent_done(self):
         if self.consent_method == self.METHOD_ESIGN:

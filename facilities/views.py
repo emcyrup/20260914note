@@ -11,6 +11,7 @@ from django.views.generic import TemplateView
 from beneficiaries.models import Beneficiary, RecipientCertificate
 from records.models import ActivityTag
 from schedules.models import ScheduledVisit
+from accounts.views import AdminOnlyMixin
 from .forms import ActivityTagForm, FacilityForm, SupportContentTagForm
 from .models import AddonMaster, Facility, FacilityAddonSetting, SupportContentTag
 
@@ -147,7 +148,7 @@ class SettingsView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
-class FacilityUpdateView(LoginRequiredMixin, View):
+class FacilityUpdateView(AdminOnlyMixin, View):
     """施設基本情報を更新する"""
 
     def post(self, request):
@@ -190,7 +191,7 @@ class FeatureSettingsView(LoginRequiredMixin, View):
 # =============================================
 # 活動タグ 追加・編集・削除
 # =============================================
-class ActivityTagCreateView(LoginRequiredMixin, View):
+class ActivityTagCreateView(AdminOnlyMixin, View):
     """活動タグを追加する"""
 
     def post(self, request):
@@ -206,7 +207,7 @@ class ActivityTagCreateView(LoginRequiredMixin, View):
         return redirect('facilities:settings')
 
 
-class ActivityTagUpdateView(LoginRequiredMixin, View):
+class ActivityTagUpdateView(AdminOnlyMixin, View):
     """活動タグを編集する"""
 
     def post(self, request, pk):
@@ -220,7 +221,7 @@ class ActivityTagUpdateView(LoginRequiredMixin, View):
         return redirect('facilities:settings')
 
 
-class ActivityTagDeleteView(LoginRequiredMixin, View):
+class ActivityTagDeleteView(AdminOnlyMixin, View):
     """活動タグを削除する"""
 
     def post(self, request, pk):
@@ -231,7 +232,7 @@ class ActivityTagDeleteView(LoginRequiredMixin, View):
         return redirect('facilities:settings')
 
 
-class ActivityTagLoadDefaultsView(LoginRequiredMixin, View):
+class ActivityTagLoadDefaultsView(AdminOnlyMixin, View):
     """標準の活動タグを一括追加する"""
 
     DEFAULT_TAGS = [
@@ -260,7 +261,7 @@ class ActivityTagLoadDefaultsView(LoginRequiredMixin, View):
 # =============================================
 # 支援内容タグ 追加・編集・削除
 # =============================================
-class SupportTagCreateView(LoginRequiredMixin, View):
+class SupportTagCreateView(AdminOnlyMixin, View):
     """支援内容タグを追加する"""
 
     def post(self, request):
@@ -276,7 +277,7 @@ class SupportTagCreateView(LoginRequiredMixin, View):
         return redirect('facilities:settings')
 
 
-class SupportTagUpdateView(LoginRequiredMixin, View):
+class SupportTagUpdateView(AdminOnlyMixin, View):
     """支援内容タグを編集する"""
 
     def post(self, request, pk):
@@ -290,7 +291,7 @@ class SupportTagUpdateView(LoginRequiredMixin, View):
         return redirect('facilities:settings')
 
 
-class SupportTagDeleteView(LoginRequiredMixin, View):
+class SupportTagDeleteView(AdminOnlyMixin, View):
     """支援内容タグを削除する"""
 
     def post(self, request, pk):
@@ -301,7 +302,7 @@ class SupportTagDeleteView(LoginRequiredMixin, View):
         return redirect('facilities:settings')
 
 
-class SupportTagLoadDefaultsView(LoginRequiredMixin, View):
+class SupportTagLoadDefaultsView(AdminOnlyMixin, View):
     """標準の支援内容タグを一括追加する"""
 
     DEFAULT_TAGS = [
@@ -362,7 +363,7 @@ DEFAULT_ADDONS = [
 ]
 
 
-class AddonSettingView(LoginRequiredMixin, View):
+class AddonSettingView(AdminOnlyMixin, View):
     """施設が算定する体制加算をON/OFFで管理する"""
 
     def post(self, request):
@@ -380,9 +381,12 @@ class AddonSettingView(LoginRequiredMixin, View):
 
 
 class AddonLoadDefaultsView(LoginRequiredMixin, View):
-    """標準の加算マスタを一括投入する（同名のものは追加しない）"""
+    """標準の加算マスタを一括投入する（同名のものは追加しない）。全事業所共通のマスタなので開発向けユーザーのみ"""
 
     def post(self, request):
+        if not request.user.can_switch_facility:
+            messages.error(request, '加算マスタは全事業所で共通のため、開発向けユーザーだけが投入できます。')
+            return redirect('facilities:settings')
         added = 0
         for item in DEFAULT_ADDONS:
             if not AddonMaster.objects.filter(name=item['name']).exists():

@@ -18,6 +18,7 @@ from .forms import (
 )
 from .models import MonitoringRecord, PlanGoal, SupportPlan
 from config.pdf import media_url_fetcher
+from config.utils import to_int
 
 STEP_FORMS = {
     SupportPlan.STEP_ASSESSMENT: AssessmentForm,
@@ -83,7 +84,7 @@ class PlanCreateView(LoginRequiredMixin, View):
         })
 
     def post(self, request):
-        beneficiary = get_object_or_404(self._beneficiaries(request), pk=request.POST.get('beneficiary'))
+        beneficiary = get_object_or_404(self._beneficiaries(request), pk=to_int(request.POST.get('beneficiary'), -1))
         form = SupportPlanForm(request.POST, facility=request.user.facility)
         if not form.is_valid():
             return render(request, 'support_plans/form.html', {
@@ -162,7 +163,7 @@ class PlanStepView(PlanMixin, View):
         if self.n == SupportPlan.STEP_MEETING:
             ctx['goals'] = plan.goals.all()
         if self.n == SupportPlan.STEP_CONSENT:
-            ctx['signatures'] = EsignatureRecord.objects.filter(target_type='support_plan', target_id=plan.pk)
+            ctx['signatures'] = EsignatureRecord.objects.filter(target_type='support_plan', target_id=plan.pk, facility=plan.facility)
             ctx['guardians'] = plan.beneficiary.guardians.all()
         if self.n == SupportPlan.STEP_MONITORING:
             ctx['records'] = plan.monitoring_records.select_related('conducted_by')
@@ -340,7 +341,7 @@ def _print_context(plan):
         'goals': plan.goals.all(),
         'goals_long': plan.goals.filter(goal_type=PlanGoal.TYPE_LONG),
         'goals_short': plan.goals.filter(goal_type=PlanGoal.TYPE_SHORT),
-        'signatures': EsignatureRecord.objects.filter(target_type='support_plan', target_id=plan.pk),
+        'signatures': EsignatureRecord.objects.filter(target_type='support_plan', target_id=plan.pk, facility=plan.facility),
         'records': plan.monitoring_records.select_related('conducted_by').order_by('date'),
         'facility': plan.facility, 'today': date.today(),
     }
@@ -400,7 +401,7 @@ class PlanPrintView(PlanMixin, View):
             'consent': plan.get_step(4),
             'goals_long': plan.goals.filter(goal_type=PlanGoal.TYPE_LONG),
             'goals_short': plan.goals.filter(goal_type=PlanGoal.TYPE_SHORT),
-            'signatures': EsignatureRecord.objects.filter(target_type='support_plan', target_id=plan.pk),
+            'signatures': EsignatureRecord.objects.filter(target_type='support_plan', target_id=plan.pk, facility=plan.facility),
             'facility': plan.facility, 'today': date.today(),
         })
 

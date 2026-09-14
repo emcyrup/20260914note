@@ -19,6 +19,7 @@ from support_plans.models import PlanGoal, SupportPlan
 
 from .models import AgencyMeetingReport, SpecializedSupportPlan
 from config.pdf import media_url_fetcher
+from config.utils import to_int
 
 # 詳細版の行（支援区分・支援項目）
 DETAIL_ROWS = [
@@ -136,7 +137,7 @@ class MeetingEditView(FormSetMixin, View):
         facility = request.user.facility
         obj = get_object_or_404(AgencyMeetingReport, pk=pk, facility=facility) if pk else AgencyMeetingReport(facility=facility)
         p = request.POST
-        beneficiary = Beneficiary.objects.filter(facility=facility, pk=p.get('beneficiary')).first()
+        beneficiary = Beneficiary.objects.filter(facility=facility, pk=to_int(p.get('beneficiary'), -1)).first()
         d = _date(p.get('date'))
         if not beneficiary or not d:
             messages.error(request, f'{get_terms(request.user)["beneficiary"]}と会議開催日を入力してください。')
@@ -150,7 +151,7 @@ class MeetingEditView(FormSetMixin, View):
                             for a, n in zip(p.getlist('p_affiliation'), p.getlist('p_name')) if a.strip() or n.strip()]
         for f in ('purpose', 'result', 'opinions', 'policy'):
             setattr(obj, f, p.get(f, '').strip())
-        obj.recorder = facility.staff_accounts.filter(pk=p.get('recorder')).first() or request.user
+        obj.recorder = facility.staff_accounts.filter(pk=to_int(p.get('recorder'), -1)).first() or request.user
         obj.save()
         messages.success(request, f'{beneficiary.full_name} の関係機関連携報告書（{d}）を保存しました。')
         return redirect('custom_forms:index')
@@ -192,7 +193,7 @@ class SpecializedEditView(FormSetMixin, View):
         facility = request.user.facility
         obj = get_object_or_404(SpecializedSupportPlan, pk=pk, facility=facility) if pk else SpecializedSupportPlan(facility=facility)
         p = request.POST
-        beneficiary = Beneficiary.objects.filter(facility=facility, pk=p.get('beneficiary')).first()
+        beneficiary = Beneficiary.objects.filter(facility=facility, pk=to_int(p.get('beneficiary'), -1)).first()
         if not beneficiary:
             messages.error(request, f'{get_terms(request.user)["beneficiary"]}を選んでください。')
             return redirect(request.path)
@@ -213,7 +214,7 @@ class SpecializedEditView(FormSetMixin, View):
         obj.abms_t = {k: p.get(f'abms_t_{k}', '').strip()[:20] for k, _ in SpecializedSupportPlan.ABMS_T_ITEMS}
         obj.support_items = [x for x in p.getlist('support_items') if x in SpecializedSupportPlan.SUPPORT_ITEMS]
         obj.explained_date = _date(p.get('explained_date'))
-        obj.explained_by = facility.staff_accounts.filter(pk=p.get('explained_by')).first()
+        obj.explained_by = facility.staff_accounts.filter(pk=to_int(p.get('explained_by'), -1)).first()
         obj.save()
         messages.success(request, f'{beneficiary.full_name} の専門的支援実施計画書を保存しました。')
         return redirect('custom_forms:index')
@@ -249,7 +250,7 @@ def _plan_or_404(request, pk):
 def _plan_context(request, plan):
     goals = list(plan.goals.order_by('goal_type', 'order', 'pk'))
     consent = plan.get_step(SupportPlan.STEP_CONSENT)
-    signatures = list(EsignatureRecord.objects.filter(target_type='support_plan', target_id=plan.pk).order_by('signed_at'))
+    signatures = list(EsignatureRecord.objects.filter(target_type='support_plan', target_id=plan.pk, facility=plan.facility).order_by('signed_at'))
     sig = signatures[0] if signatures else None
     consent_date = consent.consent_date if consent and consent.consent_method == 'paper' else (sig.signed_at.date() if sig else None)
     return {
@@ -341,7 +342,7 @@ class PlanDetailFormView(FormSetMixin, View):
         ctx['unassigned'] = by_cat.get('', [])
         d, m = ctx['draft'], ctx['monitoring']
         ctx['created_on'] = d.completed_at.date() if d and d.completed_at else plan.created_at.date()
-        prev = SupportPlan.objects.filter(beneficiary=plan.beneficiary, created_at__lt=plan.created_at).order_by('-created_at').first()
+        prev = SupportPlan.objects.filter(beneficiary=plan.beneficiary, facility=plan.facility, created_at__lt=plan.created_at).order_by('-created_at').first()
         ctx['prev_created_on'] = prev.created_at.date() if prev else None
         ctx['review_cycle'] = ctx['x'].get('review_cycle') or (f'原則{m.interval_months}ヶ月毎（必要時随時）' if m else '')
         ctx['next_monitoring'] = plan.next_monitoring_due if plan.status == SupportPlan.STATUS_ACTIVE else None

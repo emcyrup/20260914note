@@ -19,6 +19,7 @@ from facilities.context_processors import get_terms
 from . import services
 from .services import REPORT_KINDS
 from config.pdf import media_url_fetcher
+from config.utils import to_int
 
 
 class ReportIndexView(LoginRequiredMixin, View):
@@ -66,7 +67,7 @@ class ReportExportView(LoginRequiredMixin, View):
 
         beneficiary = None
         if 'beneficiary' in REPORT_KINDS[kind]['filters']:
-            beneficiary = get_object_or_404(Beneficiary, pk=p.get('beneficiary'), facility=facility)
+            beneficiary = get_object_or_404(Beneficiary, pk=to_int(p.get('beneficiary'), -1), facility=facility)
 
         if kind == 'service_record':
             report = services.service_record(facility, beneficiary, year, month)

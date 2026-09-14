@@ -38,6 +38,7 @@ REGION_UNIT_PRICE = {
 
 from .forms import CopaymentManagementForm, CopaymentOfficeRecordForm
 from .models import BillingMatrixAddon, BillingMatrixEntry, CopaymentManagement, CopaymentOfficeRecord
+from config.utils import date_or_404, month_or_404
 
 
 class BillingEnabledMixin:
@@ -76,6 +77,7 @@ class BillingMatrixView(LoginRequiredMixin, BillingEnabledMixin, View):
         else:
             next_year, next_month = year, month + 1
 
+        year, month = month_or_404(year, month)
         _, days_in_month = calendar.monthrange(year, month)
         days = list(range(1, days_in_month + 1))
         day_headers = [
@@ -200,7 +202,7 @@ class CellPopupView(LoginRequiredMixin, BillingEnabledMixin, View):
     def get(self, request, beneficiary_pk, year, month, day):
         facility    = request.user.facility
         beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=facility)
-        target_date = date(year, month, day)
+        target_date = date_or_404(year, month, day)
 
         # ScheduledVisit から現在の状態を取得（「予定」は除外）
         visit = ScheduledVisit.objects.filter(
@@ -355,7 +357,7 @@ class CellUpdateView(LoginRequiredMixin, BillingEnabledMixin, View):
     def post(self, request, beneficiary_pk, year, month, day):
         facility    = request.user.facility
         beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=facility)
-        target_date = date(year, month, day)
+        target_date = date_or_404(year, month, day)
 
         new_status = request.POST.get('status')
         if new_status not in ('attended', 'absent', 'transferred'):
@@ -410,6 +412,7 @@ class LoadFromScheduleView(LoginRequiredMixin, BillingEnabledMixin, View):
 
     def post(self, request, year, month):
         facility = request.user.facility
+        year, month = month_or_404(year, month)
 
         visits = ScheduledVisit.objects.filter(
             beneficiary__facility=facility,
@@ -457,6 +460,7 @@ class CopaymentListView(LoginRequiredMixin, BillingEnabledMixin, View):
             year = today.year
         if month is None:
             month = today.month
+        year, month = month_or_404(year, month)
 
         if month == 1:
             prev_year, prev_month = year - 1, 12
@@ -601,6 +605,7 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
 
         today = date.today()
         facility = request.user.facility
+        year, month = month_or_404(year, month)
         month_start = date(year, month, 1)
 
         # 個別加算マスタ（CSV列ヘッダーの順番を固定するためリスト化）
@@ -821,6 +826,7 @@ class InvoiceListView(LoginRequiredMixin, BillingEnabledMixin, View):
             year = today.year
         if month is None:
             month = today.month
+        year, month = month_or_404(year, month)
 
         if month == 1:
             prev_year, prev_month = year - 1, 12

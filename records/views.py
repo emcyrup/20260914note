@@ -23,6 +23,15 @@ from .models import DailyRecord, ActivityTag, DailyRecordPhoto, PaperScan, Recor
 from facilities.context_processors import get_terms
 from ai_assist.text import JAPANESE_RULES, clean_ai_dict, clean_ai_text, effort_kwargs
 from .paper import extract_paper_scan
+from config.utils import safe_next, to_int
+
+
+def to_date(value):
+    """'2026-09-14' → date。形式が違えば None"""
+    try:
+        return date.fromisoformat((value or "").strip())
+    except ValueError:
+        return None
 
 
 MAX_PHOTOS_PER_RECORD = 5  # 1件の日誌に添付できる写真の最大枚数
@@ -197,8 +206,8 @@ class DailyRecordListView(LoginRequiredMixin, TemplateView):
         # 選択中の日誌（右側に表示）
         selected_pk = self.request.GET.get('selected')
         selected_record = None
-        if selected_pk:
-            selected_record = records.filter(pk=selected_pk).first()
+        if to_int(selected_pk) is not None:
+            selected_record = records.filter(pk=to_int(selected_pk)).first()
         elif records.exists():
             selected_record = records.first()  # デフォルトは最新
 
@@ -244,6 +253,7 @@ class DailyRecordListView(LoginRequiredMixin, TemplateView):
             ctx['signatures'] = EsignatureRecord.objects.filter(
                 target_type='daily_record',
                 target_id=ctx['selected_record'].pk,
+                facility=facility,
             )
             ctx['photos'] = ctx['selected_record'].photos.all()
             ctx['photos_count'] = ctx['photos'].count()
@@ -367,7 +377,7 @@ class DailyRecordCreateView(LoginRequiredMixin, View):
         facility    = request.user.facility
         beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=facility)
 
-        date = request.POST.get('date')
+        date = to_date(request.POST.get('date'))
         if not date:
             messages.error(request, '記録日を入力してください。')
             return redirect('records:list', beneficiary_pk=beneficiary_pk)
@@ -436,10 +446,7 @@ class DailyRecordCreateView(LoginRequiredMixin, View):
         if p.get('send_line') == '1' and record.status == DailyRecord.STATUS_CONFIRMED:
             _send_line_for_record(request, record)
 
-        nxt = p.get('next', '')
-        if nxt.startswith('/') and not nxt.startswith('//'):
-            return redirect(nxt)
-        return redirect(f'/records/{beneficiary_pk}/?selected={record.pk}')
+        return redirect(safe_next(request, p.get('next', ''), f'/records/{beneficiary_pk}/?selected={record.pk}'))
 
 
 # =============================================
@@ -911,7 +918,7 @@ class PaperScanUploadView(LoginRequiredMixin, View):
             return redirect('records:paper_list')
         beneficiary = None
         if request.POST.get('beneficiary'):
-            beneficiary = Beneficiary.objects.filter(facility=facility, pk=request.POST['beneficiary']).first()
+            beneficiary = Beneficiary.objects.filter(facility=facility, pk=to_int(request.POST['beneficiary'], -1)).first()
         created = 0
         for f in files:
             if not (f.content_type or '').startswith('image/'):
@@ -972,7 +979,7 @@ class PaperScanReviewView(LoginRequiredMixin, View):
         facility = request.user.facility
         scan = get_object_or_404(PaperScan, pk=pk, facility=facility)
         p = request.POST
-        beneficiary = Beneficiary.objects.filter(facility=facility, pk=p.get('beneficiary')).first()
+        beneficiary = Beneficiary.objects.filter(facility=facility, pk=to_int(p.get('beneficiary'), -1)).first()
         try:
             rec_date = datetime.strptime(p.get('date', ''), '%Y-%m-%d').date()
         except ValueError:

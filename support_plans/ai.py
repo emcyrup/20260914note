@@ -54,7 +54,7 @@ def record_line(r, limit=160):
 
 
 def records_for(beneficiary, start, end, limit=60):
-    return list(DailyRecord.objects.filter(beneficiary=beneficiary, date__range=(start, end))
+    return list(DailyRecord.objects.filter(beneficiary=beneficiary, facility_id=beneficiary.facility_id, date__range=(start, end))
                 .prefetch_related('activity_tags').order_by('-date')[:limit])
 
 

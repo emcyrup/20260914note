@@ -9,9 +9,11 @@ from django.db import transaction
 from django.db.models import F
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
+
+from config.utils import safe_next, to_int
 
 from .middleware import SESSION_KEY as DEV_FACILITY_SESSION_KEY
 from .models import StaffAccount, StaffInvitation
@@ -125,16 +127,13 @@ class SwitchFacilityView(LoginRequiredMixin, View):
             request.session.pop(DEV_FACILITY_SESSION_KEY, None)
             messages.success(request, '自分の所属事業所に戻しました。')
         else:
-            facility = Facility.objects.filter(pk=fid).first()
+            facility = Facility.objects.filter(pk=to_int(fid, -1)).first()
             if facility is None:
                 messages.error(request, 'その事業所は存在しません。')
                 return redirect('facilities:dashboard')
             request.session[DEV_FACILITY_SESSION_KEY] = facility.pk
             messages.success(request, f'事業所を「{facility.name}」に切り替えました。')
-        nxt = request.POST.get('next') or ''
-        if nxt.startswith('/') and not nxt.startswith('//'):
-            return redirect(nxt)
-        return redirect('facilities:dashboard')
+        return redirect(safe_next(request, request.POST.get('next'), reverse('facilities:dashboard')))
 
 
 class AdminOnlyMixin(LoginRequiredMixin):

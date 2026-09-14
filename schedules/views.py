@@ -17,6 +17,7 @@ from django.views import View
 from beneficiaries.models import Beneficiary
 from .models import ScheduledVisit
 from facilities.context_processors import get_terms
+from config.utils import month_or_404
 
 
 class CalendarView(LoginRequiredMixin, View):
@@ -42,6 +43,7 @@ class CalendarView(LoginRequiredMixin, View):
             next_year, next_month = year, month + 1
 
         facility = request.user.facility
+        year, month = month_or_404(year, month)
         first_day = date(year, month, 1)
         last_day  = calendar.monthrange(year, month)[1]
         month_end = date(year, month, last_day)
@@ -230,6 +232,7 @@ class BulkCreateView(LoginRequiredMixin, View):
             messages.warning(request, f'在籍中の{get_terms(request.user)["beneficiary"]}がいないため、予定を作成できませんでした。')
             return redirect('schedules:calendar_month', year=year, month=month)
 
+        year, month = month_or_404(year, month)
         last_day  = calendar.monthrange(year, month)[1]
         all_dates = [date(year, month, d) for d in range(1, last_day + 1)]
 

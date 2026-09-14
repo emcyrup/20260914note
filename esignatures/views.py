@@ -44,17 +44,27 @@ class SaveSignatureView(LoginRequiredMixin, View):
 
         # target_id が自施設のレコードに属するか確認（他施設レコードへの署名を防止）
         facility = request.user.facility
+        try:
+            target_id = int(target_id)
+        except (TypeError, ValueError):
+            return JsonResponse({'ok': False, 'error': '対象の指定が正しくありません'})
         if target_type == 'daily_record':
             from records.models import DailyRecord
-            if not DailyRecord.objects.filter(pk=int(target_id), facility=facility).exists():
+            if not DailyRecord.objects.filter(pk=target_id, facility=facility).exists():
                 return JsonResponse({'ok': False, 'error': '対象の日誌が見つかりません'})
         elif target_type == 'support_plan':
             from support_plans.models import SupportPlan
-            plan = SupportPlan.objects.filter(pk=int(target_id), facility=facility).first()
+            plan = SupportPlan.objects.filter(pk=target_id, facility=facility).first()
             if not plan:
                 return JsonResponse({'ok': False, 'error': '対象の支援計画が見つかりません'})
             if plan.current_step != SupportPlan.STEP_CONSENT:
                 return JsonResponse({'ok': False, 'error': '同意の署名はステップ4「説明・同意・交付」で行います'})
+        elif target_type == 'monitoring':
+            from support_plans.models import MonitoringRecord
+            if not MonitoringRecord.objects.filter(pk=target_id, plan__facility=facility).exists():
+                return JsonResponse({'ok': False, 'error': '対象のモニタリング記録が見つかりません'})
+        else:
+            return JsonResponse({'ok': False, 'error': '無効な対象種別です'})
 
         # base64 → バイナリに変換
         if ',' in image_data:

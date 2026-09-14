@@ -79,11 +79,11 @@ def _viewpoints_text(vps):
 def service_record(facility, beneficiary, year, month):
     terms = _terms(facility)
     start, end = month_range(year, month)
-    visits = {v.date: v for v in ScheduledVisit.objects.filter(beneficiary=beneficiary, date__range=(start, end))}
-    entries = {e.date: e for e in BillingMatrixEntry.objects.filter(beneficiary=beneficiary, date__range=(start, end))
+    visits = {v.date: v for v in ScheduledVisit.objects.filter(facility=facility, beneficiary=beneficiary, date__range=(start, end))}
+    entries = {e.date: e for e in BillingMatrixEntry.objects.filter(facility=facility, beneficiary=beneficiary, date__range=(start, end))
                .prefetch_related('addons__addon')}
     records = {}
-    for r in DailyRecord.objects.filter(beneficiary=beneficiary, date__range=(start, end)).order_by('date', 'pk'):
+    for r in DailyRecord.objects.filter(facility=facility, beneficiary=beneficiary, date__range=(start, end)).order_by('date', 'pk'):
         records.setdefault(r.date, r)
 
     rows, counts = [], {'利用': 0, '欠席': 0, '振替': 0, '予定': 0}
@@ -210,7 +210,7 @@ def daily_journal(facility, day):
 # =============================================
 def beneficiary_records(facility, beneficiary, start, end):
     terms = _terms(facility)
-    records = list(DailyRecord.objects.filter(beneficiary=beneficiary, date__range=(start, end))
+    records = list(DailyRecord.objects.filter(facility=facility, beneficiary=beneficiary, date__range=(start, end))
                    .select_related('author').prefetch_related('activity_tags').order_by('date', 'pk'))
     rows = []
     for r in records:
