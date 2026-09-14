@@ -147,7 +147,7 @@ class SupportPlan(models.Model):
             return remaining
         step.completed_at = timezone.now()
         step.completed_by = user
-        step.save(update_fields=['completed_at', 'completed_by'])
+        step.save(update_fields=['completed_at', 'completed_by', 'updated_at'])
         if n < self.STEP_MONITORING:
             self.current_step = n + 1
             if self.current_step == self.STEP_MONITORING:
@@ -166,7 +166,7 @@ class SupportPlan(models.Model):
         step = self.get_step(n)
         step.completed_at = None
         step.completed_by = None
-        step.save(update_fields=['completed_at', 'completed_by'])
+        step.save(update_fields=['completed_at', 'completed_by', 'updated_at'])
         self.current_step = n
         if self.status == self.STATUS_ACTIVE:
             self.status = self.STATUS_IN_PROGRESS
@@ -216,6 +216,7 @@ class StepBase(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True, verbose_name='完了日時')
     completed_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
                                      related_name='+', verbose_name='完了者')
+    updated_at   = models.DateTimeField(auto_now=True)
 
     class Meta:
         abstract = True
@@ -303,6 +304,7 @@ class PlanGoal(models.Model):
     order       = models.PositiveSmallIntegerField(default=0)
     # 事業所様式の追加項目（支援区分・項目・担当者・留意事項・手順・達成基準など）
     form_extra  = models.JSONField(default=dict, blank=True, verbose_name='様式の追加項目')
+    updated_at  = models.DateTimeField(auto_now=True)
     # 目標の根拠になった日誌（あとから「なぜこう書いたか」をたどれる）
     evidence_records = models.ManyToManyField('records.DailyRecord', blank=True, related_name='evidence_for_goals',
                                               verbose_name='根拠になった記録')

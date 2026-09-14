@@ -24,6 +24,7 @@ from facilities.context_processors import get_terms
 from ai_assist.text import JAPANESE_RULES, clean_ai_dict, clean_ai_text, effort_kwargs
 from .paper import extract_paper_scan
 from config.utils import safe_next, to_int
+from config.concurrency import check_conflict, saved_at_label
 
 
 def to_date(value):
@@ -175,6 +176,10 @@ class StaffMemoUpdateView(LoginRequiredMixin, View):
     """メモ本文を編集してダッシュボードに戻る（自施設のメモのみ）"""
     def post(self, request, pk):
         memo = get_object_or_404(StaffMemo, pk=pk, facility=request.user.facility)
+        conflict = check_conflict(request, memo)
+        if conflict:
+            messages.error(request, conflict)
+            return redirect('records:dashboard')
         content = request.POST.get('content', '').strip()
         if content:
             memo.content = content
@@ -415,6 +420,12 @@ class DailyRecordCreateView(LoginRequiredMixin, View):
             'status':                  p.get('status', DailyRecord.STATUS_DRAFT),
         }
 
+        # 同じ日の日誌がすでにある（他の職員が先に作った）ときは黙って上書きしない
+        existing = DailyRecord.objects.filter(beneficiary=beneficiary, date=date).first()
+        if existing is not None and 'version' in p and p.get('force_save') != '1':
+            messages.error(request, f'{date} の日誌はすでにあります（{saved_at_label(existing)} 保存）。他の職員が先に作成した可能性があります。'
+                                    '一覧から開いて編集してください。')
+            return redirect(f'/records/{beneficiary_pk}/?selected={existing.pk}')
         record, created = DailyRecord.objects.get_or_create(
             beneficiary=beneficiary,
             date=date,
@@ -459,6 +470,10 @@ class DailyRecordUpdateView(LoginRequiredMixin, View):
         facility = request.user.facility
         record   = get_object_or_404(DailyRecord, pk=pk, facility=facility)
         p = request.POST
+        conflict = check_conflict(request, record)
+        if conflict:
+            messages.error(request, conflict)
+            return redirect(f'/records/{record.beneficiary_id}/?selected={record.pk}')
 
         # 担当者IDの検証（自施設の職員のみ受け付ける）
         author_pk = p.get('author')
@@ -863,6 +878,10 @@ class TemplateApplyView(LoginRequiredMixin, View):
 class TemplateUpdateView(LoginRequiredMixin, View):
     def post(self, request, pk):
         t = get_object_or_404(RecordTemplate, pk=pk, facility=request.user.facility)
+        conflict = check_conflict(request, t)
+        if conflict:
+            messages.error(request, conflict)
+            return redirect('records:template_list')
         p = request.POST
         t.name = p.get('name', '').strip()[:100] or t.name
         for f in RecordTemplate.TEXT_FIELDS:

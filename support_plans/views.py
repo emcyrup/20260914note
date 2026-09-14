@@ -19,6 +19,7 @@ from .forms import (
 from .models import MonitoringRecord, PlanGoal, SupportPlan
 from config.pdf import media_url_fetcher
 from config.utils import to_int
+from config.concurrency import STEP_KINDS, check_conflict
 
 STEP_FORMS = {
     SupportPlan.STEP_ASSESSMENT: AssessmentForm,
@@ -175,6 +176,8 @@ class PlanStepView(PlanMixin, View):
             ctx['successor'] = getattr(plan, 'successor', None)
             ctx['next_due'] = plan.next_monitoring_due
             ctx['overdue'] = plan.monitoring_overdue
+        ctx['step'] = self.step
+        ctx['step_kind'] = STEP_KINDS.get(self.n, '')
         ctx.update(extra)
         return ctx
 
@@ -193,6 +196,11 @@ class PlanStepView(PlanMixin, View):
         if self.readonly:
             messages.info(request, 'このステップは完了済みです。修正する場合は「完了を取り消して修正」を押してください。')
             return redirect('support_plans:step', pk=pk, n=n)
+        conflict = check_conflict(request, self.step)
+        if conflict:
+            form = STEP_FORMS[n](request.POST, instance=STEP_FORMS[n].Meta.model.objects.get(pk=self.step.pk), facility=self.plan.facility)
+            messages.error(request, conflict)
+            return render(request, self.template_name, self._context(form, conflict=conflict))
         form = STEP_FORMS[n](request.POST, instance=self.step, facility=self.plan.facility)
         if not form.is_valid():
             messages.error(request, '入力内容に誤りがあります。')
@@ -235,13 +243,18 @@ class GoalSaveView(PlanMixin, View):
             return redirect('support_plans:detail', pk=pk)
         goal = get_object_or_404(plan.goals, pk=goal_pk) if goal_pk else None
         form = PlanGoalForm(request.POST, instance=goal, facility=plan.facility)
-        if not form.is_valid():
+        conflict = check_conflict(request, goal) if goal else None
+        if conflict or not form.is_valid():
             view = PlanStepView()
             view.request, view.plan, view.n = request, plan, SupportPlan.STEP_DRAFT
             view.step, view.readonly = plan.get_step(SupportPlan.STEP_DRAFT), False
             draft_form = PlanDraftForm(instance=view.step, facility=plan.facility)
-            messages.error(request, '目標の入力内容に誤りがあります。')
-            return render(request, view.template_name, view._context(draft_form, goal_form=form, editing_goal=goal))
+            if conflict:
+                goal = PlanGoal.objects.get(pk=goal.pk)   # 版の表示は DB の最新に合わせる
+                messages.error(request, conflict)
+            else:
+                messages.error(request, '目標の入力内容に誤りがあります。')
+            return render(request, view.template_name, view._context(draft_form, goal_form=form, editing_goal=goal, goal_conflict=conflict))
         g = form.save(commit=False)
         g.plan = plan
         if not goal_pk:
@@ -287,7 +300,7 @@ class MonitoringRecordCreateView(PlanMixin, View):
         if not step.completed_at:
             step.completed_at = timezone.now()
             step.completed_by = request.user
-            step.save(update_fields=['completed_at', 'completed_by'])
+            step.save(update_fields=['completed_at', 'completed_by', 'updated_at'])
         if rec.review_needed:
             messages.warning(request, 'モニタリングを記録しました。見直しが必要と判断したので「次の計画を作成」から新しい計画を始められます。')
         else:

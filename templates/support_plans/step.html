@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load concurrency %}
 
 {% block title %}ステップ{{ n }} {{ label }} — {{ plan.beneficiary.full_name }}{% endblock %}
 {% block page_title %}{{ plan.beneficiary.full_name }} さんの{{ plan.title }}{% endblock %}
@@ -145,8 +146,14 @@
           </form>
           {% endif %}
 
-          <form method="post" id="stepForm">
+          <form method="post" id="stepForm" data-concurrency="{{ step_kind }}:{{ step.pk }}">
             {% csrf_token %}
+            {% version_field step %}
+            {% if conflict %}
+            <div class="conflict-box"><i class="bi bi-exclamation-triangle me-1"></i>{{ conflict }}
+              <label class="d-block mt-2"><input type="checkbox" name="force_save" value="1" class="form-check-input me-1">それでも、いま入力した内容で上書きして保存する</label>
+            </div>
+            {% endif %}
             <div class="row g-3">
               {% for field in form %}
               <div class="{% if field.field.widget.input_type == 'date' or field.name == 'interviewed_with' or field.name == 'interviewer' or field.name == 'explained_to' or field.name == 'explained_by' or field.name == 'consent_method' or field.name == 'consent_signer' or field.name == 'consultation_office' or field.name == 'interval_months' %}col-sm-6{% else %}col-12{% endif %}">
@@ -251,8 +258,15 @@
 
           {% if not readonly %}
           <form method="post" id="goalForm" class="p-3 rounded-3" style="background: var(--paper);"
-                action="{% if editing_goal %}{% url 'support_plans:goal_edit' plan.pk editing_goal.pk %}{% else %}{% url 'support_plans:goal_add' plan.pk %}{% endif %}">
+                action="{% if editing_goal %}{% url 'support_plans:goal_edit' plan.pk editing_goal.pk %}{% else %}{% url 'support_plans:goal_add' plan.pk %}{% endif %}"
+                {% if editing_goal %}data-concurrency="goal:{{ editing_goal.pk }}"{% endif %}>
             {% csrf_token %}
+            {% if editing_goal %}{% version_field editing_goal %}{% endif %}
+            {% if goal_conflict %}
+            <div class="conflict-box"><i class="bi bi-exclamation-triangle me-1"></i>{{ goal_conflict }}
+              <label class="d-block mt-2"><input type="checkbox" name="force_save" value="1" class="form-check-input me-1">それでも、いま入力した内容で上書きして保存する</label>
+            </div>
+            {% endif %}
             <div class="fw-bold mb-2">{% if editing_goal %}目標を編集{% else %}目標を追加{% endif %}</div>
             <div class="row g-2">
               <div class="col-sm-4">{% include 'support_plans/_field.html' with field=goal_form.goal_type required=True %}</div>

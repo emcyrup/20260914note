@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load concurrency %}
 
 {% block title %}施設設定{% endblock %}
 {% block page_title %}施設設定{% endblock %}
@@ -45,8 +46,9 @@
   <!-- ===== 施設基本情報 ===== -->
   <div class="settings-card">
     <div class="settings-section-title">施設基本情報</div>
-    <form method="post" action="{% url 'facilities:facility_update' %}" enctype="multipart/form-data">
+    <form method="post" action="{% url 'facilities:facility_update' %}" enctype="multipart/form-data" data-concurrency="facility:{{ facility.pk }}">
       {% csrf_token %}
+      {% version_field facility %}
       <div class="row g-3">
         <div class="col-md-6">
           <label class="form-label small fw-semibold">施設名 <span class="text-danger">*</span></label>
@@ -150,8 +152,9 @@
   <!-- ===== 使う機能・日誌の項目 ===== -->
   <div class="settings-card">
     <div class="settings-section-title">使う機能と、日誌で AI が作る項目</div>
-    <form method="post" action="{% url 'facilities:feature_settings' %}" id="featureForm">
+    <form method="post" action="{% url 'facilities:feature_settings' %}" id="featureForm" data-concurrency="facility:{{ facility.pk }}">
       {% csrf_token %}
+      {% version_field facility %}
       <div class="row g-3">
         <div class="col-md-5">
           <div class="small fw-semibold mb-2">使う機能</div>

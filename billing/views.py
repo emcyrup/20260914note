@@ -39,6 +39,7 @@ REGION_UNIT_PRICE = {
 from .forms import CopaymentManagementForm, CopaymentOfficeRecordForm
 from .models import BillingMatrixAddon, BillingMatrixEntry, CopaymentManagement, CopaymentOfficeRecord
 from config.utils import date_or_404, month_or_404
+from config.concurrency import check_conflict
 
 
 class BillingEnabledMixin:
@@ -553,6 +554,7 @@ class CopaymentEditView(LoginRequiredMixin, BillingEnabledMixin, View):
             'year_month':  year_month,
             'form':        form,
             'formset':     formset,
+            'conflict':    conflict,
             'management':  management,
         })
 
@@ -568,11 +570,14 @@ class CopaymentEditView(LoginRequiredMixin, BillingEnabledMixin, View):
             defaults    = {'is_upper_limit_manager': True, 'management_result': '2'},
         )
 
+        conflict = check_conflict(request, management)
         form    = CopaymentManagementForm(request.POST, instance=management)
         FormSet = self._get_formset_class()
         formset = FormSet(request.POST, instance=management)
 
-        if form.is_valid() and formset.is_valid():
+        if conflict:
+            messages.error(request, conflict)
+        elif form.is_valid() and formset.is_valid():
             form.save()
             formset.save()
             messages.success(
@@ -588,6 +593,7 @@ class CopaymentEditView(LoginRequiredMixin, BillingEnabledMixin, View):
             'year_month':  year_month,
             'form':        form,
             'formset':     formset,
+            'conflict':    conflict,
             'management':  management,
         })
 

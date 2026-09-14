@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load concurrency %}
 
 {% block title %}日誌テンプレート — 放課後等デイサービス業務支援{% endblock %}
 {% block page_title %}日誌テンプレート{% endblock %}
@@ -47,8 +48,8 @@
     <div class="modal fade" id="editTpl{{ t.pk }}" tabindex="-1">
       <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
-          <form method="post" action="{% url 'records:template_edit' t.pk %}">
-            {% csrf_token %}
+          <form method="post" action="{% url 'records:template_edit' t.pk %}" data-concurrency="template:{{ t.pk }}">
+            {% csrf_token %}{% version_field t %}
             <div class="modal-header"><h5 class="modal-title fw-bold">テンプレートを編集</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
               <p class="small text-muted">{{ terms.beneficiary }}の名前を入れる場所には <code>{名前}</code> と書いてください。</p>

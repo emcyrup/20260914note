@@ -20,6 +20,7 @@ from support_plans.models import PlanGoal, SupportPlan
 from .models import AgencyMeetingReport, SpecializedSupportPlan
 from config.pdf import media_url_fetcher
 from config.utils import to_int
+from config.concurrency import check_conflict
 
 # 詳細版の行（支援区分・支援項目）
 DETAIL_ROWS = [
@@ -137,6 +138,10 @@ class MeetingEditView(FormSetMixin, View):
         facility = request.user.facility
         obj = get_object_or_404(AgencyMeetingReport, pk=pk, facility=facility) if pk else AgencyMeetingReport(facility=facility)
         p = request.POST
+        conflict = check_conflict(request, obj) if pk else None
+        if conflict:
+            messages.error(request, conflict)
+            return redirect(request.path)
         beneficiary = Beneficiary.objects.filter(facility=facility, pk=to_int(p.get('beneficiary'), -1)).first()
         d = _date(p.get('date'))
         if not beneficiary or not d:
@@ -193,6 +198,10 @@ class SpecializedEditView(FormSetMixin, View):
         facility = request.user.facility
         obj = get_object_or_404(SpecializedSupportPlan, pk=pk, facility=facility) if pk else SpecializedSupportPlan(facility=facility)
         p = request.POST
+        conflict = check_conflict(request, obj) if pk else None
+        if conflict:
+            messages.error(request, conflict)
+            return redirect(request.path)
         beneficiary = Beneficiary.objects.filter(facility=facility, pk=to_int(p.get('beneficiary'), -1)).first()
         if not beneficiary:
             messages.error(request, f'{get_terms(request.user)["beneficiary"]}を選んでください。')
@@ -282,16 +291,20 @@ class PlanExtraView(FormSetMixin, View):
 
     def post(self, request, pk):
         plan = _plan_or_404(request, pk)
+        conflict = check_conflict(request, plan)
+        if conflict:
+            messages.error(request, conflict)
+            return redirect(request.path)
         p = request.POST
         plan.form_extra = {k: p.get(k, '').strip() for k, _, _ in PLAN_EXTRA_FIELDS}
-        plan.save(update_fields=['form_extra'])
+        plan.save(update_fields=['form_extra', 'updated_at'])
         valid_cats = {k for k, _, _ in DETAIL_ROWS}
         for g in plan.goals.all():
             extra = {k: p.get(f'g{g.pk}_{k}', '').strip() for k, _ in GOAL_EXTRA_FIELDS}
             if extra.get('category') not in valid_cats:
                 extra['category'] = ''
             g.form_extra = extra
-            g.save(update_fields=['form_extra'])
+            g.save(update_fields=['form_extra', 'updated_at'])
         messages.success(request, '様式の追加項目を保存しました。')
         return redirect('support_plans:detail', pk=plan.pk)
 

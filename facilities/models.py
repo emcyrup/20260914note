@@ -56,6 +56,7 @@ class Facility(models.Model):
     FORM_SET_CHOICES = [(FORM_SET_STANDARD, '標準'), (FORM_SET_HAPPINESS, 'はぴねす様式（関係機関連携報告書・個別支援計画書 別紙1／詳細版・専門的支援実施計画書）')]
     form_set = models.CharField(max_length=20, choices=FORM_SET_CHOICES, default=FORM_SET_STANDARD, verbose_name='帳票様式')
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     JOURNAL_SECTIONS = [
         ('activity',       '活動・めあて・観点・考察'),
@@ -165,3 +166,20 @@ class FacilityAddonSetting(models.Model):
 
     def __str__(self):
         return f'{self.facility.name} - {self.addon.name}'
+
+
+class EditingSession(models.Model):
+    """いま編集フォームを開いている職員（同じ画面を開いた他の職員に「編集中」と知らせる）"""
+    facility   = models.ForeignKey(Facility, on_delete=models.CASCADE)
+    kind       = models.CharField(max_length=30)
+    target_id  = models.PositiveIntegerField()
+    user       = models.ForeignKey('accounts.StaffAccount', on_delete=models.CASCADE)
+    started_at = models.DateTimeField(auto_now_add=True)
+    touched_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [('kind', 'target_id', 'user')]
+        indexes = [models.Index(fields=['kind', 'target_id', 'touched_at'])]
+
+    def __str__(self):
+        return f'{self.user} が {self.kind}:{self.target_id} を編集中'

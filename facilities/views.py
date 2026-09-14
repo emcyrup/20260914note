@@ -4,6 +4,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import OuterRef, Subquery
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 from django.views.generic import TemplateView
@@ -12,6 +13,7 @@ from beneficiaries.models import Beneficiary, RecipientCertificate
 from records.models import ActivityTag
 from schedules.models import ScheduledVisit
 from accounts.views import AdminOnlyMixin
+from config import concurrency
 from .forms import ActivityTagForm, FacilityForm, SupportContentTagForm
 from .models import AddonMaster, Facility, FacilityAddonSetting, SupportContentTag
 
@@ -153,6 +155,10 @@ class FacilityUpdateView(AdminOnlyMixin, View):
 
     def post(self, request):
         facility = request.user.facility
+        conflict = concurrency.check_conflict(request, facility)
+        if conflict:
+            messages.error(request, conflict)
+            return redirect('facilities:settings')
         form = FacilityForm(request.POST, request.FILES, instance=facility)
         if form.is_valid():
             form.save()
@@ -170,6 +176,10 @@ class FeatureSettingsView(LoginRequiredMixin, View):
             messages.error(request, 'この設定を変えられるのは管理者だけです。')
             return redirect('facilities:settings')
         facility = request.user.facility
+        conflict = concurrency.check_conflict(request, facility)
+        if conflict:
+            messages.error(request, conflict)
+            return redirect('facilities:settings')
         facility.use_billing = 'use_billing' in request.POST
         facility.use_line = 'use_line' in request.POST
         valid = [k for k, _ in Facility.JOURNAL_SECTIONS]
@@ -183,7 +193,7 @@ class FeatureSettingsView(LoginRequiredMixin, View):
             form_set = request.POST.get('form_set', facility.form_set)
             if form_set in dict(Facility.FORM_SET_CHOICES):
                 facility.form_set = form_set
-        facility.save(update_fields=['use_billing', 'use_line', 'journal_sections', 'form_set'])
+        facility.save(update_fields=['use_billing', 'use_line', 'journal_sections', 'form_set', 'updated_at'])
         messages.success(request, '使う機能と日誌の項目を保存しました。')
         return redirect('facilities:settings')
 
@@ -397,3 +407,34 @@ class AddonLoadDefaultsView(LoginRequiredMixin, View):
         else:
             messages.info(request, 'すでにすべての標準加算マスタが登録されています。')
         return redirect('facilities:settings')
+
+
+# =============================================
+# 同時編集：版の確認と「編集中」の通知
+# =============================================
+class EditingView(LoginRequiredMixin, View):
+    """
+    GET  ?kind=&id=            → その対象の現在の版と、編集中の他の職員
+    POST action=touch|release  → 自分が編集中であることを知らせる／やめる
+    """
+
+    def _target(self, request, data):
+        obj = concurrency.resolve(data.get('kind'), data.get('id'), request.user.facility)
+        if obj is None:
+            raise Http404
+        return data.get('kind'), obj
+
+    def get(self, request):
+        kind, obj = self._target(request, request.GET)
+        return JsonResponse({
+            'version': concurrency.version_token(obj), 'updated_at': concurrency.saved_at_label(obj),
+            'others': concurrency.others_editing(request.user.facility, kind, obj.pk, request.user),
+        })
+
+    def post(self, request):
+        kind, obj = self._target(request, request.POST)
+        if request.POST.get('action') == 'release':
+            concurrency.release(kind, obj.pk, request.user)
+            return JsonResponse({'ok': True})
+        concurrency.touch(request.user.facility, kind, obj.pk, request.user)
+        return JsonResponse({'ok': True, 'others': concurrency.others_editing(request.user.facility, kind, obj.pk, request.user)})

@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load concurrency %}
 
 {% block title %}関係機関連携加算Ⅱ 報告書 — 放課後等デイサービス業務支援{% endblock %}
 {% block page_title %}関係機関連携加算Ⅱ 報告書{% endblock %}
@@ -6,8 +7,9 @@
 
 {% block content %}
 <div class="px-2" style="max-width: 960px;">
-  <form method="post">
+  <form method="post" {% if obj %}data-concurrency="meeting_report:{{ obj.pk }}"{% endif %}>
     {% csrf_token %}
+    {% if obj %}{% version_field obj %}{% endif %}
     <div class="card mb-3"><div class="card-body">
       <div class="row g-2">
         <div class="col-md-4">

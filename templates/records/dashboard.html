@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load concurrency %}
 
 {% block title %}日誌 週間カレンダー{% endblock %}
 {% block page_title %}記録{% endblock %}
@@ -357,8 +358,8 @@
 
         <!-- 編集フォーム（初期非表示） -->
         <div id="memo-edit-{{ memo.pk }}" style="display:none;">
-          <form method="post" action="{% url 'records:memo_edit' memo.pk %}">
-            {% csrf_token %}
+          <form method="post" action="{% url 'records:memo_edit' memo.pk %}" data-concurrency="memo:{{ memo.pk }}">
+            {% csrf_token %}{% version_field memo %}
             <textarea name="content" id="memo-edit-text-{{ memo.pk }}" rows="2"
                       class="form-control mb-2" style="font-size:0.88rem;resize:none;"></textarea>
             <div class="d-flex gap-2 align-items-center">

@@ -15,6 +15,7 @@ import anthropic
 from .models import Beneficiary, Guardian, RecipientCertificate
 from .forms import BeneficiaryForm, GuardianForm, RecipientCertificateForm
 from facilities.context_processors import get_terms
+from config.concurrency import check_conflict
 
 
 # =============================================
@@ -128,6 +129,15 @@ class BeneficiaryUpdateView(LoginRequiredMixin, UpdateView):
     def get_queryset(self):
         return Beneficiary.objects.filter(facility=self.request.user.facility)
 
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        conflict = check_conflict(request, self.object)
+        if conflict:
+            messages.error(request, conflict)
+            form = self.get_form()
+            return self.render_to_response(self.get_context_data(form=form, conflict=conflict))
+        return super().post(request, *args, **kwargs)
+
     def form_valid(self, form):
         messages.success(self.request, f'{get_terms(self.request.user)["beneficiary"]}情報を更新しました。')
         return super().form_valid(form)
@@ -173,6 +183,10 @@ class GuardianUpdateView(LoginRequiredMixin, View):
             Beneficiary, pk=beneficiary_pk, facility=request.user.facility
         )
         guardian = get_object_or_404(Guardian, pk=guardian_pk, beneficiary=beneficiary)
+        conflict = check_conflict(request, guardian)
+        if conflict:
+            messages.error(request, conflict)
+            return redirect('beneficiaries:detail', pk=beneficiary_pk)
         form = GuardianForm(request.POST, instance=guardian)
         if form.is_valid():
             form.save()
@@ -211,6 +225,10 @@ class RecipientCertificateUpdateView(LoginRequiredMixin, View):
             Beneficiary, pk=beneficiary_pk, facility=request.user.facility
         )
         cert = get_object_or_404(RecipientCertificate, pk=cert_pk, beneficiary=beneficiary)
+        conflict = check_conflict(request, cert)
+        if conflict:
+            messages.error(request, conflict)
+            return redirect('beneficiaries:detail', pk=beneficiary_pk)
         form = RecipientCertificateForm(request.POST, request.FILES, instance=cert)
         if form.is_valid():
             form.save()
@@ -321,7 +339,7 @@ class RegenerateLineCodeView(LoginRequiredMixin, View):
             beneficiary__facility=request.user.facility
         )
         guardian.issue_line_code()
-        guardian.save(update_fields=['line_registration_code', 'line_code_expires_at'])
+        guardian.save(update_fields=['line_registration_code', 'line_code_expires_at', 'updated_at'])
         messages.success(request, f'{guardian}のLINE登録コードを再発行しました（72時間有効）。')
         return redirect('beneficiaries:detail', pk=guardian.beneficiary_id)
 

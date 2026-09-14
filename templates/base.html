@@ -47,7 +47,7 @@
 
   {% block extra_css %}{% endblock %}
 </head>
-<body class="{% if user.is_authenticated %}theme-{{ user.ui_theme }} mode-{{ user.prefs.mode }}{% endif %}">
+<body class="{% if user.is_authenticated %}theme-{{ user.ui_theme }} mode-{{ user.prefs.mode }}{% endif %}"{% if user.is_authenticated %} data-editing-url="{% url 'facilities:editing' %}"{% endif %}>
 
 {% if user.is_authenticated %}
 <!-- ========== アプリシェル（サイドバー＋メインエリア） ========== -->
@@ -297,6 +297,7 @@
 <!-- HTMX（ページ遷移なしの部分更新用） -->
 <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 
+{% if user.is_authenticated %}<script src="{% static 'js/concurrency.js' %}?v=1"></script>{% endif %}
 {% block extra_js %}{% endblock %}
 
 {% if user.is_authenticated and user.ui_theme != 'simple' %}

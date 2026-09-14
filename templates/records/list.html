@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load concurrency %}
 
 {% block title %}{{ beneficiary.full_name }}の日誌{% endblock %}
 {% block page_title %}{{ beneficiary.full_name }}の日誌{% endblock %}
@@ -893,6 +894,7 @@
             x-data="journalCreateForm('{% url 'records:ai_generate_all' %}', '{% url 'records:ai_activity_plan' %}')"
             @submit.prevent="submitForm($el)">
         {% csrf_token %}
+        <input type="hidden" name="version" value="">
         <div class="modal-header" style="border-bottom:1px solid #e8e8e8;">
           <div>
             <p class="section-kicker mb-0">NEW RECORD · {{ beneficiary.full_name }}</p>
@@ -1187,6 +1189,7 @@
     <div class="modal-content">
       <form method="post" action="{% url 'records:update' selected_record.pk %}"
             enctype="multipart/form-data"
+            data-concurrency="daily_record:{{ selected_record.pk }}"
             @submit.prevent="submitForm($el)"
             x-data="journalEditForm(
               '{% url 'records:ai_generate_all' %}',
@@ -1208,6 +1211,7 @@
               }
             )">
         {% csrf_token %}
+        {% version_field selected_record %}
         <div class="modal-header" style="border-bottom:1px solid #e8e8e8;">
           <div>
             <p class="section-kicker mb-0">EDIT RECORD</p>
@@ -1775,6 +1779,10 @@ function journalCreateForm(generateUrl, planUrl) {
     },
 
     submitForm(formEl) {
+      if (window.Concurrency && !formEl.dataset.concurrencyOk) {
+        window.Concurrency.check(formEl).then((ok) => { if (ok) { formEl.dataset.concurrencyOk = '1'; this.submitForm(formEl); } });
+        return;
+      }
       // iOS Safari では input.files への代入が無効なため、
       // _prev（蓄積済みファイルリスト）と input.files の枚数が合わない場合は
       // fetch + FormData で手動送信してすべての写真を確実に含める
@@ -1842,6 +1850,10 @@ function journalEditForm(generateUrl, initialResult, initSupportTags = [], initD
     },
 
     submitForm(formEl) {
+      if (window.Concurrency && !formEl.dataset.concurrencyOk) {
+        window.Concurrency.check(formEl).then((ok) => { if (ok) { formEl.dataset.concurrencyOk = '1'; this.submitForm(formEl); } });
+        return;
+      }
       const photoInput = formEl.querySelector('input[name="photos"]');
       const allFiles = photoInput && photoInput._prev ? photoInput._prev : [];
       const currentCount = photoInput && photoInput.files ? photoInput.files.length : 0;

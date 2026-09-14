@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load concurrency %}
 
 {% block title %}{{ page_title }} — 放課後等デイサービス業務支援{% endblock %}
 {% block page_title %}{{ page_title }}{% endblock %}
@@ -15,8 +16,14 @@
     <h2 class="fw-bold mt-1" style="color: var(--color-primary);">{{ page_title }}</h2>
   </div>
 
-  <form method="post">
+  <form method="post" {% if object.pk %}data-concurrency="beneficiary:{{ object.pk }}"{% endif %}>
     {% csrf_token %}
+    {% if object.pk %}{% version_field object %}{% endif %}
+    {% if conflict %}
+    <div class="conflict-box"><i class="bi bi-exclamation-triangle me-1"></i>{{ conflict }}
+      <label class="d-block mt-2"><input type="checkbox" name="force_save" value="1" class="form-check-input me-1">それでも、いま入力した内容で上書きして保存する</label>
+    </div>
+    {% endif %}
 
     <!-- 氏名 -->
     <div class="card mb-3">

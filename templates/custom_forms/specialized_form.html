@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load concurrency %}
 {% load form_extras %}
 
 {% block title %}専門的支援実施計画書 — 放課後等デイサービス業務支援{% endblock %}
@@ -7,8 +8,9 @@
 
 {% block content %}
 <div class="px-2" style="max-width: 1000px;">
-  <form method="post">
+  <form method="post" {% if obj %}data-concurrency="specialized_plan:{{ obj.pk }}"{% endif %}>
     {% csrf_token %}
+    {% if obj %}{% version_field obj %}{% endif %}
     <div class="card mb-3"><div class="card-body">
       <div class="row g-2">
         <div class="col-md-4">

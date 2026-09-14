@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load concurrency %}
 {% load static %}
 
 {% block title %}{{ beneficiary.full_name }} — {{ terms.beneficiary }}詳細{% endblock %}
@@ -348,8 +349,9 @@
 <div class="modal fade" id="editModal" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
-      <form method="post" action="{% url 'beneficiaries:update' beneficiary.pk %}">
+      <form method="post" action="{% url 'beneficiaries:update' beneficiary.pk %}" data-concurrency="beneficiary:{{ beneficiary.pk }}">
         {% csrf_token %}
+        {% version_field beneficiary %}
         <div class="modal-header">
           <div>
             <div class="section-title">EDIT PROFILE</div>
@@ -463,8 +465,9 @@
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form method="post" action="{% url 'beneficiaries:certificate_update' beneficiary.pk c.pk %}"
-            enctype="multipart/form-data">
+            enctype="multipart/form-data" data-concurrency="certificate:{{ c.pk }}">
         {% csrf_token %}
+        {% version_field c %}
         <div class="modal-header">
           <h5 class="modal-title fw-bold">受給者証を編集</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -524,8 +527,9 @@
   <div class="modal-dialog">
     <div class="modal-content">
       <form method="post" action="{% url 'beneficiaries:guardian_update' beneficiary.pk g.pk %}"
-            x-data="{ lineId: '{{ g.line_user_id|escapejs }}' }">
+            x-data="{ lineId: '{{ g.line_user_id|escapejs }}' }" data-concurrency="guardian:{{ g.pk }}">
         {% csrf_token %}
+        {% version_field g %}
         <div class="modal-header">
           <h5 class="modal-title fw-bold">保護者を編集</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

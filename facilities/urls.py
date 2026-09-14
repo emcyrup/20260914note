@@ -8,6 +8,7 @@ urlpatterns = [
 
     # 施設設定
     path('settings/', views.SettingsView.as_view(), name='settings'),
+    path('editing/', views.EditingView.as_view(), name='editing'),
     path('settings/facility/update/', views.FacilityUpdateView.as_view(), name='facility_update'),
     path('settings/features/', views.FeatureSettingsView.as_view(), name='feature_settings'),
 

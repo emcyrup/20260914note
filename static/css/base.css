@@ -1645,3 +1645,7 @@ body.theme-stylish .theme-card .card-body, body.mode-dark .theme-card .card-body
 body.theme-stylish .pref-swatch, body.mode-dark .pref-swatch, html.prefers-dark body.mode-auto .pref-swatch { color: var(--ink); }
 body.theme-stylish .pref-preview, body.mode-dark .pref-preview, html.prefers-dark body.mode-auto .pref-preview { color: var(--ink); }
 body.theme-stylish .btn-outline-secondary:disabled, body.mode-dark .btn-outline-secondary:disabled, html.prefers-dark body.mode-auto .btn-outline-secondary:disabled { color: var(--ink-soft); border-color: var(--line); }
+
+/* 同時編集：他の職員が編集中の表示・競合の案内 */
+.editing-banner { background: #fff4d6; border: 1px solid #f0c66a; color: #6b4d00; border-radius: 8px; padding: 8px 12px; font-size: 0.88rem; margin-bottom: 10px; }
+.conflict-box { background: #fde8e8; border: 1px solid #e9a3a3; color: #7a1f1f; border-radius: 8px; padding: 10px 12px; font-size: 0.9rem; margin-bottom: 12px; }
