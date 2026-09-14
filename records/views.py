@@ -1,6 +1,7 @@
 import json
 import logging
-from datetime import date, timedelta
+import os
+from datetime import date, datetime, timedelta
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views import View
 from django.views.generic import TemplateView
@@ -16,11 +17,12 @@ logger = logging.getLogger(__name__)
 
 from beneficiaries.models import Beneficiary
 from esignatures.models import EsignatureRecord
-from facilities.models import SupportContentTag
+from facilities.models import Facility, SupportContentTag
 from schedules.models import ScheduledVisit
-from .models import DailyRecord, ActivityTag, DailyRecordPhoto, RecordTemplate, StaffMemo
+from .models import DailyRecord, ActivityTag, DailyRecordPhoto, PaperScan, RecordTemplate, StaffMemo
 from facilities.context_processors import get_terms
 from ai_assist.text import JAPANESE_RULES, clean_ai_dict, clean_ai_text, effort_kwargs
+from .paper import extract_paper_scan
 
 
 MAX_PHOTOS_PER_RECORD = 5  # 1件の日誌に添付できる写真の最大枚数
@@ -343,6 +345,8 @@ def _send_line_for_record(request, record):
 
 
 def _suggest_addons_after_save(record):
+    if not record.facility.use_billing:
+        return
     """日誌の保存後に AI 加算提案を作る（失敗しても保存は成功扱い）"""
     if not (settings.AI_ADDON_SUGGESTIONS and settings.ANTHROPIC_API_KEY):
         return
@@ -574,8 +578,24 @@ class AiGenerateAllView(LoginRequiredMixin, View):
     - 保護者向けメッセージ（100〜150字・LINE送信用）
     """
 
+    ITEM_SPECS = {
+        'observation':    ('observation',    '活動内容・観察記録（80〜120字・事実に基づき客観的に）'),
+        'support':        ('support',        '支援内容の記録（80〜120字・どのような支援をしたか具体的に）'),
+        'reaction':       ('reaction',       '本人の反応・変化の記録（60〜100字・言動や表情など具体的に）'),
+        'parent_message': ('parent_message', '保護者向けメッセージ（100〜150字・温かみのある表現で今日の様子を伝える）'),
+    }
+
+    @classmethod
+    def build_prompt(cls, keys):
+        """施設で決めた項目を、優先順位の順に並べた JSON の形で指示する"""
+        keys = [k for k in keys if k in cls.ITEM_SPECS] or list(cls.ITEM_SPECS)
+        lines = ',\n'.join(f'  "{cls.ITEM_SPECS[k][0]}": "{cls.ITEM_SPECS[k][1]}"' for k in keys)
+        order = '、'.join(f'{i + 1}. {Facility.JOURNAL_SECTION_LABELS[k]}' for i, k in enumerate(keys))
+        return cls.SYSTEM_PROMPT.replace('{ITEMS}', lines).replace('{COUNT}', str(len(keys))).replace('{ORDER}', order)
+
     SYSTEM_PROMPT = """あなたは放課後等デイサービスの記録専門AIアシスタントです。
-職員のメモ書きと選択されたタグをもとに、4種類の記録文章を生成してください。「して下さいました」などの過剰な敬語は不要です。
+職員のメモ書きと選択されたタグをもとに、{COUNT}種類の記録文章を生成してください。「して下さいました」などの過剰な敬語は不要です。
+項目の優先順位は {ORDER} の順です。優先順位の高い項目ほどメモの事実を漏らさず丁寧に書き、後の項目は前の項目と重複しない内容にしてください。
 
 """ + JAPANESE_RULES + """
 
@@ -583,10 +603,7 @@ class AiGenerateAllView(LoginRequiredMixin, View):
 文字列の中に改行を入れず、1つの文字列は1行で書いてください。JSON の文字列に \\u のようなエスケープを使わず、日本語をそのまま書いてください。
 
 {
-  "observation": "活動内容・観察記録（80〜120字・事実に基づき客観的に）",
-  "support": "支援内容の記録（80〜120字・どのような支援をしたか具体的に）",
-  "reaction": "本人の反応・変化の記録（60〜100字・言動や表情など具体的に）",
-  "parent_message": "保護者向けメッセージ（100〜150字・温かみのある表現で今日の様子を伝える）"
+{ITEMS}
 }"""
 
     def post(self, request):
@@ -606,7 +623,7 @@ class AiGenerateAllView(LoginRequiredMixin, View):
                 model=settings.AI_TEXT_MODEL,
                 max_tokens=2048,
                 **effort_kwargs(settings.AI_TEXT_MODEL),
-                system=self.SYSTEM_PROMPT,
+                system=self.build_prompt(request.user.facility.journal_text_keys()),
                 messages=[{'role': 'user', 'content': user_content}],
             )
             raw = ''.join(b.text for b in response.content if b.type == 'text').strip()
@@ -619,7 +636,9 @@ class AiGenerateAllView(LoginRequiredMixin, View):
             data  = json.loads(raw[start:end], strict=False)
             if not isinstance(data, dict):
                 raise json.JSONDecodeError('object expected', raw, 0)
-            return JsonResponse(clean_ai_dict(data, ('observation', 'support', 'reaction', 'parent_message')))
+            out = clean_ai_dict(data, ('observation', 'support', 'reaction', 'parent_message'))
+            out['order'] = request.user.facility.journal_text_keys()
+            return JsonResponse(out)
         except json.JSONDecodeError:
             logger.warning('AI一括生成の返答がJSONでない: %r', raw[:200] if 'raw' in locals() else None)
             return JsonResponse({'error': 'AIの返答を解析できませんでした。もう一度お試しください。'}, status=500)
@@ -860,3 +879,166 @@ class TemplateDeleteView(LoginRequiredMixin, View):
         t.delete()
         messages.success(request, f'テンプレート「{name}」を削除しました。')
         return redirect('records:template_list')
+
+
+
+# =============================================
+# 紙の日誌の取り込み（カメラ → AI 読み取り → 確認して保存）
+# =============================================
+MAX_PAPER_UPLOAD = 20
+
+
+class PaperScanListView(LoginRequiredMixin, View):
+    def get(self, request):
+        facility = request.user.facility
+        scans = (PaperScan.objects.filter(facility=facility).exclude(status=PaperScan.STATUS_IMPORTED)
+                 .select_related('beneficiary', 'uploaded_by'))
+        recent = (PaperScan.objects.filter(facility=facility, status=PaperScan.STATUS_IMPORTED)
+                  .select_related('beneficiary', 'record')[:10])
+        return render(request, 'records/paper_list.html', {
+            'scans': scans, 'recent': recent,
+            'beneficiaries': Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE),
+            'ai_enabled': bool(settings.ANTHROPIC_API_KEY),
+        })
+
+
+class PaperScanUploadView(LoginRequiredMixin, View):
+    def post(self, request):
+        facility = request.user.facility
+        files = request.FILES.getlist('images')[:MAX_PAPER_UPLOAD]
+        if not files:
+            messages.error(request, '写真を選んでください。')
+            return redirect('records:paper_list')
+        beneficiary = None
+        if request.POST.get('beneficiary'):
+            beneficiary = Beneficiary.objects.filter(facility=facility, pk=request.POST['beneficiary']).first()
+        created = 0
+        for f in files:
+            if not (f.content_type or '').startswith('image/'):
+                continue
+            PaperScan.objects.create(facility=facility, uploaded_by=request.user, beneficiary=beneficiary, image=f)
+            created += 1
+        if created:
+            messages.success(request, f'{created} 枚を取り込みました。「AIで読み取る」を押すと項目に分かれます。')
+        else:
+            messages.error(request, '画像ファイル（JPEG・PNG・HEIC など）を選んでください。')
+        return redirect('records:paper_list')
+
+
+class PaperScanExtractView(LoginRequiredMixin, View):
+    """1枚を AI で読み取る（画面から fetch で順番に呼ぶ）"""
+
+    def post(self, request, pk):
+        scan = get_object_or_404(PaperScan, pk=pk, facility=request.user.facility)
+        if not settings.ANTHROPIC_API_KEY:
+            return JsonResponse({'error': 'ANTHROPIC_API_KEY が設定されていません。'}, status=500)
+        try:
+            data = extract_paper_scan(scan)
+        except Exception as e:  # noqa: BLE001
+            logger.exception('紙の日誌の読み取りに失敗（scan %s）', scan.pk)
+            scan.error = f'{type(e).__name__}: {e}'[:500]
+            scan.save(update_fields=['error'])
+            return JsonResponse({'error': f'読み取りに失敗しました: {type(e).__name__}: {e}'}, status=500)
+        return JsonResponse({
+            'ok': True, 'status': scan.get_status_display(), 'date': data.get('date', ''),
+            'beneficiary_id': scan.beneficiary_id,
+            'beneficiary_name': scan.beneficiary.full_name if scan.beneficiary else data.get('beneficiary_name', ''),
+            'activity_name': data.get('activity_name', ''), 'unreadable': data.get('unreadable', ''),
+            'review_url': reverse('records:paper_review', args=[scan.pk]),
+        })
+
+
+class PaperScanReviewView(LoginRequiredMixin, View):
+    """読み取り結果を確認・修正して日誌として保存する"""
+
+    def _render(self, request, scan, existing=None):
+        facility = request.user.facility
+        d = scan.extracted or {}
+        return render(request, 'records/paper_review.html', {
+            'scan': scan, 'd': d, 'existing': existing,
+            'beneficiaries': Beneficiary.objects.filter(facility=facility).order_by('status', 'last_name_kana', 'first_name_kana'),
+            'candidate_ids': d.get('candidate_ids') or [],
+            'staff': facility.staff_accounts.filter(is_active=True),
+            'health_choices': DailyRecord.HEALTH_CHOICES,
+            'viewpoints_json': json.dumps(d.get('viewpoints') or [], ensure_ascii=False),
+            'ai_enabled': bool(settings.ANTHROPIC_API_KEY),
+        })
+
+    def get(self, request, pk):
+        scan = get_object_or_404(PaperScan, pk=pk, facility=request.user.facility)
+        return self._render(request, scan)
+
+    def post(self, request, pk):
+        facility = request.user.facility
+        scan = get_object_or_404(PaperScan, pk=pk, facility=facility)
+        p = request.POST
+        beneficiary = Beneficiary.objects.filter(facility=facility, pk=p.get('beneficiary')).first()
+        try:
+            rec_date = datetime.strptime(p.get('date', ''), '%Y-%m-%d').date()
+        except ValueError:
+            rec_date = None
+        if not beneficiary or not rec_date:
+            messages.error(request, f'{get_terms(request.user)["beneficiary"]}と日付を確認してください。')
+            scan.beneficiary = beneficiary
+            return self._render(request, scan)
+
+        existing = DailyRecord.objects.filter(beneficiary=beneficiary, date=rec_date).first()
+        if existing and p.get('overwrite') != '1':
+            messages.warning(request, f'{rec_date} の日誌はすでにあります。上書きする場合は「既存の日誌を上書きする」にチェックを入れて保存してください。')
+            scan.beneficiary = beneficiary
+            return self._render(request, scan, existing=existing)
+
+        def t(name):
+            return p.get(name, '') or None
+
+        fields = {
+            'facility': facility, 'author': request.user,
+            'entry_time': t('entry_time'), 'exit_time': t('exit_time'),
+            'health_condition': p.get('health_condition') or DailyRecord.HEALTH_GOOD,
+            'health_note': p.get('health_note', ''),
+            'activity_name': p.get('activity_name', '')[:100], 'activity_aim': p.get('activity_aim', ''),
+            'activity_viewpoints': DailyRecord.clean_viewpoints(p.get('activity_viewpoints', '')),
+            'activity_reflection': p.get('activity_reflection', ''),
+            'observation_memo': p.get('observation_memo', ''),
+            'observation_text': p.get('observation_text', ''), 'support_text': p.get('support_text', ''),
+            'reaction_text': p.get('reaction_text', ''), 'parent_message_draft': p.get('parent_message_draft', ''),
+            'status': p.get('status', DailyRecord.STATUS_CONFIRMED),
+        }
+        author_pk = p.get('author')
+        if author_pk and facility.staff_accounts.filter(pk=author_pk).exists():
+            fields['author_id'] = author_pk
+            fields.pop('author')
+        if existing:
+            for k, v in fields.items():
+                setattr(existing, k, v)
+            existing.save()
+            record = existing
+        else:
+            record = DailyRecord.objects.create(beneficiary=beneficiary, date=rec_date, **fields)
+
+        # 元の写真を日誌に添付する（別ファイルとしてコピー）
+        if record.photos.count() < MAX_PHOTOS_PER_RECORD:
+            from django.core.files.base import ContentFile
+            scan.image.open('rb')
+            try:
+                content = ContentFile(scan.image.read(), name=os.path.basename(scan.image.name))
+            finally:
+                scan.image.close()
+            DailyRecordPhoto.objects.create(facility=facility, daily_record=record, photo=content, order=record.photos.count())
+
+        scan.beneficiary = beneficiary
+        scan.record = record
+        scan.status = PaperScan.STATUS_IMPORTED
+        scan.save()
+        messages.success(request, f'{beneficiary.full_name} の {rec_date} の日誌として保存しました。')
+        return redirect(f'/records/{beneficiary.pk}/?selected={record.pk}')
+
+
+class PaperScanDeleteView(LoginRequiredMixin, View):
+    def post(self, request, pk):
+        scan = get_object_or_404(PaperScan, pk=pk, facility=request.user.facility)
+        if scan.status != PaperScan.STATUS_IMPORTED:
+            scan.image.delete(save=False)
+        scan.delete()
+        messages.success(request, '取り込んだ写真を削除しました。')
+        return redirect('records:paper_list')

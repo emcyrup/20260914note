@@ -1,0 +1,148 @@
+{% extends 'base.html' %}
+
+{% block title %}紙の日誌を確認 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}紙の日誌を確認して保存{% endblock %}
+{% block nav_records %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .scan-view { position: sticky; top: 12px; }
+  .scan-img-wrap { background: #f3efe7; border: 1px solid var(--line); border-radius: 12px; overflow: auto; max-height: 82vh; text-align: center; }
+  .scan-img-wrap img { max-width: 100%; transition: transform .2s; transform-origin: center center; }
+  .scan-tools { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="small text-muted">左の写真を見ながら、右の内容を確認・修正してください。保存すると日誌になり、写真も日誌に添付されます。</div>
+    <a href="{% url 'records:paper_list' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>取り込み一覧へ</a>
+  </div>
+
+  {% if scan.status == 'pending' and not d %}
+  <div class="alert alert-info small">まだ AI で読み取っていません。{% if ai_enabled %}<button type="button" class="btn btn-sm btn-primary ms-2" id="extractHere"><i class="bi bi-stars me-1"></i>AIで読み取る</button>{% endif %} 写真を見ながら手で入力することもできます。</div>
+  {% endif %}
+  {% if d.unreadable %}<div class="alert alert-warning small"><i class="bi bi-exclamation-triangle me-1"></i>AI が読めなかった・気になった箇所：{{ d.unreadable }}</div>{% endif %}
+
+  <div class="row g-3">
+    <div class="col-lg-5">
+      <div class="scan-view">
+        <div class="scan-tools">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-zoom="-"><i class="bi bi-zoom-out"></i></button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-zoom="+"><i class="bi bi-zoom-in"></i></button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-rotate="1"><i class="bi bi-arrow-clockwise"></i> 回転</button>
+          <a href="{{ scan.image.url }}" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-box-arrow-up-right"></i> 別窓で開く</a>
+        </div>
+        <div class="scan-img-wrap"><img src="{{ scan.image.url }}" id="scanImg" alt="紙の日誌"></div>
+      </div>
+    </div>
+
+    <div class="col-lg-7">
+      <form method="post" x-data="paperForm()">
+        {% csrf_token %}
+        {% if existing %}
+        <div class="alert alert-warning">
+          <div class="fw-bold mb-1">この日の日誌はすでにあります（{{ existing.date|date:'Y/n/j' }}　{{ existing.activity_name|default:'活動名なし' }}）</div>
+          <label class="small"><input type="checkbox" name="overwrite" value="1" class="form-check-input me-1">既存の日誌をこの内容で上書きする</label>
+        </div>
+        {% endif %}
+        <div class="card mb-3"><div class="card-body">
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">{{ terms.beneficiary }} <span class="text-danger">*</span></label>
+              <select name="beneficiary" class="form-select" required>
+                <option value="">— 選択 —</option>
+                {% for b in beneficiaries %}
+                <option value="{{ b.pk }}" {% if b.pk == scan.beneficiary_id %}selected{% endif %}>{{ b.full_name }}{% if b.pk in candidate_ids %}（候補）{% endif %}{% if b.status != 'active' %}（{{ b.get_status_display }}）{% endif %}</option>
+                {% endfor %}
+              </select>
+              {% if d.beneficiary_name and not scan.beneficiary_id %}<div class="form-text">写真の名前：「{{ d.beneficiary_name }}」{% if candidate_ids %}（候補が複数あります）{% else %}（一致する{{ terms.beneficiary }}が見つかりません）{% endif %}</div>{% endif %}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">日付 <span class="text-danger">*</span></label>
+              <input type="date" name="date" class="form-control" value="{{ d.date }}" required>
+            </div>
+            <div class="col-6 col-md-3"><label class="form-label small fw-semibold">入室</label><input type="time" name="entry_time" class="form-control" value="{{ d.entry_time }}"></div>
+            <div class="col-6 col-md-3"><label class="form-label small fw-semibold">退室</label><input type="time" name="exit_time" class="form-control" value="{{ d.exit_time }}"></div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">体調</label>
+              <select name="health_condition" class="form-select">
+                {% for v, l in health_choices %}<option value="{{ v }}" {% if d.health_condition == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small fw-semibold">記録者</label>
+              <select name="author" class="form-select">
+                {% for s in staff %}<option value="{{ s.pk }}" {% if s.pk == user.pk %}selected{% endif %}>{{ s.display_name|default:s.username }}</option>{% endfor %}
+              </select>
+            </div>
+            {% if d.health_note %}<div class="col-12"><label class="form-label small fw-semibold">体調の詳細</label><input type="text" name="health_note" class="form-control" value="{{ d.health_note }}"></div>{% else %}<input type="hidden" name="health_note" value="">{% endif %}
+          </div>
+        </div></div>
+
+        <div class="card mb-3"><div class="card-body">
+          <div class="row g-2">
+            <div class="col-md-6"><label class="form-label small fw-semibold">活動</label><input type="text" name="activity_name" class="form-control" value="{{ d.activity_name }}" maxlength="100"></div>
+            <div class="col-md-6"><label class="form-label small fw-semibold">めあて</label><input type="text" name="activity_aim" class="form-control" value="{{ d.activity_aim }}"></div>
+            <div class="col-12">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <label class="form-label small fw-semibold mb-0">観点（はい／いいえ）</label>
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0" @click="viewpoints.push({text: '', answer: null})"><i class="bi bi-plus"></i> 追加</button>
+              </div>
+              <input type="hidden" name="activity_viewpoints" :value="JSON.stringify(viewpoints)">
+              <template x-for="(v, i) in viewpoints" :key="i">
+                <div class="vp-row">
+                  <input type="text" class="form-control form-control-sm vp-text" x-model="v.text" maxlength="100">
+                  <div class="vp-answers">
+                    <button type="button" class="vp-btn vp-yes" :class="{'is-on': v.answer === 'yes'}" @click="v.answer = (v.answer === 'yes' ? null : 'yes')">はい</button>
+                    <button type="button" class="vp-btn vp-no"  :class="{'is-on': v.answer === 'no'}"  @click="v.answer = (v.answer === 'no' ? null : 'no')">いいえ</button>
+                    <button type="button" class="vp-del" title="削除" @click="viewpoints.splice(i, 1)"><i class="bi bi-x"></i></button>
+                  </div>
+                </div>
+              </template>
+            </div>
+            <div class="col-12"><label class="form-label small fw-semibold">観察・活動内容</label><textarea name="observation_text" class="form-control" rows="4">{{ d.observation_text }}</textarea></div>
+            <div class="col-12"><label class="form-label small fw-semibold">支援内容</label><textarea name="support_text" class="form-control" rows="3">{{ d.support_text }}</textarea></div>
+            <div class="col-12"><label class="form-label small fw-semibold">本人の反応</label><textarea name="reaction_text" class="form-control" rows="3">{{ d.reaction_text }}</textarea></div>
+            <div class="col-12"><label class="form-label small fw-semibold">考察</label><textarea name="activity_reflection" class="form-control" rows="3">{{ d.activity_reflection }}</textarea></div>
+            <div class="col-12"><label class="form-label small fw-semibold">保護者向けメッセージ</label><textarea name="parent_message_draft" class="form-control" rows="2">{{ d.parent_message }}</textarea></div>
+            <div class="col-12"><label class="form-label small fw-semibold">その他のメモ（紙に書かれていた補足）</label><textarea name="observation_memo" class="form-control" rows="2">{{ d.other_notes }}</textarea></div>
+          </div>
+        </div></div>
+
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+          <div class="d-flex gap-3">
+            <label class="small"><input type="radio" name="status" value="confirmed" class="form-check-input me-1" checked>確定</label>
+            <label class="small"><input type="radio" name="status" value="draft" class="form-check-input me-1">下書き</label>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" form="paperDeleteForm" class="btn btn-outline-danger" onclick="return confirm('この写真を削除しますか？');">削除</button>
+            <button type="submit" class="btn btn-primary px-4"><i class="bi bi-check-lg me-1"></i>日誌として保存</button>
+          </div>
+        </div>
+      </form>
+      <form method="post" action="{% url 'records:paper_delete' scan.pk %}" id="paperDeleteForm">{% csrf_token %}</form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function paperForm() { return { viewpoints: {{ viewpoints_json|safe }} }; }
+(function () {
+  const img = document.getElementById('scanImg'); let zoom = 1, rot = 0;
+  function apply() { img.style.transform = `scale(${zoom}) rotate(${rot}deg)`; img.style.margin = zoom > 1 ? `${(zoom - 1) * 50}% 0` : '0'; }
+  document.querySelectorAll('[data-zoom]').forEach(b => b.addEventListener('click', () => { zoom = Math.min(4, Math.max(0.5, zoom + (b.dataset.zoom === '+' ? 0.25 : -0.25))); apply(); }));
+  document.querySelector('[data-rotate]').addEventListener('click', () => { rot = (rot + 90) % 360; apply(); });
+  const ex = document.getElementById('extractHere');
+  if (ex) ex.addEventListener('click', async () => {
+    ex.disabled = true; ex.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>読み取り中…';
+    const res = await fetch("{% url 'records:paper_extract' scan.pk %}", { method: 'POST', headers: { 'X-CSRFToken': document.querySelector('input[name=csrfmiddlewaretoken]').value } });
+    const data = await res.json();
+    if (res.ok && !data.error) location.reload(); else { ex.disabled = false; ex.textContent = '失敗：' + (data.error || res.status); }
+  });
+})();
+</script>
+{% endblock %}

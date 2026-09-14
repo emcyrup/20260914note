@@ -84,6 +84,7 @@
             <label class="form-check-label small">令和8年6月以降新規指定事業所</label>
           </div>
         </div>
+        {% if features.line %}
         <div class="col-md-6">
           <label class="form-label small fw-semibold">LINEチャネルアクセストークン</label>
           {{ facility_form.line_channel_access_token }}
@@ -92,6 +93,7 @@
           <label class="form-label small fw-semibold">LINEチャネルシークレット</label>
           {{ facility_form.line_channel_secret }}
         </div>
+        {% endif %}
 
         <div class="col-12"><hr class="my-1"><div class="small fw-bold" style="color:var(--lake-text);">呼び方・ロゴ・配色（画面のメニューと見出しに反映されます）</div></div>
         <div class="col-md-3">
@@ -129,6 +131,50 @@
           <i class="bi bi-check-lg me-1"></i>施設情報を保存
         </button>
       </div>
+    </form>
+  </div>
+
+
+  <!-- ===== 使う機能・日誌の項目 ===== -->
+  <div class="settings-card">
+    <div class="settings-section-title">使う機能と、日誌で AI が作る項目</div>
+    <form method="post" action="{% url 'facilities:feature_settings' %}" id="featureForm">
+      {% csrf_token %}
+      <div class="row g-3">
+        <div class="col-md-5">
+          <div class="small fw-semibold mb-2">使う機能</div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="use_billing" id="use_billing" {% if facility.use_billing %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="use_billing">請求機能（請求マトリックス・上限額管理・請求書・AI加算提案）</label>
+          </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="use_line" id="use_line" {% if facility.use_line %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="use_line">LINE連携（保護者へのLINE送信・配信履歴）</label>
+          </div>
+          <div class="form-text">使わない機能はメニューやボタンから消えます。記録は消えないので、あとから戻せます。</div>
+        </div>
+        <div class="col-md-7">
+          <div class="small fw-semibold mb-2">日誌の項目と順番（上が優先順位が高い）</div>
+          <ul class="list-group" id="sectionList">
+            {% for r in facility.journal_section_rows %}
+            <li class="list-group-item d-flex align-items-center gap-2 py-2">
+              <input type="checkbox" class="form-check-input m-0" name="journal_sections" value="{{ r.key }}" id="js_{{ r.key }}" {% if r.enabled %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+              <label class="flex-grow-1 mb-0" for="js_{{ r.key }}">{{ r.label }}</label>
+              {% if is_admin %}
+              <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 js-up" title="上へ"><i class="bi bi-chevron-up"></i></button>
+              <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 js-down" title="下へ"><i class="bi bi-chevron-down"></i></button>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+          <div class="form-text">チェックを外した項目は AI が作らず、日誌の入力・表示にも出ません。AI はこの順番を優先順位として、上の項目ほど丁寧に書きます。</div>
+        </div>
+      </div>
+      {% if is_admin %}
+      <div class="text-end mt-3"><button class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>保存する</button></div>
+      {% else %}
+      <div class="text-muted small mt-2">この設定を変えられるのは管理者だけです。</div>
+      {% endif %}
     </form>
   </div>
 
@@ -273,6 +319,7 @@
     {% endif %}
   </div>
 
+  {% if features.billing %}
   <!-- ===== 加算マスタ・体制加算設定 ===== -->
   <div class="settings-card">
     <div class="d-flex justify-content-between align-items-center mb-1">
@@ -324,7 +371,7 @@
   </div>
 
 </div>
-
+  {% endif %}
 
 <!-- ===== 活動タグ追加モーダル ===== -->
 <div class="modal fade" id="addActivityTagModal" tabindex="-1">
@@ -511,10 +558,19 @@
     </div>
   </div>
 </div>
-
 {% endblock %}
 
 {% block extra_js %}
+<script>
+document.querySelectorAll('#sectionList .js-up, #sectionList .js-down').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var li = b.closest('li'), list = li.parentNode;
+    if (b.classList.contains('js-up') && li.previousElementSibling) list.insertBefore(li, li.previousElementSibling);
+    if (b.classList.contains('js-down') && li.nextElementSibling) list.insertBefore(li.nextElementSibling, li);
+  });
+});
+</script>
+
 <script>
 // 活動タグ編集モーダルにデータを流し込む
 document.getElementById('editActivityTagModal').addEventListener('show.bs.modal', function(e) {

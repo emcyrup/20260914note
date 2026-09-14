@@ -161,3 +161,51 @@ class TermsSweepTests(TestCase):
         self.assertEqual(get_terms(None), {'staff': '職員', 'beneficiary': '利用者'})
         self.facility.term_beneficiary = ''
         self.assertEqual(get_terms(self.user)['beneficiary'], '利用者')
+
+
+class FeatureToggleTests(TestCase):
+    """請求・LINE を使わない設定：メニューから消え、URL を開いてもホームへ"""
+
+    def setUp(self):
+        self.facility = Facility.objects.create(name='テスト事業所', use_billing=False, use_line=False)
+        self.user = StaffAccount.objects.create_user('admin', password='pw12345678', facility=self.facility, role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+
+    def test_menus_hidden_and_views_redirect(self):
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertNotContains(res, '請求マトリックス')
+        self.assertNotContains(res, 'LINE連携')
+        self.assertContains(res, '帳票出力')
+        res = self.client.get(reverse('billing:matrix'))
+        self.assertRedirects(res, reverse('facilities:dashboard'))
+        res = self.client.get(reverse('line_integration:delivery_log'))
+        self.assertRedirects(res, reverse('facilities:dashboard'))
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertNotContains(res, 'LINEチャネルアクセストークン')
+        self.assertNotContains(res, '加算設定（体制加算）')
+        self.assertContains(res, '使う機能と、日誌で AI が作る項目')
+
+    def test_save_feature_settings(self):
+        res = self.client.post(reverse('facilities:feature_settings'), {
+            'use_billing': 'on', 'journal_sections': ['reaction', 'observation']})
+        self.assertRedirects(res, reverse('facilities:settings'))
+        self.facility.refresh_from_db()
+        self.assertTrue(self.facility.use_billing)
+        self.assertFalse(self.facility.use_line)
+        self.assertEqual(self.facility.journal_sections, ['reaction', 'observation'])
+        res = self.client.get(reverse('billing:matrix'))
+        self.assertEqual(res.status_code, 200)
+        # 項目なしは拒否
+        self.client.post(reverse('facilities:feature_settings'), {'use_billing': 'on'})
+        self.facility.refresh_from_db()
+        self.assertEqual(self.facility.journal_sections, ['reaction', 'observation'])
+        # 一般職員は変えられない
+        staff = StaffAccount.objects.create_user('staff', password='pw12345678', facility=self.facility)
+        self.client.force_login(staff)
+        self.client.post(reverse('facilities:feature_settings'), {'use_line': 'on', 'journal_sections': ['activity']})
+        self.facility.refresh_from_db()
+        self.assertFalse(self.facility.use_line)
+
+    def test_new_facility_defaults_on(self):
+        f = Facility.objects.create(name='新しい施設')
+        self.assertTrue(f.use_billing and f.use_line)

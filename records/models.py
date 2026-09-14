@@ -295,3 +295,46 @@ class RecordTemplate(models.Model):
         data['support_tag_ids'] = list(self.support_tags.values_list('pk', flat=True))
         data['name'] = self.name
         return data
+
+
+class PaperScan(models.Model):
+    """
+    紙の日誌をカメラで撮った画像。AI が読み取った内容を職員が確認・修正してから日誌にする。
+    """
+    STATUS_PENDING   = 'pending'    # 取り込んだだけ
+    STATUS_EXTRACTED = 'extracted'  # AI が読み取り済み（確認待ち）
+    STATUS_IMPORTED  = 'imported'   # 日誌として保存済み
+    STATUS_CHOICES = [
+        (STATUS_PENDING,   '未読み取り'),
+        (STATUS_EXTRACTED, '確認待ち'),
+        (STATUS_IMPORTED,  '日誌にした'),
+    ]
+
+    facility    = models.ForeignKey(Facility, on_delete=models.CASCADE, verbose_name='施設')
+    uploaded_by = models.ForeignKey(StaffAccount, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='取り込んだ人')
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='paper_scans', verbose_name='利用者')
+    image       = models.ImageField(upload_to='paper_scans/%Y/%m/', verbose_name='画像')
+    status      = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_PENDING, verbose_name='状態')
+    extracted   = models.JSONField(default=dict, blank=True, verbose_name='読み取り結果')
+    error       = models.TextField(blank=True, verbose_name='エラー')
+    record      = models.ForeignKey(DailyRecord, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='paper_scans', verbose_name='作成した日誌')
+    created_at  = models.DateTimeField(auto_now_add=True)
+    extracted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = '紙の日誌（取り込み）'
+        verbose_name_plural = '紙の日誌（取り込み）'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'紙の日誌 #{self.pk}（{self.get_status_display()}）'
+
+    @property
+    def guessed_date(self):
+        return (self.extracted or {}).get('date') or ''
+
+    @property
+    def guessed_name(self):
+        return (self.extracted or {}).get('beneficiary_name') or ''

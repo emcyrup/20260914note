@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+
+{% block title %}紙の日誌を取り込む — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}紙の日誌を取り込む{% endblock %}
+{% block nav_records %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .scan-thumb { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
+  .scan-card .badge-status { position: absolute; top: 10px; left: 10px; }
+  .drop-zone { border: 2px dashed var(--line-dark, #8e8779); border-radius: 14px; padding: 22px; text-align: center; background: var(--paper); }
+  .drop-zone input[type=file] { display: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="small text-muted">
+      過去の紙の日誌をスマートフォンのカメラで撮るか、画像ファイルを選んで取り込みます。AI が項目（日付・{{ terms.beneficiary }}・活動・観察・支援・反応など）に分けるので、確認・修正してから日誌として保存します。
+    </div>
+    <a href="{% url 'records:dashboard' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>記録へ</a>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <form method="post" action="{% url 'records:paper_upload' %}" enctype="multipart/form-data" id="paperUploadForm">
+        {% csrf_token %}
+        <div class="row g-3 align-items-end">
+          <div class="col-md-7">
+            <label class="drop-zone d-block" for="paperImages" style="cursor:pointer;">
+              <i class="bi bi-camera" style="font-size:2rem;color:var(--lake-text);"></i>
+              <div class="fw-bold mt-1">写真を撮る／画像を選ぶ</div>
+              <div class="small text-muted">1回に {{ 20 }} 枚まで。1枚に1日分の日誌が写るように、明るい場所で真上から撮ってください。</div>
+              <div class="small mt-1" id="paperFileNames"></div>
+              <input type="file" id="paperImages" name="images" accept="image/*" multiple capture="environment">
+            </label>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold">{{ terms.beneficiary }}（分かっていれば）</label>
+            <select name="beneficiary" class="form-select">
+              <option value="">AI に読み取らせる</option>
+              {% for b in beneficiaries %}<option value="{{ b.pk }}">{{ b.full_name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-2 d-grid">
+            <button class="btn btn-primary" id="paperUploadBtn" disabled><i class="bi bi-upload me-1"></i>取り込む</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {% if not ai_enabled %}
+  <div class="alert alert-warning small">ANTHROPIC_API_KEY が設定されていないため、AI の読み取りは動きません。取り込んだ写真を見ながら手で入力することはできます。</div>
+  {% endif %}
+
+  {% if scans %}
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <div class="fw-bold">取り込んだ写真（{{ scans|length }} 枚）</div>
+    <button type="button" class="btn btn-sm btn-outline-primary" id="extractAllBtn" {% if not ai_enabled %}disabled{% endif %}>
+      <i class="bi bi-stars me-1"></i>未読み取りをすべて AI で読み取る
+    </button>
+  </div>
+  <div class="row g-3 mb-4" id="scanCards">
+    {% for s in scans %}
+    <div class="col-6 col-md-4 col-xl-3">
+      <div class="card h-100 scan-card position-relative" data-scan="{{ s.pk }}" data-status="{{ s.status }}" data-extract-url="{% url 'records:paper_extract' s.pk %}">
+        <a href="{% url 'records:paper_review' s.pk %}"><img src="{{ s.image.url }}" class="scan-thumb" alt="紙の日誌 {{ s.pk }}" loading="lazy"></a>
+        <span class="badge badge-status {% if s.status == 'extracted' %}text-bg-success{% else %}text-bg-secondary{% endif %} js-status">{{ s.get_status_display }}</span>
+        <div class="card-body p-2">
+          <div class="small js-summary">
+            {% if s.status == 'extracted' %}
+              <div><strong>{{ s.beneficiary.full_name|default:s.guessed_name|default:'（名前不明）' }}</strong>　{{ s.guessed_date|default:'（日付不明）' }}</div>
+              {% if s.extracted.activity_name %}<div class="text-muted">{{ s.extracted.activity_name }}</div>{% endif %}
+              {% if s.extracted.unreadable %}<div class="text-danger" style="font-size:0.75rem;">読めない箇所：{{ s.extracted.unreadable }}</div>{% endif %}
+            {% else %}
+              <div class="text-muted">{% if s.beneficiary %}{{ s.beneficiary.full_name }}　{% endif %}{{ s.created_at|date:'n/j H:i' }} 取り込み</div>
+              {% if s.error %}<div class="text-danger" style="font-size:0.75rem;">{{ s.error|truncatechars:80 }}</div>{% endif %}
+            {% endif %}
+          </div>
+          <div class="d-flex gap-1 mt-2 flex-wrap">
+            <button type="button" class="btn btn-sm btn-outline-primary js-extract" {% if not ai_enabled %}disabled{% endif %}>
+              <i class="bi bi-stars me-1"></i>{% if s.status == 'extracted' %}読み直す{% else %}AIで読み取る{% endif %}
+            </button>
+            <a href="{% url 'records:paper_review' s.pk %}" class="btn btn-sm btn-primary"><i class="bi bi-check2-square me-1"></i>確認して保存</a>
+            <form method="post" action="{% url 'records:paper_delete' s.pk %}" onsubmit="return confirm('この写真を削除しますか？');">{% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button></form>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card mb-4"><div class="empty-state">
+    <div class="empty-state-title">取り込み待ちの写真はありません</div>
+    <div class="empty-state-text">上の「写真を撮る／画像を選ぶ」から始めてください。</div>
+  </div></div>
+  {% endif %}
+
+  {% if recent %}
+  <div class="card">
+    <div class="card-header fw-bold"><i class="bi bi-clock-history me-1"></i>最近日誌にしたもの</div>
+    <ul class="list-group list-group-flush">
+      {% for s in recent %}
+      <li class="list-group-item d-flex justify-content-between align-items-center small">
+        <span>{{ s.beneficiary.full_name|default:'—' }}　{{ s.record.date|date:'Y/n/j'|default:'' }}　{{ s.record.activity_name|default:'' }}</span>
+        {% if s.record %}<a href="/records/{{ s.beneficiary_id }}/?selected={{ s.record_id }}" class="btn btn-sm btn-outline-secondary">日誌を見る</a>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  const input = document.getElementById('paperImages'), btn = document.getElementById('paperUploadBtn'), names = document.getElementById('paperFileNames');
+  input.addEventListener('change', () => {
+    const n = input.files.length; btn.disabled = !n;
+    names.textContent = n ? `${n} 枚を選択：` + [...input.files].slice(0, 3).map(f => f.name).join('、') + (n > 3 ? ' …' : '') : '';
+  });
+  document.getElementById('paperUploadForm').addEventListener('submit', () => { btn.disabled = true; btn.textContent = '取り込み中…'; });
+
+  const csrf = document.querySelector('input[name=csrfmiddlewaretoken]').value;
+  async function extract(card) {
+    const b = card.querySelector('.js-extract'), st = card.querySelector('.js-status'), sum = card.querySelector('.js-summary');
+    b.disabled = true; b.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>読み取り中…';
+    st.textContent = '読み取り中'; st.className = 'badge badge-status text-bg-warning js-status';
+    try {
+      const res = await fetch(card.dataset.extractUrl, { method: 'POST', headers: { 'X-CSRFToken': csrf } });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+      card.dataset.status = 'extracted';
+      st.textContent = data.status; st.className = 'badge badge-status text-bg-success js-status';
+      sum.innerHTML = `<div><strong>${data.beneficiary_name || '（名前不明）'}</strong>　${data.date || '（日付不明）'}</div>` +
+        (data.activity_name ? `<div class="text-muted">${data.activity_name}</div>` : '') +
+        (data.unreadable ? `<div class="text-danger" style="font-size:0.75rem;">読めない箇所：${data.unreadable}</div>` : '');
+      b.innerHTML = '<i class="bi bi-stars me-1"></i>読み直す';
+    } catch (e) {
+      st.textContent = '失敗'; st.className = 'badge badge-status text-bg-danger js-status';
+      sum.innerHTML = `<div class="text-danger" style="font-size:0.75rem;">${e.message}</div>`;
+      b.innerHTML = '<i class="bi bi-stars me-1"></i>もう一度';
+    } finally { b.disabled = false; }
+  }
+  document.querySelectorAll('.js-extract').forEach(b => b.addEventListener('click', () => extract(b.closest('.scan-card'))));
+  const all = document.getElementById('extractAllBtn');
+  if (all) all.addEventListener('click', async () => {
+    all.disabled = true;
+    for (const card of document.querySelectorAll('.scan-card[data-status=pending]')) await extract(card);
+    all.disabled = false;
+  });
+})();
+</script>
+{% endblock %}

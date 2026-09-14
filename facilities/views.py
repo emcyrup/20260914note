@@ -12,7 +12,7 @@ from beneficiaries.models import Beneficiary, RecipientCertificate
 from records.models import ActivityTag
 from schedules.models import ScheduledVisit
 from .forms import ActivityTagForm, FacilityForm, SupportContentTagForm
-from .models import AddonMaster, FacilityAddonSetting, SupportContentTag
+from .models import AddonMaster, Facility, FacilityAddonSetting, SupportContentTag
 
 
 class DashboardView(LoginRequiredMixin, TemplateView):
@@ -158,6 +158,27 @@ class FacilityUpdateView(LoginRequiredMixin, View):
             messages.success(request, '施設情報を更新しました。')
         else:
             messages.error(request, '入力内容に誤りがあります。')
+        return redirect('facilities:settings')
+
+
+class FeatureSettingsView(LoginRequiredMixin, View):
+    """使う機能（請求・LINE）と、日誌で AI が作る項目の順番を保存する（管理者のみ）"""
+
+    def post(self, request):
+        if not (request.user.is_admin or request.user.is_superuser):
+            messages.error(request, 'この設定を変えられるのは管理者だけです。')
+            return redirect('facilities:settings')
+        facility = request.user.facility
+        facility.use_billing = 'use_billing' in request.POST
+        facility.use_line = 'use_line' in request.POST
+        valid = [k for k, _ in Facility.JOURNAL_SECTIONS]
+        keys = [k for k in request.POST.getlist('journal_sections') if k in valid]
+        if not keys:
+            messages.error(request, '日誌の項目は1つ以上選んでください。')
+            return redirect('facilities:settings')
+        facility.journal_sections = keys
+        facility.save(update_fields=['use_billing', 'use_line', 'journal_sections'])
+        messages.success(request, '使う機能と日誌の項目を保存しました。')
         return redirect('facilities:settings')
 
 

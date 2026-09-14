@@ -12,8 +12,8 @@
   <a class="topbar-nav-item active" href="{% url 'records:dashboard' %}"><i class="bi bi-journal-text"></i>記録</a>
   <a class="topbar-nav-item" href="{% url 'schedules:calendar' %}"><i class="bi bi-calendar3"></i>予定</a>
   <div class="topbar-nav-divider"></div>
-  <a class="topbar-nav-item" href="{% url 'billing:matrix' %}"><i class="bi bi-grid-3x3"></i>請求</a>
-  <a class="topbar-nav-item" href="{% url 'line_integration:delivery_log' %}"><i class="bi bi-chat-dots"></i>LINE</a>
+  {% if features.billing %}<a class="topbar-nav-item" href="{% url 'billing:matrix' %}"><i class="bi bi-grid-3x3"></i>請求</a>{% endif %}
+  {% if features.line %}<a class="topbar-nav-item" href="{% url 'line_integration:delivery_log' %}"><i class="bi bi-chat-dots"></i>LINE</a>{% endif %}
   <a class="topbar-nav-item" href="{% url 'facilities:settings' %}"><i class="bi bi-gear"></i>設定</a>
 </nav>
 {% endblock %}
@@ -590,6 +590,9 @@
       <h2 class="section-title-lg">日誌を、観察の根拠に。</h2>
     </div>
     <div>
+      <a href="{% url 'records:paper_list' %}" class="btn btn-outline-secondary btn-sm me-1" title="紙の日誌をカメラで取り込む">
+        <i class="bi bi-camera me-1"></i>紙の日誌
+      </a>
       <a href="{% url 'records:template_list' %}" class="btn btn-outline-secondary btn-sm me-1" title="日誌テンプレートの一覧・編集">
         <i class="bi bi-files me-1"></i>テンプレート
       </a>
@@ -681,6 +684,9 @@
           </div>
         </div>
 
+        {# 施設設定の「日誌の項目と順番」どおりに並べる #}
+        {% for section in journal_sections %}
+        {% if section == 'activity' %}
         <!-- 活動・めあて・考察 -->
         {{ selected_record.activity_viewpoints|json_script:"selectedViewpoints" }}
         {% if selected_record.activity_name or selected_record.activity_aim or selected_record.activity_viewpoints or selected_record.activity_reflection %}
@@ -708,6 +714,58 @@
         {% endif %}
         {% endif %}
 
+        {% elif section == 'observation' %}
+        <!-- 観察記録 -->
+        <div class="detail-section">
+          <div class="detail-section-label">OBSERVATION · 観察・活動内容</div>
+          {% if selected_record.observation_text %}
+          <p class="detail-section-text">{{ selected_record.observation_text }}</p>
+          {% elif selected_record.observation_memo %}
+          <p class="detail-section-text" style="color:#7a8f92;">{{ selected_record.observation_memo }}</p>
+          <p style="font-size:0.7rem;color:#a0b0b2;">※ メモのみ（AI整えを使って記録文章を作成できます）</p>
+          {% else %}
+          <p class="detail-section-empty">未入力</p>
+          {% endif %}
+        </div>
+
+        {% elif section == 'support' %}
+        <!-- 支援記録 -->
+        <div class="detail-section">
+          <div class="detail-section-label">SUPPORT · 支援内容</div>
+          {% if selected_record.support_text %}
+          <p class="detail-section-text">{{ selected_record.support_text }}</p>
+          {% elif selected_record.support_memo %}
+          <p class="detail-section-text" style="color:#7a8f92;">{{ selected_record.support_memo }}</p>
+          {% else %}
+          <p class="detail-section-empty">未入力</p>
+          {% endif %}
+        </div>
+
+        {% elif section == 'reaction' %}
+        <!-- 反応記録 -->
+        <div class="detail-section">
+          <div class="detail-section-label">REACTION · 本人の反応</div>
+          {% if selected_record.reaction_text %}
+          <p class="detail-section-text">{{ selected_record.reaction_text }}</p>
+          {% elif selected_record.reaction_memo %}
+          <p class="detail-section-text" style="color:#7a8f92;">{{ selected_record.reaction_memo }}</p>
+          {% else %}
+          <p class="detail-section-empty">未入力</p>
+          {% endif %}
+        </div>
+
+        {% elif section == 'parent_message' %}
+        <!-- 保護者向けメッセージ -->
+        {% if selected_record.parent_message_draft %}
+        <div class="detail-section">
+          <div class="detail-section-label">{% if features.line %}LINE · {% endif %}保護者向けメッセージ</div>
+          <p class="detail-section-text" style="white-space:pre-line;">{{ selected_record.parent_message_draft }}</p>
+        </div>
+        {% endif %}
+        {% endif %}
+        {% endfor %}
+
+        {% if features.billing %}
         <!-- AI加算提案 -->
         <div class="detail-section">
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
@@ -750,42 +808,7 @@
           {% endif %}
         </div>
 
-        <!-- 観察記録 -->
-        <div class="detail-section">
-          <div class="detail-section-label">OBSERVATION · 観察・活動内容</div>
-          {% if selected_record.observation_text %}
-          <p class="detail-section-text">{{ selected_record.observation_text }}</p>
-          {% elif selected_record.observation_memo %}
-          <p class="detail-section-text" style="color:#7a8f92;">{{ selected_record.observation_memo }}</p>
-          <p style="font-size:0.7rem;color:#a0b0b2;">※ メモのみ（AI整えを使って記録文章を作成できます）</p>
-          {% else %}
-          <p class="detail-section-empty">未入力</p>
-          {% endif %}
-        </div>
-
-        <!-- 支援記録 -->
-        <div class="detail-section">
-          <div class="detail-section-label">SUPPORT · 支援内容</div>
-          {% if selected_record.support_text %}
-          <p class="detail-section-text">{{ selected_record.support_text }}</p>
-          {% elif selected_record.support_memo %}
-          <p class="detail-section-text" style="color:#7a8f92;">{{ selected_record.support_memo }}</p>
-          {% else %}
-          <p class="detail-section-empty">未入力</p>
-          {% endif %}
-        </div>
-
-        <!-- 反応記録 -->
-        <div class="detail-section">
-          <div class="detail-section-label">REACTION · 本人の反応</div>
-          {% if selected_record.reaction_text %}
-          <p class="detail-section-text">{{ selected_record.reaction_text }}</p>
-          {% elif selected_record.reaction_memo %}
-          <p class="detail-section-text" style="color:#7a8f92;">{{ selected_record.reaction_memo }}</p>
-          {% else %}
-          <p class="detail-section-empty">未入力</p>
-          {% endif %}
-        </div>
+        {% endif %}
 
         <!-- 写真 -->
         <div class="detail-section">
@@ -980,6 +1003,7 @@
             </template>
           </div>
 
+          {% if 'activity' in journal_sections %}
           <!-- 活動・めあて・考察（活動名からAIで生成） -->
           <div class="mb-3" style="background:var(--sheet);border:1px solid var(--field-line);border-radius:12px;padding:14px;">
             <label class="form-label small fw-semibold mb-1" style="color:var(--lake-text);">
@@ -1031,6 +1055,7 @@
             </div>
           </div>
 
+          {% endif %}
           <!-- ③ メモ入力（1箇所） -->
           <div class="mb-3" style="background:#f8fffe;border:1.5px solid #4e7d89;border-radius:10px;padding:14px;">
             <div class="d-flex justify-content-between align-items-center mb-1">
@@ -1045,7 +1070,7 @@
               </button>
             </div>
             <p class="text-muted mb-2" style="font-size:0.75rem;">
-              観察したこと・行った支援・本人の反応など、思いつくままに書いてください。AIが4種類の記録文章を自動で生成します。
+              観察したこと・行った支援・本人の反応など、思いつくままに書いてください。AIが記録文章を自動で生成します。
             </p>
             <textarea id="memoTextareaCreate" name="memo" class="form-control" rows="4"
                       x-model="memo"
@@ -1070,27 +1095,32 @@
             <p class="small fw-semibold mb-2" style="color:#4e7d89;">
               <i class="bi bi-check-circle me-1"></i>AI生成完了 — 内容を確認・修正して保存してください
             </p>
-
+            {% for section in journal_sections %}
+            {% if section == 'observation' %}
             <div class="mb-2">
               <label class="form-label" style="font-size:0.68rem;letter-spacing:0.1em;color:#4e7d89;font-weight:600;">OBSERVATION · 観察・活動内容</label>
               <textarea name="observation_text" class="form-control form-control-sm" rows="3" x-model="result.observation"></textarea>
             </div>
+            {% elif section == 'support' %}
             <div class="mb-2">
               <label class="form-label" style="font-size:0.68rem;letter-spacing:0.1em;color:#4e7d89;font-weight:600;">SUPPORT · 支援内容</label>
               <textarea name="support_text" class="form-control form-control-sm" rows="3" x-model="result.support"></textarea>
             </div>
+            {% elif section == 'reaction' %}
             <div class="mb-2">
               <label class="form-label" style="font-size:0.68rem;letter-spacing:0.1em;color:#4e7d89;font-weight:600;">REACTION · 本人の反応</label>
               <textarea name="reaction_text" class="form-control form-control-sm" rows="2" x-model="result.reaction"></textarea>
             </div>
+            {% elif section == 'parent_message' %}
             <div class="mb-3">
               <label class="form-label" style="font-size:0.68rem;letter-spacing:0.1em;color:#9a7a40;font-weight:600;">
-                <i class="bi bi-chat-dots me-1"></i>LINE · 保護者向けメッセージ
+                <i class="bi bi-chat-dots me-1"></i>{% if features.line %}LINE · {% endif %}保護者向けメッセージ
               </label>
               <textarea name="parent_message_draft" class="form-control form-control-sm" rows="3" x-model="result.parent_message"
                         style="border-color:#c8a84b;"></textarea>
             </div>
-
+            {% endif %}
+            {% endfor %}
             <!-- ステータス ＋ LINE送信（Alpine.jsで連動） -->
             <div x-data="{ confirmed: false }">
               <label class="form-label small fw-semibold">状態</label>
@@ -1106,6 +1136,7 @@
                   <label for="status_confirmed" class="form-check-label small">確定</label>
                 </div>
               </div>
+              {% if features.line %}
               <!-- 保存してLINE送信ボタン -->
               <input type="hidden" name="send_line" id="createSendLineFlag" value="0">
               <div class="d-flex align-items-center gap-2">
@@ -1117,6 +1148,7 @@
                 </button>
                 <span class="text-muted small" x-show="!confirmed">確定にチェックを入れると送信できます</span>
               </div>
+              {% endif %}
             </div>
           </div>
 
@@ -1301,6 +1333,7 @@
             </template>
           </div>
 
+          {% if 'activity' in journal_sections %}
           <!-- 活動・めあて・考察（活動名からAIで生成） -->
           <div class="mb-3" style="background:var(--sheet);border:1px solid var(--field-line);border-radius:12px;padding:14px;">
             <label class="form-label small fw-semibold mb-1" style="color:var(--lake-text);">
@@ -1352,6 +1385,9 @@
             </div>
           </div>
 
+          {% else %}
+          <input type="hidden" name="activity_name" :value="activityName"><input type="hidden" name="activity_aim" :value="activityAim"><input type="hidden" name="activity_viewpoints" :value="JSON.stringify(activityViewpoints)"><input type="hidden" name="activity_reflection" :value="activityReflection">
+          {% endif %}
           <!-- メモ入力（任意・AIで再生成する場合に使う） -->
           <div class="mb-3" style="background:#f8fffe;border:1.5px solid #4e7d89;border-radius:10px;padding:14px;">
             <div class="d-flex justify-content-between align-items-center mb-1">
@@ -1388,28 +1424,38 @@
             <p class="small fw-semibold mb-3" style="color:#4e7d89;">
               <i class="bi bi-file-text me-1"></i>記録文章を確認・修正してください
             </p>
-
+            {% for section in journal_sections %}
+            {% if section == 'observation' %}
             <div class="mb-2">
               <label class="form-label" style="font-size:0.68rem;letter-spacing:0.1em;color:#4e7d89;font-weight:600;">OBSERVATION · 観察・活動内容</label>
               <textarea name="observation_text" class="form-control form-control-sm" rows="3" x-model="result.observation"></textarea>
             </div>
+            {% elif section == 'support' %}
             <div class="mb-2">
               <label class="form-label" style="font-size:0.68rem;letter-spacing:0.1em;color:#4e7d89;font-weight:600;">SUPPORT · 支援内容</label>
               <textarea name="support_text" class="form-control form-control-sm" rows="3" x-model="result.support"></textarea>
             </div>
+            {% elif section == 'reaction' %}
             <div class="mb-2">
               <label class="form-label" style="font-size:0.68rem;letter-spacing:0.1em;color:#4e7d89;font-weight:600;">REACTION · 本人の反応</label>
               <textarea name="reaction_text" class="form-control form-control-sm" rows="2" x-model="result.reaction"></textarea>
             </div>
+            {% elif section == 'parent_message' %}
             <div class="mb-3">
               <label class="form-label" style="font-size:0.68rem;letter-spacing:0.1em;color:#9a7a40;font-weight:600;">
-                <i class="bi bi-chat-dots me-1"></i>LINE · 保護者向けメッセージ
+                <i class="bi bi-chat-dots me-1"></i>{% if features.line %}LINE · {% endif %}保護者向けメッセージ
               </label>
               <textarea name="parent_message_draft" class="form-control form-control-sm" rows="3"
                         x-model="result.parent_message" style="border-color:#c8a84b;"
                         placeholder="保護者向けメッセージを入力してください。上のメモ欄にメモを入力してAI生成ボタンを押すと自動で作成されます。"></textarea>
             </div>
-
+            {% endif %}
+            {% endfor %}
+            {# 使わない項目は値を保持する #}
+            {% if 'observation' not in journal_sections %}<input type="hidden" name="observation_text" :value="result.observation">{% endif %}
+            {% if 'support' not in journal_sections %}<input type="hidden" name="support_text" :value="result.support">{% endif %}
+            {% if 'reaction' not in journal_sections %}<input type="hidden" name="reaction_text" :value="result.reaction">{% endif %}
+            {% if 'parent_message' not in journal_sections %}<input type="hidden" name="parent_message_draft" :value="result.parent_message">{% endif %}
             <!-- 状態 ＋ LINE送信（Alpine.jsで連動） -->
             <div x-data="{ confirmed: {% if selected_record.status == 'confirmed' %}true{% else %}false{% endif %} }">
               <label class="form-label small fw-semibold">状態</label>
@@ -1429,6 +1475,7 @@
                   <label for="edit_status_confirmed" class="form-check-label small">確定</label>
                 </div>
               </div>
+              {% if features.line %}
               <div>
                 <button type="button" class="btn btn-sm"
                         :style="confirmed ? 'background-color:#06C755;color:#fff;border:none;' : 'background-color:#ccc;color:#fff;border:none;cursor:not-allowed;'"
@@ -1439,6 +1486,7 @@
                 <span class="text-muted small ms-2" x-show="!confirmed">確定にチェックを入れると送信できます</span>
                 <span class="text-muted small ms-2" x-show="confirmed">確定後に送信してください</span>
               </div>
+              {% endif %}
             </div>
           </div>
 
@@ -1513,9 +1561,9 @@
 {% endif %}
 
 {% if selected_record %}
-<form id="lineSendForm" method="post" action="{% url 'line_integration:send' selected_record.pk %}">
+{% if features.line %}<form id="lineSendForm" method="post" action="{% url 'line_integration:send' selected_record.pk %}">
   {% csrf_token %}
-</form>
+</form>{% endif %}
 {% include 'esignatures/signature_modal.html' with target_type='daily_record' target_id=selected_record.pk guardians=beneficiary.guardians.all %}
 
 <!-- ===== テンプレートに保存 ===== -->

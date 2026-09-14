@@ -333,3 +333,151 @@ class RecordTemplateTests(TestCase):
         self.assertEqual(self.client.post(reverse('records:template_delete', args=[t.pk])).status_code, 404)
         self.assertEqual(self.client.post(reverse('records:template_from_record', args=[self.rec.pk]), {'name': 'x'}).status_code, 404)
         self.assertNotContains(self.client.get(reverse('records:template_list')), 'クッキー基本')
+
+
+class JournalSectionOrderTests(TestCase):
+    """施設ごとの「日誌の項目と順番」：画面の並びと AI 一括生成の指示"""
+
+    def setUp(self):
+        from beneficiaries.models import Beneficiary
+        from datetime import date
+        self.facility = Facility.objects.create(name='テスト施設', journal_sections=['support', 'observation', 'activity'])
+        self.user = StaffAccount.objects.create_user('staff', password='pass12345', facility=self.facility)
+        self.client.force_login(self.user)
+        self.b = Beneficiary.objects.create(facility=self.facility, last_name='山田', first_name='太郎', date_of_birth=date(2016, 4, 1))
+
+    def test_section_keys(self):
+        self.assertEqual(self.facility.journal_section_keys(), ['support', 'observation', 'activity'])
+        self.assertEqual(self.facility.journal_text_keys(), ['support', 'observation'])
+        self.facility.journal_sections = []
+        self.assertEqual(self.facility.journal_section_keys(), ['activity', 'observation', 'support', 'reaction', 'parent_message'])
+        rows = Facility(journal_sections=['reaction']).journal_section_rows()
+        self.assertEqual([(r['key'], r['enabled']) for r in rows][:2], [('reaction', True), ('activity', False)])
+
+    def test_page_renders_in_order(self):
+        from records.models import DailyRecord
+        from datetime import date
+        DailyRecord.objects.create(facility=self.facility, beneficiary=self.b, date=date(2026, 9, 10),
+                                   observation_text='かんさつ', support_text='しえん', reaction_text='はんのう')
+        res = self.client.get(f'/records/{self.b.pk}/')
+        html = res.content.decode()
+        self.assertLess(html.index('SUPPORT · 支援内容'), html.index('OBSERVATION · 観察・活動内容'))
+        self.assertNotIn('REACTION · 本人の反応', html)
+        self.assertNotIn('AI加算提案', html.split('newRecordModal')[0]) if not self.facility.use_billing else None
+
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    @mock.patch('records.views.anthropic.Anthropic')
+    def test_generate_all_uses_order(self, mock_client_cls):
+        mock_client_cls.return_value.messages.create.return_value = _fake_response(
+            '{"support": "しえん", "observation": "かんさつ"}')
+        res = self.client.post(reverse('records:ai_generate_all'), {'memo': '集中できた'})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['order'], ['support', 'observation'])
+        system = mock_client_cls.return_value.messages.create.call_args.kwargs['system']
+        self.assertIn('2種類', system)
+        self.assertIn('1. 支援内容、2. 観察・活動内容', system)
+        self.assertLess(system.index('"support"'), system.index('"observation"'))
+        self.assertNotIn('"reaction"', system)
+
+
+class PaperScanTests(TestCase):
+    """紙の日誌の取り込み：アップロード → AI 読み取り → 確認して保存"""
+
+    def setUp(self):
+        from beneficiaries.models import Beneficiary
+        from datetime import date
+        self.facility = Facility.objects.create(name='テスト施設')
+        self.user = StaffAccount.objects.create_user('staff', password='pass12345', facility=self.facility)
+        self.client.force_login(self.user)
+        self.b = Beneficiary.objects.create(facility=self.facility, last_name='佐藤', first_name='はると',
+                                            last_name_kana='さとう', first_name_kana='はると', date_of_birth=date(2016, 4, 1))
+
+    @staticmethod
+    def _image(name='scan.png'):
+        import io
+        from PIL import Image
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        buf = io.BytesIO()
+        Image.new('RGB', (40, 60), (255, 255, 255)).save(buf, format='PNG')
+        return SimpleUploadedFile(name, buf.getvalue(), content_type='image/png')
+
+    def test_upload_and_list(self):
+        from records.models import PaperScan
+        res = self.client.post(reverse('records:paper_upload'), {'images': [self._image('a.png'), self._image('b.png')]})
+        self.assertRedirects(res, reverse('records:paper_list'))
+        self.assertEqual(PaperScan.objects.filter(facility=self.facility, status='pending').count(), 2)
+        res = self.client.get(reverse('records:paper_list'))
+        self.assertContains(res, '取り込んだ写真（2 枚）')
+        self.assertContains(res, 'AIで読み取る')
+
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    @mock.patch('records.paper.anthropic.Anthropic')
+    def test_extract_and_save(self, mock_client_cls):
+        from records.models import DailyRecord, PaperScan
+        scan = PaperScan.objects.create(facility=self.facility, uploaded_by=self.user, image=self._image())
+        mock_client_cls.return_value.messages.create.return_value = _fake_response(json.dumps({
+            'date': '2026-09-03', 'beneficiary_name': '佐藤はると', 'entry_time': '15:30', 'exit_time': '17時00分',
+            'health_condition': 'good', 'activity_name': 'かるた', 'activity_aim': '順番を待つ',
+            'viewpoints': [{'text': '順番を待てるか', 'answer': 'yes'}, {'text': '声をかけるか', 'answer': None}],
+            'observation_text': 'ｶﾙﾀに集中していました。', 'support_text': '声かけをしました。', 'reaction_text': '笑顔でした。',
+            'activity_reflection': '', 'parent_message': '', 'other_notes': '', 'unreadable': '右下の数字',
+        }, ensure_ascii=False))
+        res = self.client.post(reverse('records:paper_extract', args=[scan.pk]))
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data['beneficiary_id'], self.b.pk)
+        self.assertEqual(data['date'], '2026-09-03')
+        scan.refresh_from_db()
+        self.assertEqual(scan.status, 'extracted')
+        self.assertEqual(scan.extracted['exit_time'], '17:00')
+        self.assertEqual(scan.extracted['observation_text'], 'カルタに集中していました。')
+        # 画像は base64 で送られている
+        content = mock_client_cls.return_value.messages.create.call_args.kwargs['messages'][0]['content']
+        self.assertEqual(content[0]['type'], 'image')
+        self.assertEqual(content[0]['source']['media_type'], 'image/jpeg')
+        self.assertIn('佐藤 はると', content[1]['text'])
+
+        res = self.client.get(reverse('records:paper_review', args=[scan.pk]))
+        self.assertContains(res, 'かるた')
+        self.assertContains(res, '右下の数字')
+        self.assertContains(res, f'<option value="{self.b.pk}" selected>')
+
+        res = self.client.post(reverse('records:paper_review', args=[scan.pk]), {
+            'beneficiary': self.b.pk, 'date': '2026-09-03', 'entry_time': '15:30', 'exit_time': '17:00',
+            'health_condition': 'good', 'activity_name': 'かるた', 'activity_aim': '順番を待つ',
+            'activity_viewpoints': json.dumps([{'text': '順番を待てるか', 'answer': 'yes'}]),
+            'observation_text': 'カルタに集中していました。', 'support_text': '声かけ', 'reaction_text': '笑顔', 'status': 'confirmed',
+        })
+        rec = DailyRecord.objects.get(beneficiary=self.b, date='2026-09-03')
+        self.assertRedirects(res, f'/records/{self.b.pk}/?selected={rec.pk}')
+        self.assertEqual(rec.activity_name, 'かるた')
+        self.assertEqual(rec.activity_viewpoints[0]['answer'], 'yes')
+        self.assertEqual(rec.photos.count(), 1)
+        scan.refresh_from_db()
+        self.assertEqual(scan.status, 'imported')
+        self.assertEqual(scan.record, rec)
+
+        # 同じ日の日誌があるときは上書き確認
+        scan2 = PaperScan.objects.create(facility=self.facility, image=self._image())
+        res = self.client.post(reverse('records:paper_review', args=[scan2.pk]), {
+            'beneficiary': self.b.pk, 'date': '2026-09-03', 'observation_text': '別の内容', 'status': 'draft'})
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, '既存の日誌をこの内容で上書きする')
+        res = self.client.post(reverse('records:paper_review', args=[scan2.pk]), {
+            'beneficiary': self.b.pk, 'date': '2026-09-03', 'observation_text': '別の内容', 'status': 'draft', 'overwrite': '1'})
+        rec.refresh_from_db()
+        self.assertEqual(rec.observation_text, '別の内容')
+        self.assertEqual(DailyRecord.objects.filter(beneficiary=self.b).count(), 1)
+
+    def test_other_facility_and_delete(self):
+        from records.models import PaperScan
+        scan = PaperScan.objects.create(facility=self.facility, image=self._image())
+        other = Facility.objects.create(name='別施設')
+        u2 = StaffAccount.objects.create_user('other', password='pass12345', facility=other)
+        self.client.force_login(u2)
+        self.assertEqual(self.client.get(reverse('records:paper_review', args=[scan.pk])).status_code, 404)
+        self.assertEqual(self.client.post(reverse('records:paper_extract', args=[scan.pk])).status_code, 404)
+        self.client.force_login(self.user)
+        res = self.client.post(reverse('records:paper_delete', args=[scan.pk]))
+        self.assertRedirects(res, reverse('records:paper_list'))
+        self.assertFalse(PaperScan.objects.filter(pk=scan.pk).exists())

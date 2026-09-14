@@ -40,7 +40,18 @@ from .forms import CopaymentManagementForm, CopaymentOfficeRecordForm
 from .models import BillingMatrixAddon, BillingMatrixEntry, CopaymentManagement, CopaymentOfficeRecord
 
 
-class BillingMatrixView(LoginRequiredMixin, View):
+class BillingEnabledMixin:
+    """施設設定で請求機能を使わない場合はホームへ戻す"""
+
+    def dispatch(self, request, *args, **kwargs):
+        facility = getattr(request.user, 'facility', None)
+        if request.user.is_authenticated and facility is not None and not facility.use_billing:
+            messages.info(request, '請求機能はこの事業所では使わない設定です（施設設定 → 使う機能 で変更できます）。')
+            return redirect('facilities:dashboard')
+        return super().dispatch(request, *args, **kwargs)
+
+
+class BillingMatrixView(LoginRequiredMixin, BillingEnabledMixin, View):
     """
     請求マトリックス画面（S-07）
     縦軸＝利用者、横軸＝日付で、月ごとの利用状況を一覧表示する。
@@ -180,7 +191,7 @@ class BillingMatrixView(LoginRequiredMixin, View):
         })
 
 
-class CellPopupView(LoginRequiredMixin, View):
+class CellPopupView(LoginRequiredMixin, BillingEnabledMixin, View):
     """
     セルタップ時のポップアップ内容を返す（HTMX partial）。
     利用者×日付の状態・加算を確認・編集するフォームを表示する。
@@ -335,7 +346,7 @@ def _suggest_addons(visit, facility, target_date, beneficiary, individual_addons
     return suggested_ids
 
 
-class CellUpdateView(LoginRequiredMixin, View):
+class CellUpdateView(LoginRequiredMixin, BillingEnabledMixin, View):
     """
     セルの状態・加算を保存する。
     BillingMatrixEntry と ScheduledVisit を両方更新して整合性を保つ。
@@ -385,7 +396,7 @@ class CellUpdateView(LoginRequiredMixin, View):
         return redirect('billing:matrix_month', year=year, month=month)
 
 
-class LoadFromScheduleView(LoginRequiredMixin, View):
+class LoadFromScheduleView(LoginRequiredMixin, BillingEnabledMixin, View):
     """
     指定年月の ScheduledVisit を一括読み込みして BillingMatrixEntry を作成する。
     すでにエントリーが存在するセルは上書きしない。
@@ -434,7 +445,7 @@ class LoadFromScheduleView(LoginRequiredMixin, View):
         return redirect('billing:matrix_month', year=year, month=month)
 
 
-class CopaymentListView(LoginRequiredMixin, View):
+class CopaymentListView(LoginRequiredMixin, BillingEnabledMixin, View):
     """
     利用者負担上限額管理 一覧（月次）。
     在籍中の利用者ごとに、当月の上限額管理レコードの有無を表示する。
@@ -491,7 +502,7 @@ class CopaymentListView(LoginRequiredMixin, View):
         })
 
 
-class CopaymentEditView(LoginRequiredMixin, View):
+class CopaymentEditView(LoginRequiredMixin, BillingEnabledMixin, View):
     """
     利用者負担上限額管理 編集画面。
     CopaymentManagement 本体＋事業所別実績（formset）を同時に保存する。
@@ -577,7 +588,7 @@ class CopaymentEditView(LoginRequiredMixin, View):
         })
 
 
-class BillingCsvView(LoginRequiredMixin, View):
+class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
     """
     月次請求集計 CSV ダウンロード（国保連請求作成・請求ソフト入力の参照資料）。
     利用者ごとの利用日数・欠席日数・加算件数などをまとめて出力する。
@@ -798,7 +809,7 @@ def _build_invoice_context(facility, beneficiary, year, month):
     }
 
 
-class InvoiceListView(LoginRequiredMixin, View):
+class InvoiceListView(LoginRequiredMixin, BillingEnabledMixin, View):
     """
     請求書・領収書 一覧（月次）。
     在籍中の利用者ごとに請求書・領収書PDFのダウンロードリンクを表示する。
@@ -858,7 +869,7 @@ class InvoiceListView(LoginRequiredMixin, View):
         })
 
 
-class InvoicePdfView(LoginRequiredMixin, View):
+class InvoicePdfView(LoginRequiredMixin, BillingEnabledMixin, View):
     """請求書 PDF ダウンロード（WeasyPrint）。"""
 
     def get(self, request, beneficiary_pk, year, month):
@@ -888,7 +899,7 @@ class InvoicePdfView(LoginRequiredMixin, View):
         return response
 
 
-class ReceiptPdfView(LoginRequiredMixin, View):
+class ReceiptPdfView(LoginRequiredMixin, BillingEnabledMixin, View):
     """領収書 PDF ダウンロード（WeasyPrint）。"""
 
     def get(self, request, beneficiary_pk, year, month):

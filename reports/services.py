@@ -160,17 +160,22 @@ def attendance_summary(facility, year, month):
         vs, es = visit_stats.get(b.pk, {}), entry_stats.get(b.pk, {})
         cert = _cert_for(b, start)
         total_attended += vs.get('attended', 0)
-        rows.append([b.full_name, b.full_name_kana, str(cert.granted_days) if cert else '',
-                     str(vs.get('scheduled', 0)), str(vs.get('attended', 0)), str(vs.get('absent', 0)), str(vs.get('transferred', 0)),
-                     str(vs.get('pickups', 0)), str(vs.get('dropoffs', 0)), str(record_counts.get(b.pk, 0)),
-                     str(es.get('attended', 0)), str(es.get('absent', 0)), str(es.get('transferred', 0))])
+        row = [b.full_name, b.full_name_kana, str(cert.granted_days) if cert else '',
+               str(vs.get('scheduled', 0)), str(vs.get('attended', 0)), str(vs.get('absent', 0)), str(vs.get('transferred', 0)),
+               str(vs.get('pickups', 0)), str(vs.get('dropoffs', 0)), str(record_counts.get(b.pk, 0))]
+        if facility.use_billing:
+            row += [str(es.get('attended', 0)), str(es.get('absent', 0)), str(es.get('transferred', 0))]
+        rows.append(row)
+    columns = ['氏名', 'ふりがな', '支給量', '予定', '来所', '欠席', '振替', '迎え', '送り', '日誌作成']
+    footnote = '予定・来所・欠席・振替・送迎は予定表（出欠入力）から集計しています。'
+    if facility.use_billing:
+        columns += ['請求：利用', '請求：欠席', '請求：振替']
+        footnote = '予定・来所・欠席・振替・送迎は予定表（出欠入力）から、請求の各列は請求マトリックスから集計しています。'
     return Report(
         key='attendance_summary', title='出欠・利用実績一覧', subtitle=f'{year}年{month}月',
         meta=[('事業所名', facility.name), ('対象月', f'{year}年{month}月'),
               (f'在籍{terms["beneficiary"]}数', f'{len(beneficiaries)} 名'), ('来所延べ人数', f'{total_attended} 人日')],
-        columns=['氏名', 'ふりがな', '支給量', '予定', '来所', '欠席', '振替', '迎え', '送り', '日誌作成', '請求：利用', '請求：欠席', '請求：振替'],
-        rows=rows, landscape=True, filename=f'出欠利用実績_{year}{month:02d}',
-        footnote='予定・来所・欠席・振替・送迎は予定表（出欠入力）から、請求の各列は請求マトリックスから集計しています。',
+        columns=columns, rows=rows, landscape=True, filename=f'出欠利用実績_{year}{month:02d}', footnote=footnote,
     )
 
 

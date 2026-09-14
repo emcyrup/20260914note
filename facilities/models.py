@@ -44,7 +44,21 @@ class Facility(models.Model):
                                    help_text='#4e7d89 のような16進数。空なら標準色')
     line_channel_access_token = models.TextField(blank=True, verbose_name='LINEチャネルアクセストークン')
     line_channel_secret = models.CharField(max_length=100, blank=True, verbose_name='LINEチャネルシークレット')
+    # 使う機能（事業所によっては請求・LINE を使わない）
+    use_billing = models.BooleanField(default=True, verbose_name='請求機能を使う')
+    use_line = models.BooleanField(default=True, verbose_name='LINE連携を使う')
+    # 日誌で AI が作る項目と、その順番（空なら標準の順番で全部）
+    journal_sections = models.JSONField(default=list, blank=True, verbose_name='日誌の項目と順番')
     created_at = models.DateTimeField(auto_now_add=True)
+
+    JOURNAL_SECTIONS = [
+        ('activity',       '活動・めあて・観点・考察'),
+        ('observation',    '観察・活動内容'),
+        ('support',        '支援内容'),
+        ('reaction',       '本人の反応'),
+        ('parent_message', '保護者向けメッセージ'),
+    ]
+    JOURNAL_SECTION_LABELS = dict(JOURNAL_SECTIONS)
 
     class Meta:
         verbose_name = '施設'
@@ -52,6 +66,27 @@ class Facility(models.Model):
 
     def __str__(self):
         return self.name
+
+    def journal_section_keys(self):
+        """日誌に出す項目のキーを優先順位の順で返す（設定が空なら標準の順番で全部）"""
+        valid = [k for k, _ in self.JOURNAL_SECTIONS]
+        keys = [k for k in (self.journal_sections or []) if k in valid]
+        seen = []
+        for k in keys:
+            if k not in seen:
+                seen.append(k)
+        return seen or valid
+
+    def journal_section_rows(self):
+        """設定画面用：使う項目を順番どおりに、使わない項目をその後ろに"""
+        enabled = self.journal_section_keys() if self.journal_sections else [k for k, _ in self.JOURNAL_SECTIONS]
+        rows = [{'key': k, 'label': self.JOURNAL_SECTION_LABELS[k], 'enabled': True} for k in enabled]
+        rows += [{'key': k, 'label': l, 'enabled': False} for k, l in self.JOURNAL_SECTIONS if k not in enabled]
+        return rows
+
+    def journal_text_keys(self):
+        """AI 一括生成の対象（文章の項目だけ）"""
+        return [k for k in self.journal_section_keys() if k != 'activity']
 
 
 class SupportContentTag(models.Model):

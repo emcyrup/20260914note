@@ -251,6 +251,7 @@
             @click="modalDate = '{% now 'Y-m-d' %}'; modalDateLabel = '{% now 'n月j日' %}'">
       <i class="bi bi-plus me-1"></i>日誌を追加
     </button>
+    <a href="{% url 'records:paper_list' %}" class="btn btn-sm btn-outline-secondary" title="過去の紙の日誌をカメラで取り込む"><i class="bi bi-camera me-1"></i>紙の日誌を取り込む</a>
   </div>
 
   <!-- 凡例 -->

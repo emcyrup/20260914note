@@ -158,7 +158,8 @@
             <a href="{% url 'records:dashboard' %}" class="btn btn-outline-primary">日誌を入力する</a>
             <a href="{% url 'beneficiaries:list' %}" class="btn btn-outline-primary">{{ terms.beneficiary }}を確認する</a>
             <a href="{% url 'schedules:calendar' %}" class="btn btn-outline-primary">今月の予定を確認する</a>
-            <a href="{% url 'billing:matrix' %}" class="btn btn-outline-primary">請求マトリックスを開く</a>
+            {% if features.billing %}<a href="{% url 'billing:matrix' %}" class="btn btn-outline-primary">請求マトリックスを開く</a>{% endif %}
+            <a href="{% url 'records:paper_list' %}" class="btn btn-outline-primary">紙の日誌を取り込む</a>
             <a href="{% url 'schedules:daily' today.year today.month today.day %}" class="btn btn-outline-primary">今日の出欠をまとめて入力</a>
           </div>
         </div>

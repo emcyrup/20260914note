@@ -127,7 +127,19 @@ class LineWebhookView(View):
         return HttpResponse(status=405)
 
 
-class SendLineMessageView(LoginRequiredMixin, View):
+
+class LineEnabledMixin:
+    """施設設定で LINE 連携を使わない場合はホームへ戻す"""
+
+    def dispatch(self, request, *args, **kwargs):
+        facility = getattr(request.user, 'facility', None)
+        if request.user.is_authenticated and facility is not None and not facility.use_line:
+            messages.info(request, 'LINE連携はこの事業所では使わない設定です（施設設定 → 使う機能 で変更できます）。')
+            return redirect('facilities:dashboard')
+        return super().dispatch(request, *args, **kwargs)
+
+
+class SendLineMessageView(LoginRequiredMixin, LineEnabledMixin, View):
     """
     保護者向けメッセージをLINE Push Messageで送信する。
     日次記録の parent_message_draft を送信し、LineDeliveryLog に結果を記録する。
@@ -222,7 +234,7 @@ class SendLineMessageView(LoginRequiredMixin, View):
         return redirect('records:list', beneficiary_pk=record.beneficiary_id)
 
 
-class DeliveryLogView(LoginRequiredMixin, View):
+class DeliveryLogView(LoginRequiredMixin, LineEnabledMixin, View):
     """
     LINE配信履歴一覧。施設の全配信ログを新しい順に表示する。
     """

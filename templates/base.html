@@ -105,14 +105,17 @@
         </a>
       </li>
       <li class="nav-secondary">
+        {% if features.line %}
         <a class="sidebar-nav-item {% block nav_line %}{% endblock %}"
            href="{% url 'line_integration:delivery_log' %}">
           <i class="bi bi-chat-dots"></i>
           <span>LINE連携</span>
         </a>
+        {% endif %}
       </li>
 
-      <li class="sidebar-nav-label nav-secondary">請求</li>
+      <li class="sidebar-nav-label nav-secondary">{% if features.billing %}請求・帳票{% else %}帳票{% endif %}</li>
+      {% if features.billing %}
       <li class="nav-secondary">
         <a class="sidebar-nav-item {% block nav_billing_matrix %}{% endblock %}"
            href="{% url 'billing:matrix' %}">
@@ -134,6 +137,7 @@
           <span>請求書・領収書</span>
         </a>
       </li>
+      {% endif %}
       <li class="nav-secondary">
         <a class="sidebar-nav-item {% block nav_reports %}{% endblock %}"
            href="{% url 'reports:index' %}">

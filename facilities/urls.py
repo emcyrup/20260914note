@@ -9,6 +9,7 @@ urlpatterns = [
     # 施設設定
     path('settings/', views.SettingsView.as_view(), name='settings'),
     path('settings/facility/update/', views.FacilityUpdateView.as_view(), name='facility_update'),
+    path('settings/features/', views.FeatureSettingsView.as_view(), name='feature_settings'),
 
     # 活動タグ管理
     path('settings/activity-tags/add/', views.ActivityTagCreateView.as_view(), name='activity_tag_add'),

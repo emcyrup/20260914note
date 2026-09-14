@@ -222,11 +222,11 @@
                 <div class="fw-semibold">{{ g.last_name }} {{ g.first_name }}
                   <span class="badge text-bg-light text-dark ms-1" style="font-size:0.7rem;">{{ g.get_relation_display }}</span>
                   {% if g.is_primary %}<span class="badge ms-1" style="background:var(--color-primary);font-size:0.7rem;">主連絡先</span>{% endif %}
-                  {% if g.line_linked %}<span class="badge ms-1" style="background:#06C755;font-size:0.7rem;"><i class="bi bi-chat-dots me-1"></i>LINE連携済</span>{% else %}<span class="badge ms-1 bg-light text-muted" style="font-size:0.7rem;">LINE未連携</span>{% endif %}
+                  {% if features.line %}{% if g.line_linked %}<span class="badge ms-1" style="background:#06C755;font-size:0.7rem;"><i class="bi bi-chat-dots me-1"></i>LINE連携済</span>{% else %}<span class="badge ms-1 bg-light text-muted" style="font-size:0.7rem;">LINE未連携</span>{% endif %}{% endif %}
                 </div>
                 <div class="text-muted small">{{ g.phone|default:'—' }}</div>
                 <!-- LINE登録コード -->
-                {% if not g.line_linked %}
+                {% if features.line and not g.line_linked %}
                 <div class="mt-1 d-flex align-items-center gap-2 flex-wrap">
                   <span class="small text-muted">LINE登録コード：</span>
                   <code style="font-size:1rem;letter-spacing:0.15em;color:var(--color-primary);font-weight:700;">{{ g.line_registration_code }}</code>
