@@ -1,0 +1,37 @@
+# =============================================
+# 外部 nginx（HTTPS 終端）と外部 PostgreSQL がある共用サーバー向けの Compose
+#   nginx（ホスト、:443） → app（127.0.0.1:${APP_PORT}） → PostgreSQL（ホスト or 別ホスト）
+#   例: AWS の開発環境 https://st-michinotedemo.ai-labo.cloud/ → 127.0.0.1:8029
+#
+#   サーバーでは ${APP_DIR}（例 /opt/michinotedemo）に docker-compose.yml として置き、同じ場所の .env を読む。
+#   deploy-dev.yml がこのファイルを docker-compose.yml の名前で同期する。
+# =============================================
+name: ${COMPOSE_PROJECT_NAME:-michinotedemo}
+
+services:
+  app:
+    image: ${APP_IMAGE:-ghcr.io/emcyrup/20260914note:latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # ホストの PostgreSQL に接続する場合は host.docker.internal（下の extra_hosts で解決）
+      DB_HOST: ${DB_HOST:-host.docker.internal}
+      DB_PORT: ${DB_PORT:-5432}
+      MEDIA_ROOT: /app/media
+      STATIC_ROOT: /app/staticfiles
+      # nginx に /media/ の alias を書けない場合は Django が配信する（既定 True。alias を設定したら False に）
+      SERVE_MEDIA: ${SERVE_MEDIA:-True}
+    ports:
+      # ホストの loopback だけに公開。外からは nginx 経由のみ
+      - "127.0.0.1:${APP_PORT:-8029}:8000"
+    volumes:
+      # 写真・紙の日誌・ロゴなど。ホストの ./media に置くので nginx からも alias で配信できる
+      - ./media:/app/media
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3

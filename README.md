@@ -218,6 +218,10 @@ python manage.py collectstatic --noinput
 # Gunicornを再起動（systemctlまたはプロセスを再起動）
 ```
 
+## AWS 開発環境（外部 nginx＋既存 PostgreSQL の共用サーバー）へのデプロイ
+
+`https://st-michinotedemo.ai-labo.cloud/` のように、サーバーの nginx が HTTPS を終端して `127.0.0.1:8029` へ中継し、DB もサーバー上の PostgreSQL を使う構成向けです。`deploy/docker-compose.external.yml`（app コンテナのみ）、`deploy/.env.dev-aws.example`、`deploy/nginx.example.conf`、ワークフロー **Deploy (dev)**（`develop` への push または手動実行）を使います。手順と GCP からのデータ移行は [docs/DEPLOY_AWS_DEV.md](docs/DEPLOY_AWS_DEV.md) を参照してください。
+
 ## GCP へのデプロイ（最小コスト構成）
 
 > ターミナルや Terraform を使わず **Cloud Console の画面だけ**で構築する手順は [docs/DEPLOY_GCP_CONSOLE.md](docs/DEPLOY_GCP_CONSOLE.md) を参照してください。以下は CLI / Terraform で行う手順です。
