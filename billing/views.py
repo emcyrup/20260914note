@@ -638,15 +638,9 @@ class BillingCsvView(LoginRequiredMixin, View):
         ).order_by('last_name_kana', 'first_name_kana')
 
         # CSV 出力（BOM付きUTF-8）
-        response = HttpResponse(content_type='text/csv; charset=utf-8-sig')
-        ascii_filename = f'billing_{year}{month:02d}.csv'
-        utf8_filename  = urllib.parse.quote(f'請求集計_{year}年{month:02d}月.csv')
-        response['Content-Disposition'] = (
-            f'attachment; filename="{ascii_filename}"; '
-            f"filename*=UTF-8''{utf8_filename}"
-        )
-
-        writer = csv.writer(response)
+        import io
+        buf = io.StringIO()
+        writer = csv.writer(buf)
 
         # 1行目：施設名・対象月・出力日
         writer.writerow([
@@ -687,6 +681,14 @@ class BillingCsvView(LoginRequiredMixin, View):
                 sc.get('transferred', 0),
             ] + addon_counts + [total_units or ''])
 
+        # BOM は先頭に1つだけ（行ごとに付かないよう、まとめて encode する）
+        response = HttpResponse(buf.getvalue().encode('utf-8-sig'), content_type='text/csv; charset=utf-8')
+        ascii_filename = f'billing_{year}{month:02d}.csv'
+        utf8_filename  = urllib.parse.quote(f'請求集計_{year}年{month:02d}月.csv')
+        response['Content-Disposition'] = (
+            f'attachment; filename="{ascii_filename}"; '
+            f"filename*=UTF-8''{utf8_filename}"
+        )
         return response
 
 

@@ -20,6 +20,7 @@ urlpatterns = [
     path('records/', include('records.urls')),
     path('plans/', include('support_plans.urls')),
     path('billing/', include('billing.urls')),
+    path('reports/', include('reports.urls')),
     path('esignatures/', include('esignatures.urls')),
     path('line/', include('line_integration.urls')),
     path('ai/', include('ai_assist.urls')),

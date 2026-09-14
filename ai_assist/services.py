@@ -15,6 +15,7 @@ from schedules.models import ScheduledVisit
 
 from .models import AddonSuggestion
 from .retrieval import format_context, search
+from .text import JAPANESE_RULES, clean_ai_text, effort_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ ADDON_SYSTEM_PROMPT = """あなたは放課後等デイサービスの請求事�
 - 「既に適用済み」と書かれた加算は挙げない
 - 資料に該当箇所があれば evidence に「資料名 p.ページ」を書く。無ければ空文字
 - 該当が無ければ suggestions を空配列にする
+- reason は自然な日本語（です・ます調は不要）。中国語や英語、記号の装飾を混ぜない
 
 必ず次のJSONだけを返してください（文字列内で改行しない）。
 {"suggestions": [{"addon": "加算名", "reason": "根拠となる記録の内容（60字以内）", "evidence": "資料名 p.数字 または空"}]}"""
@@ -110,7 +112,7 @@ def generate_addon_suggestions(record):
     user_content = f'【日誌】\n{summary}\n\n【算定できる個別加算の一覧】\n{addon_lines}\n\n【算定要件の資料（抜粋）】\n{doc_context}'
     try:
         res = _client().messages.create(
-            model=settings.AI_TEXT_MODEL, max_tokens=700, system=ADDON_SYSTEM_PROMPT,
+            model=settings.AI_TEXT_MODEL, max_tokens=1500, **effort_kwargs(settings.AI_TEXT_MODEL), system=ADDON_SYSTEM_PROMPT,
             messages=[{'role': 'user', 'content': user_content}],
         )
         data = _parse_json(_text_of(res))
@@ -189,7 +191,8 @@ CHAT_SYSTEM_PROMPT = """あなたは放課後等デイサービスの職員を�
 - 「参考情報」に書かれている事実だけを根拠に答える。書かれていないことは「記録にありません」と言い、推測で数字や様子を作らない
 - 加算・算定要件の質問には、資料の抜粋があればそれを根拠に答え、末尾に「※参考情報です。正確な算定要件は厚生労働省の通知・自治体の解釈をご確認ください」と添える
 - 利用者の個人情報は質問に必要な範囲だけ触れる
-- 長くなるときは箇条書きにする（5項目以内）"""
+- 長くなるときは箇条書きにする（5項目以内）
+- 常用漢字とひらがな・カタカナで書き、中国語（簡体字・繁体字）や英語、半角カタカナ、絵文字を混ぜない。マークダウンの強調（**）や見出し（#）は使わない"""
 
 NAME_MIN_LEN = 2
 
@@ -278,6 +281,7 @@ def chat_reply(facility, user, message, history=None, beneficiary=None):
             messages.append({'role': h['role'], 'content': str(h['content'])[:2000]})
     messages.append({'role': 'user', 'content': f'【参考情報】\n' + '\n'.join(context) + f'\n\n【質問】\n{message}'})
     res = _client().messages.create(
-        model=settings.AI_TEXT_MODEL, max_tokens=900, system=CHAT_SYSTEM_PROMPT, messages=messages,
+        model=settings.AI_TEXT_MODEL, max_tokens=1500, **effort_kwargs(settings.AI_TEXT_MODEL, 'medium'),
+        system=CHAT_SYSTEM_PROMPT, messages=messages,
     )
-    return _text_of(res)
+    return clean_ai_text(_text_of(res))

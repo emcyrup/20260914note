@@ -20,6 +20,7 @@ from facilities.models import SupportContentTag
 from schedules.models import ScheduledVisit
 from .models import DailyRecord, ActivityTag, DailyRecordPhoto, RecordTemplate, StaffMemo
 from facilities.context_processors import get_terms
+from ai_assist.text import JAPANESE_RULES, clean_ai_dict, clean_ai_text, effort_kwargs
 
 
 MAX_PHOTOS_PER_RECORD = 5  # 1件の日誌に添付できる写真の最大枚数
@@ -539,21 +540,22 @@ class AiPolishView(LoginRequiredMixin, View):
         prompt = self.PROMPTS.get(field_key, self.PROMPTS['observation'])
 
         # タグが選択されている場合はプロンプトに追記する
-        user_content = f'{prompt}\n\n【メモ】\n{memo}'
+        user_content = f'{prompt}\n\n{JAPANESE_RULES}\n\n【メモ】\n{memo}'
         if tags:
             user_content += f'\n\n【選択されたタグ（活動・支援内容）】\n{tags}'
 
         try:
             client   = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
             response = client.messages.create(
-                model=settings.AI_TEXT_MODEL,  # 文章整えは高速・低コストのモデルを使用
-                max_tokens=300,
+                model=settings.AI_TEXT_MODEL,
+                max_tokens=1024,
+                **effort_kwargs(settings.AI_TEXT_MODEL),
                 messages=[{
                     'role': 'user',
                     'content': user_content,
                 }],
             )
-            polished = ''.join(b.text for b in response.content if b.type == 'text').strip()
+            polished = clean_ai_text(''.join(b.text for b in response.content if b.type == 'text'))
             return JsonResponse({'result': polished})
         except Exception as e:  # noqa: BLE001
             logger.exception('AI文章整えでエラー')
@@ -573,9 +575,12 @@ class AiGenerateAllView(LoginRequiredMixin, View):
     """
 
     SYSTEM_PROMPT = """あなたは放課後等デイサービスの記録専門AIアシスタントです。
-職員のメモ書きと選択されたタグをもとに、4種類の記録文章を生成してください。です/ます調・「して下さいました」などの過剰な敬語は不要です。
+職員のメモ書きと選択されたタグをもとに、4種類の記録文章を生成してください。「して下さいました」などの過剰な敬語は不要です。
+
+""" + JAPANESE_RULES + """
+
 必ず以下のJSON形式のみで返してください。余分なテキストや説明、コードフェンスは一切不要です。
-文字列の中に改行を入れず、1つの文字列は1行で書いてください。
+文字列の中に改行を入れず、1つの文字列は1行で書いてください。JSON の文字列に \\u のようなエスケープを使わず、日本語をそのまま書いてください。
 
 {
   "observation": "活動内容・観察記録（80〜120字・事実に基づき客観的に）",
@@ -599,7 +604,8 @@ class AiGenerateAllView(LoginRequiredMixin, View):
             client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
             response = client.messages.create(
                 model=settings.AI_TEXT_MODEL,
-                max_tokens=800,
+                max_tokens=2048,
+                **effort_kwargs(settings.AI_TEXT_MODEL),
                 system=self.SYSTEM_PROMPT,
                 messages=[{'role': 'user', 'content': user_content}],
             )
@@ -613,12 +619,7 @@ class AiGenerateAllView(LoginRequiredMixin, View):
             data  = json.loads(raw[start:end], strict=False)
             if not isinstance(data, dict):
                 raise json.JSONDecodeError('object expected', raw, 0)
-            return JsonResponse({
-                'observation':    data.get('observation', ''),
-                'support':        data.get('support', ''),
-                'reaction':       data.get('reaction', ''),
-                'parent_message': data.get('parent_message', ''),
-            })
+            return JsonResponse(clean_ai_dict(data, ('observation', 'support', 'reaction', 'parent_message')))
         except json.JSONDecodeError:
             logger.warning('AI一括生成の返答がJSONでない: %r', raw[:200] if 'raw' in locals() else None)
             return JsonResponse({'error': 'AIの返答を解析できませんでした。もう一度お試しください。'}, status=500)
@@ -641,6 +642,8 @@ class AiActivityPlanView(LoginRequiredMixin, View):
 職員が入力した「活動」から、業務日誌に書く「めあて」と「考察」を作成してください。
 対象は発達に特性のある小学生〜高校生です。安全・役割分担・感覚・言語・社会性など、
 活動の性質に合った観点を選び、抽象的な言葉ではなく現場で観察できる行動で書いてください。
+
+""" + JAPANESE_RULES + """
 
 必ず以下のJSON形式のみで返してください。余分な説明やコードフェンスは不要です。
 文字列の中に改行を入れず、1つの文字列は1行で書いてください。
@@ -697,8 +700,8 @@ reflection は、【職員のメモ】がある場合はその事実に基づい
             if not isinstance(data, dict):
                 raise json.JSONDecodeError('object expected', raw, 0)
 
-            aim        = str(data.get('aim', '')).strip()
-            new_points = [str(v).strip()[:100] for v in data.get('viewpoints', []) if str(v).strip()]
+            aim        = clean_ai_text(data.get('aim', ''), keep_newlines=False)
+            new_points = [clean_ai_text(v, keep_newlines=False)[:100] for v in data.get('viewpoints', []) if clean_ai_text(v)]
             if answered:
                 # 職員が確認した観点はそのまま（回答つき）で返す
                 result_points = viewpoints
@@ -711,7 +714,7 @@ reflection は、【職員のメモ】がある場合はその事実に基づい
                 'aim':        aim,
                 'viewpoints': result_points,
                 'aim_text':   aim_text,
-                'reflection': str(data.get('reflection', '')).strip(),
+                'reflection': clean_ai_text(data.get('reflection', '')),
             })
         except json.JSONDecodeError:
             logger.warning('活動プラン生成の返答がJSONでない: %r', raw[:200] if 'raw' in locals() else None)

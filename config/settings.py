@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     'ai_features',
     'esignatures',
     'line_integration',
+    'reports',
 ]
 
 MIDDLEWARE = [
@@ -129,8 +130,8 @@ LOGOUT_REDIRECT_URL = '/accounts/login/'
 ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
 # 活動→めあて・考察の生成に使うモデル（利用できない場合は .env で差し替える）
 AI_PLAN_MODEL = config('AI_PLAN_MODEL', default='claude-opus-5')
-# 文章整え・一括生成に使う高速モデル
-AI_TEXT_MODEL = config('AI_TEXT_MODEL', default='claude-haiku-4-5-20251001')
+# 文章整え・一括生成・チャット・加算提案に使うモデル（日本語の品質を優先。費用を抑えるなら .env で claude-sonnet-5 に）
+AI_TEXT_MODEL = config('AI_TEXT_MODEL', default='claude-opus-5')
 # 日誌を保存したときに AI が加算を提案する（API キーが無ければ何もしない）
 AI_ADDON_SUGGESTIONS = config('AI_ADDON_SUGGESTIONS', default=True, cast=bool)
 

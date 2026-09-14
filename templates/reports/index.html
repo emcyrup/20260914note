@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+
+{% block title %}帳票出力 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}帳票出力{% endblock %}
+{% block nav_reports %}active{% endblock %}
+
+{% block content %}
+<div class="px-2">
+  <p class="text-muted mb-3">記録・予定・請求のデータから帳票を作ります。CSV は Excel で開けます（文字化けしない BOM 付き）。PDF はそのまま印刷・提出できます。「画面で見る」は印刷前の確認用です。</p>
+
+  <div class="row g-3">
+    {% for k in kinds %}
+    <div class="col-md-6 col-xl-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="fw-bold mb-1"><i class="bi {{ k.icon }} me-1" style="color:var(--lake-text);"></i>{{ k.title }}</div>
+          <div class="small text-muted mb-3">{{ k.desc }}</div>
+          <form method="get" action="{% url 'reports:export' %}" class="report-form">
+            <input type="hidden" name="kind" value="{{ k.key }}">
+            <div class="row g-2 mb-2">
+              {% if 'beneficiary' in k.filters %}
+              <div class="col-12">
+                <label class="form-label small fw-semibold mb-0">{{ terms.beneficiary }}</label>
+                <select name="beneficiary" class="form-select form-select-sm" required>
+                  {% for b in beneficiaries %}<option value="{{ b.pk }}">{{ b.full_name }}{% if b.status != 'active' %}（{{ b.get_status_display }}）{% endif %}</option>{% endfor %}
+                </select>
+              </div>
+              {% endif %}
+              {% if 'month' in k.filters %}
+              <div class="col-12">
+                <label class="form-label small fw-semibold mb-0">対象月</label>
+                <input type="month" name="ym" class="form-control form-control-sm" value="{{ today|date:'Y-m' }}" required>
+              </div>
+              {% endif %}
+              {% if 'date' in k.filters %}
+              <div class="col-12">
+                <label class="form-label small fw-semibold mb-0">日付</label>
+                <input type="date" name="date" class="form-control form-control-sm" value="{{ today|date:'Y-m-d' }}" required>
+              </div>
+              {% endif %}
+              {% if 'range' in k.filters %}
+              <div class="col-6">
+                <label class="form-label small fw-semibold mb-0">開始</label>
+                <input type="date" name="start" class="form-control form-control-sm" value="{{ range_start|date:'Y-m-d' }}" required>
+              </div>
+              <div class="col-6">
+                <label class="form-label small fw-semibold mb-0">終了</label>
+                <input type="date" name="end" class="form-control form-control-sm" value="{{ today|date:'Y-m-d' }}" required>
+              </div>
+              {% endif %}
+              {% if 'include_inactive' in k.filters %}
+              <div class="col-12">
+                <label class="small"><input type="checkbox" name="include_inactive" value="1" class="form-check-input me-1">退所・休止中も含める</label>
+              </div>
+              {% endif %}
+              {% if 'plan_status' in k.filters %}
+              <div class="col-12">
+                <label class="form-label small fw-semibold mb-0">対象</label>
+                <select name="plan_status" class="form-select form-select-sm">
+                  {% for v, l in plan_statuses %}<option value="{{ v }}" {% if v == 'open' %}selected{% endif %}>{{ l }}</option>{% endfor %}
+                </select>
+              </div>
+              {% endif %}
+            </div>
+            <div class="d-flex flex-wrap gap-1">
+              <button class="btn btn-sm btn-primary" name="fmt" value="pdf"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</button>
+              <button class="btn btn-sm btn-outline-primary" name="fmt" value="csv"><i class="bi bi-filetype-csv me-1"></i>CSV</button>
+              <button class="btn btn-sm btn-outline-secondary" name="fmt" value="html" formtarget="_blank"><i class="bi bi-eye me-1"></i>画面で見る</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="small text-muted mt-3">
+    個別支援計画書・モニタリング報告書の PDF は各計画の画面から、請求書・領収書・請求集計 CSV は「請求」メニューから出力できます。
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 対象月（YYYY-MM）を year / month に分けて送る
+document.querySelectorAll('form.report-form').forEach(function (f) {
+  f.addEventListener('submit', function () {
+    var ym = f.querySelector('input[name=ym]');
+    if (!ym || !ym.value) return;
+    var parts = ym.value.split('-');
+    ['year', 'month'].forEach(function (n, i) {
+      var h = f.querySelector('input[name=' + n + ']') || document.createElement('input');
+      h.type = 'hidden'; h.name = n; h.value = parseInt(parts[i], 10); f.appendChild(h);
+    });
+    ym.disabled = true;
+  });
+});
+</script>
+{% endblock %}

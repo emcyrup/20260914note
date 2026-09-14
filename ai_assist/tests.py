@@ -216,3 +216,22 @@ class DocumentViewTests(SuggestionBase):
         res = self.client.post(reverse('ai_assist:document_upload'), {'file': ContentFile(b'%PDF', name='a.pdf')})
         self.assertRedirects(res, reverse('facilities:settings'))
         self.assertFalse(ReferenceDocument.objects.exists())
+
+
+class CleanAiTextTests(TestCase):
+    """AI の返答を丁寧な日本語の記録文に整える"""
+
+    def test_clean_ai_text(self):
+        from ai_assist.text import clean_ai_text, clean_ai_dict, effort_kwargs
+        # 文字のまま残ったエスケープ・半角カタカナ・ゼロ幅文字・マークダウン
+        self.assertEqual(clean_ai_text('\\u304a\\u306f\\u3088\\u3046'), 'おはよう')
+        self.assertEqual(clean_ai_text('ｸｯｷｰ作り​を﻿しました。'), 'クッキー作りをしました。')
+        self.assertEqual(clean_ai_text('```\n**観察記録：**「順番を待てました。」\n```'), '順番を待てました。')
+        self.assertEqual(clean_ai_text('観察記録: 1行目\\n2行目'), '1行目\n2行目')
+        self.assertEqual(clean_ai_text('1行目\n\n\n\n2行目'), '1行目\n\n2行目')
+        self.assertEqual(clean_ai_text('前半\n後半', keep_newlines=False), '前半後半')
+        self.assertEqual(clean_ai_text(None), '')
+        self.assertEqual(clean_ai_dict({'a': ' x ', 'b': None}, ('a', 'b', 'c')), {'a': 'x', 'b': '', 'c': ''})
+        self.assertEqual(effort_kwargs('claude-opus-5'), {'output_config': {'effort': 'low'}})
+        self.assertEqual(effort_kwargs('claude-sonnet-5', 'medium'), {'output_config': {'effort': 'medium'}})
+        self.assertEqual(effort_kwargs('claude-haiku-4-5-20251001'), {})

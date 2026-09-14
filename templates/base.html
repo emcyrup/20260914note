@@ -134,6 +134,13 @@
           <span>請求書・領収書</span>
         </a>
       </li>
+      <li class="nav-secondary">
+        <a class="sidebar-nav-item {% block nav_reports %}{% endblock %}"
+           href="{% url 'reports:index' %}">
+          <i class="bi bi-printer"></i>
+          <span>帳票出力</span>
+        </a>
+      </li>
 
       <li class="sidebar-nav-label nav-secondary">設定</li>
       {% if user.is_admin or user.is_superuser %}

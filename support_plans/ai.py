@@ -14,6 +14,7 @@ import anthropic
 from django.conf import settings
 
 from ai_assist.retrieval import tokenize
+from ai_assist.text import JAPANESE_RULES, clean_ai_text, effort_kwargs
 from records.models import DailyRecord
 
 from .models import PlanGoal
@@ -93,6 +94,8 @@ ASSESSMENT_PROMPT = """あなたは放課後等デイサービスの児童発達
 - 分からない項目は「（日誌からは不明。面談で確認）」と書く
 - です/ます調。各項目 150〜250字
 
+""" + JAPANESE_RULES + """
+
 必ず次のJSONだけを返してください（文字列内で改行しない）。
 {"condition": "心身の状況（発達・健康・得意/苦手・コミュニケーションの特徴）", "environment": "置かれている環境（利用頻度・学校・生活リズムなど、日誌から分かる範囲）", "wishes": "本人の希望として読み取れること（本人の言動から）。家族の希望は面談で確認と書く"}"""
 
@@ -108,10 +111,10 @@ def assessment_draft(plan, months=6):
     lines = '\n'.join(record_line(r) for r in records)
     user = (f'【利用者】{b.full_name}（{b.date_of_birth} 生、{b.disability_type or "障害種別未記入"}、利用予定曜日 {b.scheduled_weekdays_display}）\n'
             f'【期間】{start} 〜 {end}（日誌 {len(records)} 件）\n\n【日誌】\n{lines}')
-    res = _client().messages.create(model=settings.AI_TEXT_MODEL, max_tokens=1200, system=ASSESSMENT_PROMPT,
-                                    messages=[{'role': 'user', 'content': user}])
+    res = _client().messages.create(model=settings.AI_TEXT_MODEL, max_tokens=2500, **effort_kwargs(settings.AI_TEXT_MODEL, 'medium'),
+                                    system=ASSESSMENT_PROMPT, messages=[{'role': 'user', 'content': user}])
     data = _parse_json(res)
-    return {k: str(data.get(k, '')).strip() for k in ('condition', 'environment', 'wishes')}, len(records)
+    return {k: clean_ai_text(data.get(k, '')) for k in ('condition', 'environment', 'wishes')}, len(records)
 
 
 # =============================================
@@ -123,6 +126,8 @@ DRAFT_PROMPT = """あなたは放課後等デイサービスの児童発達支�
 - 長期目標 1〜2件、短期目標 2〜3件。短期目標には具体的な支援内容（誰が・いつ・どのように）を書く
 - 文は「〜できる」「〜が増える」のように達成が確かめられる形に
 - です/ます調。方針は 150〜250字
+
+""" + JAPANESE_RULES + """
 
 必ず次のJSONだけを返してください（文字列内で改行しない）。
 {"policy": "総合的な支援の方針", "family_wishes": "本人・家族の意向（アセスメントから）",
@@ -144,27 +149,27 @@ def plan_draft(plan, start, end):
     user = (f'【利用者】{b.full_name}（{b.date_of_birth} 生、{b.disability_type or "障害種別未記入"}）\n'
             f'【アセスメント】\n心身の状況: {a.condition}\n置かれている環境: {a.environment}\n希望する生活: {a.wishes}\n\n'
             f'【期間】{start} 〜 {end}（日誌 {len(records)} 件）\n\n【日誌】\n{lines}')
-    res = _client().messages.create(model=settings.AI_TEXT_MODEL, max_tokens=1600, system=DRAFT_PROMPT,
-                                    messages=[{'role': 'user', 'content': user}])
+    res = _client().messages.create(model=settings.AI_TEXT_MODEL, max_tokens=3000, **effort_kwargs(settings.AI_TEXT_MODEL, 'medium'),
+                                    system=DRAFT_PROMPT, messages=[{'role': 'user', 'content': user}])
     data = _parse_json(res)
 
     if not d.policy.strip() and data.get('policy'):
-        d.policy = str(data['policy']).strip()
+        d.policy = clean_ai_text(data['policy'])
     if not d.family_wishes.strip() and data.get('family_wishes'):
-        d.family_wishes = str(data['family_wishes']).strip()
+        d.family_wishes = clean_ai_text(data['family_wishes'])
     d.save()
 
     created = 0
     for item in data.get('goals', [])[:6]:
         gtype = PlanGoal.TYPE_LONG if str(item.get('type', '')).startswith('long') else PlanGoal.TYPE_SHORT
-        content = str(item.get('content', '')).strip()[:200]
+        content = clean_ai_text(item.get('content', ''), keep_newlines=False)[:200]
         if not content:
             continue
         months = 6 if gtype == PlanGoal.TYPE_LONG else 3
         g = PlanGoal.objects.create(
             plan=plan, goal_type=gtype, content=content,
-            support_content=str(item.get('support_content', '')).strip(),
-            frequency=str(item.get('frequency', '')).strip()[:100],
+            support_content=clean_ai_text(item.get('support_content', '')),
+            frequency=clean_ai_text(item.get('frequency', ''), keep_newlines=False)[:100],
             target_date=(d.period_start or start) + timedelta(days=30 * months),
             order=plan.goals.filter(goal_type=gtype).count(),
         )
