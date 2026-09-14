@@ -10,9 +10,9 @@
 - PostgreSQL の DB・ユーザー・パスワードはプロバイダが発行。**DB のダンプはプロバイダ側で自動化**（自前の cron バックアップは不要）
 - 追加パッケージ（OS 側）はプロバイダに依頼
 
-GCP 本番（Docker＋Caddy）との違い:
+旧 GCP 本番（Docker＋Caddy。2026-09-14 に廃止）との違い:
 
-| 役割 | GCP 本番 | AWS 開発環境 |
+| 役割 | 旧 GCP 本番 | AWS 開発環境 |
 |---|---|---|
 | 実行方式 | Docker（`ghcr.io` のイメージ） | `~/env` の venv ＋ Gunicorn（`deploy/venv-deploy.sh`） |
 | HTTPS 終端 | Caddy（compose 内） | プロバイダの nginx |
@@ -21,7 +21,7 @@ GCP 本番（Docker＋Caddy）との違い:
 | 静的ファイル | whitenoise | whitenoise（同じ） |
 | 自動配備 | `main` → Deploy | `develop` → Deploy (dev)（手動実行も可） |
 | 配置先 | `/opt/dayservice` | `~/michinotedemo` |
-| バックアップ | `deploy/backup.sh` | プロバイダ側（依頼すればダンプをもらえる） |
+| バックアップ | cron の pg_dump → GCS | プロバイダ側（依頼すればダンプをもらえる） |
 
 秘密情報（DB パスワード、`SECRET_KEY`、Anthropic キー、SSH 秘密鍵）はサーバーの `.env` と GitHub Secrets だけに置きます。
 
@@ -75,7 +75,7 @@ bash deploy/venv-deploy.sh
 
 このスクリプトが `pip install -r requirements.txt` → `migrate` → `collectstatic` → Gunicorn 起動（`0.0.0.0:8029`、デーモン、PID は `run/gunicorn.pid`、ログは `logs/`）→ `http://127.0.0.1:8029/healthz/` の確認までを行います。成功したらブラウザで `https://st-michinotedemo.ai-labo.cloud/healthz/` が `ok` になります。
 
-管理者を作ります（GCP からデータを移すなら不要）。
+管理者を作ります。
 
 ```bash
 python manage.py createsuperuser
@@ -118,7 +118,7 @@ python manage.py seed_demo --reset     # 架空データ（実データがあれ
 
 ワークフローは clone が無ければ `git clone` から行うので、手順2〜3（`.env`）だけ済ませておけば初回も Actions からできます。`.env` はサーバー側のものをそのまま使い、上書きしません。
 
-## 6. GCP のデータを移す（任意）
+## 6. 旧 GCP のデータを移す（廃止前に必要な場合だけ）
 
 GCP 側（`deploy@dayservice`）:
 

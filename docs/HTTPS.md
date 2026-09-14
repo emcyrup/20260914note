@@ -10,13 +10,13 @@ Caddy が証明書（Let's Encrypt）を自動で取得・更新するため、�
 
 | 種別 | ホスト名 | 値 |
 |---|---|---|
-| A | `dayservice`（または `@`） | `34.146.209.32`（固定IP） |
+| A | `dayservice`（または `@`） | `<サーバーの固定IP>`（固定IP） |
 
 - Cloudflare を使う場合は、プロキシ（オレンジの雲）を **オフ（DNS only）** にする（Caddy が証明書を取るため）
 - 反映を待つ。手元のパソコンで確認：
 
 ```bash
-nslookup dayservice.example.jp     # 34.146.209.32 が返ればOK
+nslookup dayservice.example.jp     # <サーバーの固定IP> が返ればOK
 ```
 
 ## 2. ファイアウォールの確認（Cloud Console）
@@ -33,7 +33,7 @@ sudo -u deploy -i
 ```bash
 cd /opt/dayservice
 sed -i 's|^DOMAIN=.*|DOMAIN=dayservice.example.jp|' .env
-sed -i 's|^DJANGO_ALLOWED_HOSTS=.*|DJANGO_ALLOWED_HOSTS=dayservice.example.jp,34.146.209.32|' .env
+sed -i 's|^DJANGO_ALLOWED_HOSTS=.*|DJANGO_ALLOWED_HOSTS=dayservice.example.jp,<サーバーの固定IP>|' .env
 sed -i 's|^CSRF_TRUSTED_ORIGINS=.*|CSRF_TRUSTED_ORIGINS=https://dayservice.example.jp|' .env
 sed -i 's|^SECURE_SSL_REDIRECT=.*|SECURE_SSL_REDIRECT=True|' .env
 grep -E '^(DOMAIN|DJANGO_ALLOWED_HOSTS|CSRF_TRUSTED_ORIGINS|SECURE_SSL_REDIRECT)=' .env

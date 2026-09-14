@@ -258,109 +258,21 @@ python manage.py collectstatic --noinput
 
 ## AWS 開発環境（共用サーバー：sudo なし・Docker なし・venv＋Gunicorn）へのデプロイ
 
-`https://st-michinotedemo.ai-labo.cloud/` のように、プロバイダ管理の nginx が HTTPS を終端して割り当てポート（8029）の Gunicorn に中継し、DB もプロバイダ管理の PostgreSQL を使う構成向けです。サーバー上では `deploy/venv-deploy.sh` が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行い、ワークフロー **Deploy (dev)**（`develop` への push または手動実行）がそれを SSH で呼びます。`.env` の雛形は `deploy/.env.dev-aws.example`。手順と GCP からのデータ移行は [docs/DEPLOY_AWS_DEV.md](docs/DEPLOY_AWS_DEV.md) を参照してください（Docker が使えるサーバー向けの `deploy/docker-compose.external.yml` も同じ文書に載せています）。
+`https://st-michinotedemo.ai-labo.cloud/` のように、プロバイダ管理の nginx が HTTPS を終端して割り当てポート（8029）の Gunicorn に中継し、DB もプロバイダ管理の PostgreSQL を使う構成向けです。サーバー上では `deploy/venv-deploy.sh` が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行い、ワークフロー **Deploy (dev)**（`develop` への push または手動実行）がそれを SSH で呼びます。`.env` の雛形は `deploy/.env.dev-aws.example`。手順は [docs/DEPLOY_AWS_DEV.md](docs/DEPLOY_AWS_DEV.md) を参照してください（Docker が使えるサーバー向けの `deploy/docker-compose.external.yml` も同じ文書に載せています）。
 
-## GCP へのデプロイ（最小コスト構成）
+## Docker で動かす（任意の VM）
 
-> ターミナルや Terraform を使わず **Cloud Console の画面だけ**で構築する手順は [docs/DEPLOY_GCP_CONSOLE.md](docs/DEPLOY_GCP_CONSOLE.md) を参照してください。以下は CLI / Terraform で行う手順です。
+> GCP（Compute Engine）の本番環境は **2026-09-14 に廃止**しました。`main` への push で自動配備するワークフローも削除しています。現在動いているのは AWS 開発環境（上記）だけです。
 
-Compute Engine 1台に Docker Compose（Caddy → Gunicorn/Django → PostgreSQL）を載せる構成です。
-インフラは Terraform（`infra/terraform/`）、デプロイは GitHub Actions（`.github/workflows/deploy.yml`）が行います。
-
-```
-GitHub (main に push)
-  └─ Actions: テスト → Docker イメージを GHCR に push → SSH でサーバーへ
-                                                          │
-Compute Engine（固定IP・e2-small）                          ▼
-  └─ docker compose: caddy(443, 自動HTTPS) → app(8000) → db(PostgreSQL)
-                      └─ /media は Caddy が配信          └─ 毎日 3:30 pg_dump → Cloud Storage（30日保持）
-```
-
-月額の目安（東京 asia-northeast1・e2-small）：VM 約 $16 ＋ ディスク 約 $1.5 ＋ 外部IP 約 $3.7 ＋ Cloud Storage 数十円 ≒ **約 $21**。
-`machine_type = "e2-micro"` にすると約 $13、さらに `region = "us-central1"` にすると Always Free 枠で VM 代が $0 になります（日本からの遅延は増えます）。
-Cloud SQL を使わないぶん安く、代わりに DB はサーバー内のコンテナで可用性は1台分です。
-
-### 1. GCP プロジェクトと手元の準備（1回）
+Docker が使えるサーバーでは `Dockerfile`／`deploy/docker-compose.yml`（db・app・caddy）／`deploy/Caddyfile` で動かせます。`.env` の雛形は `deploy/.env.production.example`、ドメインと HTTPS の付け方は [docs/HTTPS.md](docs/HTTPS.md) です。
 
 ```bash
-brew install --cask google-cloud-sdk && brew install terraform
-gcloud auth login
-gcloud projects create dayservice-prod-123456 --name="放デイ業務支援"   # ID は世界で一意
-gcloud billing accounts list
-gcloud billing projects link dayservice-prod-123456 --billing-account=XXXXXX-XXXXXX-XXXXXX
-gcloud config set project dayservice-prod-123456
-gcloud auth application-default login          # Terraform が使う認証
+cd /opt/dayservice && docker compose up -d
+docker compose exec app python manage.py migrate
+docker compose exec app python manage.py createsuperuser
+docker compose exec app python manage.py seed_demo --create-facility "施設名"   # サンプル（任意）
+docker compose logs -f app
 ```
-
-### 2. インフラを作る（1回）
-
-```bash
-cd infra/terraform
-cp terraform.tfvars.example terraform.tfvars   # project_id を書き換える
-terraform init
-terraform apply
-terraform output          # static_ip / ssh_command / backup_bucket が出る
-```
-
-DNS の A レコードを `static_ip` に向けてください（ドメインなしでも `http://<IP>` で検証できます）。
-
-### 3. サーバーに .env を置く（1回）
-
-```bash
-ssh deploy@<static_ip>
-# 初回起動時に deploy/setup-server.sh が Docker などを入れている（ログ: /var/log/cloud-init-output.log）
-nano /opt/dayservice/.env      # deploy/.env.production.example を元に作成
-```
-
-バックアップを Cloud Storage に送るには `.env` に `BACKUP_GCS_BUCKET=<terraform output backup_bucket>` を足すだけです（VM のサービスアカウントで認証されるためキーは不要）。
-
-### 4. GitHub Secrets を登録する（1回）
-
-| Secret | 値 |
-|---|---|
-| `DEPLOY_HOST` | `terraform output static_ip` |
-| `DEPLOY_SSH_KEY` | `~/.ssh/id_ed25519` の中身（Terraform に登録した公開鍵の対） |
-| `DEPLOY_USER` | `deploy`（terraform の `ssh_user` を変えた場合のみ。省略時は `deploy`） |
-| `GHCR_PULL_TOKEN` | `read:packages` 権限の Personal Access Token（リポジトリが Public なら不要） |
-
-### 5. デプロイする
-
-`main` に push するだけです（Actions → Deploy から手動実行も可）。初回はデプロイ後に管理者を作成します。
-
-```bash
-ssh deploy@<static_ip>
-cd /opt/dayservice && docker compose exec app python manage.py createsuperuser
-```
-
-### サンプルデータを入れる（任意）
-
-画面の動きを確認したいときは、架空の利用者6名・予定・日誌・請求データ・進み具合の違う個別支援計画5件をまとめて投入できます（利用者の備考に「サンプルデータ」と入ります）。
-
-```bash
-cd /opt/dayservice
-docker compose exec app python manage.py seed_demo            # 投入
-docker compose exec app python manage.py seed_demo --reset    # 消して入れ直す
-```
-
-サンプルだけを消すには、管理画面で備考が「サンプルデータ」の利用者を削除します（予定・日誌・請求は連動して消えます）。
-
-### ドメインと HTTPS
-
-手順は [docs/HTTPS.md](docs/HTTPS.md)。`.env` の4項目（DOMAIN / DJANGO_ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS / SECURE_SSL_REDIRECT）を変えて `docker compose up -d` するだけです。
-
-### 運用
-
-```bash
-cd /opt/dayservice
-docker compose ps                       # 状態
-docker compose logs -f app              # アプリのログ
-docker compose exec app python manage.py shell
-./backup.sh                             # 手動バックアップ（毎日 3:30 に自動実行）
-# 復元: gunzip -c backups/db-YYYYMMDD-HHMMSS.sql.gz | docker compose exec -T db psql -U dayservice dayservice
-```
-
-全部消すときは、バケットを空にしてから `terraform destroy` します：
-`gcloud storage rm -r gs://<backup_bucket>/db && cd infra/terraform && terraform destroy`
 
 ローカルで本番イメージを試す場合:
 

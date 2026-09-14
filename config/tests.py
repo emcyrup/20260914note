@@ -68,12 +68,12 @@ class AllowedHostsTests(SimpleTestCase):
     """DJANGO_ALLOWED_HOSTS に無くても、コンテナ内ヘルスチェック用の localhost / 127.0.0.1 は通る"""
 
     def test_local_hosts_are_always_allowed(self):
-        s = HttpsSwitchTests._load_settings(DJANGO_ALLOWED_HOSTS='34.146.209.32')
-        self.assertIn('34.146.209.32', s.ALLOWED_HOSTS)
+        s = HttpsSwitchTests._load_settings(DJANGO_ALLOWED_HOSTS='203.0.113.10')
+        self.assertIn('203.0.113.10', s.ALLOWED_HOSTS)
         self.assertIn('127.0.0.1', s.ALLOWED_HOSTS)
         self.assertIn('localhost', s.ALLOWED_HOSTS)
 
     def test_healthz_accepts_loopback_host(self):
-        with self.settings(ALLOWED_HOSTS=['34.146.209.32', '127.0.0.1', 'localhost']):
+        with self.settings(ALLOWED_HOSTS=['203.0.113.10', '127.0.0.1', 'localhost']):
             res = self.client.get('/healthz/', HTTP_HOST='127.0.0.1:8000')
             self.assertEqual(res.status_code, 200)
