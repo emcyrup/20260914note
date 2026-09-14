@@ -1,0 +1,84 @@
+{% extends 'base.html' %}
+
+{% block title %}事業所様式 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}事業所様式{% endblock %}
+{% block nav_custom_forms %}active{% endblock %}
+
+{% block content %}
+<div class="px-2">
+  <p class="text-muted small mb-3">この事業所の様式（はぴねす様式）で作成・出力します。個別支援計画書（別紙1／詳細版）は支援計画のデータから作り、足りない項目は各計画の「様式の追加項目」で補います。</p>
+
+  <div class="row g-3">
+    <div class="col-lg-6">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-bold"><i class="bi bi-people me-1"></i>関係機関連携加算Ⅱ 報告書</span>
+          <a href="{% url 'custom_forms:meeting_add' %}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>作成</a>
+        </div>
+        {% if meetings %}
+        <ul class="list-group list-group-flush">
+          {% for m in meetings %}
+          <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div class="small"><strong>{{ m.beneficiary.full_name }}</strong>　{{ m.date|date:'Y/n/j' }} {{ m.time_range }}　{{ m.place }}　<span class="text-muted">{{ m.get_format_display }}</span></div>
+            <div class="d-flex gap-1">
+              <a href="{% url 'custom_forms:meeting_edit' m.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil"></i></a>
+              <a href="{% url 'custom_forms:meeting_pdf' m.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-eye"></i></a>
+              <a href="{% url 'custom_forms:meeting_pdf' m.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-pdf"></i> PDF</a>
+              <form method="post" action="{% url 'custom_forms:meeting_delete' m.pk %}" onsubmit="return confirm('この報告書を削除しますか？');">{% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button></form>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}<div class="card-body text-muted small">まだありません。「作成」から会議の記録を入力してください。</div>{% endif %}
+      </div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span class="fw-bold"><i class="bi bi-activity me-1"></i>専門的支援実施計画書</span>
+          <a href="{% url 'custom_forms:specialized_add' %}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>作成</a>
+        </div>
+        {% if specialized %}
+        <ul class="list-group list-group-flush">
+          {% for s in specialized %}
+          <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div class="small"><strong>{{ s.beneficiary.full_name }}</strong>　{{ s.period_start|date:'Y/n/j'|default:'—' }} 〜 {{ s.period_end|date:'Y/n/j'|default:'—' }}</div>
+            <div class="d-flex gap-1">
+              <a href="{% url 'custom_forms:specialized_edit' s.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil"></i></a>
+              <a href="{% url 'custom_forms:specialized_pdf' s.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-eye"></i></a>
+              <a href="{% url 'custom_forms:specialized_pdf' s.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-pdf"></i> PDF</a>
+              <form method="post" action="{% url 'custom_forms:specialized_delete' s.pk %}" onsubmit="return confirm('この計画書を削除しますか？');">{% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button></form>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}<div class="card-body text-muted small">まだありません。「作成」から身体機能・基本動作・訓練内容を入力してください。</div>{% endif %}
+      </div>
+    </div>
+
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header fw-bold"><i class="bi bi-file-earmark-ruled me-1"></i>個別支援計画書（別紙1／詳細版）</div>
+        <div class="card-body small text-muted">支援計画（アセスメント→原案→担当者会議→同意・交付）の内容から出力します。「様式の追加項目」で利用形態・担当専門職・希望・医療的ケア・目標ごとの支援区分などを補うと、様式の欄が埋まります。</div>
+        {% if plans %}
+        <ul class="list-group list-group-flush">
+          {% for p in plans %}
+          <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div class="small"><strong>{{ p.beneficiary.full_name }}</strong>　{{ p.title }}　<span class="badge text-bg-light border">{{ p.get_status_display }}</span></div>
+            <div class="d-flex gap-1 flex-wrap">
+              <a href="{% url 'custom_forms:plan_extra' p.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil-square me-1"></i>追加項目</a>
+              <a href="{% url 'custom_forms:plan_sheet1' p.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary">別紙1 画面</a>
+              <a href="{% url 'custom_forms:plan_sheet1' p.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-pdf"></i> 別紙1</a>
+              <a href="{% url 'custom_forms:plan_detail' p.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary">詳細版 画面</a>
+              <a href="{% url 'custom_forms:plan_detail' p.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-pdf"></i> 詳細版</a>
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}<div class="card-body text-muted small">作成中・実施中の支援計画がありません。「支援計画」から作成してください。</div>{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

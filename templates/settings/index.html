@@ -152,6 +152,11 @@
             <label class="form-check-label" for="use_line">LINE連携（保護者へのLINE送信・配信履歴）</label>
           </div>
           <div class="form-text">使わない機能はメニューやボタンから消えます。記録は消えないので、あとから戻せます。</div>
+          <div class="small fw-semibold mt-3 mb-1">帳票様式</div>
+          <select name="form_set" class="form-select form-select-sm" {% if not is_admin %}disabled{% endif %}>
+            {% for v, l in facility.FORM_SET_CHOICES %}<option value="{{ v }}" {% if facility.form_set == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
+          </select>
+          <div class="form-text">標準以外を選ぶと、サイドバーに「事業所様式」が出て、その事業所の帳票を作成・出力できます。</div>
         </div>
         <div class="col-md-7">
           <div class="small fw-semibold mb-2">日誌の項目と順番（上が優先順位が高い）</div>

@@ -1,0 +1,7 @@
+from django.apps import AppConfig
+
+
+class CustomFormsConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'custom_forms'
+    verbose_name = '事業所様式'

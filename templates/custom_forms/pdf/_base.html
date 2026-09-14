@@ -1,0 +1,40 @@
+{% load form_extras %}<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>{% block title %}{% endblock %}</title>
+<style>
+  @page { size: A4 {% block page_orientation %}portrait{% endblock %}; margin: 12mm; }
+  body { font-family: "Noto Sans CJK JP", "Noto Sans JP", "BIZ UDPGothic", "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif; color: #111; margin: 0; padding: 14px; font-size: 10.5px; line-height: 1.45; }
+  .toolbar { text-align: right; margin-bottom: 10px; }
+  .toolbar a, .toolbar button { padding: 7px 14px; border-radius: 8px; border: 1px solid #4e7d89; background: #4e7d89; color: #fff; cursor: pointer; text-decoration: none; margin-left: 6px; font-size: 13px; }
+  .toolbar a.outline { background: #fff; color: #4e7d89; }
+  h1 { font-size: 17px; text-align: center; letter-spacing: .15em; margin: 0 0 8px; }
+  table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  th, td { border: 1px solid #333; padding: 4px 6px; vertical-align: top; word-break: break-all; white-space: pre-wrap; }
+  th { background: #dfe7f1; font-weight: 700; text-align: center; }
+  th.h { background: #cfd9e6; }
+  td.c { text-align: center; }
+  .box { border: 1px solid #333; min-height: 60px; padding: 5px 6px; white-space: pre-wrap; }
+  .lbl { background: #dfe7f1; border: 1px solid #333; padding: 3px 6px; font-weight: 700; display: inline-block; min-width: 150px; text-align: center; margin-top: 6px; }
+  .small { font-size: 9px; }
+  .muted { color: #555; }
+  .right { text-align: right; }
+  .nowrap { white-space: nowrap; }
+  .chk { display: inline-block; margin-right: 10px; }
+  .on { border: 1.5px solid #c33; border-radius: 50%; padding: 0 4px; }
+  .pb { page-break-before: always; }
+  @media print { .toolbar { display: none; } body { padding: 0; } }
+</style>
+</head>
+<body>
+  {% if not pdf %}
+  <div class="toolbar">
+    <a class="outline" href="{% url 'custom_forms:index' %}">事業所様式へ戻る</a>
+    <a href="?">PDFをダウンロード</a>
+    <button onclick="window.print()">印刷する</button>
+  </div>
+  {% endif %}
+  {% block body %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,64 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% load form_extras %}
+{% block title %}放課後等デイサービス 個別支援計画書 {{ b.full_name }}{% endblock %}
+{% block page_orientation %}landscape{% endblock %}
+{% block body %}
+<style>
+  @page { margin: 8mm; }
+  body { padding: 6px; }
+  .hd th { background: #2f4f6f; color: #fff; }
+  table.d th, table.d td { font-size: 8.5px; padding: 2px 4px; line-height: 1.35; }
+  th.k { background: #dfe7f1; text-align: left; font-weight: 700; }
+  .band { background: #2f4f6f; color: #fff; text-align: center; font-weight: 700; padding: 3px; }
+</style>
+<div class="band" style="font-size:13px;letter-spacing:.1em;">放課後等デイサービス 個別支援計画書</div>
+<table class="d">
+  <colgroup><col style="width:11%"><col style="width:14%"><col style="width:9%"><col style="width:11%"><col style="width:11%"><col style="width:13%"><col style="width:10%"><col style="width:21%"></colgroup>
+  <tr><th class="k">児童氏名</th><td colspan="2">{{ b.full_name }}</td><th class="k">生年月日・年齢</th><td>{{ b.date_of_birth|date:'Y年n月j日' }}（{{ age }}歳）</td><th class="k">利用形態</th><td colspan="2">{{ x.usage_form|default:'放課後等デイサービス' }}</td></tr>
+  <tr><th class="k">計画作成日</th><td>{{ created_on|date:'Y年n月j日' }}</td><th class="k">前回作成日</th><td>{{ prev_created_on|date:'Y年n月j日'|default:'—' }}</td><th class="k">アセスメント実施日</th><td>{{ assessment.interview_date|date:'Y年n月j日'|default:'' }}</td><th class="k">次回評価・見直し予定</th><td>{{ next_monitoring|date:'Y年n月'|default:'' }}{% if next_monitoring %}（{{ monitoring.interval_months }}ヶ月後モニタリング）{% endif %}</td></tr>
+  <tr><th class="k">計画作成者（児発管）</th><td colspan="2">児童発達支援管理責任者 氏名：{{ plan.manager|default:'' }}　印</td><th class="k">担当専門職</th><td>{{ x.specialists }}</td><th class="k">長期目標期間</th><td colspan="2">{{ draft.period_start|date:'Y年n月j日' }} ～ {{ draft.period_end|date:'Y年n月j日' }}</td></tr>
+  <tr><th class="k">本人の希望・意向</th><td colspan="7">{{ x.child_wishes|default:assessment.wishes }}</td></tr>
+  <tr><th class="k">保護者の希望・意向</th><td colspan="7">{{ x.guardian_wishes|default:draft.family_wishes }}</td></tr>
+  <tr><th class="k">【総合的な支援方針】</th><td colspan="7">{{ draft.policy }}</td></tr>
+  <tr><th class="k">【長期目標】</th><td colspan="7">{% for g in long_goals %}・{{ g.content }}{% if g.target_date %}（{{ g.target_date|date:'Y年n月' }}まで）{% endif %}
+{% endfor %}</td></tr>
+  <tr><th class="k">【短期目標】</th><td colspan="7">{% for g in short_goals %}・{{ g.content }}{% if g.target_date %}（{{ g.target_date|date:'Y年n月' }}まで）{% endif %}
+{% endfor %}</td></tr>
+</table>
+
+<table class="d" style="margin-top:4px;">
+  <colgroup><col style="width:7%"><col style="width:12%"><col style="width:4%"><col style="width:15%"><col style="width:8%"><col style="width:16%"><col style="width:14%"><col style="width:6%"><col style="width:8%"><col style="width:10%"></colgroup>
+  <tr class="hd"><th>支援区分</th><th>支援項目<br>（5領域・支援分野）</th><th>優先<br>順位</th><th>目標（短期目標）</th><th>おおよその<br>達成時期</th><th>具体的な支援内容・プログラム</th><th>支援の手順・配慮事項・環境調整</th><th>実施<br>頻度</th><th>担当職種・<br>担当者</th><th>達成基準・<br>評価区分</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td>{{ r.division }}</td><td>{{ r.item }}</td><td class="c">{{ r.priority }}</td>
+    <td>{% if r.goal %}{{ r.goal.content }}{% endif %}</td>
+    <td class="c">{% if r.goal %}{% if r.e.timing %}{{ r.e.timing }}{% else %}{{ r.goal.target_date|date:'Y年n月' }}{% endif %}{% endif %}</td>
+    <td>{% if r.goal %}{{ r.goal.support_content }}{% endif %}</td>
+    <td>{{ r.e.procedure }}</td><td class="c">{% if r.goal %}{{ r.goal.frequency }}{% endif %}</td><td>{{ r.e.staff }}</td><td>{{ r.e.criteria }}</td>
+  </tr>
+  {% endfor %}
+  {% for g in unassigned %}
+  <tr><td class="muted">（未分類）</td><td></td><td class="c">{{ forloop.counter }}</td><td>{{ g.content }}</td><td class="c">{{ g.target_date|date:'Y年n月' }}</td><td>{{ g.support_content }}</td><td>{{ g.form_extra|dictkey:'procedure' }}</td><td class="c">{{ g.frequency }}</td><td>{{ g.form_extra|dictkey:'staff' }}</td><td>{{ g.form_extra|dictkey:'criteria' }}</td></tr>
+  {% endfor %}
+</table>
+
+<table class="d" style="margin-top:4px;">
+  <colgroup><col style="width:13%"><col style="width:37%"><col style="width:13%"><col style="width:12%"><col style="width:12%"><col style="width:13%"></colgroup>
+  <tr><th class="k">【医療的ケア・配慮事項・機関連携】</th><td colspan="5">{% if x.medical_care %}{{ x.medical_care }}{% else %}・主治医連携：
+・医療的ケア等：
+・関係機関連携：{% endif %}</td></tr>
+  <tr><th class="k">担当者会議実施日</th><td>{{ meeting.meeting_date|date:'Y年n月j日'|default:'　年　月　日' }}{% if meeting.attendees %}（出席者：{{ meeting.attendees }}{% if meeting.guardian_attended %}、保護者{% endif %}）{% endif %}</td><th class="k">次回モニタリング予定年月</th><td>{{ next_monitoring|date:'Y年n月'|default:'' }}（目標達成状況評価・見直し）</td><th class="k">計画見直し周期</th><td>{{ review_cycle }}</td></tr>
+</table>
+
+<div class="band" style="margin-top:4px;">【重要事項説明・保護者同意・計画書交付確認欄】（児童福祉法指定基準・奈良県運営指導準拠）</div>
+<table class="d">
+  <colgroup><col style="width:13%"><col style="width:22%"><col style="width:13%"><col style="width:27%"><col style="width:10%"><col style="width:15%"></colgroup>
+  <tr><th class="k">個別支援計画 説明日</th><td>{{ consent.explained_date|date:'Y年n月j日'|default:'　年　月　日' }}</td><th class="k">説明担当者（児発管）</th><td>児童発達支援管理責任者 氏名：{{ consent.explained_by|default:plan.manager|default:'' }}　印</td><th class="k">説明方法</th><td>{{ x.explain_method|default:'面談 / オンライン' }}</td></tr>
+  <tr><th class="k">保護者同意の確認</th><td colspan="5">「上記、個別支援計画書の内容について児童発達支援管理責任者より十分な説明を受け、その支援方針・目標・支援内容に同意いたします。」</td></tr>
+  <tr><th class="k">同意年月日</th><td>{{ consent_date|date:'Y年n月j日'|default:'　年　月　日' }}</td><th class="k">保護者署名（自署）</th><td>保護者氏名：{% if signature %}<img src="{{ signature.signature_image.url }}" alt="署名" style="height:30px;vertical-align:middle;">{% else %}{{ consent.consent_signer }}{% endif %}　印</td><th class="k">児童との続柄</th><td>{{ relation|default:'母 ・ 父 ・ その他（　　）' }}</td></tr>
+  <tr><th class="k">計画書交付年月日</th><td>{{ consent.delivered_to_user_date|date:'Y年n月j日'|default:'　年　月　日' }}（※同意後、遅滞なく交付）</td><th class="k">交付方法</th><td>{{ x.delivery_method|default:'[  ] 面談時手渡し　[  ] 郵送　[  ] 電磁的記録' }}</td><th class="k">受領確認</th><td>保護者受領印：　　印</td></tr>
+  <tr><th class="k">監査確認・特記事項</th><td colspan="5" class="small">・児童福祉法第21条の5の7および厚生労働省令第15号に定める個別支援計画作成プロセス（アセスメント→原案作成→担当者会議→同意・交付→モニタリング）に完全準拠。
+・本計画書原本は事業所にて法令で定められた期間（完結の日から5年間）保管し、写しを保護者および関係機関へ交付・共有する。</td></tr>
+</table>
+{% endblock %}

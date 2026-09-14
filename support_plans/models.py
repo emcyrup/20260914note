@@ -58,6 +58,8 @@ class SupportPlan(models.Model):
     beneficiary = models.ForeignKey('beneficiaries.Beneficiary', on_delete=models.PROTECT,
                                     related_name='support_plans', verbose_name='利用者')
     title       = models.CharField(max_length=100, verbose_name='計画名')
+    # 事業所様式の追加項目（利用形態・担当専門職・希望・医療的ケア・説明方法など。様式ごとのキーを入れる）
+    form_extra   = models.JSONField(default=dict, blank=True, verbose_name='様式の追加項目')
     current_step = models.PositiveSmallIntegerField(choices=STEPS, default=STEP_ASSESSMENT,
                                                     verbose_name='現在のステップ')
     status      = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_IN_PROGRESS,
@@ -299,6 +301,8 @@ class PlanGoal(models.Model):
     frequency   = models.CharField(max_length=100, blank=True, verbose_name='頻度・時間',
                                    help_text='例：週3回・活動の前半30分')
     order       = models.PositiveSmallIntegerField(default=0)
+    # 事業所様式の追加項目（支援区分・項目・担当者・留意事項・手順・達成基準など）
+    form_extra  = models.JSONField(default=dict, blank=True, verbose_name='様式の追加項目')
     # 目標の根拠になった日誌（あとから「なぜこう書いたか」をたどれる）
     evidence_records = models.ManyToManyField('records.DailyRecord', blank=True, related_name='evidence_for_goals',
                                               verbose_name='根拠になった記録')

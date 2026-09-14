@@ -177,7 +177,10 @@ class FeatureSettingsView(LoginRequiredMixin, View):
             messages.error(request, '日誌の項目は1つ以上選んでください。')
             return redirect('facilities:settings')
         facility.journal_sections = keys
-        facility.save(update_fields=['use_billing', 'use_line', 'journal_sections'])
+        form_set = request.POST.get('form_set', facility.form_set)
+        if form_set in dict(Facility.FORM_SET_CHOICES):
+            facility.form_set = form_set
+        facility.save(update_fields=['use_billing', 'use_line', 'journal_sections', 'form_set'])
         messages.success(request, '使う機能と日誌の項目を保存しました。')
         return redirect('facilities:settings')
 

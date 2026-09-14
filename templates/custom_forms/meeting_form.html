@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+
+{% block title %}関係機関連携加算Ⅱ 報告書 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}関係機関連携加算Ⅱ 報告書{% endblock %}
+{% block nav_custom_forms %}active{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 960px;">
+  <form method="post">
+    {% csrf_token %}
+    <div class="card mb-3"><div class="card-body">
+      <div class="row g-2">
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">児童氏名 <span class="text-danger">*</span></label>
+          <select name="beneficiary" class="form-select" required>
+            <option value="">— 選択 —</option>
+            {% for b in beneficiaries %}<option value="{{ b.pk }}" {% if obj and obj.beneficiary_id == b.pk %}selected{% endif %}>{{ b.full_name }}{% if b.status != 'active' %}（{{ b.get_status_display }}）{% endif %}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-3"><label class="form-label small fw-semibold">会議開催日 <span class="text-danger">*</span></label><input type="date" name="date" class="form-control" value="{% if obj %}{{ obj.date|date:'Y-m-d' }}{% else %}{{ today|date:'Y-m-d' }}{% endif %}" required></div>
+        <div class="col-6 col-md-2"><label class="form-label small fw-semibold">開始</label><input type="time" name="start_time" class="form-control" value="{{ obj.start_time|time:'H:i' }}"></div>
+        <div class="col-6 col-md-2"><label class="form-label small fw-semibold">終了</label><input type="time" name="end_time" class="form-control" value="{{ obj.end_time|time:'H:i' }}"></div>
+        <div class="col-md-8"><label class="form-label small fw-semibold">会議場所</label><input type="text" name="place" class="form-control" value="{{ obj.place }}" placeholder="例：明日香養護学校"></div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">会議形式</label>
+          <select name="format" class="form-select">{% for v, l in formats %}<option value="{{ v }}" {% if obj and obj.format == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+        </div>
+      </div>
+    </div></div>
+
+    <div class="card mb-3"><div class="card-body">
+      <label class="form-label small fw-semibold">参加者（所属・氏名。最大8名）</label>
+      <div class="row g-2">
+        {% for p in participants %}
+        <div class="col-md-6 d-flex gap-2">
+          <input type="text" name="p_affiliation" class="form-control form-control-sm" placeholder="所属" value="{{ p.affiliation }}">
+          <input type="text" name="p_name" class="form-control form-control-sm" placeholder="氏名" value="{{ p.name }}">
+        </div>
+        {% endfor %}
+      </div>
+    </div></div>
+
+    <div class="card mb-3"><div class="card-body">
+      <div class="row g-2">
+        <div class="col-12"><label class="form-label small fw-semibold">会議の目的</label><textarea name="purpose" class="form-control" rows="2">{{ obj.purpose }}</textarea></div>
+        <div class="col-12"><label class="form-label small fw-semibold">結果・報告内容</label><textarea name="result" class="form-control" rows="6">{{ obj.result }}</textarea></div>
+        <div class="col-12"><label class="form-label small fw-semibold">関係機関からの意見・助言</label><textarea name="opinions" class="form-control" rows="3">{{ obj.opinions }}</textarea></div>
+        <div class="col-12"><label class="form-label small fw-semibold">事業所としての対応方針</label><textarea name="policy" class="form-control" rows="4">{{ obj.policy }}</textarea></div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">記録者</label>
+          <select name="recorder" class="form-select">{% for s in staff %}<option value="{{ s.pk }}" {% if obj and obj.recorder_id == s.pk or not obj and s.pk == user.pk %}selected{% endif %}>{{ s.display_name|default:s.username }}</option>{% endfor %}</select>
+        </div>
+      </div>
+    </div></div>
+
+    <div class="d-flex justify-content-between mb-4">
+      <a href="{% url 'custom_forms:index' %}" class="btn btn-outline-secondary">戻る</a>
+      <div class="d-flex gap-2">
+        {% if obj %}<a href="{% url 'custom_forms:meeting_pdf' obj.pk %}?fmt=html" target="_blank" class="btn btn-outline-secondary"><i class="bi bi-eye me-1"></i>様式で見る</a>{% endif %}
+        <button class="btn btn-primary px-4"><i class="bi bi-check-lg me-1"></i>保存する</button>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

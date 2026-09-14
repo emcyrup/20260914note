@@ -17,10 +17,10 @@ def branding(request):
     facility = getattr(user, 'facility', None) if user is not None and user.is_authenticated else None
     if facility is None:
         return {'terms': dict(DEFAULT_TERMS), 'branding': {'logo': None, 'color': ''},
-                'features': {'billing': True, 'line': True}, 'journal_sections': []}
+                'features': {'billing': True, 'line': True, 'form_set': 'standard'}, 'journal_sections': []}
     return {
         'terms': get_terms(user),
         'branding': {'logo': facility.logo if facility.logo else None, 'color': facility.brand_color or ''},
-        'features': {'billing': facility.use_billing, 'line': facility.use_line},
+        'features': {'billing': facility.use_billing, 'line': facility.use_line, 'form_set': facility.form_set},
         'journal_sections': facility.journal_section_keys(),
     }

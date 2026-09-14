@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% load form_extras %}
+
+{% block title %}様式の追加項目 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}{{ plan.beneficiary.full_name }} さんの計画：様式の追加項目{% endblock %}
+{% block nav_plans %}active{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <p class="small text-muted">個別支援計画書（別紙1／詳細版）の欄のうち、支援計画の5ステップにない項目をここで補います。空欄のままでも出力できます。</p>
+  <form method="post">
+    {% csrf_token %}
+    <div class="card mb-3"><div class="card-header fw-bold">計画全体の項目</div><div class="card-body">
+      <div class="row g-2">
+        {% for k, label, hint in fields %}
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">{{ label }}</label>
+          {% if k == 'medical_care' or k == 'child_wishes' or k == 'guardian_wishes' %}
+          <textarea name="{{ k }}" class="form-control form-control-sm" rows="2" placeholder="{{ hint }}">{{ x|dictkey:k }}</textarea>
+          {% else %}
+          <input type="text" name="{{ k }}" class="form-control form-control-sm" value="{{ x|dictkey:k }}" placeholder="{{ hint }}">
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div></div>
+
+    <div class="card mb-3"><div class="card-header fw-bold">目標ごとの項目</div>
+      {% if goals %}
+      <div class="table-responsive">
+        <table class="table table-sm mb-0 align-middle" style="min-width: 1000px;">
+          <thead><tr><th style="width:22%;">目標</th>{% for k, l in goal_fields %}<th>{{ l }}</th>{% endfor %}</tr></thead>
+          <tbody>
+            {% for g in goals %}
+            <tr>
+              <td class="small"><span class="badge text-bg-light border">{{ g.get_goal_type_display }}</span> {{ g.content }}</td>
+              {% for k, l in goal_fields %}
+              <td>
+                {% if k == 'category' %}
+                <select name="g{{ g.pk }}_{{ k }}" class="form-select form-select-sm">
+                  <option value="">—</option>
+                  {% for ck, div, item in detail_rows %}<option value="{{ ck }}" {% if g.form_extra|dictkey:'category' == ck %}selected{% endif %}>{{ div }}／{{ item }}</option>{% endfor %}
+                </select>
+                {% else %}
+                <input type="text" name="g{{ g.pk }}_{{ k }}" class="form-control form-control-sm" value="{{ g.form_extra|dictkey:k }}">
+                {% endif %}
+              </td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<div class="card-body small text-muted">目標がまだありません。ステップ2（計画の原案）で目標を登録してください。</div>{% endif %}
+    </div>
+
+    <div class="d-flex justify-content-between mb-4">
+      <a href="{% url 'support_plans:detail' plan.pk %}" class="btn btn-outline-secondary">計画へ戻る</a>
+      <button class="btn btn-primary px-4"><i class="bi bi-check-lg me-1"></i>保存する</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

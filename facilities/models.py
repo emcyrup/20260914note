@@ -49,6 +49,11 @@ class Facility(models.Model):
     use_line = models.BooleanField(default=True, verbose_name='LINE連携を使う')
     # 日誌で AI が作る項目と、その順番（空なら標準の順番で全部）
     journal_sections = models.JSONField(default=list, blank=True, verbose_name='日誌の項目と順番')
+    # 事業所固有の帳票様式（標準以外を選ぶと「事業所様式」メニューが出る）
+    FORM_SET_STANDARD = 'standard'
+    FORM_SET_HAPPINESS = 'happiness'
+    FORM_SET_CHOICES = [(FORM_SET_STANDARD, '標準'), (FORM_SET_HAPPINESS, 'はぴねす様式（関係機関連携報告書・個別支援計画書 別紙1／詳細版・専門的支援実施計画書）')]
+    form_set = models.CharField(max_length=20, choices=FORM_SET_CHOICES, default=FORM_SET_STANDARD, verbose_name='帳票様式')
     created_at = models.DateTimeField(auto_now_add=True)
 
     JOURNAL_SECTIONS = [

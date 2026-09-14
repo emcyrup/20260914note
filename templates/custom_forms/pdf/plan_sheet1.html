@@ -1,0 +1,62 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}個別支援計画書（別紙1） {{ b.full_name }}{% endblock %}
+{% block page_orientation %}landscape{% endblock %}
+{% block body %}
+<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:6px;">
+  <div><span style="border:1px solid #333;padding:2px 8px;">別紙１</span><br><span style="display:inline-block;margin-top:8px;">利用児氏名：　{{ b.full_name }}</span></div>
+  <h1 style="margin:0;">個別支援計画書</h1>
+  <div>作成年月日：{{ created_on|date:'Y年 n月 j日' }}</div>
+</div>
+
+<table>
+  <colgroup><col style="width:20%"><col style="width:50%"><col style="width:30%"></colgroup>
+  <tr><th style="height:56px;vertical-align:middle;">利用児及び家族の<br>生活に対する意向</th><td colspan="2">{{ draft.family_wishes|default:assessment.wishes }}</td></tr>
+</table>
+<table style="margin-top:6px;">
+  <colgroup><col style="width:20%"><col style="width:50%"><col style="width:30%"></colgroup>
+  <tr><th style="height:34px;vertical-align:middle;">総合的な支援の方針</th><td colspan="2">{{ draft.policy }}</td></tr>
+</table>
+<table style="margin-top:6px;">
+  <colgroup><col style="width:20%"><col style="width:50%"><col style="width:30%"></colgroup>
+  <tr>
+    <th style="height:34px;vertical-align:middle;">長期目標<br>(内容・期間等)</th>
+    <td>{% for g in long_goals %}・{{ g.content }}{% if g.target_date %}（{{ g.target_date|date:'Y年n月' }}まで）{% endif %}
+{% endfor %}</td>
+    <th style="vertical-align:middle;">支援の標準的な提供時間等<br>（曜日・頻度、時間）</th>
+  </tr>
+  <tr>
+    <th style="height:34px;vertical-align:middle;">短期目標<br>(内容・期間等)</th>
+    <td>{% for g in short_goals %}・{{ g.content }}{% if g.target_date %}（{{ g.target_date|date:'Y年n月' }}まで）{% endif %}
+{% endfor %}</td>
+    <td>{{ service_hours }}</td>
+  </tr>
+</table>
+
+<p style="margin:6px 0 2px;">○支援目標及び具体的な支援内容等</p>
+<table>
+  <colgroup><col style="width:9%"><col style="width:16%"><col style="width:33%"><col style="width:7%"><col style="width:10%"><col style="width:17%"><col style="width:8%"></colgroup>
+  <tr>
+    <th>項　目</th><th>支援目標<br>（具体的な到達目標）</th><th>支援内容<br>(内容・支援の提供上のポイント・5領域（※）との関連性等)</th>
+    <th>達成<br>時期</th><th>担当者<br>提供機関</th><th>留意事項<br>（本人の役割を含む）</th><th>優先<br>順位</th>
+  </tr>
+  {% for r in rows %}
+  <tr>
+    <td style="height:40px;">{{ r.item }}</td><td>{{ r.goal }}</td><td>{{ r.content }}</td><td class="c">{{ r.timing }}</td><td>{{ r.staff }}</td>
+    <td>{{ r.notes }}{% if forloop.first and not r.notes %}<span class="small muted">専門的支援実施加算については別紙参照。</span>{% endif %}</td><td class="c">{{ r.priority }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<div class="pb"></div>
+<p class="small right" style="margin-top:6px;">※５領域の視点 ｢健康・生活｣、｢運動・感覚｣、｢認知・行動｣、｢言語・コミュニケーション｣、｢人間関係・社会性｣</p>
+<div style="display:flex;justify-content:space-between;margin-top:10px;">
+  <div>提供する支援内容について、本計画書に基づき説明しました。</div>
+  <div>本計画書に基づき支援の説明を受け、内容に同意しました。</div>
+</div>
+<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:14px;">
+  <div>児童発達支援管理責任者氏名：<span style="display:inline-block;min-width:180px;border-bottom:1px solid #333;text-align:center;">{{ plan.manager|default:'' }}</span></div>
+  <div>{{ consent_date|date:'Y年 n月 j日'|default:'　　年　　月　　日' }}　（保護者署名）
+    {% if signature %}<img src="{{ signature.signature_image.url }}" alt="署名" style="height:44px;vertical-align:bottom;border-bottom:1px solid #333;">{% else %}<span style="display:inline-block;min-width:180px;border-bottom:1px solid #333;text-align:center;">{{ consent.consent_signer }}</span>{% endif %}
+  </div>
+</div>
+{% endblock %}

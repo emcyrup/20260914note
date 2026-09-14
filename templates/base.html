@@ -145,6 +145,15 @@
           <span>帳票出力</span>
         </a>
       </li>
+      {% if features.form_set and features.form_set != 'standard' %}
+      <li class="nav-secondary">
+        <a class="sidebar-nav-item {% block nav_custom_forms %}{% endblock %}"
+           href="{% url 'custom_forms:index' %}">
+          <i class="bi bi-file-earmark-ruled"></i>
+          <span>事業所様式</span>
+        </a>
+      </li>
+      {% endif %}
 
       <li class="sidebar-nav-label nav-secondary">設定</li>
       {% if user.is_admin or user.is_superuser %}

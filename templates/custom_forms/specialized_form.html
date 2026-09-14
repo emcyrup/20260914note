@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+{% load form_extras %}
+
+{% block title %}専門的支援実施計画書 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}専門的支援実施計画書{% endblock %}
+{% block nav_custom_forms %}active{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <form method="post">
+    {% csrf_token %}
+    <div class="card mb-3"><div class="card-body">
+      <div class="row g-2">
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">利用児氏名 <span class="text-danger">*</span></label>
+          <select name="beneficiary" class="form-select" required>
+            <option value="">— 選択 —</option>
+            {% for b in beneficiaries %}<option value="{{ b.pk }}" {% if obj and obj.beneficiary_id == b.pk %}selected{% endif %}>{{ b.full_name }}{% if b.status != 'active' %}（{{ b.get_status_display }}）{% endif %}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-3"><label class="form-label small fw-semibold">想定支援期間（開始）</label><input type="date" name="period_start" class="form-control" value="{{ obj.period_start|date:'Y-m-d' }}"></div>
+        <div class="col-6 col-md-3"><label class="form-label small fw-semibold">（終了）</label><input type="date" name="period_end" class="form-control" value="{{ obj.period_end|date:'Y-m-d' }}"></div>
+        <div class="col-12"><label class="form-label small fw-semibold">本人・ご家族の希望</label><textarea name="wishes" class="form-control" rows="2">{{ obj.wishes }}</textarea></div>
+      </div>
+    </div></div>
+
+    <div class="card mb-3"><div class="card-header fw-bold">身体機能</div><div class="card-body">
+      <div class="row g-2">
+        <div class="col-md-6">
+          <div class="small fw-semibold mb-1">関節可動域制限（部位）</div>
+          {% for p in M.ROM_PARTS %}<label class="me-3 small"><input type="checkbox" name="rom_parts" value="{{ p }}" class="form-check-input me-1" {% if obj and p in obj.rom_parts %}checked{% endif %}>{{ p }}</label>{% endfor %}
+        </div>
+        <div class="col-md-6"><label class="form-label small fw-semibold">疼痛（部位）</label><input type="text" name="pain_site" class="form-control form-control-sm" value="{{ obj.pain_site }}"></div>
+        <div class="col-md-6">
+          <div class="small fw-semibold mb-1">筋力低下（部位）</div>
+          {% for p in M.WEAK_PARTS %}<label class="me-3 small"><input type="checkbox" name="weak_parts" value="{{ p }}" class="form-check-input me-1" {% if obj and p in obj.weak_parts %}checked{% endif %}>{{ p }}</label>{% endfor %}
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold">バランス障害</label>
+          <select name="balance" class="form-select form-select-sm">{% for v, l in M.YESNO_CHOICES %}<option value="{{ v }}" {% if obj and obj.balance == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold">筋緊張異常</label>
+          <select name="muscle_tone" class="form-select form-select-sm">{% for v, l in M.TONE_CHOICES %}<option value="{{ v }}" {% if obj and obj.muscle_tone == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+        </div>
+        <div class="col-md-6"><label class="form-label small fw-semibold">呼吸・循環機能障害</label><input type="text" name="cardio" class="form-control form-control-sm" value="{{ obj.cardio }}"></div>
+        <div class="col-md-6"><label class="form-label small fw-semibold">他</label><input type="text" name="other_physical" class="form-control form-control-sm" value="{{ obj.other_physical }}"></div>
+      </div>
+    </div></div>
+
+    <div class="card mb-3"><div class="card-header fw-bold">基本動作</div><div class="card-body">
+      <div class="row g-2">
+        {% for f, l, v in movements %}
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">{{ l }}</label>
+          <select name="{{ f }}" class="form-select form-select-sm">{% for cv, cl in M.ASSIST_CHOICES %}<option value="{{ cv }}" {% if v == cv %}selected{% endif %}>{{ cl }}</option>{% endfor %}</select>
+        </div>
+        {% endfor %}
+        <div class="col-md-8"><label class="form-label small fw-semibold">その他</label><input type="text" name="other_movement" class="form-control form-control-sm" value="{{ obj.other_movement }}"></div>
+      </div>
+      <div class="row g-2 mt-1">
+        <div class="col-md-6">
+          <div class="small fw-semibold mb-1">ABMS-C（小児基本動作評価スケール）</div>
+          {% for k, l in M.ABMS_ITEMS %}<div class="d-flex align-items-center gap-2 mb-1"><span class="small" style="width:7em;">{{ l }}</span><input type="text" name="abms_{{ k }}" class="form-control form-control-sm" style="max-width:8em;" value="{{ obj.abms|default_if_none:''|dictkey:k }}"></div>{% endfor %}
+        </div>
+        <div class="col-md-6">
+          <div class="small fw-semibold mb-1">ABMS-C Type T</div>
+          {% for k, l in M.ABMS_T_ITEMS %}<div class="d-flex align-items-center gap-2 mb-1"><span class="small" style="width:7em;">{{ l }}</span><input type="text" name="abms_t_{{ k }}" class="form-control form-control-sm" style="max-width:8em;" value="{{ obj.abms_t|default_if_none:''|dictkey:k }}"></div>{% endfor %}
+        </div>
+      </div>
+    </div></div>
+
+    <div class="card mb-3"><div class="card-body">
+      <div class="row g-2">
+        <div class="col-12"><label class="form-label small fw-semibold">重要領域</label><textarea name="key_areas" class="form-control" rows="2">{{ obj.key_areas }}</textarea></div>
+        <div class="col-12"><label class="form-label small fw-semibold">達成目標</label><textarea name="goals" class="form-control" rows="2">{{ obj.goals }}</textarea></div>
+        <div class="col-12">
+          <div class="small fw-semibold mb-1">支援内容</div>
+          {% for item in M.SUPPORT_ITEMS %}<label class="me-3 small"><input type="checkbox" name="support_items" value="{{ item }}" class="form-check-input me-1" {% if obj and item in obj.support_items %}checked{% endif %}>{{ item }}</label>{% endfor %}
+          <div class="d-flex align-items-center gap-2 mt-1"><span class="small">その他</span><input type="text" name="support_other" class="form-control form-control-sm" style="max-width:24em;" value="{{ obj.support_other }}"></div>
+        </div>
+        <div class="col-12"><label class="form-label small fw-semibold">実施内容</label><textarea name="implementation" class="form-control" rows="3">{{ obj.implementation }}</textarea></div>
+        <div class="col-md-4"><label class="form-label small fw-semibold">本人・家族への説明日</label><input type="date" name="explained_date" class="form-control" value="{{ obj.explained_date|date:'Y-m-d' }}"></div>
+        <div class="col-md-4"><label class="form-label small fw-semibold">説明を受けた人</label><input type="text" name="explained_to" class="form-control" value="{{ obj.explained_to }}" placeholder="例：本人、家族（母）"></div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">説明者</label>
+          <select name="explained_by" class="form-select">{% for s in staff %}<option value="{{ s.pk }}" {% if obj and obj.explained_by_id == s.pk or not obj and s.pk == user.pk %}selected{% endif %}>{{ s.display_name|default:s.username }}</option>{% endfor %}</select>
+        </div>
+      </div>
+    </div></div>
+
+    <div class="d-flex justify-content-between mb-4">
+      <a href="{% url 'custom_forms:index' %}" class="btn btn-outline-secondary">戻る</a>
+      <div class="d-flex gap-2">
+        {% if obj %}<a href="{% url 'custom_forms:specialized_pdf' obj.pk %}?fmt=html" target="_blank" class="btn btn-outline-secondary"><i class="bi bi-eye me-1"></i>様式で見る</a>{% endif %}
+        <button class="btn btn-primary px-4"><i class="bi bi-check-lg me-1"></i>保存する</button>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

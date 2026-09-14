@@ -1,0 +1,48 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% load form_extras %}
+{% block title %}専門的支援実施計画書 {{ obj.beneficiary.full_name }}{% endblock %}
+{% block body %}
+<h1>専門的支援実施計画書</h1>
+<p style="text-align:center;margin:0 0 6px;">想定支援期間　{{ obj.period_start|date:'Y年n月j日'|default:'　　年　月　日' }}　～　{{ obj.period_end|date:'Y年n月j日'|default:'　　年　月　日' }}</p>
+<p style="margin:0 0 6px;"><u>利用児氏名</u>　<span style="display:inline-block;min-width:120px;">{{ obj.beneficiary.full_name }}</span>　　　<u>生年月日：</u>　{{ obj.beneficiary.date_of_birth|date:'Y年n月j日' }}</p>
+
+<p style="margin:6px 0 2px;"><u>本人・ご家族の希望：</u></p>
+<div class="box" style="min-height:36px;">{{ obj.wishes }}</div>
+
+<p style="margin:8px 0 2px;"><u>身体機能：</u></p>
+<div style="padding-left:14px;">
+  <div>関節可動域制限（部位：{% for p in M.ROM_PARTS %}<span class="chk {% if obj.rom_parts|has:p %}on{% endif %}">{{ p }}</span>{% endfor %}）　　疼痛（部位：{{ obj.pain_site|default:'　　　　　　' }}）</div>
+  <div>筋力低下（部位：{% for p in M.WEAK_PARTS %}<span class="chk {% if obj.weak_parts|has:p %}on{% endif %}">{{ p }}</span>{% endfor %}）　　バランス障害（<span class="chk {% if obj.balance == 'yes' %}on{% endif %}">あり</span><span class="chk {% if obj.balance == 'no' %}on{% endif %}">なし</span>）</div>
+  <div>呼吸・循環機能障害（{{ obj.cardio|default:'　　　　　　　' }}）　　筋緊張異常（<span class="chk {% if obj.muscle_tone == 'high' %}on{% endif %}">亢進</span><span class="chk {% if obj.muscle_tone == 'low' %}on{% endif %}">減弱</span>）</div>
+  <div>他（{{ obj.other_physical|default:'　　　　　　　　　　　　　　　' }}）</div>
+</div>
+
+<p style="margin:8px 0 2px;"><u>基本動作：</u></p>
+<div style="padding-left:14px;">
+  {% for label, val in obj.movement_rows %}<span style="display:inline-block;width:48%;">{{ label }}（{% for cv, cl in M.ASSIST_CHOICES %}{% if cv %}<span class="chk {% if val == cl %}on{% endif %}">{{ cl }}</span>{% endif %}{% endfor %}）</span>{% endfor %}
+  <span style="display:inline-block;width:48%;">その他（{{ obj.other_movement|default:'　　　　　　　　' }}）</span>
+</div>
+
+<table style="margin-top:6px;">
+  <colgroup><col style="width:12%"><col style="width:14%"><col style="width:8%"><col style="width:14%"><col style="width:8%"><col style="width:14%"><col style="width:8%"><col style="width:22%"></colgroup>
+  <tr><th rowspan="2">ABMS-C</th><td>{{ abms_rows.0.0 }}</td><td class="c">{{ abms_rows.0.1 }}</td><td>{{ abms_rows.1.0 }}</td><td class="c">{{ abms_rows.1.1 }}</td><td>{{ abms_rows.2.0 }}</td><td class="c">{{ abms_rows.2.1 }}</td><td rowspan="6" style="border:none;"></td></tr>
+  <tr><td>{{ abms_rows.3.0 }}</td><td class="c">{{ abms_rows.3.1 }}</td><td>{{ abms_rows.4.0 }}</td><td class="c">{{ abms_rows.4.1 }}</td><td></td><td></td></tr>
+  <tr><th rowspan="2">ABMS-C<br>Type T</th><td>{{ abms_t_rows.0.0 }}</td><td class="c">{{ abms_t_rows.0.1 }}</td><td>{{ abms_t_rows.1.0 }}</td><td class="c">{{ abms_t_rows.1.1 }}</td><td>{{ abms_t_rows.2.0 }}</td><td class="c">{{ abms_t_rows.2.1 }}</td></tr>
+  <tr><td>{{ abms_t_rows.3.0 }}</td><td class="c">{{ abms_t_rows.3.1 }}</td><td>{{ abms_t_rows.4.0 }}</td><td class="c">{{ abms_t_rows.4.1 }}</td><td></td><td></td></tr>
+  <tr><th>重要領域</th><td colspan="6" style="min-height:24px;">{{ obj.key_areas }}</td></tr>
+  <tr><th>達成目標</th><td colspan="6" style="height:28px;">{{ obj.goals }}</td></tr>
+</table>
+<table style="margin-top:-1px;">
+  <colgroup><col style="width:12%"><col style="width:88%"></colgroup>
+  <tr><th style="vertical-align:middle;">支援内容</th><td style="text-align:center;line-height:1.9;">
+    {% for item in M.SUPPORT_ITEMS %}<span class="chk {% if obj.support_items|has:item %}on{% endif %}">{{ item }}</span>{% endfor %}
+    <span class="chk">その他（{{ obj.support_other|default:'　　　　' }}）</span>
+  </td></tr>
+  <tr><th style="vertical-align:middle;">実施内容</th><td style="height:60px;">{{ obj.implementation }}</td></tr>
+</table>
+
+<p style="margin:12px 0 2px;">本人・家族への説明日：<span style="display:inline-block;min-width:140px;border-bottom:1px solid #333;text-align:center;">{{ obj.explained_date|date:'Y年n月j日' }}</span></p>
+<p style="margin:2px 0;padding-left:14px;">説明を受けた人：　{{ obj.explained_to|default:'本人、家族（　　　　）' }}　　サイン：<span style="display:inline-block;min-width:180px;border-bottom:1px solid #333;"></span></p>
+<p style="margin:2px 0;padding-left:14px;">説明者：<span style="display:inline-block;min-width:180px;border-bottom:1px solid #333;text-align:center;">{{ obj.explained_by|default:'' }}</span></p>
+<p class="small muted right">ABMS-C：小児基本動作評価スケール Ability for Basic Movement Scale for Children</p>
+{% endblock %}

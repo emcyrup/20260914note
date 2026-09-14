@@ -1,0 +1,36 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}関係機関連携加算Ⅱ 報告書 {{ obj.beneficiary.full_name }}{% endblock %}
+{% block body %}
+<h1>関係機関連携加算Ⅱ　報告書</h1>
+<table>
+  <colgroup><col style="width:22%"><col style="width:22%"><col style="width:28%"><col style="width:28%"></colgroup>
+  <tr>
+    <th rowspan="2" class="h" style="vertical-align:middle;">児童氏名</th>
+    <td rowspan="2" style="vertical-align:middle;font-size:12px;">{{ obj.beneficiary.full_name }}</td>
+    <th colspan="2" class="h">通所事業所名</th>
+  </tr>
+  <tr><td colspan="2" class="c">児童発達支援事業所　放課後等デイサービス　{{ facility.name }}</td></tr>
+  <tr><th class="h">会議開催日</th><td class="c">{{ obj.date|date:'Y/n/j' }}</td><td colspan="2" style="border-left:none;border-right:none;"></td></tr>
+  <tr><th class="h">会議時間</th><td class="c">{{ obj.time_range }}</td><td colspan="2"></td></tr>
+  <tr><th class="h">会議場所</th><td colspan="3" class="c">{{ obj.place }}</td></tr>
+  <tr><th class="h">会議形式</th><td class="c">{{ obj.get_format_display }}</td><td colspan="2"></td></tr>
+  <tr><th class="h">参加者　所属</th><th class="h">氏名</th><th class="h">所属</th><th class="h">氏名</th></tr>
+  {% for row in obj.participant_rows %}
+  <tr>{% for p in row %}<td style="height:18px;">{{ p.affiliation }}</td><td>{{ p.name }}</td>{% endfor %}</tr>
+  {% endfor %}
+</table>
+
+<div class="lbl">会議の目的</div>
+<div class="box" style="min-height:40px;">{{ obj.purpose }}</div>
+
+<div class="lbl">結果・報告内容</div>
+<div class="box" style="min-height:150px;">{{ obj.result }}</div>
+
+<div class="lbl">関係機関からの意見・助言</div>
+<div class="box" style="min-height:75px;">{{ obj.opinions }}</div>
+
+<div class="lbl">事業所としての対応方針</div>
+<div class="box" style="min-height:120px;">{{ obj.policy }}</div>
+
+<p class="right" style="margin-top:18px;">記録者：<span style="display:inline-block;min-width:170px;border-bottom:1px solid #333;text-align:center;">{{ obj.recorder|default:'' }}</span></p>
+{% endblock %}
