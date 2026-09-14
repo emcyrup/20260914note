@@ -34,6 +34,9 @@ class StaffAccount(AbstractUser):
         verbose_name='権限区分',
     )
     display_name = models.CharField(max_length=50, blank=True, verbose_name='表示名')
+    # 開発向けユーザー：すべての事業所を見られ、画面上で「いまの事業所」を切り替えて動作確認できる
+    is_developer = models.BooleanField(default=False, verbose_name='開発向けユーザー',
+                                       help_text='すべての事業所にアクセスでき、画面上で事業所を切り替えられます。')
 
     # 画面の着せ替え（職員ごとに割り当てられる。記録は共有のまま）
     THEME_STANDARD = 'standard'
@@ -116,6 +119,18 @@ class StaffAccount(AbstractUser):
     @property
     def is_admin(self):
         return self.role == self.ROLE_ADMIN
+
+    @property
+    def can_switch_facility(self):
+        """開発向けユーザー（またはスーパーユーザー）は事業所を切り替えられる"""
+        return self.is_developer or self.is_superuser
+
+    def save(self, *args, **kwargs):
+        # 開発向けユーザーが事業所を切り替えている間は、その一時的な所属を保存してしまわない
+        if getattr(self, '_facility_switched', False) and self.pk and kwargs.get('update_fields') is None:
+            kwargs['update_fields'] = [f.name for f in self._meta.concrete_fields
+                                       if f.name not in ('id', 'facility')]
+        super().save(*args, **kwargs)
 
     @property
     def is_child_dev_manager(self):

@@ -319,6 +319,107 @@ class Command(BaseCommand):
             StaffMemo.objects.get_or_create(facility=facility, content=content, defaults={'author': staff})
         counts['スタッフメモ'] = len(MEMOS)
 
+        # --- 事業所様式（はぴねす様式の施設だけ）---
+        if facility.form_set == Facility.FORM_SET_HAPPINESS:
+            counts.update(self._create_custom_forms(facility, beneficiaries, staff, today))
+
+        return counts
+
+    # ------------------------------------------------------------------
+    def _create_custom_forms(self, facility, beneficiaries, staff, today):
+        """はぴねす様式のサンプル：関係機関連携加算Ⅱ報告書・専門的支援実施計画書・計画書の追加項目"""
+        from custom_forms.models import AgencyMeetingReport, SpecializedSupportPlan
+        D = datetime.timedelta
+        counts = {}
+
+        meetings = [
+            (beneficiaries[0], today - D(days=25), '明日香養護学校', 'face',
+             [('明日香養護学校', '担任 田中'), ('明日香養護学校', '進路担当 鈴木'), (facility.name, str(staff))],
+             '進級後の学校での様子と、放課後の支援方針の共有',
+             '学校では朝の会の見通しカードが定着し、自分から準備に取りかかれる日が増えている。放課後は疲れが出やすく、活動の後半に離席が見られる。',
+             '家庭・学校・事業所で同じ声かけ（「終わったら○○」）を使うと落ち着きやすい。',
+             '活動の前に予定を絵カードで確認し、後半は短い休憩を入れる。学校と月1回情報共有を続ける。'),
+            (beneficiaries[1], today - D(days=60), '相談支援事業所 サンプル（オンライン）', 'online',
+             [('相談支援事業所 サンプル', '相談支援専門員 高橋'), (facility.name, str(staff))],
+             'モニタリングに向けた現状共有',
+             '「手伝って」と自分から言える場面が増えた。家庭では宿題への取りかかりに時間がかかる。',
+             '成功体験を家庭にも伝え、保護者の負担感を減らす工夫を。',
+             '連絡帳でその日のできたことを具体的に伝える。宿題は事業所で最初の10分だけ一緒に取り組む。'),
+        ]
+        for ben, when, place, fmt, people, purpose, result, opinions, policy in meetings:
+            AgencyMeetingReport.objects.create(
+                facility=facility, beneficiary=ben, date=when,
+                start_time=datetime.time(9, 30), end_time=datetime.time(10, 30), place=place, format=fmt,
+                participants=[{'affiliation': a, 'name': n} for a, n in people],
+                purpose=purpose, result=result, opinions=opinions, policy=policy, recorder=staff,
+            )
+        counts['関係機関連携加算Ⅱ 報告書'] = len(meetings)
+
+        SpecializedSupportPlan.objects.create(
+            facility=facility, beneficiary=beneficiaries[0],
+            period_start=today - D(days=90), period_end=today + D(days=92),
+            wishes='本人：走るのが速くなりたい。\n家族：転びにくくなってほしい。階段を手すりなしで上れるようになってほしい。',
+            rom_parts=['足'], pain_site='', weak_parts=['体幹', '下肢'], balance='yes', cardio='', muscle_tone='low',
+            other_physical='扁平足（インソール使用）',
+            move_rolling='independent', move_sitting='independent', move_getting_up='independent',
+            move_standing='independent', move_stand_up='partial', other_movement='',
+            abms={'neck': '3', 'sitting': '3', 'floor': '3', 'standing': '2', 'walking': '2'},
+            abms_t={'oral': '3', 'hand': '2', 'one_leg': '1', 'both_legs': '2', 'stairs': '1'},
+            key_areas='体幹の安定・バランス', goals='片足立ちを5秒保持できる。手すりなしで階段を上れる。',
+            support_items=['筋力強化訓練', 'バランス訓練', '立位訓練'], support_other='',
+            implementation='バランスボードやトランポリンを使った遊びの中で体幹を使う。階段昇降は手すりを軽く添える程度から段階的に減らす。週2回、各20分。',
+            explained_date=today - D(days=85), explained_to='本人、家族（母）', explained_by=staff,
+        )
+        SpecializedSupportPlan.objects.create(
+            facility=facility, beneficiary=beneficiaries[2],
+            period_start=today - D(days=30), period_end=today + D(days=152),
+            wishes='本人：はさみを上手に使いたい。\n家族：字をていねいに書けるようになってほしい。',
+            rom_parts=[], pain_site='', weak_parts=['上肢'], balance='no', cardio='', muscle_tone='',
+            other_physical='',
+            move_rolling='independent', move_sitting='independent', move_getting_up='independent',
+            move_standing='independent', move_stand_up='independent', other_movement='',
+            abms={'neck': '3', 'sitting': '3', 'floor': '3', 'standing': '3', 'walking': '3'},
+            abms_t={'oral': '3', 'hand': '1', 'one_leg': '2', 'both_legs': '3', 'stairs': '3'},
+            key_areas='手先の巧緻性', goals='線に沿ってはさみで切れる。鉛筆を三点持ちで持てる。',
+            support_items=['筋力強化訓練', '座位訓練'], support_other='手先の運動遊び',
+            implementation='粘土・洗濯ばさみ・ビーズ通しなどの遊びで指先の力をつける。書字は太い鉛筆と補助具から始める。週2回、各15分。',
+            explained_date=today - D(days=28), explained_to='本人、家族（父）', explained_by=staff,
+        )
+        counts['専門的支援実施計画書'] = 2
+
+        # 個別支援計画書（詳細版・別紙1）の追加項目：目標のある計画に入れる
+        n = 0
+        for plan in SupportPlan.objects.filter(facility=facility).order_by('pk'):
+            if not plan.goals.exists():
+                continue
+            days = ['月', '水', '金']
+            plan.form_extra = {
+                'usage_form': f'放課後等デイサービス（{"・".join(days)}曜日 週{len(days)}回）',
+                'specialists': '理学療法士、保育士',
+                'child_wishes': '友だちと一緒に遊びたい。工作をたくさんやりたい。',
+                'guardian_wishes': '気持ちを言葉で伝えられるようになってほしい。集団の場に慣れてほしい。',
+                'service_hours': '月・水・金 15:00〜17:30（学校休業日 10:00〜16:00）',
+                'medical_care': '・主治医連携：年1回受診に同行し、所見を共有\n・医療的ケア等：なし\n・関係機関連携：学校と月1回、相談支援事業所と随時',
+                'review_cycle': '原則6ヶ月毎（必要時随時）',
+                'explain_method': '面談',
+                'relation': '母',
+                'delivery_method': '面談時手渡し',
+            }
+            plan.save(update_fields=['form_extra'])
+            cats = ['self_social', 'self_language', 'self_cognition']
+            for i, g in enumerate(plan.goals.order_by('goal_type', 'order', 'pk')):
+                g.form_extra = {
+                    'category': cats[i % len(cats)] if g.goal_type == 'short' else '',
+                    'item': '人間関係・社会性' if i % 2 == 0 else '言語・コミュニケーション',
+                    'timing': '3ヶ月後',
+                    'procedure': '絵カードで見通しを示し、できたらその場で具体的にほめる。刺激の少ない場所を用意する。',
+                    'staff': '保育士・児童指導員',
+                    'notes': '本人の役割：自分の順番が来たら合図に気づいて動く。',
+                    'criteria': '週の半分以上で自分からできれば達成',
+                }
+                g.save(update_fields=['form_extra'])
+            n += 1
+        counts['計画書の様式追加項目'] = n
         return counts
 
     # ------------------------------------------------------------------

@@ -8,14 +8,14 @@ from .models import StaffAccount
 class StaffAccountAdmin(UserAdmin):
     """職員アカウントの管理画面。標準の UserAdmin に所属施設・権限区分・表示名を追加する。"""
 
-    list_display = ['username', 'display_name', 'facility', 'role', 'ui_theme', 'is_active', 'is_staff']
-    list_filter = ['facility', 'role', 'ui_theme', 'is_active', 'is_staff', 'is_superuser']
+    list_display = ['username', 'display_name', 'facility', 'role', 'is_developer', 'ui_theme', 'is_active', 'is_staff']
+    list_filter = ['facility', 'role', 'is_developer', 'ui_theme', 'is_active', 'is_staff', 'is_superuser']
     search_fields = ['username', 'display_name', 'email', 'first_name', 'last_name']
     ordering = ['facility', 'username']
 
     fieldsets = (
         (None, {'fields': ('username', 'password')}),
-        ('施設・権限', {'fields': ('facility', 'role', 'display_name', 'ui_theme', 'ui_prefs')}),
+        ('施設・権限', {'fields': ('facility', 'role', 'is_developer', 'display_name', 'ui_theme', 'ui_prefs')}),
         ('個人情報', {'fields': ('first_name', 'last_name', 'email')}),
         ('権限', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
         ('重要な日付', {'fields': ('last_login', 'date_joined')}),

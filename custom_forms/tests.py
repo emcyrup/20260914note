@@ -121,11 +121,38 @@ class CustomFormsTests(TestCase):
         self.assertContains(res, '計画書（別紙1）')
 
     def test_feature_settings_saves_form_set(self):
+        # 事業所の管理者は帳票様式を変えられない（開発向けユーザーのみ）
         admin = StaffAccount.objects.create_user('adm', password='pass12345', facility=self.facility, role=StaffAccount.ROLE_ADMIN)
         self.client.force_login(admin)
+        self.client.post(reverse('facilities:feature_settings'), {'use_billing': 'on', 'journal_sections': ['activity'], 'form_set': 'standard'})
+        self.facility.refresh_from_db()
+        self.assertEqual(self.facility.form_set, 'happiness')
+        dev = StaffAccount.objects.create_user('dev', password='pass12345', facility=self.facility, role=StaffAccount.ROLE_ADMIN, is_developer=True)
+        self.client.force_login(dev)
         self.client.post(reverse('facilities:feature_settings'), {'use_billing': 'on', 'journal_sections': ['activity'], 'form_set': 'standard'})
         self.facility.refresh_from_db()
         self.assertEqual(self.facility.form_set, 'standard')
         self.client.post(reverse('facilities:feature_settings'), {'journal_sections': ['activity'], 'form_set': 'bogus'})
         self.facility.refresh_from_db()
         self.assertEqual(self.facility.form_set, 'standard')
+
+
+class SeedCustomFormsTests(TestCase):
+    """seed_demo：はぴねす様式の施設には事業所様式のサンプルも入る"""
+
+    def test_seed_creates_custom_forms(self):
+        from io import StringIO
+        from django.core.management import call_command
+        f = Facility.objects.create(name='はぴねす', form_set=Facility.FORM_SET_HAPPINESS)
+        StaffAccount.objects.create_user('h', password='pass12345', facility=f)
+        out = StringIO()
+        call_command('seed_demo', '--facility', f.pk, stdout=out)
+        self.assertEqual(AgencyMeetingReport.objects.filter(facility=f).count(), 2)
+        self.assertEqual(SpecializedSupportPlan.objects.filter(facility=f).count(), 2)
+        self.assertTrue(SupportPlan.objects.filter(facility=f).exclude(form_extra={}).exists())
+        self.assertTrue(PlanGoal.objects.filter(plan__facility=f).exclude(form_extra={}).exists())
+        self.assertIn('専門的支援実施計画書', out.getvalue())
+        # 標準の施設には入らない
+        g = Facility.objects.create(name='標準')
+        call_command('seed_demo', '--facility', g.pk, stdout=StringIO())
+        self.assertEqual(AgencyMeetingReport.objects.filter(facility=g).count(), 0)

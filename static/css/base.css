@@ -153,6 +153,28 @@ body::before {
   letter-spacing: 0.06em;
 }
 
+/* 開発向けユーザー：事業所の切り替え */
+.sidebar-dev-switch {
+  margin: 4px 14px 10px;
+  padding: 8px 10px;
+  border: 1px dashed rgba(255, 210, 120, 0.7);
+  border-radius: 8px;
+  background: rgba(255, 210, 120, 0.08);
+}
+.sidebar-dev-switch-label {
+  display: block;
+  font-size: 11px;
+  color: #ffd278;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+.sidebar-dev-switch .form-select {
+  font-size: 12.5px;
+  padding: 3px 26px 3px 8px;
+  background-color: rgba(255, 255, 255, 0.92);
+  border-color: rgba(255, 210, 120, 0.8);
+}
+
 /* ナビゲーション */
 .sidebar-nav {
   display: flex;

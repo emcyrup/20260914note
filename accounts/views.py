@@ -5,8 +5,10 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views import View
 
+from .middleware import SESSION_KEY as DEV_FACILITY_SESSION_KEY
 from .models import StaffAccount
 from facilities.context_processors import get_terms
+from facilities.models import Facility
 
 
 class StaffLoginView(LoginView):
@@ -93,6 +95,33 @@ class ThemeView(LoginRequiredMixin, View):
             return redirect('facilities:dashboard')
         messages.success(request, f'{target} さんの画面を「{label}」にしました。')
         return redirect('accounts:theme')
+
+
+class SwitchFacilityView(LoginRequiredMixin, View):
+    """
+    開発向けユーザーの事業所切り替え。選んだ事業所IDをセッションに入れ、
+    以降の画面はその事業所の職員として動く（DBの所属は変えない）。
+    """
+
+    def post(self, request):
+        if not request.user.can_switch_facility:
+            messages.error(request, '事業所の切り替えは開発向けユーザーだけが使えます。')
+            return redirect('facilities:dashboard')
+        fid = request.POST.get('facility')
+        if fid == 'home' or not fid:
+            request.session.pop(DEV_FACILITY_SESSION_KEY, None)
+            messages.success(request, '自分の所属事業所に戻しました。')
+        else:
+            facility = Facility.objects.filter(pk=fid).first()
+            if facility is None:
+                messages.error(request, 'その事業所は存在しません。')
+                return redirect('facilities:dashboard')
+            request.session[DEV_FACILITY_SESSION_KEY] = facility.pk
+            messages.success(request, f'事業所を「{facility.name}」に切り替えました。')
+        nxt = request.POST.get('next') or ''
+        if nxt.startswith('/') and not nxt.startswith('//'):
+            return redirect(nxt)
+        return redirect('facilities:dashboard')
 
 
 class AdminOnlyMixin(LoginRequiredMixin):

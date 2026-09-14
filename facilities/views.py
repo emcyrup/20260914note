@@ -162,7 +162,7 @@ class FacilityUpdateView(LoginRequiredMixin, View):
 
 
 class FeatureSettingsView(LoginRequiredMixin, View):
-    """使う機能（請求・LINE）と、日誌で AI が作る項目の順番を保存する（管理者のみ）"""
+    """使う機能（請求・LINE）と、日誌で AI が作る項目の順番を保存する（管理者のみ。帳票様式は開発向けユーザーのみ）"""
 
     def post(self, request):
         if not (request.user.is_admin or request.user.is_superuser):
@@ -177,9 +177,11 @@ class FeatureSettingsView(LoginRequiredMixin, View):
             messages.error(request, '日誌の項目は1つ以上選んでください。')
             return redirect('facilities:settings')
         facility.journal_sections = keys
-        form_set = request.POST.get('form_set', facility.form_set)
-        if form_set in dict(Facility.FORM_SET_CHOICES):
-            facility.form_set = form_set
+        # 帳票様式は開発向けユーザーだけが変えられる（他の事業所の様式名を管理者に見せない）
+        if request.user.can_switch_facility:
+            form_set = request.POST.get('form_set', facility.form_set)
+            if form_set in dict(Facility.FORM_SET_CHOICES):
+                facility.form_set = form_set
         facility.save(update_fields=['use_billing', 'use_line', 'journal_sections', 'form_set'])
         messages.success(request, '使う機能と日誌の項目を保存しました。')
         return redirect('facilities:settings')

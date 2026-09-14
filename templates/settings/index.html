@@ -152,11 +152,16 @@
             <label class="form-check-label" for="use_line">LINE連携（保護者へのLINE送信・配信履歴）</label>
           </div>
           <div class="form-text">使わない機能はメニューやボタンから消えます。記録は消えないので、あとから戻せます。</div>
-          <div class="small fw-semibold mt-3 mb-1">帳票様式</div>
-          <select name="form_set" class="form-select form-select-sm" {% if not is_admin %}disabled{% endif %}>
+          {% if is_developer %}
+          <div class="small fw-semibold mt-3 mb-1">帳票様式 <span class="badge text-bg-secondary fw-normal">開発向け</span></div>
+          <select name="form_set" class="form-select form-select-sm">
             {% for v, l in facility.FORM_SET_CHOICES %}<option value="{{ v }}" {% if facility.form_set == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
           </select>
-          <div class="form-text">標準以外を選ぶと、サイドバーに「事業所様式」が出て、その事業所の帳票を作成・出力できます。</div>
+          <div class="form-text">この設定は開発向けユーザーにだけ表示されます。標準以外を選ぶと、この事業所のサイドバーに「事業所様式」が出て、その事業所の帳票を作成・出力できます。</div>
+          {% elif facility.form_set != 'standard' %}
+          <div class="small fw-semibold mt-3 mb-1">帳票様式</div>
+          <div class="small">この事業所専用の様式を使っています（サイドバー「事業所様式」）。変更はシステム担当にご相談ください。</div>
+          {% endif %}
         </div>
         <div class="col-md-7">
           <div class="small fw-semibold mb-2">日誌の項目と順番（上が優先順位が高い）</div>

@@ -67,6 +67,21 @@
       </div>
     </a>
 
+    {% if is_developer %}
+    <!-- 開発向けユーザー：事業所の切り替え -->
+    <form method="post" action="{% url 'accounts:switch_facility' %}" class="sidebar-dev-switch" id="devFacilityForm">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.path }}">
+      <label for="devFacilitySelect" class="sidebar-dev-switch-label"><i class="bi bi-code-slash me-1"></i>開発向け：いまの事業所</label>
+      <select name="facility" id="devFacilitySelect" class="form-select form-select-sm" onchange="document.getElementById('devFacilityForm').submit()">
+        {% for f in dev_facilities %}
+        <option value="{{ f.pk }}" {% if f.pk == user.facility_id %}selected{% endif %}>{{ f.name }}{% if f.pk == dev_home_facility_id %}（所属）{% endif %}{% if f.form_set != 'standard' %}・専用様式{% endif %}</option>
+        {% endfor %}
+      </select>
+      <noscript><button type="submit" class="btn btn-sm btn-outline-light mt-1">切り替え</button></noscript>
+    </form>
+    {% endif %}
+
     <!-- メインナビ -->
     <ul class="sidebar-nav">
       <li>

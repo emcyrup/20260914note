@@ -210,3 +210,93 @@ class DisplayPrefsTests(TestCase):
         self.assertEqual(self.user.prefs['font'], 'biz')
         self.assertEqual(self.user.prefs['scale'], 100)
         self.assertEqual(self.user.prefs['bg'], '')
+
+
+class DeveloperFacilitySwitchTests(TestCase):
+    """開発向けユーザー：事業所の切り替え、帳票様式の表示制限"""
+
+    def setUp(self):
+        self.f1 = Facility.objects.create(name='みちのて', form_set=Facility.FORM_SET_STANDARD)
+        self.f2 = Facility.objects.create(name='はぴねす', form_set=Facility.FORM_SET_HAPPINESS)
+        self.dev = StaffAccount.objects.create_user('dev', password='pass12345', facility=self.f1,
+                                                    role=StaffAccount.ROLE_ADMIN, is_developer=True)
+        self.admin = StaffAccount.objects.create_user('adm', password='pass12345', facility=self.f1,
+                                                      role=StaffAccount.ROLE_ADMIN)
+
+    def test_switch_and_back(self):
+        self.client.force_login(self.dev)
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertContains(res, 'devFacilitySelect')
+        self.assertContains(res, 'みちのて（所属）')
+        self.assertNotContains(res, '事業所様式')
+        # はぴねすに切り替えると、その事業所として動く（専用様式のメニューが出る）
+        res = self.client.post(reverse('accounts:switch_facility'), {'facility': self.f2.pk, 'next': '/'})
+        self.assertRedirects(res, '/', fetch_redirect_response=False)
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertContains(res, '事業所様式')
+        self.assertContains(res, 'はぴねす')
+        res = self.client.get(reverse('custom_forms:index'))
+        self.assertEqual(res.status_code, 200)
+        # DB の所属は変わらない
+        self.dev.refresh_from_db()
+        self.assertEqual(self.dev.facility_id, self.f1.pk)
+        # 戻す
+        res = self.client.post(reverse('accounts:switch_facility'), {'facility': 'home'})
+        self.assertRedirects(res, reverse('facilities:dashboard'), fetch_redirect_response=False)
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertNotContains(res, '事業所様式')
+
+    def test_switched_user_save_keeps_home_facility(self):
+        self.client.force_login(self.dev)
+        self.client.post(reverse('accounts:switch_facility'), {'facility': self.f2.pk})
+        # 切り替え中に自分の表示設定を保存しても、所属は元のまま
+        self.client.post(reverse('accounts:theme'), {'theme': StaffAccount.THEME_LARGE})
+        self.dev.refresh_from_db()
+        self.assertEqual(self.dev.facility_id, self.f1.pk)
+        self.assertEqual(self.dev.ui_theme, StaffAccount.THEME_LARGE)
+
+    def test_non_developer_cannot_switch(self):
+        self.client.force_login(self.admin)
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertNotContains(res, 'devFacilitySelect')
+        res = self.client.post(reverse('accounts:switch_facility'), {'facility': self.f2.pk})
+        self.assertRedirects(res, reverse('facilities:dashboard'), fetch_redirect_response=False)
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertNotContains(res, '事業所様式')
+
+    def test_superuser_without_facility_gets_first(self):
+        root = StaffAccount.objects.create_superuser('root', 'root@example.com', 'pass12345')
+        self.client.force_login(root)
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, 'devFacilitySelect')
+
+    def test_form_set_only_for_developer(self):
+        # 管理者には帳票様式の選択が出ず、送っても変わらない
+        self.client.force_login(self.admin)
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertNotContains(res, 'name="form_set"')
+        self.assertNotContains(res, 'はぴねす様式')
+        self.client.post(reverse('facilities:feature_settings'), {
+            'use_billing': 'on', 'journal_sections': ['activity', 'observation'], 'form_set': 'happiness'})
+        self.f1.refresh_from_db()
+        self.assertEqual(self.f1.form_set, Facility.FORM_SET_STANDARD)
+        # 開発向けユーザーには出て、変えられる
+        self.client.force_login(self.dev)
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, 'name="form_set"')
+        self.client.post(reverse('facilities:feature_settings'), {
+            'use_billing': 'on', 'journal_sections': ['activity', 'observation'], 'form_set': 'happiness'})
+        self.f1.refresh_from_db()
+        self.assertEqual(self.f1.form_set, Facility.FORM_SET_HAPPINESS)
+
+    def test_set_developer_command(self):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('set_developer', 'adm', stdout=out)
+        self.admin.refresh_from_db()
+        self.assertTrue(self.admin.is_developer)
+        call_command('set_developer', 'adm', '--off', stdout=out)
+        self.admin.refresh_from_db()
+        self.assertFalse(self.admin.is_developer)
