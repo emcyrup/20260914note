@@ -119,11 +119,12 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--facility', type=int, help='投入先の施設ID（省略時は施設が1つならそれを使う）')
+        parser.add_argument('--create-facility', metavar='施設名', help='施設が無ければこの名前で作り、所属施設が未設定の職員（管理者を含む）をその施設に所属させる')
         parser.add_argument('--reset', action='store_true', help='既存のサンプルデータを削除してから投入する')
         parser.add_argument('--seed', type=int, default=20260912, help='乱数のシード（同じ値なら同じデータ）')
 
     def handle(self, *args, **options):
-        facility = self._pick_facility(options.get('facility'))
+        facility = self._pick_facility(options.get('facility'), options.get('create_facility'))
         rng = random.Random(options['seed'])
 
         existing = Beneficiary.objects.filter(facility=facility, notes__contains=SAMPLE_MARK)
@@ -145,7 +146,13 @@ class Command(BaseCommand):
                           'または管理画面で備考「サンプルデータ」の利用者を削除')
 
     # ------------------------------------------------------------------
-    def _pick_facility(self, facility_id):
+    def _pick_facility(self, facility_id, create_name=None):
+        if create_name and not Facility.objects.exists():
+            facility = Facility.objects.create(name=create_name)
+            from accounts.models import StaffAccount
+            n = StaffAccount.objects.filter(facility__isnull=True).update(facility=facility)
+            self.stdout.write(f'施設「{facility.name}」を作成し、所属未設定の職員 {n} 名を所属させました。')
+            return facility
         if facility_id:
             try:
                 return Facility.objects.get(pk=facility_id)
@@ -155,7 +162,7 @@ class Command(BaseCommand):
         if qs.count() == 1:
             return qs.first()
         if not qs.exists():
-            raise CommandError('施設がありません。先に管理画面で施設を作成してください。')
+            raise CommandError('施設がありません。--create-facility "施設名" を付けて作成するか、先に管理画面で施設を作成してください。')
         names = ', '.join(f'{f.pk}:{f.name}' for f in qs)
         raise CommandError(f'施設が複数あります。--facility でIDを指定してください（{names}）')
 

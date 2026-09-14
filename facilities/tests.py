@@ -209,3 +209,14 @@ class FeatureToggleTests(TestCase):
     def test_new_facility_defaults_on(self):
         f = Facility.objects.create(name='新しい施設')
         self.assertTrue(f.use_billing and f.use_line)
+
+
+class SeedDemoCreateFacilityTests(TestCase):
+    def test_create_facility_option(self):
+        admin = StaffAccount.objects.create_superuser('root', 'r@example.com', 'pw12345678')
+        out = StringIO()
+        call_command('seed_demo', '--create-facility', 'あおば', stdout=out)
+        admin.refresh_from_db()
+        self.assertEqual(admin.facility.name, 'あおば')
+        self.assertIn('作成し', out.getvalue())
+        self.assertTrue(Beneficiary.objects.filter(facility=admin.facility).exists())
