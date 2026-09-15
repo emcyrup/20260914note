@@ -1,0 +1,126 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ date|date:'n月j日' }}の予約 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}{{ date|date:'Y年n月j日(D)' }}の予約{% endblock %}
+{% block nav_reservations %}active{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="btn-group">
+      <a href="{% url 'reservations:day' prev_day.year prev_day.month prev_day.day %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left"></i></a>
+      <a href="{% url 'reservations:calendar_month' date.year date.month %}" class="btn btn-outline-secondary btn-sm">カレンダーへ</a>
+      <a href="{% url 'reservations:day' next_day.year next_day.month next_day.day %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-right"></i></a>
+    </div>
+    <div>
+      {% if state.closed %}
+        <span class="badge text-bg-secondary">休業日（枠0）</span>
+      {% else %}
+        <span class="badge {% if state.remaining %}text-bg-success{% else %}text-bg-danger{% endif %}">
+          {% if state.remaining %}残り {{ state.remaining }} 枠{% else %}満席{% endif %}
+        </span>
+        <span class="small text-muted ms-2">予約 {{ state.confirmed }} / {{ state.capacity }} 名{% if state.waiting %}・キャンセル待ち {{ state.waiting }} 件{% endif %}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="table-responsive">
+      <table class="table mb-0 align-middle">
+        <thead><tr><th>利用者</th><th>状態</th><th>入口</th><th>連絡先</th><th>備考</th><th></th></tr></thead>
+        <tbody>
+          {% for r in reservations %}
+          <tr>
+            <td class="fw-bold">{{ r.beneficiary.full_name }}</td>
+            <td>{% if r.status == 'confirmed' %}<span class="badge text-bg-success">予約</span>{% else %}<span class="badge text-bg-warning">キャンセル待ち</span>{% endif %}</td>
+            <td class="small">{{ r.get_source_display }}</td>
+            <td class="small">{% if r.customer %}{{ r.customer.name }}{% if not r.customer.can_notify %}<span class="text-muted">（LINE未連携）</span>{% endif %}{% else %}—{% endif %}</td>
+            <td class="small">{{ r.note|default:'—' }}</td>
+            <td class="text-end">
+              <form method="post" onsubmit="return confirm('{{ r.beneficiary.full_name }} さんの予約を取り消しますか？\nキャンセル待ちがいれば繰り上げます。');">
+                {% csrf_token %}<input type="hidden" name="action" value="cancel"><input type="hidden" name="reservation" value="{{ r.pk }}">
+                <button class="btn btn-sm btn-outline-danger">取消</button>
+              </form>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="6" class="text-center text-muted py-4">この日の予約はまだありません。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if not state.closed %}
+  <div class="card mb-3"><div class="card-body">
+    <div class="fw-bold mb-2">予約を追加する</div>
+    <form method="post" class="row g-2 align-items-end">
+      {% csrf_token %}<input type="hidden" name="action" value="add">
+      <div class="col-md-5">
+        <label class="form-label small fw-semibold">利用者</label>
+        <select name="beneficiary" class="form-select form-select-sm" required>
+          <option value="">— 選択 —</option>
+          {% for b in candidates %}<option value="{{ b.pk }}">{{ b.full_name }}</option>{% endfor %}
+        </select>
+        <div class="form-text">この日にすでに予約のある{{ terms.beneficiary }}は出ません。</div>
+      </div>
+      <div class="col-md-5">
+        <label class="form-label small fw-semibold">備考</label>
+        <input type="text" name="note" class="form-control form-control-sm" placeholder="任意">
+      </div>
+      <div class="col-md-2 d-grid">
+        <button class="btn btn-primary btn-sm">{% if state.full %}キャンセル待ちで追加{% else %}追加する{% endif %}</button>
+      </div>
+    </form>
+    {% if state.full and not setting.allow_waitlist %}
+    <div class="form-text text-danger mt-2">満席で、キャンセル待ちを受けない設定です。追加するとお断りとして記録されます。</div>
+    {% endif %}
+  </div></div>
+  {% endif %}
+
+  <div class="row g-3">
+    <div class="col-md-6">
+      <div class="card h-100"><div class="card-body">
+        <div class="fw-bold mb-2">この日の扱い</div>
+        {% if closed_date %}
+        <div class="small text-muted mb-2">臨時休業にしています{% if closed_date.reason %}（{{ closed_date.reason }}）{% endif %}。</div>
+        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="open">
+          <button class="btn btn-sm btn-outline-secondary">臨時休業を取り消す</button></form>
+        {% else %}
+        <form method="post" class="d-flex gap-2 align-items-end">
+          {% csrf_token %}<input type="hidden" name="action" value="close">
+          <div class="flex-grow-1"><label class="form-label small fw-semibold">臨時休業にする</label>
+            <input type="text" name="reason" class="form-control form-control-sm" placeholder="理由（任意）"></div>
+          <button class="btn btn-sm btn-outline-danger">休業にする</button>
+        </form>
+        {% endif %}
+        <hr>
+        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="reminder">
+          <button class="btn btn-sm btn-outline-primary"><i class="bi bi-bell me-1"></i>前日のお知らせを送信待ちに入れる</button>
+        </form>
+        <div class="form-text">この日に予約している{{ terms.beneficiary }}の連絡先へ、1件ずつ積みます。送信は公式LINEの画面から行います。</div>
+      </div></div>
+    </div>
+    <div class="col-md-6">
+      <div class="card h-100"><div class="card-body">
+        <div class="fw-bold mb-2">空き状況の文面</div>
+        <textarea class="form-control form-control-sm font-monospace" rows="6" readonly id="vacancyText">{{ vacancy_text }}</textarea>
+        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="const t=document.getElementById('vacancyText');t.select();navigator.clipboard?navigator.clipboard.writeText(t.value):document.execCommand('copy');this.textContent='コピーしました';">
+          コピーする
+        </button>
+      </div></div>
+    </div>
+  </div>
+
+  {% if history %}
+  <div class="card mt-3"><div class="card-body">
+    <div class="fw-bold mb-2">この日の履歴</div>
+    <ul class="list-unstyled small mb-0">
+      {% for r in history %}
+      <li class="text-muted">{{ r.beneficiary.full_name }} — {{ r.get_status_display }}（{{ r.get_source_display }}・{{ r.created_at|date:'n/j H:i' }}）</li>
+      {% endfor %}
+    </ul>
+  </div></div>
+  {% endif %}
+</div>
+{% endblock %}

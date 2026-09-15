@@ -15,12 +15,12 @@ from beneficiaries.models import Beneficiary, Guardian
 from facilities.models import Facility
 
 
-def _body(text, user_id='U1'):
+def _body(text, user_id='U1', source=None, message_id='m1'):
     return json.dumps({'destination': 'Ubot', 'events': [{
         'type': 'message', 'mode': 'active', 'timestamp': 1, 'webhookEventId': 'e1',
         'deliveryContext': {'isRedelivery': False}, 'replyToken': 'r1',
-        'source': {'type': 'user', 'userId': user_id},
-        'message': {'id': 'm1', 'type': 'text', 'text': text, 'quoteToken': 'q'},
+        'source': source or {'type': 'user', 'userId': user_id},
+        'message': {'id': message_id, 'type': 'text', 'text': text, 'quoteToken': 'q'},
     }]})
 
 
@@ -122,3 +122,56 @@ class LineWebhookTests(TestCase):
         self.assertTrue(self.ga.line_code_valid)
         # 他事業所の保護者は再発行できない
         self.assertEqual(self.client.post(reverse('beneficiaries:regenerate_line_code', args=[self.gb.pk])).status_code, 404)
+
+
+class WebhookInboxTests(TestCase):
+    """予約管理を使う事業所では、登録コード以外の文を受信箱へ積む（自動では反映しない）"""
+
+    def setUp(self):
+        cache.clear()
+        self.f = Facility.objects.create(name='なゆた', line_channel_secret='secret-a',
+                                         line_channel_access_token='tok-a', use_reservation=True)
+        ben = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='はると',
+                                         date_of_birth=date(2016, 4, 1))
+        self.guardian = Guardian.objects.create(beneficiary=ben, last_name='青木', first_name='花子')
+
+    def _post(self, text, **kw):
+        body = _body(text, **kw)
+        url = reverse('line_integration:webhook_facility', args=[self.f.pk])
+        with mock.patch('linebot.v3.messaging.MessagingApi.reply_message') as reply:
+            res = self.client.post(url, data=body, content_type='application/json',
+                                   HTTP_X_LINE_SIGNATURE=_sig('secret-a', body))
+        return res, reply
+
+    def test_reservation_text_goes_to_inbox(self):
+        from reservations.models import LineInbox
+        res, reply = self._post('10/1 予約おねがいします')
+        self.assertEqual(res.status_code, 200)
+        entry = LineInbox.objects.get(facility=self.f)
+        self.assertEqual((entry.text, entry.source_type, entry.line_user_id),
+                         ('10/1 予約おねがいします', 'user', 'U1'))
+        self.assertEqual(entry.status, LineInbox.STATUS_PENDING)
+        self.assertIn('承りました', reply.call_args[0][0].messages[0].text)
+
+    def test_link_code_still_works_and_linked_user_is_inboxed(self):
+        from reservations.models import LineInbox
+        res, reply = self._post(self.guardian.line_registration_code)
+        self.guardian.refresh_from_db()
+        self.assertTrue(self.guardian.line_linked)
+        self.assertEqual(LineInbox.objects.count(), 0)
+        res, reply = self._post('10/2 予約', message_id='m2')
+        self.assertEqual(LineInbox.objects.count(), 1)
+
+    def test_group_message_is_inboxed_with_group_id(self):
+        from reservations.models import LineInbox
+        self._post('9/12 Aさん ×', source={'type': 'group', 'groupId': 'G1', 'userId': 'U5'})
+        entry = LineInbox.objects.get(facility=self.f)
+        self.assertEqual((entry.source_type, entry.group_id), ('group', 'G1'))
+
+    def test_without_the_feature_nothing_is_inboxed(self):
+        from reservations.models import LineInbox
+        self.f.use_reservation = False
+        self.f.save()
+        res, reply = self._post('10/1 予約おねがいします')
+        self.assertEqual(LineInbox.objects.count(), 0)
+        self.assertIn('見つからない', reply.call_args[0][0].messages[0].text)

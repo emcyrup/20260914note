@@ -38,6 +38,22 @@ class LineWebhookView(View):
 
     LINK_FAIL_LIMIT = 5          # この回数を超えて間違えた LINE ユーザーは
     LINK_FAIL_WINDOW = 60 * 60   # この秒数の間、照合しない
+    RECEIVED_REPLY = ('承りました。事業所で内容を確認のうえ、あらためてご連絡します。\n'
+                      'この返信は自動でお送りしています。')
+
+    @staticmethod
+    def _inbox(facility, event, text, source_type, line_user_id):
+        """受信箱に積む（自動では反映しない。職員が画面で確かめてから反映する）"""
+        if not facility.use_reservation:
+            return None
+        from reservations.services import receive
+        source = getattr(event.source, 'type', 'user')
+        group_id = getattr(event.source, 'group_id', '') or getattr(event.source, 'room_id', '') or ''
+        entry, _ = receive(
+            facility, message_id=getattr(event.message, 'id', '') or f'{event.timestamp}-{line_user_id}',
+            text=text, source_type=source_type, line_user_id=line_user_id, group_id=group_id,
+        )
+        return entry
 
     @staticmethod
     def resolve_facility(facility_pk):
@@ -92,11 +108,25 @@ class LineWebhookView(View):
             コード方式を採用することで同姓同名・表記ゆれの問題を根本解決する。
             すでに連携済みの場合はスキップする。間違いが続いた LINE ユーザーは一定時間照合しない。
             """
-            line_user_id = event.source.user_id
-            text = event.message.text.strip().upper().replace(' ', '')
+            source_type = getattr(event.source, 'type', 'user')
+            line_user_id = getattr(event.source, 'user_id', '') or ''
+            raw_text = event.message.text
+            text = raw_text.strip().upper().replace(' ', '')
 
-            # 連携済みならスキップ
+            # スタッフのグループ・複数人トークからの投稿は受信箱に積むだけ（自動では反映しない）
+            if source_type in ('group', 'room'):
+                self._inbox(facility, event, raw_text, source_type, line_user_id)
+                return
+
+            # 連携済みなら、登録コードの照合はしない（予約管理を使う事業所では受信箱に積む）
             if Guardian.objects.filter(line_user_id=line_user_id, line_linked=True).exists():
+                if facility.use_reservation:
+                    self._inbox(facility, event, raw_text, source_type, line_user_id)
+                    with ApiClient(config) as api_client:
+                        MessagingApi(api_client).reply_message(ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[LineTextMessage(type='text', text=self.RECEIVED_REPLY)],
+                        ))
                 return
 
             with ApiClient(config) as api_client:
@@ -128,6 +158,10 @@ class LineWebhookView(View):
                         f'{guardian.beneficiary.full_name}様の保護者として登録しました。\n'
                         'これからお子様の様子をお届けします。'
                     )
+                elif facility.use_reservation:
+                    # 予約管理を使う事業所では、登録コード以外の文は受信箱へ積む（職員が確かめて反映する）
+                    self._inbox(facility, event, raw_text, source_type, line_user_id)
+                    reply_text = self.RECEIVED_REPLY
                 else:
                     cache.set(fail_key, fails + 1, self.LINK_FAIL_WINDOW)
                     reply_text = (

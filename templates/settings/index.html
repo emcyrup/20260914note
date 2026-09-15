@@ -166,6 +166,10 @@
             <input type="checkbox" class="form-check-input" name="use_line" id="use_line" {% if facility.use_line %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_line">LINE連携（保護者へのLINE送信・配信履歴）</label>
           </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="use_reservation" id="use_reservation" {% if facility.use_reservation %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="use_reservation">予約管理（1日の枠・キャンセル待ち・公式LINEからの申し込み・顧客台帳）</label>
+          </div>
           <div class="form-text">使わない機能はメニューやボタンから消えます。記録は消えないので、あとから戻せます。</div>
           {% if is_developer %}
           <div class="small fw-semibold mt-3 mb-1">帳票様式 <span class="badge text-bg-secondary fw-normal">開発向け</span></div>

@@ -33,6 +33,8 @@ KINDS = {
     'meeting_report':   ('custom_forms.AgencyMeetingReport', 'facility'),
     'specialized_plan': ('custom_forms.SpecializedSupportPlan', 'facility'),
     'copayment':        ('billing.CopaymentManagement', 'facility'),
+    'reservation_setting': ('reservations.ReservationSetting', 'facility'),
+    'customer':         ('reservations.Customer', 'facility'),
 }
 STEP_KINDS = {1: 'assessment', 2: 'plan_draft', 3: 'staff_meeting', 4: 'consent', 5: 'monitoring'}
 

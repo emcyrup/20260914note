@@ -1,0 +1,30 @@
+<div class="row g-2">
+  <div class="col-7"><label class="form-label small fw-semibold">お名前 <span class="text-danger">*</span></label>
+    <input type="text" name="name" class="form-control" value="{{ obj.name|default:'' }}" required></div>
+  <div class="col-5"><label class="form-label small fw-semibold">ふりがな</label>
+    <input type="text" name="kana" class="form-control" value="{{ obj.kana|default:'' }}"></div>
+  <div class="col-6"><label class="form-label small fw-semibold">電話番号</label>
+    <input type="text" name="phone" class="form-control" value="{{ obj.phone|default:'' }}"></div>
+  <div class="col-6"><label class="form-label small fw-semibold">LINEのユーザーID</label>
+    <input type="text" name="line_user_id" class="form-control font-monospace" value="{{ obj.line_user_id|default:'' }}" placeholder="公式LINEの登録で入ります"></div>
+  <div class="col-12">
+    <label class="form-label small fw-semibold">担当する{{ terms.beneficiary }}（複数選べます）</label>
+    <div class="border rounded p-2" style="max-height:160px;overflow:auto;">
+      {% for b in beneficiaries %}
+      <div class="form-check">
+        <input type="checkbox" class="form-check-input" name="children" value="{{ b.pk }}"
+               id="ch{{ obj.pk|default:'new' }}_{{ b.pk }}"
+               {% if obj %}{% for c in obj.children.all %}{% if c.pk == b.pk %}checked{% endif %}{% endfor %}{% endif %}>
+        <label class="form-check-label small" for="ch{{ obj.pk|default:'new' }}_{{ b.pk }}">{{ b.full_name }}</label>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="col-12"><label class="form-label small fw-semibold">備考</label>
+    <input type="text" name="note" class="form-control" value="{{ obj.note|default:'' }}"></div>
+  <div class="col-12"><div class="form-check">
+    <input type="checkbox" class="form-check-input" name="notify_enabled" id="notify{{ obj.pk|default:'new' }}"
+           {% if obj %}{% if obj.notify_enabled %}checked{% endif %}{% else %}checked{% endif %}>
+    <label class="form-check-label" for="notify{{ obj.pk|default:'new' }}">LINEで通知する</label>
+  </div></div>
+</div>

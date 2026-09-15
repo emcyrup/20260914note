@@ -48,6 +48,8 @@ class Facility(models.Model):
     # 使う機能（事業所によっては請求・LINE を使わない）
     use_billing = models.BooleanField(default=True, verbose_name='請求機能を使う')
     use_line = models.BooleanField(default=True, verbose_name='LINE連携を使う')
+    use_reservation = models.BooleanField(default=False, verbose_name='予約管理を使う',
+                                          help_text='1日の枠・キャンセル待ち・公式LINEからの申し込みを扱います。')
     # 日誌で AI が作る項目と、その順番（空なら標準の順番で全部）
     journal_sections = models.JSONField(default=list, blank=True, verbose_name='日誌の項目と順番')
     # 事業所固有の帳票様式（標準以外を選ぶと「事業所様式」メニューが出る）

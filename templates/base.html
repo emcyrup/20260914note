@@ -105,6 +105,15 @@
           <span>予定</span>
         </a>
       </li>
+      {% if features.reservation %}
+      <li>
+        <a class="sidebar-nav-item {% block nav_reservations %}{% endblock %}"
+           href="{% url 'reservations:calendar' %}">
+          <i class="bi bi-calendar-check"></i>
+          <span>予約</span>
+        </a>
+      </li>
+      {% endif %}
       <li>
         <a class="sidebar-nav-item {% block nav_records %}{% endblock %}"
            href="{% url 'records:dashboard' %}">

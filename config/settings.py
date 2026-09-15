@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'line_integration',
     'reports',
     'custom_forms',
+    'reservations',
 ]
 
 MIDDLEWARE = [

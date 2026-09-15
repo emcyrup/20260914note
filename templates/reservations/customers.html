@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% load concurrency %}
+
+{% block title %}顧客（予約の連絡先） — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}顧客（予約の連絡先）{% endblock %}
+{% block nav_reservations %}active{% endblock %}
+
+{% block content %}
+<div class="px-2">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="small text-muted">予約の連絡先です。1人の顧客が複数の{{ terms.beneficiary }}を担当できます。通知の宛先はここで決まります。</div>
+    <div class="d-flex gap-2">
+      <a href="{% url 'reservations:calendar' %}" class="btn btn-outline-secondary btn-sm">予約カレンダーへ</a>
+      <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addCustomerModal"><i class="bi bi-person-plus me-1"></i>顧客を追加</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table mb-0 align-middle">
+        <thead><tr><th>お名前</th><th>電話</th><th>担当する{{ terms.beneficiary }}</th><th>LINE</th><th>備考</th><th></th></tr></thead>
+        <tbody>
+          {% for c in customers %}
+          <tr>
+            <td class="fw-bold">{{ c.name }}{% if c.kana %}<div class="small text-muted">{{ c.kana }}</div>{% endif %}</td>
+            <td class="small">{{ c.phone|default:'—' }}</td>
+            <td class="small">{{ c.child_names|default:'—' }}</td>
+            <td>{% if c.line_user_id %}{% if c.notify_enabled %}<span class="badge text-bg-success">通知する</span>{% else %}<span class="badge text-bg-secondary">連携のみ</span>{% endif %}{% else %}<span class="badge text-bg-light text-muted">未連携</span>{% endif %}</td>
+            <td class="small">{{ c.note|default:'—' }}</td>
+            <td class="text-end">
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editCustomer{{ c.pk }}"><i class="bi bi-pencil"></i></button>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="6" class="text-center text-muted py-4">まだ顧客がいません。公式LINEの登録フォームから届いた申し込みか、この画面から追加してください。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% for c in customers %}
+<div class="modal fade" id="editCustomer{{ c.pk }}" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'reservations:customer_save' c.pk %}" data-concurrency="customer:{{ c.pk }}">
+        {% csrf_token %}{% version_field c %}
+        <div class="modal-header"><h5 class="modal-title fw-bold">顧客を編集</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          {% include 'reservations/_customer_fields.html' with obj=c %}
+        </div>
+        <div class="modal-footer justify-content-between">
+          <button type="button" class="btn btn-outline-danger btn-sm" form="delCustomer{{ c.pk }}">削除</button>
+          <div><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+            <button class="btn btn-primary">保存する</button></div>
+        </div>
+      </form>
+      <form method="post" id="delCustomer{{ c.pk }}" action="{% url 'reservations:customer_delete' c.pk %}"
+            onsubmit="return confirm('顧客「{{ c.name }}」を削除しますか？');">{% csrf_token %}</form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<div class="modal fade" id="addCustomerModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'reservations:customers' %}">
+        {% csrf_token %}
+        <div class="modal-header"><h5 class="modal-title fw-bold">顧客を追加</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">{% include 'reservations/_customer_fields.html' with obj=None %}</div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button class="btn btn-primary">追加する</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

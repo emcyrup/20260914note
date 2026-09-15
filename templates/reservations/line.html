@@ -1,0 +1,133 @@
+{% extends 'base.html' %}
+
+{% block title %}公式LINE（受信・通知） — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}公式LINE（受信・通知）{% endblock %}
+{% block nav_reservations %}active{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="small text-muted">届いた文は自動では確定しません。読み取りを確かめて「反映」を押したときだけ予約になります。</div>
+    <a href="{% url 'reservations:calendar' %}" class="btn btn-outline-secondary btn-sm">予約カレンダーへ</a>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body pb-2"><div class="fw-bold"><i class="bi bi-inbox me-1"></i>受信（未処理）</div></div>
+    <div class="table-responsive">
+      <table class="table mb-0 align-middle">
+        <thead><tr><th style="width:26%;">届いた文</th><th>読み取り</th><th style="width:34%;">反映する内容</th><th></th></tr></thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>
+              <div class="small">{{ row.entry.text|default:'（本文なし）'|linebreaksbr }}</div>
+              <div class="small text-muted mt-1">{{ row.entry.received_at|date:'n/j H:i' }}
+                {% if row.customer %}・{{ row.customer.name }}{% else %}・<span class="text-warning">顧客台帳にありません</span>{% endif %}</div>
+            </td>
+            <td class="small">
+              {% if row.parsed.intent == 'reserve' %}<span class="badge text-bg-primary">予約</span>
+              {% elif row.parsed.intent == 'cancel' %}<span class="badge text-bg-secondary">取消</span>
+              {% elif row.parsed.intent == 'register' %}<span class="badge text-bg-success">顧客の登録</span>
+              {% else %}<span class="badge text-bg-light text-muted">判別できず</span>{% endif %}
+              <div class="mt-1">{% if row.parsed.date %}{{ row.parsed.date|date:'n月j日' }}{% else %}<span class="text-muted">日付なし</span>{% endif %}</div>
+              <div>{% if row.beneficiary %}{{ row.beneficiary.full_name }}{% else %}<span class="text-muted">{{ terms.beneficiary }}未特定</span>{% endif %}</div>
+            </td>
+            <td>
+              {% if row.parsed.intent == 'register' %}
+              <form method="post" class="d-flex gap-2 align-items-end">
+                {% csrf_token %}<input type="hidden" name="action" value="register"><input type="hidden" name="entry" value="{{ row.entry.pk }}">
+                <div class="flex-grow-1"><label class="form-label small fw-semibold mb-0">お名前</label>
+                  <input type="text" name="name" class="form-control form-control-sm" value="{{ row.parsed.name }}"></div>
+                <button class="btn btn-sm btn-success">顧客として登録</button>
+              </form>
+              {% else %}
+              <form method="post" class="row g-1 align-items-end">
+                {% csrf_token %}<input type="hidden" name="action" value="apply"><input type="hidden" name="entry" value="{{ row.entry.pk }}">
+                <div class="col-5"><label class="form-label small fw-semibold mb-0">日付</label>
+                  <input type="date" name="date" class="form-control form-control-sm" value="{{ row.parsed.date|date:'Y-m-d' }}"></div>
+                <div class="col-7"><label class="form-label small fw-semibold mb-0">{{ terms.beneficiary }}</label>
+                  <select name="beneficiary" class="form-select form-select-sm">
+                    <option value="">— 選択 —</option>
+                    {% for b in beneficiaries %}<option value="{{ b.pk }}" {% if row.beneficiary and row.beneficiary.pk == b.pk %}selected{% endif %}>{{ b.full_name }}</option>{% endfor %}
+                  </select></div>
+                <div class="col-5"><label class="form-label small fw-semibold mb-0">内容</label>
+                  <select name="intent" class="form-select form-select-sm">
+                    <option value="reserve" {% if row.parsed.intent == 'reserve' %}selected{% endif %}>予約</option>
+                    <option value="cancel" {% if row.parsed.intent == 'cancel' %}selected{% endif %}>取消</option>
+                  </select></div>
+                <div class="col-7 d-grid"><button class="btn btn-sm btn-primary">反映する</button></div>
+              </form>
+              {% endif %}
+            </td>
+            <td class="text-end">
+              <form method="post">{% csrf_token %}<input type="hidden" name="action" value="ignore"><input type="hidden" name="entry" value="{{ row.entry.pk }}">
+                <button class="btn btn-sm btn-outline-secondary">見送り</button></form>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4" class="text-center text-muted py-4">未処理の受信はありません。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if group_rows %}
+  <div class="card mb-3"><div class="card-body">
+    <div class="fw-bold mb-2"><i class="bi bi-people me-1"></i>スタッフのグループからの投稿</div>
+    <div class="small text-muted mb-2">予約の増減のお知らせ先は、届いた投稿から選びます（IDを手で写す必要はありません）。
+      {% if setting.notify_group_id %}いまのお知らせ先：<span class="fw-semibold">{{ setting.notify_group_label|default:'スタッフのグループ' }}</span>{% endif %}</div>
+    <ul class="list-unstyled mb-0">
+      {% for g in group_rows %}
+      <li class="d-flex justify-content-between align-items-center border-top py-2">
+        <div class="small">{{ g.text|default:'（本文なし）'|truncatechars:60 }}<div class="text-muted">{{ g.received_at|date:'n/j H:i' }}</div></div>
+        {% if g.group_id != setting.notify_group_id %}
+        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="set_group"><input type="hidden" name="entry" value="{{ g.pk }}">
+          <button class="btn btn-sm btn-outline-primary">この投稿のグループを通知先にする</button></form>
+        {% else %}<span class="badge text-bg-success">通知先</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div></div>
+  {% endif %}
+
+  <div class="card mb-3">
+    <div class="card-body pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div class="fw-bold"><i class="bi bi-send me-1"></i>送信待ちの通知</div>
+      <form method="post">{% csrf_token %}<input type="hidden" name="action" value="send">
+        <button class="btn btn-sm btn-primary">送信待ちをまとめて送る</button></form>
+    </div>
+    <div class="table-responsive">
+      <table class="table mb-0 align-middle">
+        <thead><tr><th>種類</th><th>宛先</th><th>文面</th><th>状態</th></tr></thead>
+        <tbody>
+          {% for n in pending %}
+          <tr>
+            <td class="small">{{ n.get_kind_display }}{% if n.date %}<div class="text-muted">{{ n.date|date:'n/j' }}</div>{% endif %}</td>
+            <td class="small">{% if n.is_group %}スタッフのグループ{% elif n.customer %}{{ n.customer.name }}{% else %}—{% endif %}</td>
+            <td class="small" style="white-space:pre-wrap;">{{ n.body }}</td>
+            <td>{% if n.status == 'manual' %}<span class="badge text-bg-warning">コピーして送る</span>{% else %}<span class="badge text-bg-secondary">送信待ち</span>{% endif %}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4" class="text-center text-muted py-4">送信待ちの通知はありません。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-body pt-2"><div class="form-text">LINE未連携の相手は「コピーして送る」に残ります。文面をそのままお渡しください。</div></div>
+  </div>
+
+  {% if sent %}
+  <div class="card"><div class="card-body">
+    <div class="fw-bold mb-2">送信の記録</div>
+    <ul class="list-unstyled small mb-0">
+      {% for n in sent %}
+      <li class="text-muted border-top py-1">{{ n.sent_at|date:'n/j H:i' }} {{ n.get_kind_display }}
+        {% if n.customer %}→ {{ n.customer.name }}{% endif %}
+        {% if n.status == 'failed' %}<span class="text-danger">送信できず（{{ n.error_message|truncatechars:40 }}）</span>{% else %}送信ずみ{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </div></div>
+  {% endif %}
+</div>
+{% endblock %}
