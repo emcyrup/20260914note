@@ -19,6 +19,18 @@ class FacilityForm(forms.ModelForm):
             'line_channel_access_token', 'line_channel_secret',
             'term_staff', 'term_beneficiary', 'logo', 'brand_color',
         ]
+        widgets = {
+            'name':                     forms.TextInput(attrs={'class': 'form-control'}),
+            'office_number':            forms.TextInput(attrs={'class': 'form-control'}),
+            'address':                  forms.TextInput(attrs={'class': 'form-control'}),
+            'phone':                    forms.TextInput(attrs={'class': 'form-control'}),
+            'region_category':          forms.Select(attrs={'class': 'form-select'}),
+            'standard_close_time':      forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}),
+            'base_unit_count':          forms.NumberInput(attrs={'class': 'form-control', 'min': '0'}),
+            'is_new_facility_r8':       forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'line_channel_access_token': forms.TextInput(attrs={'class': 'form-control'}),
+            'line_channel_secret':      forms.TextInput(attrs={'class': 'form-control'}),
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -34,18 +46,6 @@ class FacilityForm(forms.ModelForm):
         if v and not re.fullmatch(r'#[0-9a-f]{6}', v):
             raise forms.ValidationError('#4e7d89 のような形式で入力してください。')
         return v
-        widgets = {
-            'name':                     forms.TextInput(attrs={'class': 'form-control'}),
-            'office_number':            forms.TextInput(attrs={'class': 'form-control'}),
-            'address':                  forms.TextInput(attrs={'class': 'form-control'}),
-            'phone':                    forms.TextInput(attrs={'class': 'form-control'}),
-            'region_category':          forms.Select(attrs={'class': 'form-select'}),
-            'standard_close_time':      forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}),
-            'base_unit_count':          forms.NumberInput(attrs={'class': 'form-control', 'min': '0'}),
-            'is_new_facility_r8':       forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-            'line_channel_access_token': forms.TextInput(attrs={'class': 'form-control'}),
-            'line_channel_secret':      forms.TextInput(attrs={'class': 'form-control'}),
-        }
 
 
 class ActivityTagForm(forms.ModelForm):

@@ -1,8 +1,15 @@
 {% extends 'base.html' %}
 
 {% block title %}{{ date|date:'n月j日' }}の予約 — 放課後等デイサービス業務支援{% endblock %}
-{% block page_title %}{{ date|date:'Y年n月j日(D)' }}の予約{% endblock %}
+{% block page_title %}{{ date|date:'n月j日(D)' }}の予約{% endblock %}
 {% block nav_reservations %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .rsv-item { grid-template-columns: 1.6fr 1.1fr 1fr auto; }
+  @media (min-width: 769px) { .w-md-auto { width: auto !important; } }
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="px-2" style="max-width: 1000px;">
@@ -25,30 +32,27 @@
   </div>
 
   <div class="card mb-3">
-    <div class="table-responsive">
-      <table class="table mb-0 align-middle">
-        <thead><tr><th>利用者</th><th>状態</th><th>入口</th><th>連絡先</th><th>備考</th><th></th></tr></thead>
-        <tbody>
-          {% for r in reservations %}
-          <tr>
-            <td class="fw-bold">{{ r.beneficiary.full_name }}</td>
-            <td>{% if r.status == 'confirmed' %}<span class="badge text-bg-success">予約</span>{% else %}<span class="badge text-bg-warning">キャンセル待ち</span>{% endif %}</td>
-            <td class="small">{{ r.get_source_display }}</td>
-            <td class="small">{% if r.customer %}{{ r.customer.name }}{% if not r.customer.can_notify %}<span class="text-muted">（LINE未連携）</span>{% endif %}{% else %}—{% endif %}</td>
-            <td class="small">{{ r.note|default:'—' }}</td>
-            <td class="text-end">
-              <form method="post" onsubmit="return confirm('{{ r.beneficiary.full_name }} さんの予約を取り消しますか？\nキャンセル待ちがいれば繰り上げます。');">
-                {% csrf_token %}<input type="hidden" name="action" value="cancel"><input type="hidden" name="reservation" value="{{ r.pk }}">
-                <button class="btn btn-sm btn-outline-danger">取消</button>
-              </form>
-            </td>
-          </tr>
-          {% empty %}
-          <tr><td colspan="6" class="text-center text-muted py-4">この日の予約はまだありません。</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="row-list-item row-list-head rsv-item">
+      <div>{{ terms.beneficiary }}・状態</div><div>入口・連絡先</div><div>備考</div><div></div>
     </div>
+    {% for r in reservations %}
+    <div class="row-list-item rsv-item">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <span class="fw-bold">{{ r.beneficiary.full_name }}</span>
+        {% if r.status == 'confirmed' %}<span class="badge text-bg-success">予約</span>{% else %}<span class="badge text-bg-warning">キャンセル待ち</span>{% endif %}
+      </div>
+      <div class="small"><span class="row-list-label">入口</span>{{ r.get_source_display }}{% if r.customer %}・{{ r.customer.name }}{% if not r.customer.can_notify %}<span class="text-muted">（LINE未連携）</span>{% endif %}{% endif %}</div>
+      <div class="small">{% if r.note %}<span class="row-list-label">備考</span>{{ r.note }}{% endif %}</div>
+      <div class="text-md-end">
+        <form method="post" onsubmit="return confirm('{{ r.beneficiary.full_name }} さんの予約を取り消しますか？\nキャンセル待ちがいれば繰り上げます。');">
+          {% csrf_token %}<input type="hidden" name="action" value="cancel"><input type="hidden" name="reservation" value="{{ r.pk }}">
+          <button class="btn btn-sm btn-outline-danger w-100 w-md-auto">取り消す</button>
+        </form>
+      </div>
+    </div>
+    {% empty %}
+    <div class="text-center text-muted py-4">この日の予約はまだありません。</div>
+    {% endfor %}
   </div>
 
   {% if not state.closed %}
@@ -68,8 +72,8 @@
         <label class="form-label small fw-semibold">備考</label>
         <input type="text" name="note" class="form-control form-control-sm" placeholder="任意">
       </div>
-      <div class="col-md-2 d-grid">
-        <button class="btn btn-primary btn-sm">{% if state.full %}キャンセル待ちで追加{% else %}追加する{% endif %}</button>
+      <div class="col-md-2 d-grid mt-2 mt-md-0">
+        <button class="btn btn-primary btn-sm text-nowrap">{% if state.full %}キャンセル待ちで追加{% else %}追加する{% endif %}</button>
       </div>
     </form>
     {% if state.full and not setting.allow_waitlist %}
@@ -87,11 +91,11 @@
         <form method="post">{% csrf_token %}<input type="hidden" name="action" value="open">
           <button class="btn btn-sm btn-outline-secondary">臨時休業を取り消す</button></form>
         {% else %}
-        <form method="post" class="d-flex gap-2 align-items-end">
+        <form method="post" class="d-flex gap-2 align-items-end flex-wrap">
           {% csrf_token %}<input type="hidden" name="action" value="close">
-          <div class="flex-grow-1"><label class="form-label small fw-semibold">臨時休業にする</label>
+          <div class="flex-grow-1" style="min-width:150px;"><label class="form-label small fw-semibold">臨時休業にする</label>
             <input type="text" name="reason" class="form-control form-control-sm" placeholder="理由（任意）"></div>
-          <button class="btn btn-sm btn-outline-danger">休業にする</button>
+          <button class="btn btn-sm btn-outline-danger text-nowrap">休業にする</button>
         </form>
         {% endif %}
         <hr>
