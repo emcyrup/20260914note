@@ -996,3 +996,138 @@ class SettingScreenPermissionTests(TestCase):
                          {'action': 'channel', 'facility_name': 'なゆた', 'line_channel_secret': 'sec'})
         self.f.refresh_from_db()
         self.assertEqual(self.f.line_channel_secret, 'sec')
+
+
+class VacancyAnnounceTests(TestCase):
+    """満席 → 空きになったときのお知らせ"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='なゆた', use_reservation=True)
+        self.setting = services.get_setting(self.f)
+        self.setting.capacity = 1
+        self.setting.save()
+        self.a, self.b = child(self.f, '青木'), child(self.f, '井上')
+        self.day = datetime.date.today() + D(days=7)
+        # 連絡先：LINE連携ずみ（お知らせが届く）と、未連携（届かない）
+        self.linked = Customer.objects.create(facility=self.f, name='井上 母', line_user_id='U-inoue')
+        self.linked.children.add(self.b)
+        self.plain = Customer.objects.create(facility=self.f, name='上田 母')
+        self.booked = Customer.objects.create(facility=self.f, name='青木 母', line_user_id='U-aoki')
+        self.booked.children.add(self.a)
+
+    def vacancies(self):
+        return ReservationNotice.objects.filter(facility=self.f, kind=ReservationNotice.KIND_VACANCY)
+
+    def test_cancelling_the_last_seat_tells_the_others(self):
+        res, _ = services.create_reservation(self.f, self.a, self.day, customer=self.booked)
+        services.cancel_reservation(res)
+        self.assertEqual([n.customer for n in self.vacancies()], [self.linked])   # 取り消した本人と未連携は除く
+
+    def test_deleting_the_last_seat_tells_the_others(self):
+        res, _ = services.create_reservation(self.f, self.a, self.day, customer=self.booked)
+        services.delete_reservation(res)
+        self.assertEqual([n.customer for n in self.vacancies()], [self.linked])
+
+    def test_moving_a_reservation_away_tells_the_others(self):
+        res, _ = services.create_reservation(self.f, self.a, self.day, customer=self.booked)
+        services.move_reservation(res, self.day + D(days=1))
+        self.assertEqual([n.date for n in self.vacancies()], [self.day])
+
+    def test_nothing_when_a_waitlisted_child_takes_the_seat(self):
+        res, _ = services.create_reservation(self.f, self.a, self.day, customer=self.booked)
+        services.create_reservation(self.f, self.b, self.day, customer=self.linked)   # キャンセル待ち
+        services.cancel_reservation(res)
+        self.assertEqual(self.vacancies().count(), 0)   # 繰り上げで埋まったので、お知らせしない
+
+    def test_nothing_when_the_day_was_not_full(self):
+        self.setting.capacity = 5
+        self.setting.save()
+        res, _ = services.create_reservation(self.f, self.a, self.day, customer=self.booked)
+        services.cancel_reservation(res)
+        self.assertEqual(self.vacancies().count(), 0)
+
+    def test_raising_the_capacity_tells_the_full_days(self):
+        services.create_reservation(self.f, self.a, self.day, customer=self.booked)
+        self.setting.capacity = 3
+        self.setting.save()
+        made = services.announce_after_capacity_change(self.f, 1, self.setting)
+        self.assertEqual([n.customer for n in made], [self.linked])
+
+    def test_raising_the_capacity_promotes_the_waitlist_first(self):
+        services.create_reservation(self.f, self.a, self.day, customer=self.booked)
+        waiting, _ = services.create_reservation(self.f, self.b, self.day, customer=self.linked)
+        self.setting.capacity = 2
+        self.setting.save()
+        services.announce_after_capacity_change(self.f, 1, self.setting)
+        waiting.refresh_from_db()
+        self.assertEqual(waiting.status, Reservation.STATUS_CONFIRMED)
+        self.assertEqual(self.vacancies().count(), 0)   # 繰り上げで埋まったので、お知らせしない
+
+    def test_the_setting_can_turn_the_automatic_notice_off(self):
+        self.setting.notify_vacancy = False
+        self.setting.save()
+        res, _ = services.create_reservation(self.f, self.a, self.day, customer=self.booked)
+        services.cancel_reservation(res)
+        self.assertEqual(self.vacancies().count(), 0)
+        # 職員が画面から押したときは、設定に関わらず積む
+        self.assertEqual(len(services.offer_vacancy(self.f, self.day, force=True)), 2)
+
+    def test_the_notice_carries_the_customer_page_link(self):
+        res, _ = services.create_reservation(self.f, self.a, self.day, customer=self.booked)
+        services.cancel_reservation(res, base='https://yoyaku.example.jp/')
+        notice = self.vacancies().first()
+        self.assertIn(f'/yoyaku/mypage/{self.linked.token}/', notice.body)
+        self.assertIn('残り1枠です。', notice.body)
+
+    def test_the_same_customer_is_not_told_twice_for_one_day(self):
+        res, _ = services.create_reservation(self.f, self.a, self.day, customer=self.booked)
+        services.cancel_reservation(res)                      # 井上 母へ1件
+        services.offer_vacancy(self.f, self.day, force=True)  # 井上 母は重ねず、取り消した青木 母にだけ足す
+        self.assertEqual(sorted(n.customer.name for n in self.vacancies()), ['井上 母', '青木 母'])
+        services.offer_vacancy(self.f, self.day, force=True)
+        self.assertEqual(self.vacancies().count(), 2)
+
+
+class VacancyScreenTests(TestCase):
+    """その日の画面から「空きのお知らせ」を出す"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='なゆた', use_reservation=True)
+        self.setting = services.get_setting(self.f)
+        self.setting.capacity = 2
+        self.setting.save()
+        self.a = child(self.f, '青木')
+        self.customer = Customer.objects.create(facility=self.f, name='井上 母', line_user_id='U-inoue')
+        self.day = datetime.date.today() + D(days=7)
+        self.user = StaffAccount.objects.create_user('u', password='pass12345', facility=self.f,
+                                                     role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+
+    def day_url(self):
+        return reverse('reservations:day', args=[self.day.year, self.day.month, self.day.day])
+
+    def test_the_button_queues_the_notices(self):
+        res = self.client.post(self.day_url(), {'action': 'vacancy'}, follow=True)
+        self.assertContains(res, '空きのお知らせを 1 件')
+        self.assertEqual(ReservationNotice.objects.filter(
+            facility=self.f, kind=ReservationNotice.KIND_VACANCY).count(), 1)
+
+    def test_the_button_is_hidden_on_a_closed_day(self):
+        ClosedDate.objects.create(facility=self.f, date=self.day)
+        page = self.client.get(self.day_url())
+        self.assertNotContains(page, '空きのお知らせを送信待ちに入れる')
+
+    def test_it_says_when_there_is_nobody_to_tell(self):
+        self.customer.delete()
+        res = self.client.post(self.day_url(), {'action': 'vacancy'}, follow=True)
+        self.assertContains(res, 'お知らせを入れる相手がいませんでした')
+
+    @mock.patch('line_integration.sending.push_text', return_value=(True, ''))
+    def test_auto_send_sends_them_at_once(self, push):
+        self.setting.auto_send = True
+        self.setting.save()
+        res = self.client.post(self.day_url(), {'action': 'vacancy'}, follow=True)
+        self.assertContains(res, '送信待ちの通知を 1 件送りました')
+        self.assertEqual(ReservationNotice.objects.get(
+            facility=self.f, kind=ReservationNotice.KIND_VACANCY).status,
+            ReservationNotice.STATUS_SENT)

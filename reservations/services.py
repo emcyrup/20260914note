@@ -184,7 +184,7 @@ def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STA
 
 
 @transaction.atomic
-def cancel_reservation(res, notify=True):
+def cancel_reservation(res, notify=True, base=''):
     """
     予約を取り消す。キャンセル待ちがいれば申し込み順に繰り上げ、
     満枠だった日に空きが残ったら、その日に予約のない顧客へ「空きが出ました」を積む。
@@ -202,12 +202,12 @@ def cancel_reservation(res, notify=True):
 
     promoted = promote_waitlist(facility, res.date, setting) if was_confirmed else []
     if was_full and was_confirmed and not promoted:
-        offer_vacancy(facility, res.date, setting, exclude_customer=res.customer)
+        offer_vacancy(facility, res.date, setting, exclude_customer=res.customer, base=base)
     return promoted
 
 
 @transaction.atomic
-def move_reservation(res, new_day, note=None):
+def move_reservation(res, new_day, note=None, base=''):
     """
     予約の日にちを変える（職員の操作）。
     もとの日はキャンセル待ちを繰り上げ、新しい日は空きがなければキャンセル待ちにする。
@@ -234,6 +234,7 @@ def move_reservation(res, new_day, note=None):
     if st['full'] and not setting.allow_waitlist:
         raise ReservationError(f'{jp_date(new_day)} は満席で、キャンセル待ちを受けない設定です。')
     was_confirmed = res.status == Reservation.STATUS_CONFIRMED
+    old_state = day_state(facility, old_day, setting)
     res.date = new_day
     res.status = Reservation.STATUS_WAITLIST if st['full'] else Reservation.STATUS_CONFIRMED
     res.save(update_fields=['date', 'status', 'note', 'updated_at'])
@@ -243,21 +244,30 @@ def move_reservation(res, new_day, note=None):
     queue_group_notice(facility, setting, new_day, res.beneficiary.full_name,
                        f'{jp_date(old_day)} から変更（{res.get_status_display()}）')
     if was_confirmed:
-        promote_waitlist(facility, old_day, setting)
+        was_full = old_state['full']
+        promoted = promote_waitlist(facility, old_day, setting)
+        if was_full and not promoted:
+            offer_vacancy(facility, old_day, setting, exclude_customer=res.customer, base=base)
     return res
 
 
 @transaction.atomic
-def delete_reservation(res):
+def delete_reservation(res, base=''):
     """予約を記録ごと消す（間違って入れたときの後始末）。通知は顧客へは送らない"""
     facility = res.facility
     setting = get_setting(facility)
-    day, name = res.date, res.beneficiary.full_name
+    day, name, customer = res.date, res.beneficiary.full_name, res.customer
     was_confirmed = res.status == Reservation.STATUS_CONFIRMED
+    was_full = day_state(facility, day, setting)['full']
     ReservationNotice.objects.filter(reservation=res, status=ReservationNotice.STATUS_PENDING).delete()
     res.delete()
     queue_group_notice(facility, setting, day, name, '削除')
-    return promote_waitlist(facility, day, setting) if was_confirmed else []
+    if not was_confirmed:
+        return []
+    promoted = promote_waitlist(facility, day, setting)
+    if was_full and not promoted:
+        offer_vacancy(facility, day, setting, exclude_customer=customer, base=base)
+    return promoted
 
 
 def promote_waitlist(facility, day, setting=None):
@@ -280,12 +290,17 @@ def promote_waitlist(facility, day, setting=None):
     return promoted
 
 
-def offer_vacancy(facility, day, setting=None, exclude_customer=None):
+def offer_vacancy(facility, day, setting=None, exclude_customer=None, base='', force=False):
     """
-    満枠だった日に空きが出たとき、LINE連携ずみで その日に予約のない顧客へ「空きが出ました」を積む。
-    取り消した本人は除く。同じ日・同じ顧客に送信待ちが残っていれば重ねない。
+    満席だった日に空きが出たことを、顧客へお知らせする（送信待ちに積む）。
+
+    宛先は LINE 連携ずみで、その日に予約のない顧客。取り消した本人は除く。
+    同じ日・同じ顧客に送信待ちが残っていれば重ねない。
+    `force=True` は職員が画面から押したとき（設定で自動お知らせを止めていても積む）。
     """
     setting = setting or get_setting(facility)
+    if not (force or setting.notify_vacancy):
+        return []
     st = day_state(facility, day, setting)
     if st['remaining'] <= 0 or st['closed']:
         return []
@@ -302,7 +317,33 @@ def offer_vacancy(facility, day, setting=None, exclude_customer=None):
         if c.pk in booked or c.pk in already or (exclude_customer and c.pk == exclude_customer.pk):
             continue
         body = notice_body(ReservationNotice.KIND_VACANCY, setting, day, extra=extra)
+        url = customer_page_url(c, base)
+        if url:
+            body = f'{body}\nご予約はこちらから\n{url}'
         made.append(queue_notice(facility, ReservationNotice.KIND_VACANCY, setting, customer=c, day=day, body=body))
+    return made
+
+
+def announce_after_capacity_change(facility, old_capacity, setting=None, base=''):
+    """
+    1日の枠を増やしたとき、満席で受けられなかった日にお知らせを出す。
+    キャンセル待ちがいれば先に繰り上げ、それでも空きが残る日だけお知らせする。
+    """
+    setting = setting or get_setting(facility)
+    if setting.capacity <= old_capacity:
+        return []
+    today = datetime.date.today()
+    end = today + datetime.timedelta(days=setting.booking_until_days)
+    counts = {}
+    for row in Reservation.objects.filter(facility=facility, date__gte=today, date__lte=end,
+                                          status=Reservation.STATUS_CONFIRMED).values('date'):
+        counts[row['date']] = counts.get(row['date'], 0) + 1
+    made = []
+    for day, taken in sorted(counts.items()):
+        if taken < old_capacity:
+            continue      # もともと空きがあった日は、お知らせの対象にしない
+        promote_waitlist(facility, day, setting)
+        made += offer_vacancy(facility, day, setting, base=base)
     return made
 
 

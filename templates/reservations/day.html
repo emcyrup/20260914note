@@ -129,6 +129,15 @@
         </form>
         {% endif %}
         <hr>
+        {% if not state.closed and state.remaining %}
+        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="vacancy">
+          <button class="btn btn-sm btn-outline-success"><i class="bi bi-megaphone me-1"></i>空きのお知らせを送信待ちに入れる</button>
+        </form>
+        <div class="form-text mb-2">
+          LINE連携ずみで、この日に予約のない顧客へ「空きが出ました」を1件ずつ積みます
+          （残り {{ state.remaining }} 枠）。同じ日に送信待ちが残っている方には重ねません。
+        </div>
+        {% endif %}
         <form method="post">{% csrf_token %}<input type="hidden" name="action" value="reminder">
           <button class="btn btn-sm btn-outline-primary"><i class="bi bi-bell me-1"></i>前日のお知らせを送信待ちに入れる</button>
         </form>

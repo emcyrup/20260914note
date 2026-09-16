@@ -103,6 +103,11 @@
                    {% if setting.allow_waitlist %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="allow_waitlist">満枠のときキャンセル待ちで受ける</label>
           </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="notify_vacancy" id="notify_vacancy"
+                   {% if setting.notify_vacancy %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="notify_vacancy">満席から空きが出たら、顧客へお知らせする</label>
+          </div>
           <div class="form-check mb-2">
             <input type="checkbox" class="form-check-input" name="auto_send" id="auto_send"
                    {% if setting.auto_send %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>

@@ -100,6 +100,7 @@ class SettingView(ReservationEnabledMixin, View):
         if not 1 <= capacity <= 99:
             messages.error(request, '1日の枠は1〜99人で指定してください。')
             return redirect('reservations:calendar')
+        old_capacity = setting.capacity
         setting.capacity = capacity
         setting.allow_waitlist = 'allow_waitlist' in request.POST
         setting.auto_send = 'auto_send' in request.POST
@@ -121,6 +122,7 @@ class SettingView(ReservationEnabledMixin, View):
         setting.booking_from_days, setting.booking_until_days = from_days, until_days
 
         # LINE から直接反映するか
+        setting.notify_vacancy = 'notify_vacancy' in request.POST
         setting.line_auto_apply = 'line_auto_apply' in request.POST
         setting.group_auto_apply = 'group_auto_apply' in request.POST
 
@@ -131,6 +133,11 @@ class SettingView(ReservationEnabledMixin, View):
             messages.info(request, '予定表の公開アドレスを作り直しました。前のアドレスは使えません。')
         setting.save()
         messages.success(request, '予約の設定を保存しました。')
+        made = services.announce_after_capacity_change(facility, old_capacity, setting,
+                                                       base=request.build_absolute_uri('/'))
+        if made:
+            messages.info(request, f'枠を増やしたので、満席だった日の空きのお知らせを {len(made)} 件、'
+                                   '送信待ちに入れました。送信は公式LINEの画面から行います。')
         return redirect('reservations:calendar')
 
 
@@ -165,6 +172,7 @@ class DayView(ReservationEnabledMixin, View):
         if 'do_delete' in request.POST:
             action = 'delete'   # 変更フォームの「削除する」
         back = redirect('reservations:day', year=d.year, month=d.month, day=d.day)
+        base = request.build_absolute_uri('/')   # お知らせに載せる顧客ページのアドレス
 
         if action == 'add':
             beneficiary = Beneficiary.objects.filter(facility=facility,
@@ -185,11 +193,13 @@ class DayView(ReservationEnabledMixin, View):
 
         if action == 'cancel':
             res = get_object_or_404(Reservation, pk=to_int(request.POST.get('reservation'), -1), facility=facility)
-            promoted = services.cancel_reservation(res)
+            promoted = services.cancel_reservation(res, base=base)
             msg = f'{res.beneficiary.full_name} さんの予約を取り消しました。'
             if promoted:
                 msg += 'キャンセル待ちから ' + '、'.join(p.beneficiary.full_name for p in promoted) + ' さんを繰り上げました。'
+            msg += self._vacancy_note(facility, d)
             messages.success(request, msg)
+            self._auto_send(request, facility)
             return back
 
         if action == 'edit':
@@ -200,7 +210,7 @@ class DayView(ReservationEnabledMixin, View):
                 messages.error(request, '日にちが正しくありません。')
                 return back
             try:
-                services.move_reservation(res, new_day, note=request.POST.get('note', ''))
+                services.move_reservation(res, new_day, note=request.POST.get('note', ''), base=base)
             except services.ReservationError as e:
                 messages.error(request, str(e))
                 return back
@@ -215,11 +225,24 @@ class DayView(ReservationEnabledMixin, View):
         if action == 'delete':
             res = get_object_or_404(Reservation, pk=to_int(request.POST.get('reservation'), -1), facility=facility)
             name = res.beneficiary.full_name
-            promoted = services.delete_reservation(res)
-            msg = f'{name} さんの予約を削除しました（お知らせは送りません）。'
+            promoted = services.delete_reservation(res, base=base)
+            msg = f'{name} さんの予約を削除しました（本人へのお知らせは送りません）。'
             if promoted:
                 msg += 'キャンセル待ちから ' + '、'.join(p.beneficiary.full_name for p in promoted) + ' さんを繰り上げました。'
+            msg += self._vacancy_note(facility, d)
             messages.success(request, msg)
+            self._auto_send(request, facility)
+            return back
+
+        if action == 'vacancy':
+            made = services.offer_vacancy(facility, d, base=base, force=True)
+            if made:
+                messages.success(request, f'空きのお知らせを {len(made)} 件、送信待ちに入れました。'
+                                          '送信は公式LINEの画面から行います。')
+                self._auto_send(request, facility)
+            else:
+                messages.info(request, 'お知らせを入れる相手がいませんでした'
+                                       '（空きが無いか、LINE連携ずみで その日に予約のない顧客がいません）。')
             return back
 
         if action == 'close':
@@ -241,6 +264,25 @@ class DayView(ReservationEnabledMixin, View):
 
         messages.error(request, '操作が正しくありません。')
         return back
+
+    @staticmethod
+    def _vacancy_note(facility, day):
+        """その日に積んだ「空きのお知らせ」の件数を、職員へのメッセージに足す"""
+        n = ReservationNotice.objects.filter(facility=facility, date=day,
+                                             kind=ReservationNotice.KIND_VACANCY,
+                                             status=ReservationNotice.STATUS_PENDING).count()
+        return f'空きのお知らせを {n} 件、送信待ちに入れました。' if n else ''
+
+    @staticmethod
+    def _auto_send(request, facility):
+        """設定「反映したら送信待ちをその場で送る」が入っていれば、まとめて送る"""
+        if not services.get_setting(facility).auto_send:
+            return
+        from line_integration.sending import send_reservation_notices
+        sent, failed = send_reservation_notices(facility)
+        if sent or failed:
+            messages.info(request, f'送信待ちの通知を {sent} 件送りました。'
+                                   + (f'{failed} 件は送れませんでした。' if failed else ''))
 
 
 class CustomerListView(ReservationEnabledMixin, View):

@@ -42,6 +42,7 @@ class ReservationSetting(models.Model):
     booking_until_days = models.PositiveSmallIntegerField(default=60, verbose_name='何日先まで受け付けるか')
 
     # ---- LINE から直接受け付けるか（既定は職員が確かめてから反映）----
+    notify_vacancy = models.BooleanField(default=True, verbose_name='満席から空きが出たら、顧客へお知らせする')
     line_auto_apply = models.BooleanField(default=False, verbose_name='公式LINEの申し込みをその場で反映する')
     group_auto_apply = models.BooleanField(default=True, verbose_name='スタッフのグループの投稿を反映する')
     updated_at = models.DateTimeField(auto_now=True)
