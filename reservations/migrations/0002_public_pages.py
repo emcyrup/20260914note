@@ -4,7 +4,13 @@ from django.db import migrations, models
 
 
 def fill_tokens(apps, schema_editor):
-    """すでにある行に、重ならないアドレスを1つずつ入れる"""
+    """
+    すでにある行に、重ならないアドレスを1つずつ入れる。
+
+    アドレスは最初から署名つきで作る（`reservations/tokens.py`）。
+    このマイグレーションを当てる前の環境に顧客向けのアドレスは無いので、
+    古い形式を作り直す手当ては要らない。
+    """
     from reservations.tokens import new_calendar_token, new_customer_token
     Customer = apps.get_model('reservations', 'Customer')
     ReservationSetting = apps.get_model('reservations', 'ReservationSetting')
