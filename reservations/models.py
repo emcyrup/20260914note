@@ -5,17 +5,12 @@
 予約は「利用者1人につき1件」（1件＝枠1つ）で、人数は持たない。
 きょうだいで2人来る日は、利用者ごとに2件の予約になる。
 """
-import secrets
-
 from django.db import models
 
 from beneficiaries.models import Beneficiary
 from facilities.models import Facility
 
-
-def new_token():
-    """外から見えるURLに使う合い言葉（推測できない長さ）"""
-    return secrets.token_urlsafe(18)
+from .tokens import MAX_LENGTH as TOKEN_MAX_LENGTH, new_calendar_token, new_customer_token
 
 
 WEEKDAYS = [(0, '月'), (1, '火'), (2, '水'), (3, '木'), (4, '金'), (5, '土'), (6, '日')]
@@ -36,7 +31,7 @@ class ReservationSetting(models.Model):
     notify_group_label = models.CharField(max_length=100, blank=True, verbose_name='そのグループの呼び名')
 
     # ---- 顧客向けの予定表（ログインなしで見えるページ）----
-    public_token = models.CharField(max_length=64, default=new_token, unique=True,
+    public_token = models.CharField(max_length=TOKEN_MAX_LENGTH, default=new_calendar_token, unique=True,
                                     verbose_name='予定表の公開アドレス')
     public_calendar = models.BooleanField(default=True, verbose_name='顧客向けの予定表を公開する')
     public_booking = models.BooleanField(default=True, verbose_name='顧客が自分で予約できるようにする')
@@ -75,7 +70,7 @@ class ReservationSetting(models.Model):
                 today + _dt.timedelta(days=self.booking_until_days))
 
     def reissue_public_token(self):
-        self.public_token = new_token()
+        self.public_token = new_calendar_token()
 
 
 class ClosedDate(models.Model):
@@ -111,7 +106,7 @@ class Customer(models.Model):
     note = models.CharField(max_length=200, blank=True, verbose_name='備考')
     children = models.ManyToManyField(Beneficiary, blank=True, related_name='reservation_customers',
                                       verbose_name='担当する利用者')
-    token = models.CharField(max_length=64, default=new_token, unique=True,
+    token = models.CharField(max_length=TOKEN_MAX_LENGTH, default=new_customer_token, unique=True,
                              verbose_name='顧客ページのアドレス')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -134,7 +129,7 @@ class Customer(models.Model):
 
     def reissue_token(self):
         """顧客ページのアドレスを作り直す（前のアドレスは使えなくなる）"""
-        self.token = new_token()
+        self.token = new_customer_token()
 
     def child_names(self):
         return '、'.join(b.full_name for b in self.children.all())

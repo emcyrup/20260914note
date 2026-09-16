@@ -615,3 +615,96 @@ class StandaloneModeTests(TestCase):
     def test_records_screens_are_not_published(self):
         self.assertEqual(self.client.get('/records/').status_code, 404)
         self.assertEqual(self.client.get('/billing/').status_code, 404)
+
+
+class PublicTokenSafetyTests(TestCase):
+    """アドレスを1字でも書き換えたら開けない（打ち間違い・書き換え・別ページへの貼り付け）"""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.f = Facility.objects.create(name='なゆた', use_reservation=True)
+        self.setting = services.get_setting(self.f)
+        self.customer = Customer.objects.create(facility=self.f, name='青木 母')
+        self.customer.children.add(child(self.f, '青木'))
+
+    def calendar_url(self, token):
+        return reverse('reservations_public:calendar', args=[token])
+
+    def customer_url(self, token):
+        return reverse('reservations_public:customer', args=[token])
+
+    def test_the_real_addresses_open(self):
+        self.assertEqual(self.client.get(self.calendar_url(self.setting.public_token)).status_code, 200)
+        self.assertEqual(self.client.get(self.customer_url(self.customer.token)).status_code, 200)
+
+    def test_one_character_off_never_opens(self):
+        """どの1字を変えても、増やしても、減らしても 404"""
+        for token, url in ((self.setting.public_token, self.calendar_url),
+                           (self.customer.token, self.customer_url)):
+            for i in range(len(token)):
+                swapped = 'B' if token[i] == 'A' else 'A'
+                changed = token[:i] + swapped + token[i + 1:]
+                dropped = token[:i] + token[i + 1:]
+                added = token[:i] + 'A' + token[i:]
+                for bad in (changed, dropped, added):
+                    if bad == token:
+                        continue
+                    self.assertEqual(self.client.get(url(bad)).status_code, 404,
+                                     f'{bad} が開けてしまった')
+
+    def test_the_two_pages_do_not_cross(self):
+        """空き状況のアドレスを顧客ページに貼っても、その逆でも開けない"""
+        self.assertEqual(self.client.get(self.customer_url(self.setting.public_token)).status_code, 404)
+        self.assertEqual(self.client.get(self.calendar_url(self.customer.token)).status_code, 404)
+
+    def test_another_customers_address_only_shows_that_customer(self):
+        other = Customer.objects.create(facility=self.f, name='井上 母')
+        res = self.client.get(self.customer_url(other.token))
+        self.assertEqual(res.status_code, 200)
+        self.assertNotContains(res, '青木 母')
+
+    def test_a_made_up_signature_does_not_open(self):
+        body = self.customer.token.split(':')[0]
+        self.assertEqual(self.client.get(self.customer_url(f'{body}:abcdefghij')).status_code, 404)
+        self.assertEqual(self.client.get(self.customer_url(body)).status_code, 404)
+        self.assertEqual(self.client.get(self.customer_url('a' * 200)).status_code, 404)
+
+    def test_a_broken_address_never_touches_the_database(self):
+        from django.test.utils import CaptureQueriesContext
+        from django.db import connection
+        bad = self.customer.token[:-1] + ('A' if self.customer.token[-1] != 'A' else 'B')
+        with CaptureQueriesContext(connection) as queries:
+            self.assertEqual(self.client.get(self.customer_url(bad)).status_code, 404)
+        self.assertEqual([q for q in queries.captured_queries if 'reservations_customer' in q['sql']], [])
+
+    def test_month_pages_check_the_address_too(self):
+        bad = self.customer.token[:-1] + ('A' if self.customer.token[-1] != 'A' else 'B')
+        self.assertEqual(
+            self.client.get(reverse('reservations_public:customer_month', args=[bad, 2026, 10])).status_code, 404)
+        self.assertEqual(
+            self.client.get(reverse('reservations_public:calendar_month', args=[bad, 2026, 10])).status_code, 404)
+
+    def test_posting_to_a_broken_address_changes_nothing(self):
+        bad = self.customer.token[:-1] + ('A' if self.customer.token[-1] != 'A' else 'B')
+        res = self.client.post(self.customer_url(bad),
+                               {'action': 'book', 'beneficiary': self.f.beneficiaries.first().pk,
+                                'date': (datetime.date.today() + D(days=7)).isoformat()})
+        self.assertEqual(res.status_code, 404)
+        self.assertEqual(Reservation.objects.count(), 0)
+
+    def test_reissued_address_is_signed_and_the_old_one_is_dead(self):
+        from reservations import tokens
+        old = self.customer.token
+        self.customer.reissue_token()
+        self.customer.save()
+        self.assertTrue(tokens.is_valid(tokens.CUSTOMER, self.customer.token))
+        self.assertEqual(self.client.get(self.customer_url(old)).status_code, 404)
+        self.assertEqual(self.client.get(self.customer_url(self.customer.token)).status_code, 200)
+
+    def test_an_address_signed_with_another_key_does_not_open(self):
+        """別の SECRET_KEY で作られたアドレスは通らない"""
+        from django.core import signing
+        from reservations import tokens
+        forged = signing.Signer(key='someone-elses-key', salt=tokens.CUSTOMER).sign('abcdefghij')
+        self.assertEqual(self.client.get(self.customer_url(forged)).status_code, 404)

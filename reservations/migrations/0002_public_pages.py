@@ -1,16 +1,17 @@
 """顧客向けの予定表（公開ページ）と、LINE からその場で反映する設定を足す"""
-import reservations.models
+import reservations.tokens
 from django.db import migrations, models
 
 
 def fill_tokens(apps, schema_editor):
     """すでにある行に、重ならないアドレスを1つずつ入れる"""
-    from reservations.models import new_token
+    from reservations.tokens import new_calendar_token, new_customer_token
     Customer = apps.get_model('reservations', 'Customer')
     ReservationSetting = apps.get_model('reservations', 'ReservationSetting')
-    for model, field in ((Customer, 'token'), (ReservationSetting, 'public_token')):
+    for model, field, make in ((Customer, 'token', new_customer_token),
+                               (ReservationSetting, 'public_token', new_calendar_token)):
         for row in model.objects.filter(**{field: ''}):
-            setattr(row, field, new_token())
+            setattr(row, field, make())
             row.save(update_fields=[field])
 
 
@@ -25,7 +26,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="customer",
             name="token",
-            field=models.CharField(default="", max_length=64, verbose_name="顧客ページのアドレス"),
+            field=models.CharField(default="", max_length=128, verbose_name="顧客ページのアドレス"),
         ),
         migrations.AddField(
             model_name="reservationsetting",
@@ -74,14 +75,14 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="reservationsetting",
             name="public_token",
-            field=models.CharField(default="", max_length=64, verbose_name="予定表の公開アドレス"),
+            field=models.CharField(default="", max_length=128, verbose_name="予定表の公開アドレス"),
         ),
         migrations.RunPython(fill_tokens, migrations.RunPython.noop),
         migrations.AlterField(
             model_name="customer",
             name="token",
             field=models.CharField(
-                default=reservations.models.new_token, max_length=64, unique=True,
+                default=reservations.tokens.new_customer_token, max_length=128, unique=True,
                 verbose_name="顧客ページのアドレス",
             ),
         ),
@@ -89,7 +90,7 @@ class Migration(migrations.Migration):
             model_name="reservationsetting",
             name="public_token",
             field=models.CharField(
-                default=reservations.models.new_token, max_length=64, unique=True,
+                default=reservations.tokens.new_calendar_token, max_length=128, unique=True,
                 verbose_name="予定表の公開アドレス",
             ),
         ),
