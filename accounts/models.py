@@ -129,6 +129,14 @@ class StaffAccount(AbstractUser):
         """開発向けユーザー（またはスーパーユーザー）は事業所を切り替えられる"""
         return self.is_developer or self.is_superuser
 
+    @property
+    def can_manage_settings(self):
+        """
+        事業所の設定を変えられるか。
+        管理者のほか、開発向けユーザー（切り替えて設定を整える役）も変えられる。
+        """
+        return self.is_admin or self.is_superuser or self.can_switch_facility
+
     def save(self, *args, **kwargs):
         # 開発向けユーザーが事業所を切り替えている間は、その一時的な所属を保存してしまわない
         if getattr(self, '_facility_switched', False) and self.pk and kwargs.get('update_fields') is None:

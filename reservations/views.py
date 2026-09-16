@@ -75,7 +75,8 @@ class CalendarView(ReservationEnabledMixin, View):
         return render(request, self.template_name, {
             'year': year, 'month': month, 'weeks': weeks, 'today': today, 'setting': setting,
             'pending_notices': pending, 'pending_inbox': inbox, 'pending_requests': requests_count,
-            'weekday_rows': setting.weekday_rows(),
+            'weekday_rows': setting.weekday_rows(), 'facility': facility,
+            'is_admin': request.user.can_manage_settings,
             'public_url': request.build_absolute_uri(
                 reverse('reservations_public:calendar', args=[setting.public_token])),
             **_month_links(year, month),
@@ -86,7 +87,7 @@ class SettingView(ReservationEnabledMixin, View):
     """枠・キャンセル待ち・休業曜日・署名の保存（管理者のみ）"""
 
     def post(self, request):
-        if not (request.user.is_admin or request.user.is_superuser):
+        if not request.user.can_manage_settings:
             messages.error(request, 'この設定を変えられるのは管理者だけです。')
             return redirect('reservations:calendar')
         facility = request.user.facility
@@ -399,6 +400,7 @@ class LineView(ReservationEnabledMixin, View):
             'group_rows': groups,
             'webhook_url': request.build_absolute_uri(
                 reverse('line_integration:webhook_facility', args=[facility.pk])),
+            'is_admin': request.user.can_manage_settings,
             'pending': ReservationNotice.objects.filter(
                 facility=facility, status__in=(ReservationNotice.STATUS_PENDING, ReservationNotice.STATUS_MANUAL)
             ).select_related('customer')[:50],
@@ -432,7 +434,7 @@ class LineView(ReservationEnabledMixin, View):
 
         if action == 'channel':
             # 予約管理だけを動かすサーバーには施設設定の画面がないので、ここで公式LINEのつなぎ先を保存する
-            if not (request.user.is_admin or request.user.is_superuser):
+            if not request.user.can_manage_settings:
                 messages.error(request, 'この設定を変えられるのは管理者だけです。')
                 return back
             name = request.POST.get('facility_name', '').strip()[:100]

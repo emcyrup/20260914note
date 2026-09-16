@@ -927,3 +927,72 @@ class SeedReservationTests(TestCase):
         self.seed(f)
         setting.refresh_from_db()
         self.assertEqual(setting.capacity, 8)
+
+
+class SettingScreenPermissionTests(TestCase):
+    """予約の決まりごとを、画面から実際に変えられるか"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='なゆた', use_reservation=True)
+        self.setting = services.get_setting(self.f)
+
+    def login(self, username, **kw):
+        user = StaffAccount.objects.create_user(username, password='pass12345', facility=self.f, **kw)
+        self.client.force_login(user)
+        return user
+
+    def save(self, **kw):
+        data = {'capacity': 6, 'allow_waitlist': 'on', 'signature': 'なゆた',
+                'booking_from_days': 1, 'booking_until_days': 60}
+        data.update(kw)
+        return self.client.post(reverse('reservations:settings'), data)
+
+    def capacity_is_editable(self):
+        """1日の枠の入力欄が使える状態か（disabled になっていないか）"""
+        html = self.client.get(reverse('reservations:calendar')).content.decode()
+        start = html.index('name="capacity"')
+        return 'disabled' not in html[start:start + 200]
+
+    def test_the_form_is_not_disabled_for_an_admin(self):
+        self.login('a', role=StaffAccount.ROLE_ADMIN)
+        self.assertTrue(self.capacity_is_editable())
+        self.assertNotContains(self.client.get(reverse('reservations:calendar')),
+                               'この設定を変えられるのは管理者だけです。')
+
+    def test_an_admin_can_save(self):
+        self.login('a', role=StaffAccount.ROLE_ADMIN)
+        self.save()
+        self.setting.refresh_from_db()
+        self.assertEqual(self.setting.capacity, 6)
+
+    def test_a_developer_can_save(self):
+        """開発向けユーザーは、事業所を切り替えて設定を整える役なので変えられる"""
+        self.login('d', is_developer=True)
+        self.save(capacity=7)
+        self.setting.refresh_from_db()
+        self.assertEqual(self.setting.capacity, 7)
+        self.assertTrue(self.capacity_is_editable())
+
+    def test_a_superuser_can_save(self):
+        user = self.login('s')
+        user.is_superuser = True
+        user.save(update_fields=['is_superuser'])
+        self.save(capacity=8)
+        self.setting.refresh_from_db()
+        self.assertEqual(self.setting.capacity, 8)
+
+    def test_an_ordinary_staff_cannot(self):
+        self.login('u')
+        self.save(capacity=9)
+        self.setting.refresh_from_db()
+        self.assertEqual(self.setting.capacity, 10)
+        self.assertFalse(self.capacity_is_editable())
+        self.assertContains(self.client.get(reverse('reservations:calendar')),
+                            'この設定を変えられるのは管理者だけです。')
+
+    def test_the_line_channel_form_follows_the_same_rule(self):
+        self.login('d', is_developer=True)
+        self.client.post(reverse('reservations:line'),
+                         {'action': 'channel', 'facility_name': 'なゆた', 'line_channel_secret': 'sec'})
+        self.f.refresh_from_db()
+        self.assertEqual(self.f.line_channel_secret, 'sec')
