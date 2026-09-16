@@ -12,6 +12,8 @@
 - 日誌：直近3週間の来所日（活動・めあて・考察、観察/支援/反応の記録文、タグ、5領域）
 - 請求マトリックス：前月〜今日までの実績
 - スタッフメモ
+- 予約（予約管理を使う施設だけ）：顧客台帳・これからの予約とキャンセル待ち・臨時休業日・
+  空き状況ページからの申し込み・公式LINEの受信・送信待ちの通知
 """
 
 import datetime
@@ -29,6 +31,7 @@ from schedules.models import ScheduledVisit
 from support_plans.models import MonitoringRecord, PlanGoal, SupportPlan
 
 SAMPLE_MARK = 'サンプルデータ'
+SAMPLE_LINE_ID = 'U-sample-'   # サンプルの受信につける目印（本物のLINE IDではない）
 
 ACTIVITY_TAGS = [
     # (名前, 実費単価)
@@ -174,7 +177,17 @@ class Command(BaseCommand):
         # 予定・日誌・請求・保護者・受給者証は利用者の削除でカスケードされる
         bens.delete()
         StaffMemo.objects.filter(facility=facility, content__in=MEMOS).delete()
+        self._reset_reservations(facility)
         self.stdout.write(f'サンプル利用者 {n} 名と関連データを削除しました')
+
+    def _reset_reservations(self, facility):
+        """予約まわりのサンプル（予約は利用者の削除で一緒に消える）"""
+        from reservations.models import BookingRequest, ClosedDate, Customer, LineInbox, ReservationNotice
+        Customer.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()
+        BookingRequest.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()
+        ClosedDate.objects.filter(facility=facility, reason__contains=SAMPLE_MARK).delete()
+        LineInbox.objects.filter(facility=facility, line_user_id__startswith=SAMPLE_LINE_ID).delete()
+        ReservationNotice.objects.filter(facility=facility, reservation__isnull=True).delete()
 
     # ------------------------------------------------------------------
     def _create(self, facility, rng):
@@ -323,6 +336,126 @@ class Command(BaseCommand):
         if facility.form_set == Facility.FORM_SET_HAPPINESS:
             counts.update(self._create_custom_forms(facility, beneficiaries, staff, today))
 
+        # --- 予約（予約管理を使う施設だけ）---
+        if facility.use_reservation:
+            counts.update(self._create_reservations(facility, beneficiaries, today, rng))
+
+        return counts
+
+    # ------------------------------------------------------------------
+    def _create_reservations(self, facility, beneficiaries, today, rng):
+        """
+        予約のサンプル。
+
+        - 顧客台帳：利用者ごとの連絡先（LINE は未連携。通知は「コピーして送る」に残る）
+        - 予約：これから2週間の利用曜日ぶん。枠があふれた日はキャンセル待ちになる
+        - 臨時休業日・空き状況ページからの申し込み・公式LINEの受信を1〜2件ずつ
+        """
+        from reservations import services
+        from reservations.models import BookingRequest, ClosedDate, Customer, LineInbox, ReservationNotice
+
+        D = datetime.timedelta
+        setting = services.get_setting(facility)
+        counts = {}
+
+        # まだ予約が1件も無く、枠が既定のままなら、満席とキャンセル待ちが見えるように少なくする
+        if setting.capacity == 10 and not facility.reservations.exists():
+            setting.capacity = 3
+            setting.save(update_fields=['capacity', 'updated_at'])
+            self.stdout.write('  予約の1日の枠を 3 にしました（予約カレンダーの設定で変えられます）')
+
+        # --- 顧客台帳（保護者を連絡先として登録。LINE は未連携のまま）---
+        customers = {}
+        for b in beneficiaries:
+            guardian = b.guardians.first()
+            if guardian is None:
+                continue
+            customer, _ = Customer.objects.get_or_create(
+                facility=facility, name=f'{guardian.last_name} {guardian.first_name}',
+                defaults={'kana': f'{b.last_name_kana}', 'phone': f'090-0000-{1000 + b.pk % 9000:04d}',
+                          'note': SAMPLE_MARK},
+            )
+            customer.children.add(b)
+            customers[b.pk] = customer
+        counts['顧客（予約の連絡先）'] = len(customers)
+
+        # --- 臨時休業日（来週の土曜）---
+        saturday = today + D(days=(5 - today.weekday()) % 7 + 7)
+        ClosedDate.objects.get_or_create(facility=facility, date=saturday,
+                                         defaults={'reason': f'{SAMPLE_MARK}：職員研修'})
+        counts['臨時休業日'] = 1
+
+        # --- 予約（これから2週間。利用曜日に合わせて入れる）---
+        weekday_fields = ['weekday_mon', 'weekday_tue', 'weekday_wed', 'weekday_thu',
+                          'weekday_fri', 'weekday_sat', None]
+        confirmed = waiting = 0
+        for offset in range(1, 15):
+            day = today + D(days=offset)
+            field = weekday_fields[day.weekday()]
+            if field is None:      # 日曜は利用曜日に無い
+                continue
+            for b in beneficiaries:
+                if not getattr(b, field):
+                    continue
+                try:
+                    res, _ = services.create_reservation(facility, b, day,
+                                                         customer=customers.get(b.pk))
+                except services.ReservationError:
+                    continue
+                if res.status == res.STATUS_CONFIRMED:
+                    confirmed += 1
+                elif res.status == res.STATUS_WAITLIST:
+                    waiting += 1
+        # 満席の日に1件だけ足して、キャンセル待ちの見た目も作る
+        for offset in range(1, 15):
+            if waiting:
+                break
+            day = today + D(days=offset)
+            if not services.day_state(facility, day, setting)['full']:
+                continue
+            for b in beneficiaries:
+                try:
+                    res, _ = services.create_reservation(facility, b, day, customer=customers.get(b.pk))
+                except services.ReservationError:
+                    continue   # その日はすでに予約ずみの利用者
+                if res.status == res.STATUS_WAITLIST:
+                    waiting += 1
+                else:
+                    res.delete()
+                break
+
+        counts['予約'] = confirmed
+        counts['キャンセル待ち'] = waiting
+
+        # 通知は見本として数件だけ残す（サンプルで送信待ちが埋まらないように）
+        keep = list(ReservationNotice.objects.filter(facility=facility)
+                    .order_by('-created_at').values_list('pk', flat=True)[:3])
+        ReservationNotice.objects.filter(facility=facility).exclude(pk__in=keep).delete()
+        counts['送信待ちの通知'] = len(keep)
+
+        # --- 空き状況ページからの申し込み（未確認）---
+        known = beneficiaries[0]
+        requests = [
+            dict(date=today + D(days=3), name=f'{known.last_name} 美咲', kana='さとう みさき',
+                 phone='090-0000-1111', child_name=known.full_name,
+                 note=f'{SAMPLE_MARK}：15時ごろに伺います'),
+            dict(date=today + D(days=5), name='山口 直子', kana='やまぐち なおこ',
+                 phone='090-0000-2222', child_name='山口 そら',
+                 note=f'{SAMPLE_MARK}：はじめて利用します'),
+        ]
+        for row in requests:
+            BookingRequest.objects.get_or_create(facility=facility, date=row['date'], name=row['name'],
+                                                 defaults=row)
+        counts['予約の申し込み（未確認）'] = len(requests)
+
+        # --- 公式LINEの受信（未処理。本物のLINE IDではない）---
+        day = today + D(days=4)
+        LineInbox.objects.get_or_create(
+            facility=facility, message_id=f'{SAMPLE_LINE_ID}msg-1',
+            defaults={'line_user_id': f'{SAMPLE_LINE_ID}1', 'display_name': '鈴木',
+                      'text': f'{day.month}/{day.day} 予約おねがいします'},
+        )
+        counts['公式LINEの受信（未処理）'] = 1
         return counts
 
     # ------------------------------------------------------------------

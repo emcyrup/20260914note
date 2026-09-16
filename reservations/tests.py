@@ -868,3 +868,62 @@ class BookingRequestTests(TestCase):
         self.client.post(reverse('reservations:request_action', args=[req.pk]),
                          {'action': 'apply', 'beneficiary': self.a.pk})
         self.assertEqual(Reservation.objects.get(beneficiary=self.a).status, Reservation.STATUS_WAITLIST)
+
+
+class SeedReservationTests(TestCase):
+    """seed_demo：予約管理を使う施設には、予約のサンプルも入る"""
+
+    def seed(self, facility, **kw):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('seed_demo', '--facility', facility.pk, stdout=out, **kw)
+        return out.getvalue()
+
+    def test_seed_creates_reservation_samples(self):
+        f = Facility.objects.create(name='なゆた', use_reservation=True)
+        StaffAccount.objects.create_user('n', password='pass12345', facility=f)
+        out = self.seed(f)
+
+        self.assertIn('顧客（予約の連絡先）', out)
+        self.assertEqual(Customer.objects.filter(facility=f).count(), 6)
+        self.assertTrue(Reservation.objects.filter(facility=f, status=Reservation.STATUS_CONFIRMED).exists())
+        self.assertTrue(Reservation.objects.filter(facility=f, status=Reservation.STATUS_WAITLIST).exists())
+        self.assertEqual(BookingRequest.objects.filter(facility=f).count(), 2)
+        self.assertEqual(LineInbox.objects.filter(facility=f).count(), 1)
+        self.assertTrue(ClosedDate.objects.filter(facility=f).exists())
+        # 送信待ちの通知は見本として少しだけ
+        self.assertLessEqual(ReservationNotice.objects.filter(facility=f).count(), 3)
+        # すべて これからの日（過去には入れない）
+        self.assertFalse(Reservation.objects.filter(facility=f, date__lt=datetime.date.today()).exists())
+
+    def test_one_request_matches_a_child_and_one_does_not(self):
+        f = Facility.objects.create(name='なゆた', use_reservation=True)
+        self.seed(f)
+        matched = [services.request_matches(f, r) for r in BookingRequest.objects.filter(facility=f)]
+        self.assertEqual(sum(1 for m in matched if m is not None), 1)
+
+    def test_reset_clears_the_reservation_samples(self):
+        f = Facility.objects.create(name='なゆた', use_reservation=True)
+        self.seed(f)
+        self.seed(f, reset=True)
+        self.assertEqual(Customer.objects.filter(facility=f).count(), 6)
+        self.assertEqual(BookingRequest.objects.filter(facility=f).count(), 2)
+        self.assertEqual(LineInbox.objects.filter(facility=f).count(), 1)
+        self.assertEqual(ClosedDate.objects.filter(facility=f).count(), 1)
+
+    def test_facilities_without_the_feature_get_none(self):
+        g = Facility.objects.create(name='標準の事業所')
+        self.seed(g)
+        self.assertEqual(Customer.objects.filter(facility=g).count(), 0)
+        self.assertEqual(Reservation.objects.filter(facility=g).count(), 0)
+        self.assertEqual(BookingRequest.objects.filter(facility=g).count(), 0)
+
+    def test_an_existing_capacity_is_kept(self):
+        f = Facility.objects.create(name='なゆた', use_reservation=True)
+        setting = services.get_setting(f)
+        setting.capacity = 8
+        setting.save()
+        self.seed(f)
+        setting.refresh_from_db()
+        self.assertEqual(setting.capacity, 8)
