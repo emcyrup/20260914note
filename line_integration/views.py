@@ -18,6 +18,7 @@ from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
 from beneficiaries.models import Beneficiary, Guardian
+from config.utils import home_url, reservation_enabled
 from facilities.models import Facility
 from records.models import DailyRecord
 
@@ -44,7 +45,7 @@ class LineWebhookView(View):
     @staticmethod
     def _inbox(facility, event, text, source_type, line_user_id):
         """受信箱に積む（自動では反映しない。職員が画面で確かめてから反映する）"""
-        if not facility.use_reservation:
+        if not reservation_enabled(facility):
             return None
         from reservations.services import receive
         source = getattr(event.source, 'type', 'user')
@@ -54,6 +55,40 @@ class LineWebhookView(View):
             text=text, source_type=source_type, line_user_id=line_user_id, group_id=group_id,
         )
         return entry
+
+    @staticmethod
+    def _auto_reply_for_customer(facility, raw_text, line_user_id):
+        """
+        公式LINEに届いた文を、設定が許すときだけその場で予約に反映する。
+        反映できたら返事の文、できなければ None（受信箱に積んで職員が確かめる）。
+        """
+        if not reservation_enabled(facility) or not line_user_id:
+            return None
+        from reservations.models import Customer
+        from reservations.services import apply_message, get_setting
+        setting = get_setting(facility)
+        if not setting.line_auto_apply:
+            return None
+        customer = Customer.objects.filter(facility=facility, line_user_id=line_user_id).first()
+        if customer is None:
+            return None   # 顧客台帳にない方は、職員が確かめてから
+        handled, text = apply_message(facility, raw_text, customer=customer, setting=setting)
+        return text if handled else None
+
+    @staticmethod
+    def _auto_reply_for_group(facility, raw_text, group_id):
+        """
+        スタッフのグループの投稿を予約に反映する。
+        お知らせ先として登録ずみのグループからの投稿だけを見る（ほかのグループは受信箱へ）。
+        """
+        if not reservation_enabled(facility) or not group_id:
+            return None
+        from reservations.services import apply_message, get_setting
+        setting = get_setting(facility)
+        if not setting.group_auto_apply or setting.notify_group_id != group_id:
+            return None
+        handled, text = apply_message(facility, raw_text, staff=True, setting=setting)
+        return text if handled else None
 
     @staticmethod
     def resolve_facility(facility_pk):
@@ -110,23 +145,37 @@ class LineWebhookView(View):
             """
             source_type = getattr(event.source, 'type', 'user')
             line_user_id = getattr(event.source, 'user_id', '') or ''
+            group_id = getattr(event.source, 'group_id', '') or getattr(event.source, 'room_id', '') or ''
             raw_text = event.message.text
             text = raw_text.strip().upper().replace(' ', '')
 
-            # スタッフのグループ・複数人トークからの投稿は受信箱に積むだけ（自動では反映しない）
+            def reply(reply_text):
+                with ApiClient(config) as api_client:
+                    MessagingApi(api_client).reply_message(ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[LineTextMessage(type='text', text=reply_text)],
+                    ))
+
+            # スタッフのグループ・複数人トークからの投稿
+            # お知らせ先に登録ずみのグループなら、書かれたとおりに予約を入れる／取り消す。
+            # 読み取れない投稿と、ほかのグループからの投稿は受信箱に積むだけ（自動では反映しない）。
             if source_type in ('group', 'room'):
+                staff_reply = self._auto_reply_for_group(facility, raw_text, group_id)
+                if staff_reply:
+                    reply(staff_reply)
+                    return
                 self._inbox(facility, event, raw_text, source_type, line_user_id)
                 return
 
             # 連携済みなら、登録コードの照合はしない（予約管理を使う事業所では受信箱に積む）
             if Guardian.objects.filter(line_user_id=line_user_id, line_linked=True).exists():
-                if facility.use_reservation:
+                if reservation_enabled(facility):
+                    auto = self._auto_reply_for_customer(facility, raw_text, line_user_id)
+                    if auto:
+                        reply(auto)
+                        return
                     self._inbox(facility, event, raw_text, source_type, line_user_id)
-                    with ApiClient(config) as api_client:
-                        MessagingApi(api_client).reply_message(ReplyMessageRequest(
-                            reply_token=event.reply_token,
-                            messages=[LineTextMessage(type='text', text=self.RECEIVED_REPLY)],
-                        ))
+                    reply(self.RECEIVED_REPLY)
                 return
 
             with ApiClient(config) as api_client:
@@ -158,8 +207,16 @@ class LineWebhookView(View):
                         f'{guardian.beneficiary.full_name}様の保護者として登録しました。\n'
                         'これからお子様の様子をお届けします。'
                     )
-                elif facility.use_reservation:
-                    # 予約管理を使う事業所では、登録コード以外の文は受信箱へ積む（職員が確かめて反映する）
+                elif reservation_enabled(facility):
+                    # 予約管理を使う事業所では、登録コード以外の文は
+                    # （顧客台帳にいて設定が許すときは）その場で反映し、そうでなければ受信箱へ積む
+                    auto = self._auto_reply_for_customer(facility, raw_text, line_user_id)
+                    if auto:
+                        api.reply_message(ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[LineTextMessage(type='text', text=auto)],
+                        ))
+                        return
                     self._inbox(facility, event, raw_text, source_type, line_user_id)
                     reply_text = self.RECEIVED_REPLY
                 else:
@@ -195,7 +252,7 @@ class LineEnabledMixin:
         facility = getattr(request.user, 'facility', None)
         if request.user.is_authenticated and facility is not None and not facility.use_line:
             messages.info(request, 'LINE連携はこの事業所では使わない設定です（施設設定 → 使う機能 で変更できます）。')
-            return redirect('facilities:dashboard')
+            return redirect(home_url())
         return super().dispatch(request, *args, **kwargs)
 
 

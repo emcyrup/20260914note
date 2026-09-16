@@ -17,6 +17,55 @@
     <a href="{% url 'reservations:calendar' %}" class="btn btn-outline-secondary btn-sm">予約カレンダーへ</a>
   </div>
 
+  {% if user.is_admin or user.is_superuser %}
+  <div class="card mb-3"><div class="card-body">
+    <div class="fw-bold mb-2"><i class="bi bi-link-45deg me-1"></i>公式LINEのつなぎ先（Webhook URL）</div>
+    <input type="text" class="form-control form-control-sm font-monospace" id="webhookUrl" value="{{ webhook_url }}" readonly>
+    <div class="d-flex gap-2 mt-1 flex-wrap">
+      <button type="button" class="btn btn-sm btn-outline-secondary"
+              onclick="const t=document.getElementById('webhookUrl');t.select();navigator.clipboard&amp;&amp;navigator.clipboard.writeText(t.value);this.textContent='コピーしました';">
+        コピーする</button>
+    </div>
+    <div class="form-text">LINE Developers の Messaging API 設定で、この URL を Webhook URL に入れてください。</div>
+    {% if reservation_only %}
+    <hr>
+    <form method="post" class="row g-2 align-items-end">
+      {% csrf_token %}<input type="hidden" name="action" value="channel">
+      <div class="col-md-4">
+        <label class="form-label small fw-semibold" for="facility_name">事業所の名前</label>
+        <input type="text" class="form-control form-control-sm" id="facility_name" name="facility_name"
+               value="{{ user.facility.name }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small fw-semibold" for="line_channel_secret">チャネルシークレット</label>
+        <input type="password" class="form-control form-control-sm" id="line_channel_secret"
+               name="line_channel_secret" autocomplete="new-password"
+               placeholder="{% if user.facility.line_channel_secret %}設定ずみ（変えるときだけ入力）{% else %}未設定{% endif %}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small fw-semibold" for="line_channel_access_token">チャネルアクセストークン</label>
+        <input type="password" class="form-control form-control-sm" id="line_channel_access_token"
+               name="line_channel_access_token" autocomplete="new-password"
+               placeholder="{% if user.facility.line_channel_access_token %}設定ずみ（変えるときだけ入力）{% else %}未設定{% endif %}">
+      </div>
+      <div class="col-12 text-end"><button class="btn btn-sm btn-primary">保存する</button></div>
+      <div class="col-12"><div class="form-text">
+        入力しなかった欄はそのままです。保存した値は画面には出しません。
+      </div></div>
+    </form>
+    {% else %}
+    <div class="form-text">チャネルシークレットとアクセストークンは施設設定で保存します。</div>
+    {% endif %}
+  </div></div>
+  {% endif %}
+
+  {% if setting.line_auto_apply %}
+  <div class="alert alert-info py-2 small">
+    顧客からの申し込みをその場で反映する設定です。顧客台帳にいる方が、日にちとお子さまの名前を書いて送ると、
+    そのまま予約になり、LINEで返事をします。読み取れない文だけが下の受信箱に積まれます。
+  </div>
+  {% endif %}
+
   <div class="card mb-3">
     <div class="card-body pb-2"><div class="fw-bold"><i class="bi bi-inbox me-1"></i>受信（未処理）</div></div>
     <div class="row-list-item row-list-head inbox-item">
@@ -76,11 +125,20 @@
     {% endfor %}
   </div>
 
-  {% if group_rows %}
   <div class="card mb-3"><div class="card-body">
     <div class="fw-bold mb-2"><i class="bi bi-people me-1"></i>スタッフのグループからの投稿</div>
     <div class="small text-muted mb-2">予約の増減のお知らせ先は、届いた投稿から選びます（IDを手で写す必要はありません）。
-      {% if setting.notify_group_id %}いまのお知らせ先：<span class="fw-semibold">{{ setting.notify_group_label|default:'スタッフのグループ' }}</span>{% endif %}</div>
+      公式アカウントをグループに入れて、そのグループで何か1つ投稿すると、ここに出ます。
+      {% if setting.notify_group_id %}<div class="mt-1">いまのお知らせ先：<span class="fw-semibold">{{ setting.notify_group_label|default:'スタッフのグループ' }}</span></div>{% endif %}</div>
+    {% if setting.group_auto_apply %}
+    <div class="small bg-light border rounded p-2 mb-2">
+      お知らせ先のグループでは、投稿がそのまま予約になります。<br>
+      　・入れる：<span class="font-monospace">9/20 青木はると 予約</span><br>
+      　・取り消す：<span class="font-monospace">9/20 青木はると キャンセル</span><br>
+      　・空きを見る：<span class="font-monospace">9/20 空き</span><br>
+      名前と日にちが読み取れない投稿は、上の受信箱に積みます（自動では反映しません）。
+    </div>
+    {% endif %}
     <ul class="list-unstyled mb-0">
       {% for g in group_rows %}
       <li class="d-flex justify-content-between align-items-center border-top py-2 gap-2 flex-wrap">
@@ -90,10 +148,11 @@
           <button class="btn btn-sm btn-outline-primary">この投稿のグループを通知先にする</button></form>
         {% else %}<span class="badge text-bg-success">通知先</span>{% endif %}
       </li>
+      {% empty %}
+      <li class="small text-muted py-2">まだ投稿が届いていません。</li>
       {% endfor %}
     </ul>
   </div></div>
-  {% endif %}
 
   <div class="card mb-3">
     <div class="card-body pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">

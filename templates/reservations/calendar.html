@@ -109,6 +109,69 @@
           <input type="text" class="form-control form-control-sm" id="signature" name="signature"
                  value="{{ setting.signature }}" placeholder="{{ facility.name }}" {% if not is_admin %}disabled{% endif %}>
         </div>
+        <div class="col-12"><hr class="my-1"></div>
+        <div class="col-md-6">
+          <div class="settings-section-title">顧客向けの予定表（ログインなしで見えるページ）</div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="public_calendar" id="public_calendar"
+                   {% if setting.public_calendar %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="public_calendar">空き状況のページを公開する</label>
+          </div>
+          <div class="form-check mb-2">
+            <input type="checkbox" class="form-check-input" name="public_booking" id="public_booking"
+                   {% if setting.public_booking %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="public_booking">顧客が自分のページから予約できるようにする</label>
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label small fw-semibold" for="booking_from_days">何日先から受け付ける</label>
+              <input type="number" class="form-control form-control-sm" id="booking_from_days"
+                     name="booking_from_days" min="0" max="30" value="{{ setting.booking_from_days }}"
+                     {% if not is_admin %}disabled{% endif %}>
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold" for="booking_until_days">何日先まで受け付ける</label>
+              <input type="number" class="form-control form-control-sm" id="booking_until_days"
+                     name="booking_until_days" min="1" max="365" value="{{ setting.booking_until_days }}"
+                     {% if not is_admin %}disabled{% endif %}>
+            </div>
+          </div>
+          <label class="form-label small fw-semibold mt-2" for="publicUrl">空き状況のページ（お知らせ用）</label>
+          <input type="text" class="form-control form-control-sm font-monospace" id="publicUrl"
+                 value="{{ public_url }}" readonly>
+          <div class="d-flex gap-2 mt-1 flex-wrap">
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    onclick="const t=document.getElementById('publicUrl');t.select();navigator.clipboard&amp;&amp;navigator.clipboard.writeText(t.value);this.textContent='コピーしました';">
+              アドレスをコピー</button>
+            {% if is_admin %}
+            <button class="btn btn-sm btn-outline-secondary" name="reissue_public_token" value="1"
+                    onclick="return confirm('アドレスを作り直すと、いまお知らせしているアドレスは開けなくなります。よろしいですか？');">
+              アドレスを作り直す</button>
+            {% endif %}
+          </div>
+          <div class="form-text">アドレスを知っている人だけが開けます。名前は出ません（空き数だけ）。</div>
+        </div>
+        <div class="col-md-6">
+          <div class="settings-section-title">公式LINEから直接受ける</div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="line_auto_apply" id="line_auto_apply"
+                   {% if setting.line_auto_apply %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="line_auto_apply">顧客からの申し込みをその場で反映する</label>
+          </div>
+          <div class="form-text mb-2">
+            顧客台帳にいる方が、日にちとお子さまの名前を書いて送ったときだけ反映します。
+            読み取れない文は、これまでどおり受信箱に積んで職員が確かめます。
+          </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="group_auto_apply" id="group_auto_apply"
+                   {% if setting.group_auto_apply %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="group_auto_apply">スタッフのグループの投稿を反映する</label>
+          </div>
+          <div class="form-text">
+            お知らせ先に登録したグループの投稿だけを見ます（例：「9/20 山田太郎 予約」「9/20 山田太郎 キャンセル」）。
+            グループの登録は「公式LINE」の画面から行います。
+          </div>
+        </div>
         {% if setting.notify_group_id %}
         <div class="col-12">
           <div class="small">予約の増減のお知らせ先：<span class="fw-semibold">{{ setting.notify_group_label|default:'スタッフのグループ' }}</span>

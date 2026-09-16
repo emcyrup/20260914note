@@ -92,6 +92,7 @@ def notice_body(kind, setting, day=None, child='', extra=''):
         ReservationNotice.KIND_WAITLISTED: f'{d} {child}さんはキャンセル待ちです。空きが出ましたらお知らせします。',
         ReservationNotice.KIND_PROMOTED: f'{d} {child}さんのご予約が確定しました。',
         ReservationNotice.KIND_CANCELLED: f'{d} {child}さんのご予約を取り消しました。',
+        ReservationNotice.KIND_MOVED: f'{child}さんのご予約を {d} に変更しました。',
         ReservationNotice.KIND_DECLINED: f'{d} は満席のため、{child}さんのご予約をお受けできませんでした。',
         ReservationNotice.KIND_REMINDER: f'明日 {d} は {child}さんのご利用日です。',
         ReservationNotice.KIND_VACANCY: f'{d} に空きが出ました。',
@@ -204,6 +205,60 @@ def cancel_reservation(res, notify=True):
     return promoted
 
 
+@transaction.atomic
+def move_reservation(res, new_day, note=None):
+    """
+    予約の日にちを変える（職員の操作）。
+    もとの日はキャンセル待ちを繰り上げ、新しい日は空きがなければキャンセル待ちにする。
+    """
+    facility = res.facility
+    setting = get_setting(facility)
+    if not res.is_active:
+        raise ReservationError('取消・お断りの予約は日にちを変えられません。')
+    if note is not None:
+        res.note = note[:200]
+    old_day = res.date
+    if new_day == old_day:
+        res.save(update_fields=['note', 'updated_at'])
+        return res
+
+    list(Reservation.objects.select_for_update().filter(facility=facility, date__in=[old_day, new_day]))
+    if is_closed(facility, new_day, setting):
+        raise ReservationError(f'{jp_date(new_day)} は休業日のため変更できません。')
+    if Reservation.objects.filter(beneficiary=res.beneficiary, date=new_day,
+                                  status__in=Reservation.ACTIVE_STATUSES).exclude(pk=res.pk).exists():
+        raise ReservationError(f'{jp_date(new_day)} の {res.beneficiary.full_name} さんの予約はすでにあります。')
+
+    st = day_state(facility, new_day, setting)
+    if st['full'] and not setting.allow_waitlist:
+        raise ReservationError(f'{jp_date(new_day)} は満席で、キャンセル待ちを受けない設定です。')
+    was_confirmed = res.status == Reservation.STATUS_CONFIRMED
+    res.date = new_day
+    res.status = Reservation.STATUS_WAITLIST if st['full'] else Reservation.STATUS_CONFIRMED
+    res.save(update_fields=['date', 'status', 'note', 'updated_at'])
+
+    queue_notice(facility, ReservationNotice.KIND_MOVED, setting, customer=res.customer, reservation=res)
+    queue_group_notice(facility, setting, old_day, res.beneficiary.full_name, f'{jp_date(new_day)} へ変更')
+    queue_group_notice(facility, setting, new_day, res.beneficiary.full_name,
+                       f'{jp_date(old_day)} から変更（{res.get_status_display()}）')
+    if was_confirmed:
+        promote_waitlist(facility, old_day, setting)
+    return res
+
+
+@transaction.atomic
+def delete_reservation(res):
+    """予約を記録ごと消す（間違って入れたときの後始末）。通知は顧客へは送らない"""
+    facility = res.facility
+    setting = get_setting(facility)
+    day, name = res.date, res.beneficiary.full_name
+    was_confirmed = res.status == Reservation.STATUS_CONFIRMED
+    ReservationNotice.objects.filter(reservation=res, status=ReservationNotice.STATUS_PENDING).delete()
+    res.delete()
+    queue_group_notice(facility, setting, day, name, '削除')
+    return promote_waitlist(facility, day, setting) if was_confirmed else []
+
+
 def promote_waitlist(facility, day, setting=None):
     """空いたぶんだけ、キャンセル待ちを申し込み順に確定する"""
     setting = setting or get_setting(facility)
@@ -263,6 +318,29 @@ def queue_reminders(facility, day):
     return made
 
 
+def bookable(facility, day, setting=None, today=None):
+    """
+    顧客が自分で予約を入れられる日かどうか。(可否, 理由) を返す。
+    受付できる日の範囲・休業日・満枠（キャンセル待ちを受けない設定のとき）で判断する。
+    """
+    setting = setting or get_setting(facility)
+    today = today or datetime.date.today()
+    if not setting.public_booking:
+        return False, 'この事業所では、ページからの予約は受け付けていません。'
+    start, end = setting.booking_window(today)
+    if day < start:
+        return False, (f'{jp_date(day)} は受付の締め切りを過ぎています。'
+                       if setting.booking_from_days else 'その日は受け付けられません。')
+    if day > end:
+        return False, f'{jp_date(day)} はまだ受け付けていません（{setting.booking_until_days}日先までです）。'
+    if is_closed(facility, day, setting):
+        return False, f'{jp_date(day)} は休業日です。'
+    st = day_state(facility, day, setting)
+    if st['full'] and not setting.allow_waitlist:
+        return False, f'{jp_date(day)} は満席です。'
+    return True, ''
+
+
 def vacancy_text(facility, start, days=7):
     """空き状況の文面（コピーして使う）"""
     setting = get_setting(facility)
@@ -282,13 +360,52 @@ def vacancy_text(facility, start, days=7):
 
 
 # ---------------------------------------------------------------- LINE の文の読み取り
-RESERVE_WORDS = ['予約', '利用したい', 'お願いします', '行きます']
-CANCEL_WORDS = ['キャンセル', '取消', '取り消し', '休みます', '欠席']
+RESERVE_WORDS = ['予約', '利用したい', 'お願いします', '行きます', '追加']
+CANCEL_WORDS = ['キャンセル', '取消', '取り消し', '休みます', '欠席', '休み']
+CHECK_WORDS = ['空き', '空いて', '空いてますか', '残り', '状況']
 REGISTER_MARK = '【登録】'
 _DATE_PATTERNS = [
-    re.compile(r'(?P<m>\d{1,2})\s*[/月]\s*(?P<d>\d{1,2})'),
     re.compile(r'(?P<y>\d{4})\s*[-/]\s*(?P<m>\d{1,2})\s*[-/]\s*(?P<d>\d{1,2})'),
+    re.compile(r'(?P<m>\d{1,2})\s*[/月]\s*(?P<d>\d{1,2})'),
 ]
+_RELATIVE_DAYS = [(['明後日', 'あさって'], 2), (['明日', 'あした'], 1), (['今日', '本日'], 0)]
+
+
+def _find_dates(raw, today):
+    """文中の日付をぜんぶ拾う（「9/20 9/21 予約します」のような書き方に合わせる）"""
+    found = []
+    for words, delta in _RELATIVE_DAYS:
+        if any(w in raw for w in words):
+            found.append(today + datetime.timedelta(days=delta))
+
+    rest = raw
+    for pattern in _DATE_PATTERNS:
+        spans = []
+        for m in pattern.finditer(rest):
+            groups = m.groupdict()
+            year = int(groups['y']) if groups.get('y') else today.year
+            month, day_num = int(groups['m']), int(groups['d'])
+            try:
+                day = datetime.date(year, month, day_num)
+            except ValueError:
+                continue
+            # 年を書かない書き方は、半年以上前になるなら来年のことと読む
+            if not groups.get('y') and day < today - datetime.timedelta(days=180):
+                try:
+                    day = datetime.date(year + 1, month, day_num)
+                except ValueError:
+                    continue
+            found.append(day)
+            spans.append(m.span())
+        # 年つきで読めたところは、あらためて月日として拾わない
+        for lo, hi in reversed(spans):
+            rest = rest[:lo] + ' ' * (hi - lo) + rest[hi:]
+
+    out = []
+    for day in found:
+        if day not in out:
+            out.append(day)
+    return sorted(out)
 
 
 def parse_message(text, today=None):
@@ -298,7 +415,7 @@ def parse_message(text, today=None):
     """
     today = today or datetime.date.today()
     raw = (text or '').strip()
-    result = {'intent': 'unknown', 'date': None, 'name': '', 'fields': {}, 'text': raw}
+    result = {'intent': 'unknown', 'date': None, 'dates': [], 'name': '', 'fields': {}, 'text': raw}
     if not raw:
         return result
 
@@ -315,26 +432,11 @@ def parse_message(text, today=None):
         result['intent'] = 'cancel'
     elif any(w in raw for w in RESERVE_WORDS):
         result['intent'] = 'reserve'
+    elif any(w in raw for w in CHECK_WORDS):
+        result['intent'] = 'check'
 
-    if '明日' in raw:
-        result['date'] = today + datetime.timedelta(days=1)
-    elif '今日' in raw or '本日' in raw:
-        result['date'] = today
-    else:
-        for pattern in _DATE_PATTERNS:
-            m = pattern.search(raw)
-            if not m:
-                continue
-            groups = m.groupdict()
-            year = int(groups['y']) if groups.get('y') else today.year
-            try:
-                found = datetime.date(year, int(groups['m']), int(groups['d']))
-            except ValueError:
-                break
-            if not groups.get('y') and found < today - datetime.timedelta(days=180):
-                found = datetime.date(year + 1, int(groups['m']), int(groups['d']))
-            result['date'] = found
-            break
+    result['dates'] = _find_dates(raw, today)
+    result['date'] = result['dates'][0] if result['dates'] else None
     return result
 
 
@@ -375,3 +477,111 @@ def receive(facility, message_id, text, source_type=LineInbox.SOURCE_USER,
                   'group_id': group_id or '', 'display_name': display_name or ''},
     )
     return entry, created
+
+
+# ---------------------------------------------------------------- LINE からその場で反映
+def customer_page_url(customer):
+    """顧客専用ページの URL（RESERVATION_SITE_URL を決めているときだけ）"""
+    from django.conf import settings as django_settings
+    from django.urls import NoReverseMatch, reverse
+    base = (getattr(django_settings, 'RESERVATION_SITE_URL', '') or '').rstrip('/')
+    if not base or not customer:
+        return ''
+    try:
+        return base + reverse('reservations_public:customer', args=[customer.token])
+    except NoReverseMatch:
+        return ''
+
+
+def _mark_replied(notice):
+    """その場で返事をした通知は「送信ずみ」にする（同じ内容を二重に送らない）"""
+    if notice is None or notice.kind == ReservationNotice.KIND_GROUP:
+        return
+    notice.status = ReservationNotice.STATUS_SENT
+    notice.sent_at = timezone.now()
+    notice.error_message = 'LINEの返信でお伝えしました'
+    notice.save(update_fields=['status', 'sent_at', 'error_message'])
+
+
+MAX_DATES_PER_MESSAGE = 5
+
+
+def apply_message(facility, text, customer=None, staff=False, today=None, setting=None):
+    """
+    LINE に届いた文を、その場で予約に反映する。
+
+    戻り値は (反映したか, 返事の文)。
+    読み取れないところが1つでもあれば (False, '') を返し、受信箱に積んで職員が確かめる。
+    - 顧客（公式LINE）: 自分が担当する利用者の、受付できる範囲の日だけ
+    - 職員（スタッフのグループ）: 名前を書いてもらう。受付の範囲は見ない
+    """
+    setting = setting or get_setting(facility)
+    today = today or datetime.date.today()
+    parsed = parse_message(text, today)
+    dates = parsed['dates'][:MAX_DATES_PER_MESSAGE]
+
+    if parsed['intent'] == 'check':
+        start = dates[0] if dates else today
+        return True, vacancy_text(facility, start)
+
+    if parsed['intent'] not in ('reserve', 'cancel') or not dates:
+        return False, ''
+
+    beneficiary = guess_beneficiary(facility, text, None if staff else customer)
+    if beneficiary is None:
+        return False, ''
+    if not staff:
+        if customer is None:
+            return False, ''
+        children = list(customer.children.all())
+        if children and beneficiary.pk not in {b.pk for b in children}:
+            return False, ''   # 担当していない利用者の名前は、職員が確かめる
+        target_customer = customer
+    else:
+        target_customer = customer_for(facility, beneficiary)
+
+    source = Reservation.SOURCE_GROUP if staff else Reservation.SOURCE_LINE
+    lines = []
+    for day in dates:
+        if parsed['intent'] == 'cancel':
+            res = Reservation.objects.filter(facility=facility, beneficiary=beneficiary, date=day,
+                                             status__in=Reservation.ACTIVE_STATUSES).first()
+            if res is None:
+                lines.append(f'{jp_date(day)} {beneficiary.full_name}さんのご予約は見つかりませんでした。')
+                continue
+            cancel_reservation(res)
+            _mark_replied(ReservationNotice.objects.filter(reservation=res,
+                                                           kind=ReservationNotice.KIND_CANCELLED)
+                          .order_by('-pk').first())
+            lines.append(f'{jp_date(day)} {beneficiary.full_name}さんのご予約を取り消しました。')
+            continue
+
+        if not staff:
+            ok, reason = bookable(facility, day, setting, today)
+            if not ok:
+                lines.append(reason)
+                continue
+        try:
+            res, notice = create_reservation(facility, beneficiary, day, source=source,
+                                             customer=target_customer)
+        except ReservationError as e:
+            lines.append(str(e))
+            continue
+        _mark_replied(notice)
+        if res.status == Reservation.STATUS_CONFIRMED:
+            lines.append(f'{jp_date(day)} {beneficiary.full_name}さんのご予約を承りました。')
+        elif res.status == Reservation.STATUS_WAITLIST:
+            lines.append(f'{jp_date(day)} {beneficiary.full_name}さんはキャンセル待ちです。'
+                         '空きが出ましたらお知らせします。')
+        else:
+            lines.append(f'{jp_date(day)} は満席のため、お受けできませんでした。')
+
+    if not lines:
+        return False, ''
+    if staff:
+        return True, '\n'.join(lines)
+    url = customer_page_url(target_customer)
+    if url:
+        lines.append(f'ご予約の確認・取り消しはこちら\n{url}')
+    lines.append(setting.sign_text)
+    return True, '\n'.join(lines)

@@ -1,0 +1,47 @@
+{% comment %}月のマス目。空きの数だけを出し、予約している方の名前は出さない{% endcomment %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <a href="{% url month_url token prev_year prev_month %}" class="btn btn-sm btn-outline-secondary" aria-label="前の月">
+    <i class="bi bi-chevron-left"></i></a>
+  <div class="fw-bold">{{ year }}年{{ month }}月</div>
+  <a href="{% url month_url token next_year next_month %}" class="btn btn-sm btn-outline-secondary" aria-label="次の月">
+    <i class="bi bi-chevron-right"></i></a>
+</div>
+<table class="cal">
+  <thead><tr><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th>土</th><th>日</th></tr></thead>
+  <tbody>
+    {% for week in weeks %}
+    <tr>
+      {% for d in week %}
+        {% if not d %}
+        <td class="empty"></td>
+        {% else %}
+        <td class="{% if d.is_today %}today {% endif %}{% if d.closed %}closed{% elif d.is_past %}past{% endif %}">
+          <div class="dnum {% if d.is_sunday %}sun{% elif d.is_saturday %}sat{% endif %}">{{ d.day }}</div>
+          {% if d.closed %}
+            <span class="mark rest">休み</span>
+          {% elif d.is_past %}
+            <span class="mark rest">—</span>
+          {% elif can_select and d.can_book %}
+            <button type="button" class="btn-book" onclick="pickDay('{{ d.iso }}')"
+                    aria-label="{{ d.day }}日を選ぶ">
+              {% if d.waitlist_only %}<span class="mark few">待</span>
+              {% elif d.remaining >= 3 %}<span class="mark ok">○</span>
+              {% else %}<span class="mark few">△</span>{% endif %}
+            </button>
+          {% elif d.full %}
+            <span class="mark no">×</span>
+          {% elif d.remaining >= 3 %}
+            <span class="mark ok">○</span>
+          {% else %}
+            <span class="mark few">△</span>
+          {% endif %}
+        </td>
+        {% endif %}
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<div class="legend mt-2">
+  ○ 空きあり　△ 残りわずか　× 満席{% if can_select %}　待 キャンセル待ちで承ります{% endif %}　休み お休み
+</div>

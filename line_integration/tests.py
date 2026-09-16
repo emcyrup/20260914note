@@ -175,3 +175,97 @@ class WebhookInboxTests(TestCase):
         res, reply = self._post('10/1 予約おねがいします')
         self.assertEqual(LineInbox.objects.count(), 0)
         self.assertIn('見つからない', reply.call_args[0][0].messages[0].text)
+
+
+class WebhookAutoApplyTests(TestCase):
+    """LINE の投稿から直接、予約を入れる・取り消す（顧客は公式LINE、職員はグループ）"""
+
+    def setUp(self):
+        cache.clear()
+        from reservations.models import Customer
+        from reservations.services import get_setting
+        self.f = Facility.objects.create(name='なゆた', line_channel_secret='secret-a',
+                                         line_channel_access_token='tok-a', use_reservation=True)
+        self.ben = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='はると',
+                                              date_of_birth=date(2016, 4, 1))
+        self.customer = Customer.objects.create(facility=self.f, name='青木 花子', line_user_id='U1')
+        self.customer.children.add(self.ben)
+        self.setting = get_setting(self.f)
+        self.setting.line_auto_apply = True
+        self.setting.notify_group_id = 'G1'
+        self.setting.save()
+        self.day = date.today() + timedelta(days=7)
+
+    def _post(self, text, **kw):
+        body = _body(text, **kw)
+        url = reverse('line_integration:webhook_facility', args=[self.f.pk])
+        with mock.patch('linebot.v3.messaging.MessagingApi.reply_message') as reply:
+            res = self.client.post(url, data=body, content_type='application/json',
+                                   HTTP_X_LINE_SIGNATURE=_sig('secret-a', body))
+        return res, reply
+
+    def _text(self, reply):
+        return reply.call_args[0][0].messages[0].text
+
+    def test_customer_message_books_and_cancels(self):
+        from reservations.models import LineInbox, Reservation
+        res, reply = self._post(f'{self.day.month}/{self.day.day} 予約おねがいします')
+        self.assertEqual(res.status_code, 200)
+        booked = Reservation.objects.get(facility=self.f, date=self.day)
+        self.assertEqual((booked.status, booked.source, booked.customer),
+                         (Reservation.STATUS_CONFIRMED, Reservation.SOURCE_LINE, self.customer))
+        self.assertIn('承りました', self._text(reply))
+        self.assertEqual(LineInbox.objects.count(), 0)   # 反映できた文は受信箱に積まない
+
+        res, reply = self._post(f'{self.day.month}/{self.day.day} キャンセルします', message_id='m2')
+        booked.refresh_from_db()
+        self.assertEqual(booked.status, Reservation.STATUS_CANCELLED)
+        self.assertIn('取り消しました', self._text(reply))
+
+    def test_customer_message_is_inboxed_when_auto_apply_is_off(self):
+        from reservations.models import LineInbox, Reservation
+        self.setting.line_auto_apply = False
+        self.setting.save()
+        res, reply = self._post(f'{self.day.month}/{self.day.day} 予約おねがいします')
+        self.assertEqual(Reservation.objects.count(), 0)
+        self.assertEqual(LineInbox.objects.count(), 1)
+        self.assertIn('承りました', self._text(reply))
+
+    def test_unreadable_customer_message_is_inboxed(self):
+        from reservations.models import LineInbox, Reservation
+        res, reply = self._post('こんにちは。おせわになっています。')
+        self.assertEqual(Reservation.objects.count(), 0)
+        self.assertEqual(LineInbox.objects.count(), 1)
+
+    def test_unknown_line_user_is_inboxed(self):
+        from reservations.models import LineInbox, Reservation
+        self.customer.line_user_id = ''
+        self.customer.save()
+        self._post(f'{self.day.month}/{self.day.day} 予約おねがいします')
+        self.assertEqual(Reservation.objects.count(), 0)
+        self.assertEqual(LineInbox.objects.count(), 1)
+
+    def test_staff_group_books_with_a_name(self):
+        from reservations.models import LineInbox, Reservation
+        res, reply = self._post(f'{self.day.month}/{self.day.day} 青木はると 予約',
+                                source={'type': 'group', 'groupId': 'G1', 'userId': 'U9'})
+        booked = Reservation.objects.get(facility=self.f, date=self.day)
+        self.assertEqual((booked.status, booked.source),
+                         (Reservation.STATUS_CONFIRMED, Reservation.SOURCE_GROUP))
+        self.assertIn('承りました', self._text(reply))
+        self.assertEqual(LineInbox.objects.count(), 0)
+
+    def test_another_group_is_only_inboxed(self):
+        from reservations.models import LineInbox, Reservation
+        self._post(f'{self.day.month}/{self.day.day} 青木はると 予約',
+                   source={'type': 'group', 'groupId': 'G-other', 'userId': 'U9'})
+        self.assertEqual(Reservation.objects.count(), 0)
+        entry = LineInbox.objects.get(facility=self.f)
+        self.assertEqual(entry.group_id, 'G-other')
+
+    def test_group_without_a_name_is_inboxed(self):
+        from reservations.models import LineInbox, Reservation
+        self._post(f'{self.day.month}/{self.day.day} 予約おねがいします',
+                   source={'type': 'group', 'groupId': 'G1', 'userId': 'U9'})
+        self.assertEqual(Reservation.objects.count(), 0)
+        self.assertEqual(LineInbox.objects.count(), 1)

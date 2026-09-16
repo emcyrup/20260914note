@@ -57,6 +57,22 @@
         <div class="modal-header"><h5 class="modal-title fw-bold">顧客を編集</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
           {% include 'reservations/_customer_fields.html' with obj=c %}
+          <hr>
+          <label class="form-label small fw-semibold" for="url{{ c.pk }}">この方のご予約ページ</label>
+          <input type="text" class="form-control form-control-sm font-monospace" id="url{{ c.pk }}"
+                 value="{{ c.page_url }}" readonly>
+          <div class="form-text">
+            このアドレスをお知らせすると、ご本人が予定表を見て、申し込み・取り消しができます。
+            アドレスを知っている人だけが開けるので、LINEや紙でお渡しください。
+          </div>
+          <div class="d-flex gap-2 mt-1 flex-wrap">
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    onclick="const t=document.getElementById('url{{ c.pk }}');t.select();navigator.clipboard&amp;&amp;navigator.clipboard.writeText(t.value);this.textContent='コピーしました';">
+              アドレスをコピー</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" form="reissueCustomer{{ c.pk }}"
+                    onclick="return confirm('アドレスを作り直すと、いまお渡ししているアドレスは開けなくなります。よろしいですか？');">
+              アドレスを作り直す</button>
+          </div>
         </div>
         <div class="modal-footer justify-content-between">
           <button type="button" class="btn btn-outline-danger btn-sm" form="delCustomer{{ c.pk }}">削除</button>
@@ -66,6 +82,8 @@
       </form>
       <form method="post" id="delCustomer{{ c.pk }}" action="{% url 'reservations:customer_delete' c.pk %}"
             onsubmit="return confirm('顧客「{{ c.name }}」を削除しますか？');">{% csrf_token %}</form>
+      <form method="post" id="reissueCustomer{{ c.pk }}"
+            action="{% url 'reservations:customer_reissue' c.pk %}">{% csrf_token %}</form>
     </div>
   </div>
 </div>

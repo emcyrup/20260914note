@@ -1,0 +1,16 @@
+{% extends 'reservations/public/base.html' %}
+
+{% block title %}{{ facility.name }} 空き状況{% endblock %}
+{% block head_sub %}空き状況（{{ year }}年{{ month }}月）{% endblock %}
+
+{% block content %}
+<div class="pub-card">
+  {% include 'reservations/public/_calendar.html' with can_select=False %}
+</div>
+<div class="pub-card">
+  <div class="small">
+    ご予約・お問い合わせは、{{ facility.name }} までご連絡ください。
+    {% if facility.phone %}<div class="mt-1">電話：<a href="tel:{{ facility.phone }}">{{ facility.phone }}</a></div>{% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -5,10 +5,18 @@
 予約は「利用者1人につき1件」（1件＝枠1つ）で、人数は持たない。
 きょうだいで2人来る日は、利用者ごとに2件の予約になる。
 """
+import secrets
+
 from django.db import models
 
 from beneficiaries.models import Beneficiary
 from facilities.models import Facility
+
+
+def new_token():
+    """外から見えるURLに使う合い言葉（推測できない長さ）"""
+    return secrets.token_urlsafe(18)
+
 
 WEEKDAYS = [(0, '月'), (1, '火'), (2, '水'), (3, '木'), (4, '金'), (5, '土'), (6, '日')]
 
@@ -26,6 +34,19 @@ class ReservationSetting(models.Model):
     auto_send = models.BooleanField(default=False, verbose_name='反映したら送信待ちをその場で送る')
     notify_group_id = models.CharField(max_length=100, blank=True, verbose_name='増減を知らせるLINEグループ')
     notify_group_label = models.CharField(max_length=100, blank=True, verbose_name='そのグループの呼び名')
+
+    # ---- 顧客向けの予定表（ログインなしで見えるページ）----
+    public_token = models.CharField(max_length=64, default=new_token, unique=True,
+                                    verbose_name='予定表の公開アドレス')
+    public_calendar = models.BooleanField(default=True, verbose_name='顧客向けの予定表を公開する')
+    public_booking = models.BooleanField(default=True, verbose_name='顧客が自分で予約できるようにする')
+    booking_from_days = models.PositiveSmallIntegerField(default=1, verbose_name='何日先から受け付けるか',
+                                                         help_text='0 なら当日ぶんも受け付けます。')
+    booking_until_days = models.PositiveSmallIntegerField(default=60, verbose_name='何日先まで受け付けるか')
+
+    # ---- LINE から直接受け付けるか（既定は職員が確かめてから反映）----
+    line_auto_apply = models.BooleanField(default=False, verbose_name='公式LINEの申し込みをその場で反映する')
+    group_auto_apply = models.BooleanField(default=True, verbose_name='スタッフのグループの投稿を反映する')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -45,6 +66,16 @@ class ReservationSetting(models.Model):
     @property
     def sign_text(self):
         return self.signature or self.facility.name
+
+    def booking_window(self, today=None):
+        """顧客が自分で予約できる日の範囲"""
+        import datetime as _dt
+        today = today or _dt.date.today()
+        return (today + _dt.timedelta(days=self.booking_from_days),
+                today + _dt.timedelta(days=self.booking_until_days))
+
+    def reissue_public_token(self):
+        self.public_token = new_token()
 
 
 class ClosedDate(models.Model):
@@ -80,6 +111,8 @@ class Customer(models.Model):
     note = models.CharField(max_length=200, blank=True, verbose_name='備考')
     children = models.ManyToManyField(Beneficiary, blank=True, related_name='reservation_customers',
                                       verbose_name='担当する利用者')
+    token = models.CharField(max_length=64, default=new_token, unique=True,
+                             verbose_name='顧客ページのアドレス')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -98,6 +131,10 @@ class Customer(models.Model):
     @property
     def can_notify(self):
         return bool(self.line_user_id) and self.notify_enabled
+
+    def reissue_token(self):
+        """顧客ページのアドレスを作り直す（前のアドレスは使えなくなる）"""
+        self.token = new_token()
 
     def child_names(self):
         return '、'.join(b.full_name for b in self.children.all())
@@ -120,7 +157,10 @@ class Reservation(models.Model):
 
     SOURCE_STAFF = 'staff'
     SOURCE_LINE = 'line'
-    SOURCE_CHOICES = [(SOURCE_STAFF, '職員'), (SOURCE_LINE, '公式LINE')]
+    SOURCE_WEB = 'web'
+    SOURCE_GROUP = 'group'
+    SOURCE_CHOICES = [(SOURCE_STAFF, '職員'), (SOURCE_LINE, '公式LINE'),
+                      (SOURCE_WEB, '顧客ページ'), (SOURCE_GROUP, 'スタッフのグループ')]
 
     facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='reservations')
     beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='reservations',
@@ -161,6 +201,7 @@ class ReservationNotice(models.Model):
     KIND_WAITLISTED = 'waitlisted'
     KIND_PROMOTED = 'promoted'
     KIND_CANCELLED = 'cancelled'
+    KIND_MOVED = 'moved'
     KIND_DECLINED = 'declined'
     KIND_REMINDER = 'reminder'
     KIND_VACANCY = 'vacancy'
@@ -170,6 +211,7 @@ class ReservationNotice(models.Model):
         (KIND_WAITLISTED, 'キャンセル待ち'),
         (KIND_PROMOTED, '繰り上げ確定'),
         (KIND_CANCELLED, '取消'),
+        (KIND_MOVED, '日にちの変更'),
         (KIND_DECLINED, 'お断り'),
         (KIND_REMINDER, '前日のお知らせ'),
         (KIND_VACANCY, '空き枠'),

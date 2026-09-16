@@ -8,25 +8,29 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views import View
 
 from beneficiaries.models import Beneficiary
 from config.concurrency import check_conflict
-from config.utils import date_or_404, month_or_404, to_int
+from config.utils import date_or_404, home_url, month_or_404, reservation_enabled, to_int
 
 from . import services
 from .models import ClosedDate, Customer, LineInbox, Reservation, ReservationNotice
 
 
 class ReservationEnabledMixin(LoginRequiredMixin):
-    """施設設定で予約管理を使わない場合はホームへ戻す"""
+    """
+    施設設定で予約管理を使わない場合はホームへ戻す。
+    予約管理だけを動かすサーバー（RESERVATION_ONLY）では、その確認はしない。
+    """
 
     def dispatch(self, request, *args, **kwargs):
         facility = getattr(request.user, 'facility', None)
-        if request.user.is_authenticated and (facility is None or not facility.use_reservation):
+        if request.user.is_authenticated and not reservation_enabled(facility):
             messages.info(request, 'この事業所では予約管理を使わない設定になっています。')
-            return redirect('facilities:dashboard')
+            return redirect(home_url())
         return super().dispatch(request, *args, **kwargs)
 
 
@@ -69,6 +73,8 @@ class CalendarView(ReservationEnabledMixin, View):
             'year': year, 'month': month, 'weeks': weeks, 'today': today, 'setting': setting,
             'pending_notices': pending, 'pending_inbox': inbox,
             'weekday_rows': setting.weekday_rows(),
+            'public_url': request.build_absolute_uri(
+                reverse('reservations_public:calendar', args=[setting.public_token])),
             **_month_links(year, month),
         })
 
@@ -96,8 +102,27 @@ class SettingView(ReservationEnabledMixin, View):
         setting.closed_weekdays = sorted({n for n in (to_int(v) for v in request.POST.getlist('closed_weekdays'))
                                           if n is not None and 0 <= n <= 6})
         setting.signature = request.POST.get('signature', '').strip()[:100]
+
+        # 顧客向けの予定表（ログインなしで見えるページ）
+        setting.public_calendar = 'public_calendar' in request.POST
+        setting.public_booking = 'public_booking' in request.POST
+        from_days = to_int(request.POST.get('booking_from_days'), setting.booking_from_days)
+        until_days = to_int(request.POST.get('booking_until_days'), setting.booking_until_days)
+        if not (0 <= from_days <= 30 and 1 <= until_days <= 365 and from_days < until_days):
+            messages.error(request, '受け付ける範囲は「0〜30日先から」「1〜365日先まで」で、'
+                                    'はじめの日が終わりの日より前になるように指定してください。')
+            return redirect('reservations:calendar')
+        setting.booking_from_days, setting.booking_until_days = from_days, until_days
+
+        # LINE から直接反映するか
+        setting.line_auto_apply = 'line_auto_apply' in request.POST
+        setting.group_auto_apply = 'group_auto_apply' in request.POST
+
         if 'clear_group' in request.POST:
             setting.notify_group_id = setting.notify_group_label = ''
+        if 'reissue_public_token' in request.POST:
+            setting.reissue_public_token()
+            messages.info(request, '予定表の公開アドレスを作り直しました。前のアドレスは使えません。')
         setting.save()
         messages.success(request, '予約の設定を保存しました。')
         return redirect('reservations:calendar')
@@ -131,6 +156,8 @@ class DayView(ReservationEnabledMixin, View):
         d = date_or_404(year, month, day)
         facility = request.user.facility
         action = request.POST.get('action', 'add')
+        if 'do_delete' in request.POST:
+            action = 'delete'   # 変更フォームの「削除する」
         back = redirect('reservations:day', year=d.year, month=d.month, day=d.day)
 
         if action == 'add':
@@ -154,6 +181,36 @@ class DayView(ReservationEnabledMixin, View):
             res = get_object_or_404(Reservation, pk=to_int(request.POST.get('reservation'), -1), facility=facility)
             promoted = services.cancel_reservation(res)
             msg = f'{res.beneficiary.full_name} さんの予約を取り消しました。'
+            if promoted:
+                msg += 'キャンセル待ちから ' + '、'.join(p.beneficiary.full_name for p in promoted) + ' さんを繰り上げました。'
+            messages.success(request, msg)
+            return back
+
+        if action == 'edit':
+            res = get_object_or_404(Reservation, pk=to_int(request.POST.get('reservation'), -1), facility=facility)
+            try:
+                new_day = datetime.date.fromisoformat(request.POST.get('date', ''))
+            except ValueError:
+                messages.error(request, '日にちが正しくありません。')
+                return back
+            try:
+                services.move_reservation(res, new_day, note=request.POST.get('note', ''))
+            except services.ReservationError as e:
+                messages.error(request, str(e))
+                return back
+            if new_day == d:
+                messages.success(request, f'{res.beneficiary.full_name} さんの備考を保存しました。')
+                return back
+            messages.success(request, f'{res.beneficiary.full_name} さんの予約を '
+                                      f'{services.jp_date(new_day)} に移しました（{res.get_status_display()}）。'
+                                      '変更のお知らせは送信待ちに入れています。')
+            return redirect('reservations:day', year=new_day.year, month=new_day.month, day=new_day.day)
+
+        if action == 'delete':
+            res = get_object_or_404(Reservation, pk=to_int(request.POST.get('reservation'), -1), facility=facility)
+            name = res.beneficiary.full_name
+            promoted = services.delete_reservation(res)
+            msg = f'{name} さんの予約を削除しました（お知らせは送りません）。'
             if promoted:
                 msg += 'キャンセル待ちから ' + '、'.join(p.beneficiary.full_name for p in promoted) + ' さんを繰り上げました。'
             messages.success(request, msg)
@@ -186,8 +243,12 @@ class CustomerListView(ReservationEnabledMixin, View):
 
     def get(self, request):
         facility = request.user.facility
+        customers = list(Customer.objects.filter(facility=facility).prefetch_related('children'))
+        for c in customers:
+            c.page_url = request.build_absolute_uri(
+                reverse('reservations_public:customer', args=[c.token]))
         return render(request, self.template_name, {
-            'customers': Customer.objects.filter(facility=facility).prefetch_related('children'),
+            'customers': customers,
             'beneficiaries': Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE),
         })
 
@@ -218,6 +279,18 @@ class CustomerListView(ReservationEnabledMixin, View):
         return redirect('reservations:customers')
 
 
+class CustomerTokenView(ReservationEnabledMixin, View):
+    """顧客ページのアドレスを作り直す（前のアドレスを知っている人は開けなくなる）"""
+
+    def post(self, request, pk):
+        obj = get_object_or_404(Customer, pk=pk, facility=request.user.facility)
+        obj.reissue_token()
+        obj.save(update_fields=['token', 'updated_at'])
+        messages.success(request, f'{obj.name} さんのページのアドレスを作り直しました。'
+                                  '新しいアドレスをお知らせしてください。')
+        return redirect('reservations:customers')
+
+
 class CustomerDeleteView(ReservationEnabledMixin, View):
     def post(self, request, pk):
         obj = get_object_or_404(Customer, pk=pk, facility=request.user.facility)
@@ -241,6 +314,8 @@ class LineView(ReservationEnabledMixin, View):
             'setting': services.get_setting(facility),
             'rows': [services.inbox_row(e, facility) for e in inbox],
             'group_rows': groups,
+            'webhook_url': request.build_absolute_uri(
+                reverse('line_integration:webhook_facility', args=[facility.pk])),
             'pending': ReservationNotice.objects.filter(
                 facility=facility, status__in=(ReservationNotice.STATUS_PENDING, ReservationNotice.STATUS_MANUAL)
             ).select_related('customer')[:50],
@@ -271,6 +346,24 @@ class LineView(ReservationEnabledMixin, View):
 
         if action == 'send':
             return self._send(request, back)
+
+        if action == 'channel':
+            # 予約管理だけを動かすサーバーには施設設定の画面がないので、ここで公式LINEのつなぎ先を保存する
+            if not (request.user.is_admin or request.user.is_superuser):
+                messages.error(request, 'この設定を変えられるのは管理者だけです。')
+                return back
+            name = request.POST.get('facility_name', '').strip()[:100]
+            if name:
+                facility.name = name
+            secret = request.POST.get('line_channel_secret', '').strip()
+            token = request.POST.get('line_channel_access_token', '').strip()
+            if secret:
+                facility.line_channel_secret = secret
+            if token:
+                facility.line_channel_access_token = token
+            facility.save(update_fields=['name', 'line_channel_secret', 'line_channel_access_token', 'updated_at'])
+            messages.success(request, '公式LINEのつなぎ先を保存しました。')
+            return back
 
         if action == 'set_group':
             entry = get_object_or_404(LineInbox, pk=to_int(request.POST.get('entry'), -1), facility=facility)

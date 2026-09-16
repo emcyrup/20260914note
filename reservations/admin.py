@@ -7,7 +7,8 @@ from .models import ClosedDate, Customer, LineInbox, Reservation, ReservationNot
 
 @admin.register(ReservationSetting)
 class ReservationSettingAdmin(FacilityScopedAdmin):
-    list_display = ['facility', 'capacity', 'allow_waitlist', 'auto_send']
+    list_display = ['facility', 'capacity', 'allow_waitlist', 'auto_send',
+                    'public_calendar', 'public_booking', 'line_auto_apply', 'group_auto_apply']
 
 
 @admin.register(ClosedDate)

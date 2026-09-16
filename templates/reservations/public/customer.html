@@ -1,0 +1,79 @@
+{% extends 'reservations/public/base.html' %}
+
+{% block title %}{{ facility.name }} ご予約{% endblock %}
+{% block head_sub %}{{ customer.name }} 様のご予約ページ{% endblock %}
+
+{% block content %}
+
+<div class="pub-card">
+  <div class="fw-bold mb-2">これからのご予約</div>
+  {% for r in my_reservations %}
+  <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+    <div>
+      <div class="fw-semibold">{{ r.date|date:'n月j日(D)' }}　{{ r.beneficiary.full_name }} さん</div>
+      <div class="small {% if r.status == 'waitlist' %}text-warning-emphasis{% else %}text-success{% endif %}">
+        {% if r.status == 'waitlist' %}キャンセル待ち{% else %}ご予約{% endif %}
+      </div>
+    </div>
+    <form method="post" onsubmit="return confirm('{{ r.date|date:'n月j日' }} {{ r.beneficiary.full_name }} さんのご予約を取り消します。よろしいですか？');">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="cancel">
+      <input type="hidden" name="reservation" value="{{ r.pk }}">
+      <button class="btn btn-sm btn-outline-danger">取り消す</button>
+    </form>
+  </div>
+  {% empty %}
+  <div class="text-muted small py-2">これからのご予約はありません。</div>
+  {% endfor %}
+</div>
+
+<div class="pub-card">
+  {% include 'reservations/public/_calendar.html' with can_select=setting.public_booking %}
+</div>
+
+{% if setting.public_booking %}
+<div class="pub-card" id="bookCard">
+  <div class="fw-bold mb-2">ご予約のお申し込み</div>
+  {% if children %}
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="book">
+    <label class="form-label small fw-semibold" for="bookChild">お子さま</label>
+    <select name="beneficiary" id="bookChild" class="form-select form-select-sm mb-2" required>
+      {% for b in children %}<option value="{{ b.pk }}">{{ b.full_name }}</option>{% endfor %}
+    </select>
+    <label class="form-label small fw-semibold" for="bookDate">日にち</label>
+    <input type="date" name="date" id="bookDate" class="form-control form-control-sm mb-2"
+           min="{{ book_from|date:'Y-m-d' }}" max="{{ book_until|date:'Y-m-d' }}" required>
+    <div class="form-text mb-2">
+      {{ book_from|date:'n月j日' }} 〜 {{ book_until|date:'n月j日' }} のぶんをお申し込みいただけます。
+      上の予定表の日にちを押すと、ここに入ります。
+    </div>
+    <button class="btn btn-brand w-100">この日でお申し込みする</button>
+  </form>
+  {% else %}
+  <div class="text-muted small">お子さまの登録がまだありません。事業所へご連絡ください。</div>
+  {% endif %}
+</div>
+{% else %}
+<div class="pub-card">
+  <div class="small text-muted">ご予約のお申し込みは、お電話または公式LINEで承っています。</div>
+</div>
+{% endif %}
+
+<div class="pub-card">
+  <div class="small text-muted">
+    満席の日は「キャンセル待ち」でお預かりし、空きが出ましたら順にご連絡します。<br>
+    お名前やご連絡先の変更は、事業所へお知らせください。
+  </div>
+</div>
+
+<script>
+  function pickDay(iso) {
+    var input = document.getElementById('bookDate');
+    if (!input) return;
+    input.value = iso;
+    document.getElementById('bookCard').scrollIntoView({behavior: 'smooth', block: 'center'});
+  }
+</script>
+{% endblock %}

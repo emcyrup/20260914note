@@ -137,6 +137,16 @@ LOGOUT_REDIRECT_URL = '/accounts/login/'
 ALLOW_FACILITY_SIGNUP = config('ALLOW_FACILITY_SIGNUP', default=False, cast=bool)
 SIGNUP_CODE = config('SIGNUP_CODE', default='')
 
+# 予約管理を単体で別サーバーに置くとき（横展開用）
+# RESERVATION_ONLY=True にすると、予約・顧客・公式LINE・設定だけの画面構成になる。
+# 同じコードのまま、URL とサイドバーを予約管理だけに絞って動かすための切り替え。
+RESERVATION_ONLY = config('RESERVATION_ONLY', default=False, cast=bool)
+# 顧客向けページの URL をLINEの文面に載せるときの入口（例：https://yoyaku.example.jp）
+RESERVATION_SITE_URL = config('RESERVATION_SITE_URL', default='')
+if RESERVATION_ONLY:
+    ROOT_URLCONF = 'config.urls_reservation'
+    LOGIN_REDIRECT_URL = '/reservations/'
+
 ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
 # 活動→めあて・考察の生成に使うモデル（利用できない場合は .env で差し替える）
 AI_PLAN_MODEL = config('AI_PLAN_MODEL', default='claude-opus-5')

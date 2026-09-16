@@ -13,5 +13,6 @@ urlpatterns = [
     path('customers/', views.CustomerListView.as_view(), name='customers'),
     path('customers/<int:pk>/save/', views.CustomerListView.as_view(), name='customer_save'),
     path('customers/<int:pk>/delete/', views.CustomerDeleteView.as_view(), name='customer_delete'),
+    path('customers/<int:pk>/reissue/', views.CustomerTokenView.as_view(), name='customer_reissue'),
     path('line/', views.LineView.as_view(), name='line'),
 ]

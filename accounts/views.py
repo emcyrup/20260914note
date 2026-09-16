@@ -1,6 +1,7 @@
 import datetime
 
 from django.conf import settings
+from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -13,7 +14,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
 
-from config.utils import safe_next, to_int
+from config.utils import home_url, safe_next, to_int
 
 from .middleware import SESSION_KEY as DEV_FACILITY_SESSION_KEY
 from .models import StaffAccount, StaffInvitation
@@ -107,7 +108,7 @@ class ThemeView(LoginRequiredMixin, View):
             messages.success(request, f'画面を「{label}」に切り替えました。')
             if theme == StaffAccount.THEME_SIMPLE:
                 return redirect('records:simple_home')
-            return redirect('facilities:dashboard')
+            return redirect(home_url())
         messages.success(request, f'{target} さんの画面を「{label}」にしました。')
         return redirect('accounts:theme')
 
@@ -121,7 +122,7 @@ class SwitchFacilityView(LoginRequiredMixin, View):
     def post(self, request):
         if not request.user.can_switch_facility:
             messages.error(request, '事業所の切り替えは開発向けユーザーだけが使えます。')
-            return redirect('facilities:dashboard')
+            return redirect(home_url())
         fid = request.POST.get('facility')
         if fid == 'home' or not fid:
             request.session.pop(DEV_FACILITY_SESSION_KEY, None)
@@ -130,17 +131,17 @@ class SwitchFacilityView(LoginRequiredMixin, View):
             facility = Facility.objects.filter(pk=to_int(fid, -1)).first()
             if facility is None:
                 messages.error(request, 'その事業所は存在しません。')
-                return redirect('facilities:dashboard')
+                return redirect(home_url())
             request.session[DEV_FACILITY_SESSION_KEY] = facility.pk
             messages.success(request, f'事業所を「{facility.name}」に切り替えました。')
-        return redirect(safe_next(request, request.POST.get('next'), reverse('facilities:dashboard')))
+        return redirect(safe_next(request, request.POST.get('next'), home_url()))
 
 
 class AdminOnlyMixin(LoginRequiredMixin):
     def dispatch(self, request, *args, **kwargs):
         if request.user.is_authenticated and not (request.user.is_admin or request.user.is_superuser):
             messages.error(request, 'この画面は管理者だけが使えます。')
-            return redirect('facilities:dashboard')
+            return redirect(home_url())
         return super().dispatch(request, *args, **kwargs)
 
 
@@ -272,7 +273,7 @@ class JoinView(View):
             StaffInvitation.objects.filter(pk=inv.pk).update(used_count=F('used_count') + 1)
         login(request, user)
         messages.success(request, f'{user.display_name} さんのアカウントを作りました。「{inv.facility.name}」の{inv.get_role_display()}としてログインしています。')
-        return redirect('facilities:dashboard')
+        return redirect(home_url())
 
 
 class SignupView(View):
@@ -284,7 +285,7 @@ class SignupView(View):
             raise Http404
         if request.user.is_authenticated:
             messages.info(request, 'ログイン中は新しい事業所を登録できません。いったんログアウトしてください。')
-            return redirect('facilities:dashboard')
+            return redirect(home_url())
         return super().dispatch(request, *args, **kwargs)
 
     def _form(self, data=None):
@@ -309,4 +310,4 @@ class SignupView(View):
         login(request, user)
         messages.success(request, f'事業所「{facility.name}」を登録し、管理者アカウントを作りました。'
                                   '施設設定で呼び方や使う機能を確認し、「職員・運用管理」の招待リンクで職員を招待してください。')
-        return redirect('facilities:settings')
+        return redirect(home_url() if django_settings.RESERVATION_ONLY else 'facilities:settings')

@@ -32,3 +32,22 @@ def safe_next(request, nxt, fallback):
     if nxt and url_has_allowed_host_and_scheme(nxt, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
         return nxt
     return fallback
+
+
+def home_url():
+    """
+    ログイン後の入口。
+    予約管理だけを動かすサーバー（RESERVATION_ONLY）では予約カレンダーが入口になる。
+    """
+    from django.conf import settings
+    from django.urls import reverse
+    return reverse('reservations:calendar' if settings.RESERVATION_ONLY else 'facilities:dashboard')
+
+
+def reservation_enabled(facility):
+    """
+    予約管理を使う事業所か。
+    予約管理だけを動かすサーバー（RESERVATION_ONLY）では、施設設定によらず使う。
+    """
+    from django.conf import settings
+    return bool(settings.RESERVATION_ONLY or (facility is not None and facility.use_reservation))

@@ -2,7 +2,7 @@
 import datetime
 from unittest import mock
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -320,3 +320,298 @@ class LineInboxTests(TestCase):
         self.client.force_login(u)
         res = self.client.get(reverse('reservations:line'))
         self.assertNotContains(res, '10/1 予約')
+
+
+class ReservationEditTests(TestCase):
+    """職員が予約を「変える・消す」"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='なゆた', use_reservation=True)
+        self.setting = services.get_setting(self.f)
+        self.setting.capacity = 1
+        self.setting.save()
+        self.a, self.b = child(self.f, '青木'), child(self.f, '井上')
+        self.day = datetime.date(2026, 10, 1)
+        self.user = StaffAccount.objects.create_user('u', password='pass12345', facility=self.f,
+                                                     role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+
+    def test_move_changes_date_and_promotes_the_old_day(self):
+        res, _ = services.create_reservation(self.f, self.a, self.day)
+        waiting, _ = services.create_reservation(self.f, self.b, self.day)
+        self.assertEqual(waiting.status, Reservation.STATUS_WAITLIST)
+
+        services.move_reservation(res, self.day + D(days=1))
+        res.refresh_from_db(); waiting.refresh_from_db()
+        self.assertEqual(res.date, self.day + D(days=1))
+        self.assertEqual(res.status, Reservation.STATUS_CONFIRMED)
+        self.assertEqual(waiting.status, Reservation.STATUS_CONFIRMED)   # もとの日は繰り上がる
+        self.assertTrue(ReservationNotice.objects.filter(kind=ReservationNotice.KIND_MOVED).exists())
+
+    def test_move_to_a_full_day_becomes_waitlist(self):
+        res, _ = services.create_reservation(self.f, self.a, self.day)
+        services.create_reservation(self.f, self.b, self.day + D(days=1))
+        services.move_reservation(res, self.day + D(days=1))
+        res.refresh_from_db()
+        self.assertEqual(res.status, Reservation.STATUS_WAITLIST)
+
+    def test_move_rejects_a_closed_day_and_a_duplicate(self):
+        res, _ = services.create_reservation(self.f, self.a, self.day)
+        ClosedDate.objects.create(facility=self.f, date=self.day + D(days=2))
+        with self.assertRaises(services.ReservationError):
+            services.move_reservation(res, self.day + D(days=2))
+        services.create_reservation(self.f, self.a, self.day + D(days=3))
+        with self.assertRaises(services.ReservationError):
+            services.move_reservation(res, self.day + D(days=3))
+
+    def test_delete_removes_the_row_and_promotes(self):
+        res, _ = services.create_reservation(self.f, self.a, self.day)
+        waiting, _ = services.create_reservation(self.f, self.b, self.day)
+        services.delete_reservation(res)
+        waiting.refresh_from_db()
+        self.assertFalse(Reservation.objects.filter(pk=res.pk).exists())
+        self.assertEqual(waiting.status, Reservation.STATUS_CONFIRMED)
+        # 消した予約ぶんの「取消」通知は残さない
+        self.assertFalse(ReservationNotice.objects.filter(kind=ReservationNotice.KIND_CANCELLED).exists())
+
+    def test_day_screen_can_move_and_delete(self):
+        res, _ = services.create_reservation(self.f, self.a, self.day)
+        url = reverse('reservations:day', args=[2026, 10, 1])
+        moved = self.client.post(url, {'action': 'edit', 'reservation': res.pk,
+                                       'date': '2026-10-05', 'note': 'ならしの日'})
+        self.assertRedirects(moved, reverse('reservations:day', args=[2026, 10, 5]))
+        res.refresh_from_db()
+        self.assertEqual((res.date, res.note), (datetime.date(2026, 10, 5), 'ならしの日'))
+
+        self.client.post(reverse('reservations:day', args=[2026, 10, 5]),
+                         {'action': 'edit', 'do_delete': '1', 'reservation': res.pk, 'date': '2026-10-05'})
+        self.assertFalse(Reservation.objects.filter(pk=res.pk).exists())
+
+    def test_other_facility_reservation_is_not_reachable(self):
+        other = Facility.objects.create(name='よその事業所', use_reservation=True)
+        theirs, _ = services.create_reservation(other, child(other, '他所'), self.day)
+        url = reverse('reservations:day', args=[2026, 10, 1])
+        self.assertEqual(self.client.post(url, {'action': 'edit', 'reservation': theirs.pk,
+                                                'date': '2026-10-05'}).status_code, 404)
+        self.assertEqual(self.client.post(url, {'action': 'edit', 'do_delete': '1',
+                                                'reservation': theirs.pk}).status_code, 404)
+
+
+class PublicPageTests(TestCase):
+    """顧客向けの予定表（ログインなし）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='なゆた', use_reservation=True)
+        self.setting = services.get_setting(self.f)
+        self.setting.capacity = 2
+        self.setting.save()
+        self.a = child(self.f, '青木')
+        self.customer = Customer.objects.create(facility=self.f, name='青木 母')
+        self.customer.children.add(self.a)
+        self.today = datetime.date.today()
+        self.day = self.today + D(days=7)
+
+    def url(self, name, token):
+        return reverse(f'reservations_public:{name}', args=[token])
+
+    def test_public_calendar_shows_counts_but_no_names(self):
+        services.create_reservation(self.f, self.a, self.day)
+        res = self.client.get(self.url('calendar', self.setting.public_token))
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, 'なゆた')
+        self.assertNotContains(res, '青木')
+
+    def test_public_calendar_can_be_turned_off(self):
+        self.setting.public_calendar = False
+        self.setting.save()
+        self.assertEqual(self.client.get(self.url('calendar', self.setting.public_token)).status_code, 404)
+
+    def test_unknown_token_is_not_found(self):
+        self.assertEqual(self.client.get(self.url('calendar', 'not-a-token')).status_code, 404)
+        self.assertEqual(self.client.get(self.url('customer', 'not-a-token')).status_code, 404)
+
+    def test_customer_can_book_and_cancel(self):
+        page = self.url('customer', self.customer.token)
+        self.assertContains(self.client.get(page), '青木 母')
+
+        self.client.post(page, {'action': 'book', 'beneficiary': self.a.pk, 'date': self.day.isoformat()})
+        res = Reservation.objects.get(facility=self.f, beneficiary=self.a, date=self.day)
+        self.assertEqual((res.status, res.source, res.customer), (Reservation.STATUS_CONFIRMED,
+                                                                  Reservation.SOURCE_WEB, self.customer))
+
+        self.client.post(page, {'action': 'cancel', 'reservation': res.pk})
+        res.refresh_from_db()
+        self.assertEqual(res.status, Reservation.STATUS_CANCELLED)
+
+    def test_customer_cannot_book_outside_the_window_or_on_a_closed_day(self):
+        page = self.url('customer', self.customer.token)
+        self.client.post(page, {'action': 'book', 'beneficiary': self.a.pk,
+                                'date': (self.today - D(days=1)).isoformat()})
+        self.client.post(page, {'action': 'book', 'beneficiary': self.a.pk,
+                                'date': (self.today + D(days=365)).isoformat()})
+        ClosedDate.objects.create(facility=self.f, date=self.day)
+        self.client.post(page, {'action': 'book', 'beneficiary': self.a.pk, 'date': self.day.isoformat()})
+        self.assertEqual(Reservation.objects.count(), 0)
+
+    def test_customer_cannot_touch_another_familys_reservation(self):
+        other_child = child(self.f, '井上')
+        other_customer = Customer.objects.create(facility=self.f, name='井上 母')
+        other_customer.children.add(other_child)
+        theirs, _ = services.create_reservation(self.f, other_child, self.day, customer=other_customer)
+
+        page = self.url('customer', self.customer.token)
+        self.client.post(page, {'action': 'cancel', 'reservation': theirs.pk})
+        theirs.refresh_from_db()
+        self.assertEqual(theirs.status, Reservation.STATUS_CONFIRMED)
+        # よその子の名前でも申し込めない
+        self.client.post(page, {'action': 'book', 'beneficiary': other_child.pk,
+                                'date': (self.day + D(days=1)).isoformat()})
+        self.assertFalse(Reservation.objects.filter(beneficiary=other_child, date=self.day + D(days=1)).exists())
+
+    def test_booking_can_be_turned_off(self):
+        self.setting.public_booking = False
+        self.setting.save()
+        page = self.url('customer', self.customer.token)
+        self.client.post(page, {'action': 'book', 'beneficiary': self.a.pk, 'date': self.day.isoformat()})
+        self.assertEqual(Reservation.objects.count(), 0)
+
+    def test_reissued_token_closes_the_old_address(self):
+        old = self.customer.token
+        self.customer.reissue_token()
+        self.customer.save()
+        self.assertEqual(self.client.get(self.url('customer', old)).status_code, 404)
+        self.assertEqual(self.client.get(self.url('customer', self.customer.token)).status_code, 200)
+
+
+class ApplyMessageTests(TestCase):
+    """LINE に届いた文を、その場で予約にする"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='なゆた', use_reservation=True)
+        self.setting = services.get_setting(self.f)
+        self.setting.capacity = 1
+        self.setting.save()
+        self.a, self.b = child(self.f, '青木', 'はると'), child(self.f, '井上', 'みなと')
+        self.customer = Customer.objects.create(facility=self.f, name='青木 花子', line_user_id='U1')
+        self.customer.children.add(self.a)
+        self.today = datetime.date.today()
+        self.day = self.today + D(days=7)
+
+    def md(self, day):
+        return f'{day.month}/{day.day}'
+
+    def test_finds_several_dates_in_one_message(self):
+        d1, d2 = self.today + D(days=3), self.today + D(days=4)
+        parsed = services.parse_message(f'{self.md(d1)} と {self.md(d2)} をお願いします', self.today)
+        self.assertEqual((parsed['intent'], parsed['dates']), ('reserve', [d1, d2]))
+        self.assertEqual(parsed['date'], d1)
+
+    def test_reads_tomorrow_and_a_full_date(self):
+        self.assertEqual(services.parse_message('明日お願いします', self.today)['date'], self.today + D(days=1))
+        parsed = services.parse_message('2026-10-01 予約', datetime.date(2026, 9, 16))
+        self.assertEqual(parsed['dates'], [datetime.date(2026, 10, 1)])   # 年つきを月日として二重に拾わない
+
+    def test_customer_books_two_days_at_once(self):
+        d1, d2 = self.today + D(days=3), self.today + D(days=4)
+        handled, reply = services.apply_message(
+            self.f, f'{self.md(d1)} {self.md(d2)} 予約おねがいします', customer=self.customer, today=self.today)
+        self.assertTrue(handled)
+        self.assertEqual(Reservation.objects.filter(beneficiary=self.a).count(), 2)
+        self.assertIn('承りました', reply)
+        self.assertIn('なゆた', reply)
+        # その場で返事をしたぶんは、送信待ちに残さない
+        self.assertFalse(ReservationNotice.objects.filter(customer=self.customer,
+                                                          status=ReservationNotice.STATUS_PENDING).exists())
+
+    def test_customer_message_outside_the_window_is_explained(self):
+        handled, reply = services.apply_message(self.f, f'{self.md(self.today)} 予約',
+                                                customer=self.customer, today=self.today)
+        self.assertTrue(handled)
+        self.assertEqual(Reservation.objects.count(), 0)
+        self.assertIn('締め切り', reply)
+
+    def test_customer_cannot_book_a_child_they_do_not_look_after(self):
+        handled, _ = services.apply_message(self.f, f'{self.md(self.day)} 井上みなと 予約',
+                                            customer=self.customer, today=self.today)
+        self.assertFalse(handled)   # 職員が確かめる
+        self.assertEqual(Reservation.objects.count(), 0)
+
+    def test_message_without_a_date_is_left_to_staff(self):
+        handled, _ = services.apply_message(self.f, '来週あたり予約したいです',
+                                            customer=self.customer, today=self.today)
+        self.assertFalse(handled)
+
+    def test_staff_group_needs_a_name(self):
+        handled, _ = services.apply_message(self.f, f'{self.md(self.day)} 予約', staff=True, today=self.today)
+        self.assertFalse(handled)
+        handled, reply = services.apply_message(self.f, f'{self.md(self.day)} 青木はると 予約',
+                                                staff=True, today=self.today)
+        self.assertTrue(handled)
+        res = Reservation.objects.get(beneficiary=self.a, date=self.day)
+        self.assertEqual((res.source, res.customer), (Reservation.SOURCE_GROUP, self.customer))
+
+    def test_staff_can_book_past_the_customer_window(self):
+        handled, _ = services.apply_message(self.f, f'{self.md(self.today)} 青木はると 予約',
+                                            staff=True, today=self.today)
+        self.assertTrue(handled)
+        self.assertTrue(Reservation.objects.filter(date=self.today).exists())
+
+    def test_cancel_by_message(self):
+        services.create_reservation(self.f, self.a, self.day, customer=self.customer)
+        handled, reply = services.apply_message(self.f, f'{self.md(self.day)} キャンセルします',
+                                                customer=self.customer, today=self.today)
+        self.assertTrue(handled)
+        self.assertIn('取り消しました', reply)
+        self.assertEqual(Reservation.objects.get(beneficiary=self.a, date=self.day).status,
+                         Reservation.STATUS_CANCELLED)
+
+    def test_check_asks_for_the_vacancies(self):
+        handled, reply = services.apply_message(self.f, '空いてますか？', customer=self.customer, today=self.today)
+        self.assertTrue(handled)
+        self.assertIn('空き状況', reply)
+
+    def test_full_day_becomes_waitlist(self):
+        services.create_reservation(self.f, self.b, self.day)
+        handled, reply = services.apply_message(self.f, f'{self.md(self.day)} 予約',
+                                                customer=self.customer, today=self.today)
+        self.assertTrue(handled)
+        self.assertEqual(Reservation.objects.get(beneficiary=self.a, date=self.day).status,
+                         Reservation.STATUS_WAITLIST)
+        self.assertIn('キャンセル待ち', reply)
+
+
+@override_settings(RESERVATION_ONLY=True, ROOT_URLCONF='config.urls_reservation')
+class StandaloneModeTests(TestCase):
+    """予約管理だけを別サーバーで動かす構成（横展開用）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='なゆた')   # 施設設定の「使う機能」は見ない
+        self.user = StaffAccount.objects.create_user('u', password='pass12345', facility=self.f,
+                                                     role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+
+    def test_home_goes_to_the_reservation_calendar(self):
+        self.assertRedirects(self.client.get('/'), reverse('reservations:calendar'))
+
+    def test_calendar_renders_with_a_reservation_only_sidebar(self):
+        res = self.client.get(reverse('reservations:calendar'))
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, '予約カレンダー')
+        self.assertContains(res, reverse('reservations:customers'))
+        self.assertNotContains(res, '支援計画')
+        self.assertNotContains(res, '帳票出力')
+
+    def test_the_feature_switch_is_not_required(self):
+        self.assertEqual(self.client.get(reverse('reservations:day', args=[2026, 10, 1])).status_code, 200)
+        self.assertEqual(self.client.get(reverse('reservations:line')).status_code, 200)
+
+    def test_customer_page_works(self):
+        customer = Customer.objects.create(facility=self.f, name='青木 花子')
+        customer.children.add(child(self.f, '青木'))
+        self.client.logout()
+        res = self.client.get(reverse('reservations_public:customer', args=[customer.token]))
+        self.assertEqual(res.status_code, 200)
+
+    def test_records_screens_are_not_published(self):
+        self.assertEqual(self.client.get('/records/').status_code, 404)
+        self.assertEqual(self.client.get('/billing/').status_code, 404)

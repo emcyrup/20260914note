@@ -47,7 +47,7 @@
 
   {% block extra_css %}{% endblock %}
 </head>
-<body class="{% if user.is_authenticated %}theme-{{ user.ui_theme }} mode-{{ user.prefs.mode }}{% endif %}"{% if user.is_authenticated %} data-editing-url="{% url 'facilities:editing' %}"{% endif %}>
+<body class="{% if user.is_authenticated %}theme-{{ user.ui_theme }} mode-{{ user.prefs.mode }}{% endif %}"{% if user.is_authenticated and not reservation_only %} data-editing-url="{% url 'facilities:editing' %}"{% endif %}>
 
 {% if user.is_authenticated %}
 <!-- ========== アプリシェル（サイドバー＋メインエリア） ========== -->
@@ -57,13 +57,13 @@
   <nav class="sidebar" id="sidebar">
 
     <!-- ブランドロゴ -->
-    <a class="sidebar-brand" href="{% if user.ui_theme == 'simple' %}{% url 'records:simple_home' %}{% else %}{% url 'facilities:dashboard' %}{% endif %}">
+    <a class="sidebar-brand" href="{% if reservation_only %}{{ home_url }}{% elif user.ui_theme == 'simple' %}{% url 'records:simple_home' %}{% else %}{% url 'facilities:dashboard' %}{% endif %}">
       <div class="sidebar-brand-icon {% if branding.logo %}has-logo{% endif %}">
         {% if branding.logo %}<img src="{{ branding.logo.url }}" alt="{{ user.facility.name }}">{% else %}<i class="bi bi-heart-pulse-fill"></i>{% endif %}
       </div>
       <div>
         <div class="sidebar-brand-name">{{ user.facility.name|default:"放デイ業務支援" }}</div>
-        <div class="sidebar-brand-sub">放課後等デイサービス</div>
+        <div class="sidebar-brand-sub">{% if reservation_only %}予約の受付{% else %}放課後等デイサービス{% endif %}</div>
       </div>
     </a>
 
@@ -84,6 +84,31 @@
 
     <!-- メインナビ -->
     <ul class="sidebar-nav">
+      {% if reservation_only %}
+      <!-- 予約管理だけを動かすサーバー（横展開用） -->
+      <li>
+        <a class="sidebar-nav-item {% block nav_reservations_only %}{% endblock %}" href="{% url 'reservations:calendar' %}">
+          <i class="bi bi-calendar-check"></i><span>予約カレンダー</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% block nav_customers_only %}{% endblock %}" href="{% url 'reservations:customers' %}">
+          <i class="bi bi-people"></i><span>顧客</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% block nav_line_only %}{% endblock %}" href="{% url 'reservations:line' %}">
+          <i class="bi bi-chat-dots"></i><span>公式LINE</span>
+        </a>
+      </li>
+      {% if user.is_admin or user.is_superuser %}
+      <li class="nav-secondary">
+        <a class="sidebar-nav-item {% block nav_staff_only %}{% endblock %}" href="{% url 'accounts:staff' %}">
+          <i class="bi bi-person-badge"></i><span>{{ terms.staff }}・運用管理</span>
+        </a>
+      </li>
+      {% endif %}
+      {% else %}
       <li>
         <a class="sidebar-nav-item {% block nav_home %}{% endblock %}"
            href="{% url 'facilities:dashboard' %}">
@@ -196,6 +221,7 @@
           <span>施設設定</span>
         </a>
       </li>
+      {% endif %}
     </ul>
 
     <div class="sidebar-spacer"></div>
@@ -224,7 +250,7 @@
     <!-- スティッキートップバー -->
     <div class="topbar {% block topbar_class %}{% endblock %}">
       <!-- ハンバーガーボタン（スマートフォンのみ表示） -->
-      {% if user.ui_theme == 'simple' %}
+      {% if user.ui_theme == 'simple' and not reservation_only %}
       <a class="sidebar-toggle-btn simple-home-link" href="{% url 'records:simple_home' %}" aria-label="きょうの きろく へ">
         <i class="bi bi-house"></i>
       </a>
@@ -240,7 +266,8 @@
       {% block topbar_nav %}{% endblock %}
       <div class="d-flex align-items-center gap-2 flex-shrink-0">
         {% block topbar_actions %}{% endblock %}
-        {% if user.ui_theme == 'simple' %}
+        {% if reservation_only %}
+        {% elif user.ui_theme == 'simple' %}
         <a href="{% url 'accounts:theme' %}" class="btn-memo" title="画面の見た目"><i class="bi bi-palette"></i><span>画面</span></a>
         {% else %}
         <!-- メモを書くボタン（全画面共通） -->
@@ -309,7 +336,7 @@
 {% if user.is_authenticated %}<script src="{% static 'js/concurrency.js' %}?v=1"></script>{% endif %}
 {% block extra_js %}{% endblock %}
 
-{% if user.is_authenticated and user.ui_theme != 'simple' %}
+{% if user.is_authenticated and user.ui_theme != 'simple' and not reservation_only %}
 {% include 'ai_assist/_chat_widget.html' %}
 {% endif %}
 
@@ -338,6 +365,7 @@
     50%       { opacity: 0.6; }
   }
 </style>
+{% if not reservation_only %}
 <div class="modal fade" id="globalMemoModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-scrollable" style="max-width:480px;">
     <div class="modal-content" style="border-radius:16px;border:none;">
@@ -375,6 +403,7 @@
     </div>
   </div>
 </div>
+{% endif %}
 <script>
 /* ===== グローバル メモ音声入力 ===== */
 (function () {

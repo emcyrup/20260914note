@@ -1,4 +1,5 @@
 """呼び方・ロゴ・配色をすべてのテンプレートに渡す"""
+from django.conf import settings
 
 
 DEFAULT_TERMS = {'staff': '職員', 'beneficiary': '利用者'}
@@ -24,18 +25,26 @@ def developer_context(user):
     }
 
 
+def standalone_context():
+    """予約管理だけを動かすサーバー（RESERVATION_ONLY）かどうか"""
+    from config.utils import home_url
+    only = settings.RESERVATION_ONLY
+    return {'reservation_only': only, 'home_url': home_url() if only else ''}
+
+
 def branding(request):
     user = getattr(request, 'user', None)
     facility = getattr(user, 'facility', None) if user is not None and user.is_authenticated else None
     if facility is None:
         return {'terms': dict(DEFAULT_TERMS), 'branding': {'logo': None, 'color': ''},
                 'features': {'billing': True, 'line': True, 'reservation': False, 'form_set': 'standard'}, 'journal_sections': [],
-                **developer_context(user)}
+                **standalone_context(), **developer_context(user)}
     return {
         'terms': get_terms(user),
         'branding': {'logo': facility.logo if facility.logo else None, 'color': facility.brand_color or ''},
         'features': {'billing': facility.use_billing, 'line': facility.use_line,
                      'reservation': facility.use_reservation, 'form_set': facility.form_set},
         'journal_sections': facility.journal_section_keys(),
+        **standalone_context(),
         **developer_context(user),
     }

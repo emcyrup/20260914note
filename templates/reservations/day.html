@@ -7,6 +7,7 @@
 {% block extra_css %}
 <style>
   .rsv-item { grid-template-columns: 1.6fr 1.1fr 1fr auto; }
+  .rsv-edit { background: rgba(243,239,231,0.55); border-top: 1px dashed #ddd6c9; padding-top: 10px; }
   @media (min-width: 769px) { .w-md-auto { width: auto !important; } }
 </style>
 {% endblock %}
@@ -43,12 +44,41 @@
       </div>
       <div class="small"><span class="row-list-label">入口</span>{{ r.get_source_display }}{% if r.customer %}・{{ r.customer.name }}{% if not r.customer.can_notify %}<span class="text-muted">（LINE未連携）</span>{% endif %}{% endif %}</div>
       <div class="small">{% if r.note %}<span class="row-list-label">備考</span>{{ r.note }}{% endif %}</div>
-      <div class="text-md-end">
-        <form method="post" onsubmit="return confirm('{{ r.beneficiary.full_name }} さんの予約を取り消しますか？\nキャンセル待ちがいれば繰り上げます。');">
+      <div class="text-md-end d-flex gap-1 justify-content-md-end flex-wrap">
+        <button type="button" class="btn btn-sm btn-outline-secondary flex-grow-1 flex-md-grow-0"
+                onclick="toggleEdit({{ r.pk }})">変更</button>
+        <form method="post" class="flex-grow-1 flex-md-grow-0"
+              onsubmit="return confirm('{{ r.beneficiary.full_name }} さんの予約を取り消しますか？\nキャンセル待ちがいれば繰り上げます。');">
           {% csrf_token %}<input type="hidden" name="action" value="cancel"><input type="hidden" name="reservation" value="{{ r.pk }}">
           <button class="btn btn-sm btn-outline-danger w-100 w-md-auto">取り消す</button>
         </form>
       </div>
+    </div>
+    <div class="rsv-edit d-none px-3 pb-3" id="edit{{ r.pk }}">
+      <form method="post" class="row g-2 align-items-end">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="edit"><input type="hidden" name="reservation" value="{{ r.pk }}">
+        <div class="col-6 col-md-3">
+          <label class="form-label small fw-semibold" for="date{{ r.pk }}">日にち</label>
+          <input type="date" class="form-control form-control-sm" id="date{{ r.pk }}" name="date"
+                 value="{{ r.date|date:'Y-m-d' }}" required>
+        </div>
+        <div class="col-6 col-md-5">
+          <label class="form-label small fw-semibold" for="note{{ r.pk }}">備考</label>
+          <input type="text" class="form-control form-control-sm" id="note{{ r.pk }}" name="note" value="{{ r.note }}">
+        </div>
+        <div class="col-6 col-md-2 d-grid">
+          <button class="btn btn-sm btn-primary">保存する</button>
+        </div>
+        <div class="col-6 col-md-2 d-grid">
+          <button class="btn btn-sm btn-outline-danger" formnovalidate name="do_delete" value="1"
+                  onclick="return confirm('{{ r.beneficiary.full_name }} さんの予約を記録ごと削除します。\n取り消しのお知らせは送りません。よろしいですか？');">削除する</button>
+        </div>
+        <div class="col-12"><div class="form-text">
+          日にちを変えると、もとの日はキャンセル待ちを繰り上げ、変更のお知らせを送信待ちに入れます。
+          「削除する」は、間違えて入れた予約を記録ごと消すときに使います。
+        </div></div>
+      </form>
     </div>
     {% empty %}
     <div class="text-center text-muted py-4">この日の予約はまだありません。</div>
@@ -127,4 +157,11 @@
   </div></div>
   {% endif %}
 </div>
+
+<script>
+  function toggleEdit(pk) {
+    var box = document.getElementById('edit' + pk);
+    if (box) box.classList.toggle('d-none');
+  }
+</script>
 {% endblock %}
