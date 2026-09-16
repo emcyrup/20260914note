@@ -36,14 +36,22 @@ class ReservationSetting(models.Model):
     public_calendar = models.BooleanField(default=True, verbose_name='顧客向けの予定表を公開する')
     public_booking = models.BooleanField(default=True, verbose_name='顧客が自分で予約できるようにする')
     public_request = models.BooleanField(default=True, verbose_name='空き状況のページから申し込みを受ける')
-    request_auto_apply = models.BooleanField(default=False, verbose_name='名前が1人に決まるとき、その場で予約にする')
     booking_from_days = models.PositiveSmallIntegerField(default=1, verbose_name='何日先から受け付けるか',
                                                          help_text='0 なら当日ぶんも受け付けます。')
     booking_until_days = models.PositiveSmallIntegerField(default=60, verbose_name='何日先まで受け付けるか')
 
     # ---- LINE から直接受け付けるか（既定は職員が確かめてから反映）----
     notify_vacancy = models.BooleanField(default=True, verbose_name='満席から空きが出たら、顧客へお知らせする')
-    line_auto_apply = models.BooleanField(default=False, verbose_name='公式LINEの申し込みをその場で反映する')
+
+    # ---- 予約の受け方 ----
+    MODE_AUTO = 'auto'
+    MODE_APPROVE = 'approve'
+    MODE_CHOICES = [
+        (MODE_AUTO, '来た順に自動で確定する'),
+        (MODE_APPROVE, '職員が確認してから確定する'),
+    ]
+    booking_mode = models.CharField(max_length=10, choices=MODE_CHOICES, default=MODE_AUTO,
+                                    verbose_name='予約の受け方')
     group_auto_apply = models.BooleanField(default=True, verbose_name='スタッフのグループの投稿を反映する')
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -71,6 +79,11 @@ class ReservationSetting(models.Model):
         today = today or _dt.date.today()
         return (today + _dt.timedelta(days=self.booking_from_days),
                 today + _dt.timedelta(days=self.booking_until_days))
+
+    @property
+    def is_auto(self):
+        """来た順に自動で確定する（満席なら、その場でキャンセル待ちかお断り）"""
+        return self.booking_mode == self.MODE_AUTO
 
     def reissue_public_token(self):
         self.public_token = new_calendar_token()
@@ -207,7 +220,9 @@ class Reservation(models.Model):
 
     facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='reservations')
     beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='reservations',
-                                    verbose_name='利用者')
+                                    null=True, blank=True, verbose_name='利用者')
+    # 台帳にまだいない方のお申し込み。職員があとから利用者に結びつける
+    guest_name = models.CharField(max_length=100, blank=True, verbose_name='お名前（台帳に未登録）')
     customer = models.ForeignKey(Customer, on_delete=models.SET_NULL, null=True, blank=True,
                                  related_name='reservations', verbose_name='連絡先')
     date = models.DateField(verbose_name='予約日')
@@ -226,11 +241,26 @@ class Reservation(models.Model):
             # 同じ日・同じ利用者で有効な予約は1件だけ（取消・お断りは何件でも残せる）
             models.UniqueConstraint(fields=['beneficiary', 'date'], name='uniq_active_reservation',
                                     condition=models.Q(status__in=('confirmed', 'waitlist'))),
+            # 台帳に未登録の方も、同じ日・同じお名前で二重にならないようにする
+            models.UniqueConstraint(fields=['facility', 'guest_name', 'date'], name='uniq_active_guest_reservation',
+                                    condition=models.Q(status__in=('confirmed', 'waitlist'),
+                                                       beneficiary__isnull=True) & ~models.Q(guest_name='')),
+            models.CheckConstraint(condition=models.Q(beneficiary__isnull=False) | ~models.Q(guest_name=''),
+                                   name='reservation_has_someone'),
         ]
         indexes = [models.Index(fields=['facility', 'date', 'status'])]
 
     def __str__(self):
-        return f'{self.date} {self.beneficiary.full_name}（{self.get_status_display()}）'
+        return f'{self.date} {self.display_name}（{self.get_status_display()}）'
+
+    @property
+    def display_name(self):
+        """台帳にいればその名前、いなければお申し込みのお名前"""
+        return self.beneficiary.full_name if self.beneficiary_id else self.guest_name
+
+    @property
+    def is_guest(self):
+        return not self.beneficiary_id
 
     @property
     def is_active(self):

@@ -109,7 +109,7 @@ def notice_body(kind, setting, day=None, child='', extra=''):
 def queue_notice(facility, kind, setting=None, customer=None, reservation=None, day=None, body=None, to_line_id=''):
     """通知を送信待ちに積む。宛先が LINE 未連携なら「手渡し」として残す（文面をコピーして送る）"""
     setting = setting or get_setting(facility)
-    child = reservation.beneficiary.full_name if reservation else ''
+    child = reservation.display_name if reservation else ''
     text = body if body is not None else notice_body(kind, setting, day or (reservation.date if reservation else None), child)
     if kind == ReservationNotice.KIND_GROUP:
         status = ReservationNotice.STATUS_PENDING if to_line_id else ReservationNotice.STATUS_MANUAL
@@ -148,23 +148,40 @@ class ReservationError(Exception):
 
 
 @transaction.atomic
-def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STAFF, customer=None, note=''):
+def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STAFF, customer=None,
+                       note='', guest_name=''):
     """
-    予約を1件作る。戻り値は (予約, 通知).
-    空きがあれば確定、満枠ならキャンセル待ち（設定で断る）、休業日と重複は断る。
+    予約を1件作る。戻り値は (予約, 通知)。
+
+    - 空きがあれば確定、満席ならキャンセル待ち（設定で断ることもできる）
+    - 休業日と重複は断る（例外）
+    - `guest_name` を渡すと、まだ台帳にいない方のぶんとして席を押さえる
+      （職員があとから利用者に結びつける）
+
+    同じ日に同時の申し込みが来ても枠を超えないよう、その日の行を先に押さえてから数える。
+    先に押さえた申し込みが勝ち、あとの申し込みはキャンセル待ちかお断りになる。
     """
     setting = get_setting(facility)
-    if beneficiary.facility_id != facility.pk:
+    guest_name = (guest_name or '').strip()[:100]
+    if beneficiary is None and not guest_name:
+        raise ReservationError('だれの予約かが分かりません。')
+    if beneficiary is not None and beneficiary.facility_id != facility.pk:
         raise ReservationError('この事業所の利用者ではありません。')
+    who = beneficiary.full_name if beneficiary is not None else guest_name
+
     # 同じ日に同時の申し込みが来ても枠を超えないよう、その日の行を先に押さえる
     list(Reservation.objects.select_for_update().filter(facility=facility, date=day))
-    if Reservation.objects.filter(beneficiary=beneficiary, date=day,
-                                  status__in=Reservation.ACTIVE_STATUSES).exists():
-        raise ReservationError(f'{jp_date(day)} の {beneficiary.full_name} さんの予約はすでにあります。')
+    taken = Reservation.objects.filter(facility=facility, date=day, status__in=Reservation.ACTIVE_STATUSES)
+    if beneficiary is not None:
+        already = taken.filter(beneficiary=beneficiary).exists()
+    else:
+        already = taken.filter(beneficiary__isnull=True, guest_name=guest_name).exists()
+    if already:
+        raise ReservationError(f'{jp_date(day)} の {who} さんの予約はすでにあります。')
     if is_closed(facility, day, setting):
         raise ReservationError(f'{jp_date(day)} は休業日のため予約を受け付けられません。')
 
-    customer = customer or customer_for(facility, beneficiary)
+    customer = customer or (customer_for(facility, beneficiary) if beneficiary is not None else None)
     st = day_state(facility, day, setting)
     if not st['full']:
         status, kind, what = Reservation.STATUS_CONFIRMED, ReservationNotice.KIND_ACCEPTED, '予約'
@@ -174,12 +191,13 @@ def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STA
         status, kind, what = Reservation.STATUS_DECLINED, ReservationNotice.KIND_DECLINED, '満席で受付不可'
 
     try:
-        res = Reservation.objects.create(facility=facility, beneficiary=beneficiary, customer=customer,
-                                         date=day, status=status, source=source, note=note[:200])
+        res = Reservation.objects.create(facility=facility, beneficiary=beneficiary, guest_name=guest_name,
+                                         customer=customer, date=day, status=status, source=source,
+                                         note=note[:200])
     except IntegrityError:
-        raise ReservationError(f'{jp_date(day)} の {beneficiary.full_name} さんの予約はすでにあります。')
+        raise ReservationError(f'{jp_date(day)} の {who} さんの予約はすでにあります。')
     notice = queue_notice(facility, kind, setting, customer=customer, reservation=res)
-    queue_group_notice(facility, setting, day, beneficiary.full_name, what)
+    queue_group_notice(facility, setting, day, who, what)
     return res, notice
 
 
@@ -198,7 +216,7 @@ def cancel_reservation(res, notify=True, base=''):
     res.save(update_fields=['status', 'cancelled_at', 'updated_at'])
     if notify:
         queue_notice(facility, ReservationNotice.KIND_CANCELLED, setting, customer=res.customer, reservation=res)
-        queue_group_notice(facility, setting, res.date, res.beneficiary.full_name, '取消')
+        queue_group_notice(facility, setting, res.date, res.display_name, '取消')
 
     promoted = promote_waitlist(facility, res.date, setting) if was_confirmed else []
     if was_full and was_confirmed and not promoted:
@@ -228,7 +246,7 @@ def move_reservation(res, new_day, note=None, base=''):
         raise ReservationError(f'{jp_date(new_day)} は休業日のため変更できません。')
     if Reservation.objects.filter(beneficiary=res.beneficiary, date=new_day,
                                   status__in=Reservation.ACTIVE_STATUSES).exclude(pk=res.pk).exists():
-        raise ReservationError(f'{jp_date(new_day)} の {res.beneficiary.full_name} さんの予約はすでにあります。')
+        raise ReservationError(f'{jp_date(new_day)} の {res.display_name} さんの予約はすでにあります。')
 
     st = day_state(facility, new_day, setting)
     if st['full'] and not setting.allow_waitlist:
@@ -240,8 +258,8 @@ def move_reservation(res, new_day, note=None, base=''):
     res.save(update_fields=['date', 'status', 'note', 'updated_at'])
 
     queue_notice(facility, ReservationNotice.KIND_MOVED, setting, customer=res.customer, reservation=res)
-    queue_group_notice(facility, setting, old_day, res.beneficiary.full_name, f'{jp_date(new_day)} へ変更')
-    queue_group_notice(facility, setting, new_day, res.beneficiary.full_name,
+    queue_group_notice(facility, setting, old_day, res.display_name, f'{jp_date(new_day)} へ変更')
+    queue_group_notice(facility, setting, new_day, res.display_name,
                        f'{jp_date(old_day)} から変更（{res.get_status_display()}）')
     if was_confirmed:
         was_full = old_state['full']
@@ -252,11 +270,29 @@ def move_reservation(res, new_day, note=None, base=''):
 
 
 @transaction.atomic
+def link_reservation(res, beneficiary):
+    """台帳に未登録のまま押さえていた予約を、利用者に結びつける"""
+    if not res.is_guest:
+        raise ReservationError('この予約はすでに利用者に結びついています。')
+    if beneficiary.facility_id != res.facility_id:
+        raise ReservationError('この事業所の利用者ではありません。')
+    if Reservation.objects.filter(beneficiary=beneficiary, date=res.date,
+                                  status__in=Reservation.ACTIVE_STATUSES).exclude(pk=res.pk).exists():
+        raise ReservationError(f'{jp_date(res.date)} の {beneficiary.full_name} さんの予約はすでにあります。')
+    res.beneficiary = beneficiary
+    res.guest_name = ''
+    if res.customer_id is None:
+        res.customer = customer_for(res.facility, beneficiary)
+    res.save(update_fields=['beneficiary', 'guest_name', 'customer', 'updated_at'])
+    return res
+
+
+@transaction.atomic
 def delete_reservation(res, base=''):
     """予約を記録ごと消す（間違って入れたときの後始末）。通知は顧客へは送らない"""
     facility = res.facility
     setting = get_setting(facility)
-    day, name, customer = res.date, res.beneficiary.full_name, res.customer
+    day, name, customer = res.date, res.display_name, res.customer
     was_confirmed = res.status == Reservation.STATUS_CONFIRMED
     was_full = day_state(facility, day, setting)['full']
     ReservationNotice.objects.filter(reservation=res, status=ReservationNotice.STATUS_PENDING).delete()
@@ -285,7 +321,7 @@ def promote_waitlist(facility, day, setting=None):
         nxt.status = Reservation.STATUS_CONFIRMED
         nxt.save(update_fields=['status', 'updated_at'])
         queue_notice(facility, ReservationNotice.KIND_PROMOTED, setting, customer=nxt.customer, reservation=nxt)
-        queue_group_notice(facility, setting, day, nxt.beneficiary.full_name, '繰り上げ確定')
+        queue_group_notice(facility, setting, day, nxt.display_name, '繰り上げ確定')
         promoted.append(nxt)
     return promoted
 
@@ -379,7 +415,7 @@ def bookable(facility, day, setting=None, today=None):
         return False, f'{jp_date(day)} は休業日です。'
     st = day_state(facility, day, setting)
     if st['full'] and not setting.allow_waitlist:
-        return False, f'{jp_date(day)} は満席です。'
+        return False, f'{jp_date(day)} は満席のため、ご予約をお受けできませんでした。'
     return True, ''
 
 
@@ -584,8 +620,9 @@ def apply_message(facility, text, customer=None, staff=False, today=None, settin
     dates = parsed['dates'][:MAX_DATES_PER_MESSAGE]
 
     if parsed['intent'] == 'check':
-        start = dates[0] if dates else today
-        return True, vacancy_text(facility, start)
+        text = vacancy_text(facility, dates[0] if dates else today)
+        url = customer_page_url(customer, base) if customer is not None else ''
+        return True, f'{text}\nご予約はこちらから\n{url}' if url else text
 
     if parsed['intent'] not in ('reserve', 'cancel') or not dates:
         return False, ''
@@ -686,29 +723,53 @@ def apply_request(req, beneficiary, customer=None, staff=None, note=''):
     return res
 
 
+@transaction.atomic
+def book_request_now(req, setting=None, base=''):
+    """
+    自動方式：届いた申し込みを、その場で予約にする（来た順）。
+
+    お子さまの名前が台帳の利用者と決まればその方の予約、決まらなければ
+    「台帳に未登録」のまま席を押さえる（職員があとから結びつける）。
+    戻り値は予約。満席でキャンセル待ちも受けない設定なら「お断り」で返る。
+    """
+    facility = req.facility
+    setting = setting or get_setting(facility)
+    beneficiary = request_matches(facility, req)
+    customer = Customer.objects.filter(facility=facility, name=req.name).first()
+    res, _ = create_reservation(
+        facility, beneficiary, req.date, source=Reservation.SOURCE_WEB, customer=customer,
+        note=f'お申し込み：{req.name} 様'[:200],
+        guest_name='' if beneficiary is not None else (req.child_name or req.name),
+    )
+    req.status = BookingRequest.STATUS_DONE
+    req.reservation = res
+    req.customer = customer
+    req.handled_at = timezone.now()
+    req.result_note = f'{jp_date(req.date)} {res.display_name} {res.get_status_display()}（自動）'[:200]
+    req.save(update_fields=['status', 'reservation', 'customer', 'handled_at', 'result_note'])
+    return res
+
+
 def receive_request(facility, day, name, kana='', phone='', child_name='', note='', setting=None):
     """
     申し込みを受け取る。戻り値は (申し込み, できた予約 or None)。
 
-    既定では予約にせず、職員が確かめてから反映する。
-    設定「名前が1人に決まるとき、その場で予約にする」を入れているときだけ、
-    在籍している利用者1人に決まる場合に限り、その場で予約にする。
+    自動方式（既定）では、来た順にその場で予約にする（満席ならキャンセル待ちかお断り）。
+    承認方式では予約にせず、職員が確かめてから反映する。
     """
     setting = setting or get_setting(facility)
     req = BookingRequest.objects.create(
         facility=facility, date=day, name=name[:100], kana=kana[:100], phone=phone[:20],
         child_name=child_name[:100], note=note[:200],
     )
-    if not setting.request_auto_apply:
-        return req, None
-    beneficiary = request_matches(facility, req)
-    if beneficiary is None:
-        return req, None
+    if not setting.is_auto:
+        return req, None      # 承認方式：職員が確かめてから予約にする
     try:
-        res = apply_request(req, beneficiary, customer=customer_for(facility, beneficiary))
-    except ReservationError:
-        return req, None
-    return req, res
+        return req, book_request_now(req, setting)
+    except ReservationError as e:
+        req.result_note = str(e)[:200]
+        req.save(update_fields=['result_note'])
+        raise
 
 
 # ---------------------------------------------------------------- 「予約」と送られたときの案内

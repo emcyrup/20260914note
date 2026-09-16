@@ -189,19 +189,32 @@ class PublicCalendarView(PublicPageMixin):
             messages.error(request, reason)
             return back
 
-        req, res = services.receive_request(
-            facility, day, name=name, kana=p.get('kana', '').strip(), phone=p.get('phone', '').strip(),
-            child_name=child_name, note=p.get('note', '').strip(), setting=setting)
+        try:
+            req, res = services.receive_request(
+                facility, day, name=name, kana=p.get('kana', '').strip(), phone=p.get('phone', '').strip(),
+                child_name=child_name, note=p.get('note', '').strip(), setting=setting)
+        except services.ReservationError as e:
+            messages.error(request, str(e))
+            return back
+        self.tell_result(request, day, res, child_name)
+        return back
+
+    @staticmethod
+    def tell_result(request, day, res, who):
+        """申し込みの結果をその場で伝える（満席で受けられなかったときも、はっきり伝える）"""
+        d = services.jp_date(day)
         if res is None:
-            messages.success(request, f'{services.jp_date(day)} のお申し込みを承りました。'
+            messages.success(request, f'{d} のお申し込みを承りました。'
                                       '事業所で確認のうえ、あらためてご連絡します。')
         elif res.status == Reservation.STATUS_CONFIRMED:
-            messages.success(request, f'{services.jp_date(day)} {res.beneficiary.full_name}さんの'
-                                      'ご予約を承りました。')
+            messages.success(request, f'{d} {res.display_name or who}さんのご予約を承りました。')
+        elif res.status == Reservation.STATUS_WAITLIST:
+            messages.warning(request, f'{d} はちょうど満席になりました。'
+                                      f'{res.display_name or who}さんはキャンセル待ちでお預かりします。'
+                                      '空きが出ましたらお知らせします。')
         else:
-            messages.success(request, f'{services.jp_date(day)} {res.beneficiary.full_name}さんは'
-                                      'キャンセル待ちでお預かりしました。空きが出ましたらお知らせします。')
-        return back
+            messages.error(request, f'{d} は満席のため、ご予約をお受けできませんでした。'
+                                    'ほかの日でご検討いただくか、事業所へお問い合わせください。')
 
 
 class CustomerPageView(PublicPageMixin):
@@ -271,7 +284,7 @@ class CustomerPageView(PublicPageMixin):
                 return back
             services.cancel_reservation(res)
             messages.success(request, f'{services.jp_date(res.date)} '
-                                      f'{res.beneficiary.full_name}さんのご予約を取り消しました。')
+                                      f'{res.display_name}さんのご予約を取り消しました。')
             return back
 
         beneficiary = children.get(to_int(request.POST.get('beneficiary'), -1))
@@ -293,10 +306,5 @@ class CustomerPageView(PublicPageMixin):
         except services.ReservationError as e:
             messages.error(request, str(e))
             return back
-        if res.status == Reservation.STATUS_CONFIRMED:
-            messages.success(request, f'{services.jp_date(day)} {beneficiary.full_name}さんの'
-                                      'ご予約を承りました。')
-        else:
-            messages.success(request, f'{services.jp_date(day)} {beneficiary.full_name}さんは'
-                                      'キャンセル待ちでお預かりしました。空きが出ましたらお知らせします。')
+        PublicCalendarView.tell_result(request, day, res, beneficiary.full_name)
         return back

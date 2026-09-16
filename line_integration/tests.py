@@ -191,8 +191,7 @@ class WebhookAutoApplyTests(TestCase):
         self.customer = Customer.objects.create(facility=self.f, name='青木 花子', line_user_id='U1')
         self.customer.children.add(self.ben)
         self.setting = get_setting(self.f)
-        self.setting.line_auto_apply = True
-        self.setting.notify_group_id = 'G1'
+        self.setting.notify_group_id = 'G1'   # 受け方は既定（来た順に自動で確定）
         self.setting.save()
         self.day = date.today() + timedelta(days=7)
 
@@ -222,9 +221,9 @@ class WebhookAutoApplyTests(TestCase):
         self.assertEqual(booked.status, Reservation.STATUS_CANCELLED)
         self.assertIn('取り消しました', self._text(reply))
 
-    def test_customer_message_is_inboxed_when_auto_apply_is_off(self):
-        from reservations.models import LineInbox, Reservation
-        self.setting.line_auto_apply = False
+    def test_customer_message_is_inboxed_in_approve_mode(self):
+        from reservations.models import LineInbox, Reservation, ReservationSetting
+        self.setting.booking_mode = ReservationSetting.MODE_APPROVE
         self.setting.save()
         res, reply = self._post(f'{self.day.month}/{self.day.day} 予約おねがいします')
         self.assertEqual(Reservation.objects.count(), 0)
@@ -310,12 +309,25 @@ class WebhookPageGuideTests(TestCase):
     def test_asking_about_vacancies_also_gets_the_page(self):
         self.assertIn('/yoyaku/mypage/', self._post('空いてますか？'))
 
-    def test_a_message_with_a_date_is_still_passed_to_staff(self):
-        from reservations.models import LineInbox
+    def test_a_message_with_a_date_books_right_away(self):
+        from reservations.models import LineInbox, Reservation
+        day = date.today() + timedelta(days=7)
+        text = self._post(f'{day.month}/{day.day} 予約おねがいします')
+        self.assertIn('ご予約を承りました', text)
+        self.assertIn('/yoyaku/mypage/', text)     # 確認・取り消しのページも案内する
+        self.assertEqual(Reservation.objects.filter(facility=self.f, date=day).count(), 1)
+        self.assertEqual(LineInbox.objects.count(), 0)
+
+    def test_a_message_with_a_date_waits_for_staff_in_approve_mode(self):
+        from reservations.models import LineInbox, Reservation, ReservationSetting
+        setting = self.setting
+        setting.booking_mode = ReservationSetting.MODE_APPROVE
+        setting.save()
         day = date.today() + timedelta(days=7)
         text = self._post(f'{day.month}/{day.day} 予約おねがいします')
         self.assertIn('承りました', text)          # 職員が確かめる
-        self.assertIn('/yoyaku/mypage/', text)     # あわせてページも案内する
+        self.assertIn('/yoyaku/mypage/', text)
+        self.assertEqual(Reservation.objects.count(), 0)
         self.assertEqual(LineInbox.objects.count(), 1)
 
     def test_other_messages_are_unchanged(self):

@@ -39,8 +39,9 @@
     {% for r in reservations %}
     <div class="row-list-item rsv-item">
       <div class="d-flex align-items-center gap-2 flex-wrap">
-        <span class="fw-bold">{{ r.beneficiary.full_name }}</span>
+        <span class="fw-bold">{{ r.display_name }}</span>
         {% if r.status == 'confirmed' %}<span class="badge text-bg-success">予約</span>{% else %}<span class="badge text-bg-warning">キャンセル待ち</span>{% endif %}
+        {% if r.is_guest %}<span class="badge text-bg-secondary">台帳に未登録</span>{% endif %}
       </div>
       <div class="small"><span class="row-list-label">入口</span>{{ r.get_source_display }}{% if r.customer %}・{{ r.customer.name }}{% if not r.customer.can_notify %}<span class="text-muted">（LINE未連携）</span>{% endif %}{% endif %}</div>
       <div class="small">{% if r.note %}<span class="row-list-label">備考</span>{{ r.note }}{% endif %}</div>
@@ -48,7 +49,7 @@
         <button type="button" class="btn btn-sm btn-outline-secondary flex-grow-1 flex-md-grow-0"
                 onclick="toggleEdit({{ r.pk }})">変更</button>
         <form method="post" class="flex-grow-1 flex-md-grow-0"
-              onsubmit="return confirm('{{ r.beneficiary.full_name }} さんの予約を取り消しますか？\nキャンセル待ちがいれば繰り上げます。');">
+              onsubmit="return confirm('{{ r.display_name }} さんの予約を取り消しますか？\nキャンセル待ちがいれば繰り上げます。');">
           {% csrf_token %}<input type="hidden" name="action" value="cancel"><input type="hidden" name="reservation" value="{{ r.pk }}">
           <button class="btn btn-sm btn-outline-danger w-100 w-md-auto">取り消す</button>
         </form>
@@ -72,13 +73,30 @@
         </div>
         <div class="col-6 col-md-2 d-grid">
           <button class="btn btn-sm btn-outline-danger" formnovalidate name="do_delete" value="1"
-                  onclick="return confirm('{{ r.beneficiary.full_name }} さんの予約を記録ごと削除します。\n取り消しのお知らせは送りません。よろしいですか？');">削除する</button>
+                  onclick="return confirm('{{ r.display_name }} さんの予約を記録ごと削除します。\n取り消しのお知らせは送りません。よろしいですか？');">削除する</button>
         </div>
         <div class="col-12"><div class="form-text">
           日にちを変えると、もとの日はキャンセル待ちを繰り上げ、変更のお知らせを送信待ちに入れます。
           「削除する」は、間違えて入れた予約を記録ごと消すときに使います。
         </div></div>
       </form>
+      {% if r.is_guest %}
+      <form method="post" class="row g-2 align-items-end mt-1">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="link"><input type="hidden" name="reservation" value="{{ r.pk }}">
+        <div class="col-md-5">
+          <label class="form-label small fw-semibold" for="link{{ r.pk }}">台帳の{{ terms.beneficiary }}に結びつける</label>
+          <select name="beneficiary" id="link{{ r.pk }}" class="form-select form-select-sm" required>
+            <option value="">— 選択 —</option>
+            {% for b in candidates %}<option value="{{ b.pk }}">{{ b.full_name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-3 d-grid"><button class="btn btn-sm btn-outline-primary">結びつける</button></div>
+        <div class="col-12"><div class="form-text">
+          「{{ r.display_name }}」さんのお名前で席を押さえています。台帳に登録したら、ここで結びつけてください。
+        </div></div>
+      </form>
+      {% endif %}
     </div>
     {% empty %}
     <div class="text-center text-muted py-4">この日の予約はまだありません。</div>
@@ -160,7 +178,7 @@
     <div class="fw-bold mb-2">この日の履歴</div>
     <ul class="list-unstyled small mb-0">
       {% for r in history %}
-      <li class="text-muted">{{ r.beneficiary.full_name }} — {{ r.get_status_display }}（{{ r.get_source_display }}・{{ r.created_at|date:'n/j H:i' }}）</li>
+      <li class="text-muted">{{ r.display_name }} — {{ r.get_status_display }}（{{ r.get_source_display }}・{{ r.created_at|date:'n/j H:i' }}）</li>
       {% endfor %}
     </ul>
   </div></div>

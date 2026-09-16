@@ -18,7 +18,8 @@ from facilities.context_processors import get_terms
 from config.utils import date_or_404, home_url, month_or_404, reservation_enabled, to_int
 
 from . import services
-from .models import BookingRequest, ClosedDate, Customer, LineInbox, Reservation, ReservationNotice
+from .models import (BookingRequest, ClosedDate, Customer, LineInbox, Reservation, ReservationNotice,
+                     ReservationSetting)
 
 
 class ReservationEnabledMixin(LoginRequiredMixin):
@@ -112,7 +113,6 @@ class SettingView(ReservationEnabledMixin, View):
         setting.public_calendar = 'public_calendar' in request.POST
         setting.public_booking = 'public_booking' in request.POST
         setting.public_request = 'public_request' in request.POST
-        setting.request_auto_apply = 'request_auto_apply' in request.POST
         from_days = to_int(request.POST.get('booking_from_days'), setting.booking_from_days)
         until_days = to_int(request.POST.get('booking_until_days'), setting.booking_until_days)
         if not (0 <= from_days <= 30 and 1 <= until_days <= 365 and from_days < until_days):
@@ -123,7 +123,9 @@ class SettingView(ReservationEnabledMixin, View):
 
         # LINE から直接反映するか
         setting.notify_vacancy = 'notify_vacancy' in request.POST
-        setting.line_auto_apply = 'line_auto_apply' in request.POST
+        mode = request.POST.get('booking_mode', ReservationSetting.MODE_AUTO)
+        if mode in dict(ReservationSetting.MODE_CHOICES):
+            setting.booking_mode = mode
         setting.group_auto_apply = 'group_auto_apply' in request.POST
 
         if 'clear_group' in request.POST:
@@ -194,9 +196,9 @@ class DayView(ReservationEnabledMixin, View):
         if action == 'cancel':
             res = get_object_or_404(Reservation, pk=to_int(request.POST.get('reservation'), -1), facility=facility)
             promoted = services.cancel_reservation(res, base=base)
-            msg = f'{res.beneficiary.full_name} さんの予約を取り消しました。'
+            msg = f'{res.display_name} さんの予約を取り消しました。'
             if promoted:
-                msg += 'キャンセル待ちから ' + '、'.join(p.beneficiary.full_name for p in promoted) + ' さんを繰り上げました。'
+                msg += 'キャンセル待ちから ' + '、'.join(p.display_name for p in promoted) + ' さんを繰り上げました。'
             msg += self._vacancy_note(facility, d)
             messages.success(request, msg)
             self._auto_send(request, facility)
@@ -215,20 +217,35 @@ class DayView(ReservationEnabledMixin, View):
                 messages.error(request, str(e))
                 return back
             if new_day == d:
-                messages.success(request, f'{res.beneficiary.full_name} さんの備考を保存しました。')
+                messages.success(request, f'{res.display_name} さんの備考を保存しました。')
                 return back
-            messages.success(request, f'{res.beneficiary.full_name} さんの予約を '
+            messages.success(request, f'{res.display_name} さんの予約を '
                                       f'{services.jp_date(new_day)} に移しました（{res.get_status_display()}）。'
                                       '変更のお知らせは送信待ちに入れています。')
             return redirect('reservations:day', year=new_day.year, month=new_day.month, day=new_day.day)
 
+        if action == 'link':
+            res = get_object_or_404(Reservation, pk=to_int(request.POST.get('reservation'), -1), facility=facility)
+            beneficiary = Beneficiary.objects.filter(facility=facility,
+                                                     pk=to_int(request.POST.get('beneficiary'), -1)).first()
+            if beneficiary is None:
+                messages.error(request, f"{get_terms(request.user)['beneficiary']}を選んでください。")
+                return back
+            try:
+                services.link_reservation(res, beneficiary)
+            except services.ReservationError as e:
+                messages.error(request, str(e))
+                return back
+            messages.success(request, f'この予約を {beneficiary.full_name} さんに結びつけました。')
+            return back
+
         if action == 'delete':
             res = get_object_or_404(Reservation, pk=to_int(request.POST.get('reservation'), -1), facility=facility)
-            name = res.beneficiary.full_name
+            name = res.display_name
             promoted = services.delete_reservation(res, base=base)
             msg = f'{name} さんの予約を削除しました（本人へのお知らせは送りません）。'
             if promoted:
-                msg += 'キャンセル待ちから ' + '、'.join(p.beneficiary.full_name for p in promoted) + ' さんを繰り上げました。'
+                msg += 'キャンセル待ちから ' + '、'.join(p.display_name for p in promoted) + ' さんを繰り上げました。'
             msg += self._vacancy_note(facility, d)
             messages.success(request, msg)
             self._auto_send(request, facility)
@@ -600,7 +617,7 @@ class CsvView(ReservationEnabledMixin, View):
         w.writerow(['日付', '利用者', '状態', '入口', '連絡先', '備考', '登録日時'])
         for r in (Reservation.objects.filter(facility=facility, date__gte=first, date__lte=last)
                   .select_related('beneficiary', 'customer').order_by('date', 'created_at')):
-            w.writerow([r.date, r.beneficiary.full_name, r.get_status_display(), r.get_source_display(),
+            w.writerow([r.date, r.display_name, r.get_status_display(), r.get_source_display(),
                         r.customer.name if r.customer else '', r.note,
                         timezone.localtime(r.created_at).strftime('%Y-%m-%d %H:%M')])
         resp = HttpResponse(buf.getvalue().encode('utf-8-sig'), content_type='text/csv; charset=utf-8-sig')

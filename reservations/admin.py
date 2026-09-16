@@ -9,7 +9,7 @@ from .models import (BookingRequest, ClosedDate, Customer, LineInbox, Reservatio
 @admin.register(ReservationSetting)
 class ReservationSettingAdmin(FacilityScopedAdmin):
     list_display = ['facility', 'capacity', 'allow_waitlist', 'auto_send',
-                    'public_calendar', 'public_booking', 'line_auto_apply', 'group_auto_apply']
+                    'public_calendar', 'public_booking', 'booking_mode', 'group_auto_apply']
 
 
 @admin.register(ClosedDate)

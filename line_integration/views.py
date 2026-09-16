@@ -67,8 +67,8 @@ class LineWebhookView(View):
         from reservations.models import Customer
         from reservations.services import apply_message, get_setting
         setting = get_setting(facility)
-        if not setting.line_auto_apply:
-            return None
+        if not setting.is_auto:
+            return None   # 承認方式：職員が確かめてから
         customer = Customer.objects.filter(facility=facility, line_user_id=line_user_id).first()
         if customer is None:
             return None   # 顧客台帳にない方は、職員が確かめてから

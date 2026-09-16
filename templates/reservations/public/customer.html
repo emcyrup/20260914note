@@ -10,12 +10,12 @@
   {% for r in my_reservations %}
   <div class="d-flex justify-content-between align-items-center border-bottom py-2">
     <div>
-      <div class="fw-semibold">{{ r.date|date:'n月j日(D)' }}　{{ r.beneficiary.full_name }} さん</div>
+      <div class="fw-semibold">{{ r.date|date:'n月j日(D)' }}　{{ r.display_name }} さん</div>
       <div class="small {% if r.status == 'waitlist' %}text-warning-emphasis{% else %}text-success{% endif %}">
         {% if r.status == 'waitlist' %}キャンセル待ち{% else %}ご予約{% endif %}
       </div>
     </div>
-    <form method="post" onsubmit="return confirm('{{ r.date|date:'n月j日' }} {{ r.beneficiary.full_name }} さんのご予約を取り消します。よろしいですか？');">
+    <form method="post" onsubmit="return confirm('{{ r.date|date:'n月j日' }} {{ r.display_name }} さんのご予約を取り消します。よろしいですか？');">
       {% csrf_token %}
       <input type="hidden" name="action" value="cancel">
       <input type="hidden" name="reservation" value="{{ r.pk }}">
