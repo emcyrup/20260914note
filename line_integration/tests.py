@@ -269,3 +269,79 @@ class WebhookAutoApplyTests(TestCase):
                    source={'type': 'group', 'groupId': 'G1', 'userId': 'U9'})
         self.assertEqual(Reservation.objects.count(), 0)
         self.assertEqual(LineInbox.objects.count(), 1)
+
+
+class WebhookPageGuideTests(TestCase):
+    """「予約」と送られたら、顧客向け予定表のアドレスを返す"""
+
+    def setUp(self):
+        cache.clear()
+        from reservations.models import Customer
+        from reservations.services import get_setting
+        self.f = Facility.objects.create(name='なゆた', line_channel_secret='secret-a',
+                                         line_channel_access_token='tok-a', use_reservation=True)
+        self.ben = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='はると',
+                                              date_of_birth=date(2016, 4, 1))
+        self.customer = Customer.objects.create(facility=self.f, name='青木 花子', line_user_id='U1')
+        self.customer.children.add(self.ben)
+        self.setting = get_setting(self.f)
+
+    def _post(self, text, **kw):
+        body = _body(text, **kw)
+        url = reverse('line_integration:webhook_facility', args=[self.f.pk])
+        with mock.patch('linebot.v3.messaging.MessagingApi.reply_message') as reply:
+            self.client.post(url, data=body, content_type='application/json',
+                             HTTP_X_LINE_SIGNATURE=_sig('secret-a', body))
+        return reply.call_args[0][0].messages[0].text
+
+    def test_a_known_customer_gets_their_own_page(self):
+        from reservations.models import LineInbox
+        text = self._post('予約')
+        self.assertIn(f'/yoyaku/mypage/{self.customer.token}/', text)
+        self.assertIn('なゆた', text)
+        self.assertEqual(LineInbox.objects.count(), 0)   # 職員の手を煩わせない
+
+    def test_a_first_time_sender_gets_the_vacancy_page(self):
+        from reservations.models import LineInbox
+        text = self._post('予約', user_id='U-new')
+        self.assertIn(f'/yoyaku/aki/{self.setting.public_token}/', text)
+        self.assertEqual(LineInbox.objects.count(), 0)
+
+    def test_asking_about_vacancies_also_gets_the_page(self):
+        self.assertIn('/yoyaku/mypage/', self._post('空いてますか？'))
+
+    def test_a_message_with_a_date_is_still_passed_to_staff(self):
+        from reservations.models import LineInbox
+        day = date.today() + timedelta(days=7)
+        text = self._post(f'{day.month}/{day.day} 予約おねがいします')
+        self.assertIn('承りました', text)          # 職員が確かめる
+        self.assertIn('/yoyaku/mypage/', text)     # あわせてページも案内する
+        self.assertEqual(LineInbox.objects.count(), 1)
+
+    def test_other_messages_are_unchanged(self):
+        from reservations.models import LineInbox
+        from .views import LineWebhookView
+        text = self._post('いつもありがとうございます')
+        self.assertEqual(text, LineWebhookView.RECEIVED_REPLY)   # これまでどおりの文面
+        self.assertNotIn('/yoyaku/', text)
+        self.assertEqual(LineInbox.objects.count(), 1)
+
+    def test_no_page_when_the_vacancy_page_is_closed(self):
+        from reservations.models import LineInbox
+        self.setting.public_calendar = False
+        self.setting.save()
+        text = self._post('予約', user_id='U-new')
+        self.assertNotIn('/yoyaku/', text)
+        self.assertIn('承りました', text)
+        self.assertEqual(LineInbox.objects.count(), 1)
+
+    def test_a_first_time_sender_asking_to_cancel_goes_to_staff(self):
+        from reservations.models import LineInbox
+        text = self._post('キャンセルしたいです', user_id='U-new')
+        self.assertNotIn('/yoyaku/', text)
+        self.assertEqual(LineInbox.objects.count(), 1)
+
+    def test_the_site_url_setting_wins_over_the_webhook_host(self):
+        with self.settings(RESERVATION_SITE_URL='https://yoyaku.example.jp'):
+            self.assertIn(f'https://yoyaku.example.jp/yoyaku/mypage/{self.customer.token}/',
+                          self._post('予約'))

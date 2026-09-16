@@ -481,17 +481,38 @@ def receive(facility, message_id, text, source_type=LineInbox.SOURCE_USER,
 
 
 # ---------------------------------------------------------------- LINE からその場で反映
-def customer_page_url(customer):
-    """顧客専用ページの URL（RESERVATION_SITE_URL を決めているときだけ）"""
+def public_base(base=''):
+    """
+    顧客向けページのアドレスの入口。
+    `RESERVATION_SITE_URL` を決めていればそれを使い、無ければ呼び出し元が渡した入口
+    （LINE の Webhook を受けたときの自分のホスト）を使う。
+    """
     from django.conf import settings as django_settings
+    site = (getattr(django_settings, 'RESERVATION_SITE_URL', '') or '').strip()
+    return (site or base or '').rstrip('/')
+
+
+def _page_url(name, arg, base=''):
     from django.urls import NoReverseMatch, reverse
-    base = (getattr(django_settings, 'RESERVATION_SITE_URL', '') or '').rstrip('/')
-    if not base or not customer:
+    root = public_base(base)
+    if not root or not arg:
         return ''
     try:
-        return base + reverse('reservations_public:customer', args=[customer.token])
+        return root + reverse(name, args=[arg])
     except NoReverseMatch:
         return ''
+
+
+def customer_page_url(customer, base=''):
+    """顧客専用ページ（予約の確認・申し込み・取り消し）の URL"""
+    return _page_url('reservations_public:customer', customer.token if customer else '', base)
+
+
+def calendar_page_url(setting, base=''):
+    """空き状況のページ（公開しているときだけ）の URL"""
+    if setting is None or not setting.public_calendar:
+        return ''
+    return _page_url('reservations_public:calendar', setting.public_token, base)
 
 
 def _mark_replied(notice):
@@ -507,7 +528,7 @@ def _mark_replied(notice):
 MAX_DATES_PER_MESSAGE = 5
 
 
-def apply_message(facility, text, customer=None, staff=False, today=None, setting=None):
+def apply_message(facility, text, customer=None, staff=False, today=None, setting=None, base=''):
     """
     LINE に届いた文を、その場で予約に反映する。
 
@@ -581,7 +602,7 @@ def apply_message(facility, text, customer=None, staff=False, today=None, settin
         return False, ''
     if staff:
         return True, '\n'.join(lines)
-    url = customer_page_url(target_customer)
+    url = customer_page_url(target_customer, base)
     if url:
         lines.append(f'ご予約の確認・取り消しはこちら\n{url}')
     lines.append(setting.sign_text)
@@ -647,3 +668,34 @@ def receive_request(facility, day, name, kana='', phone='', child_name='', note=
     except ReservationError:
         return req, None
     return req, res
+
+
+# ---------------------------------------------------------------- 「予約」と送られたときの案内
+def page_reply(facility, text, customer=None, setting=None, base='', today=None):
+    """
+    「予約」「空いてますか」などの問い合わせに、顧客向け予定表のアドレスを返す。
+
+    戻り値は (返事の文, 受信箱に積むか)。
+    - 顧客台帳にいる方 …… その方専用のページ（確認・申し込み・取り消しができる）
+    - はじめての方 …… 空き状況のページ（公開しているときだけ）
+    日にちが書かれている文は、職員が見られるように受信箱にも積む。
+    アドレスを出せないときは ('', True) を返し、これまでどおりの扱いにする。
+    """
+    setting = setting or get_setting(facility)
+    parsed = parse_message(text, today)
+    if parsed['intent'] not in ('reserve', 'cancel', 'check'):
+        return '', True
+
+    if customer is not None:
+        url = customer_page_url(customer, base)
+        lead = 'ご予約の確認・お申し込み・取り消しは、こちらのページからできます。'
+    else:
+        url = calendar_page_url(setting, base)
+        lead = '空き状況の確認とお申し込みは、こちらのページからできます。'
+        if parsed['intent'] == 'cancel':
+            return '', True   # 取り消しは、はじめての方のページではできない
+    if not url:
+        return '', True
+
+    body = f'{lead}\n{url}\n{setting.sign_text}'
+    return body, bool(parsed['dates'])

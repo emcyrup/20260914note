@@ -57,7 +57,7 @@ class LineWebhookView(View):
         return entry
 
     @staticmethod
-    def _auto_reply_for_customer(facility, raw_text, line_user_id):
+    def _auto_reply_for_customer(facility, raw_text, line_user_id, base=''):
         """
         公式LINEに届いた文を、設定が許すときだけその場で予約に反映する。
         反映できたら返事の文、できなければ None（受信箱に積んで職員が確かめる）。
@@ -72,8 +72,22 @@ class LineWebhookView(View):
         customer = Customer.objects.filter(facility=facility, line_user_id=line_user_id).first()
         if customer is None:
             return None   # 顧客台帳にない方は、職員が確かめてから
-        handled, text = apply_message(facility, raw_text, customer=customer, setting=setting)
+        handled, text = apply_message(facility, raw_text, customer=customer, setting=setting, base=base)
         return text if handled else None
+
+    @staticmethod
+    def _page_reply(facility, raw_text, line_user_id, base=''):
+        """
+        「予約」などの問い合わせに、顧客向け予定表のアドレスを返す。
+        戻り値は (返事の文, 受信箱に積むか)。案内を出せないときは ('', True)。
+        """
+        if not reservation_enabled(facility):
+            return '', True
+        from reservations.models import Customer
+        from reservations.services import get_setting, page_reply
+        customer = (Customer.objects.filter(facility=facility, line_user_id=line_user_id).first()
+                    if line_user_id else None)
+        return page_reply(facility, raw_text, customer=customer, setting=get_setting(facility), base=base)
 
     @staticmethod
     def _auto_reply_for_group(facility, raw_text, group_id):
@@ -149,6 +163,8 @@ class LineWebhookView(View):
             raw_text = event.message.text
             text = raw_text.strip().upper().replace(' ', '')
 
+            base = request.build_absolute_uri('/')
+
             def reply(reply_text):
                 with ApiClient(config) as api_client:
                     MessagingApi(api_client).reply_message(ReplyMessageRequest(
@@ -170,12 +186,15 @@ class LineWebhookView(View):
             # 連携済みなら、登録コードの照合はしない（予約管理を使う事業所では受信箱に積む）
             if Guardian.objects.filter(line_user_id=line_user_id, line_linked=True).exists():
                 if reservation_enabled(facility):
-                    auto = self._auto_reply_for_customer(facility, raw_text, line_user_id)
+                    auto = self._auto_reply_for_customer(facility, raw_text, line_user_id, base)
                     if auto:
                         reply(auto)
                         return
-                    self._inbox(facility, event, raw_text, source_type, line_user_id)
-                    reply(self.RECEIVED_REPLY)
+                    guide, to_inbox = self._page_reply(facility, raw_text, line_user_id, base)
+                    if to_inbox or not guide:
+                        self._inbox(facility, event, raw_text, source_type, line_user_id)
+                    reply(f'{self.RECEIVED_REPLY}\n\n{guide}' if guide and to_inbox
+                          else (guide or self.RECEIVED_REPLY))
                 return
 
             with ApiClient(config) as api_client:
@@ -209,16 +228,20 @@ class LineWebhookView(View):
                     )
                 elif reservation_enabled(facility):
                     # 予約管理を使う事業所では、登録コード以外の文は
-                    # （顧客台帳にいて設定が許すときは）その場で反映し、そうでなければ受信箱へ積む
-                    auto = self._auto_reply_for_customer(facility, raw_text, line_user_id)
+                    # （顧客台帳にいて設定が許すときは）その場で反映し、そうでなければ受信箱へ積む。
+                    # 「予約」などの問い合わせには、顧客向け予定表のアドレスを返す
+                    auto = self._auto_reply_for_customer(facility, raw_text, line_user_id, base)
                     if auto:
                         api.reply_message(ReplyMessageRequest(
                             reply_token=event.reply_token,
                             messages=[LineTextMessage(type='text', text=auto)],
                         ))
                         return
-                    self._inbox(facility, event, raw_text, source_type, line_user_id)
-                    reply_text = self.RECEIVED_REPLY
+                    guide, to_inbox = self._page_reply(facility, raw_text, line_user_id, base)
+                    if to_inbox or not guide:
+                        self._inbox(facility, event, raw_text, source_type, line_user_id)
+                    reply_text = (f'{self.RECEIVED_REPLY}\n\n{guide}' if guide and to_inbox
+                                  else (guide or self.RECEIVED_REPLY))
                 else:
                     cache.set(fail_key, fails + 1, self.LINK_FAIL_WINDOW)
                     reply_text = (
