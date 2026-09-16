@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+
+{% block title %}予約の申し込み — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}予約の申し込み{% endblock %}
+{% block nav_reservations %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .req-card { border-left: 4px solid var(--color-primary); }
+  .req-field { font-size: 0.85rem; }
+  .req-field .label { color: #6b6257; font-size: 0.72rem; display: block; }
+  @media (min-width: 769px) { .w-md-auto { width: auto !important; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="small text-muted">
+      空き状況のページから届いたお申し込みです。<strong>押すまで予約にはなりません。</strong>
+      どの{{ terms.beneficiary }}のことかを確かめてから「予約にする」を押してください。
+    </div>
+    <a href="{% url 'reservations:calendar' %}" class="btn btn-outline-secondary btn-sm">予約カレンダーへ</a>
+  </div>
+
+  {% for row in rows %}
+  <div class="card mb-3 req-card"><div class="card-body">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+      <div>
+        <span class="fw-bold fs-6">{{ row.req.date|date:'n月j日(D)' }}</span>
+        {% if row.state.closed %}
+          <span class="badge text-bg-secondary ms-1">休業日</span>
+        {% elif row.state.remaining %}
+          <span class="badge text-bg-success ms-1">残り {{ row.state.remaining }} 枠</span>
+        {% else %}
+          <span class="badge text-bg-danger ms-1">満席</span>
+          {% if setting.allow_waitlist %}<span class="small text-muted ms-1">キャンセル待ちで受けます</span>{% endif %}
+        {% endif %}
+      </div>
+      <div class="small text-muted">{{ row.req.created_at|date:'n/j H:i' }} 受信</div>
+    </div>
+
+    <div class="row g-2 mb-3">
+      <div class="col-6 col-md-3 req-field"><span class="label">お子さま</span>{{ row.req.child_name|default:'—' }}</div>
+      <div class="col-6 col-md-3 req-field"><span class="label">お申し込みの方</span>{{ row.req.name }}{% if row.req.kana %}<div class="text-muted">{{ row.req.kana }}</div>{% endif %}</div>
+      <div class="col-6 col-md-3 req-field"><span class="label">電話</span>{% if row.req.phone %}<a href="tel:{{ row.req.phone }}">{{ row.req.phone }}</a>{% else %}—{% endif %}</div>
+      <div class="col-6 col-md-3 req-field"><span class="label">ご要望</span>{{ row.req.note|default:'—' }}</div>
+    </div>
+
+    <form method="post" action="{% url 'reservations:request_action' row.req.pk %}" class="row g-2 align-items-end">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="apply">
+      <div class="col-md-4">
+        <label class="form-label small fw-semibold" for="ben{{ row.req.pk }}">どの{{ terms.beneficiary }}か</label>
+        <select name="beneficiary" id="ben{{ row.req.pk }}" class="form-select form-select-sm" required>
+          <option value="">— 選択 —</option>
+          {% for b in beneficiaries %}
+          <option value="{{ b.pk }}" {% if row.suggested and b.pk == row.suggested.pk %}selected{% endif %}>{{ b.full_name }}</option>
+          {% endfor %}
+        </select>
+        {% if row.suggested %}
+        <div class="form-text">お子さまのお名前と一致した方を選んでいます。違う場合は選び直してください。</div>
+        {% else %}
+        <div class="form-text text-warning-emphasis">名前が一致する在籍者が見つかりませんでした。</div>
+        {% endif %}
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small fw-semibold" for="cst{{ row.req.pk }}">連絡先（任意）</label>
+        <select name="customer" id="cst{{ row.req.pk }}" class="form-select form-select-sm">
+          <option value="">— なし —</option>
+          {% for c in customers %}<option value="{{ c.pk }}">{{ c.name }}</option>{% endfor %}
+        </select>
+        <div class="form-text">通知の宛先になります。まだ台帳に無い方は「顧客台帳に追加」を押してください。</div>
+      </div>
+      <div class="col-6 col-md-2 d-grid"><button class="btn btn-primary btn-sm">予約にする</button></div>
+      <div class="col-6 col-md-2 d-grid">
+        <button class="btn btn-outline-secondary btn-sm" formnovalidate name="action" value="register">顧客台帳に追加</button>
+      </div>
+    </form>
+
+    <div class="d-flex gap-2 mt-2 flex-wrap">
+      <form method="post" action="{% url 'reservations:request_action' row.req.pk %}"
+            class="d-flex gap-2 align-items-end flex-grow-1 flex-wrap">
+        {% csrf_token %}<input type="hidden" name="action" value="decline">
+        <div class="flex-grow-1" style="min-width:160px;">
+          <input type="text" name="reason" class="form-control form-control-sm" placeholder="見送りの理由（任意・記録用）">
+        </div>
+        <button class="btn btn-outline-danger btn-sm text-nowrap"
+                onclick="return confirm('この申し込みを見送りにします。お断りの連絡は電話などで直接お願いします。よろしいですか？');">
+          見送りにする</button>
+      </form>
+    </div>
+  </div></div>
+  {% empty %}
+  <div class="card mb-3"><div class="card-body text-center text-muted py-4">
+    未確認のお申し込みはありません。
+  </div></div>
+  {% endfor %}
+
+  {% if handled %}
+  <div class="card"><div class="card-body">
+    <div class="fw-bold mb-2">処理ずみ</div>
+    <ul class="list-unstyled small mb-0">
+      {% for req in handled %}
+      <li class="d-flex justify-content-between align-items-center border-top py-2 gap-2 flex-wrap">
+        <span class="text-muted">
+          {{ req.date|date:'n/j' }} {{ req.child_name|default:req.name }} —
+          {{ req.get_status_display }}{% if req.result_note %}（{{ req.result_note }}）{% endif %}
+        </span>
+        <form method="post" action="{% url 'reservations:request_action' req.pk %}"
+              onsubmit="return confirm('この申し込みの記録を削除します。連絡先も消えます。よろしいですか？');">
+          {% csrf_token %}<input type="hidden" name="action" value="delete">
+          <button class="btn btn-sm btn-outline-secondary">削除</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    <div class="form-text mt-2">お申し込みには連絡先が残ります。不要になったら削除してください。</div>
+  </div></div>
+  {% endif %}
+</div>
+{% endblock %}

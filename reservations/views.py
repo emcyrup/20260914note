@@ -14,10 +14,11 @@ from django.views import View
 
 from beneficiaries.models import Beneficiary
 from config.concurrency import check_conflict
+from facilities.context_processors import get_terms
 from config.utils import date_or_404, home_url, month_or_404, reservation_enabled, to_int
 
 from . import services
-from .models import ClosedDate, Customer, LineInbox, Reservation, ReservationNotice
+from .models import BookingRequest, ClosedDate, Customer, LineInbox, Reservation, ReservationNotice
 
 
 class ReservationEnabledMixin(LoginRequiredMixin):
@@ -69,9 +70,11 @@ class CalendarView(ReservationEnabledMixin, View):
 
         pending = ReservationNotice.objects.filter(facility=facility, status=ReservationNotice.STATUS_PENDING).count()
         inbox = LineInbox.objects.filter(facility=facility, status=LineInbox.STATUS_PENDING).count()
+        requests_count = BookingRequest.objects.filter(facility=facility,
+                                                       status=BookingRequest.STATUS_PENDING).count()
         return render(request, self.template_name, {
             'year': year, 'month': month, 'weeks': weeks, 'today': today, 'setting': setting,
-            'pending_notices': pending, 'pending_inbox': inbox,
+            'pending_notices': pending, 'pending_inbox': inbox, 'pending_requests': requests_count,
             'weekday_rows': setting.weekday_rows(),
             'public_url': request.build_absolute_uri(
                 reverse('reservations_public:calendar', args=[setting.public_token])),
@@ -106,6 +109,8 @@ class SettingView(ReservationEnabledMixin, View):
         # 顧客向けの予定表（ログインなしで見えるページ）
         setting.public_calendar = 'public_calendar' in request.POST
         setting.public_booking = 'public_booking' in request.POST
+        setting.public_request = 'public_request' in request.POST
+        setting.request_auto_apply = 'request_auto_apply' in request.POST
         from_days = to_int(request.POST.get('booking_from_days'), setting.booking_from_days)
         until_days = to_int(request.POST.get('booking_until_days'), setting.booking_until_days)
         if not (0 <= from_days <= 30 and 1 <= until_days <= 365 and from_days < until_days):
@@ -298,6 +303,84 @@ class CustomerDeleteView(ReservationEnabledMixin, View):
         obj.delete()
         messages.success(request, f'顧客「{name}」を削除しました。')
         return redirect('reservations:customers')
+
+
+class RequestListView(ReservationEnabledMixin, View):
+    """空き状況のページから届いた申し込み（職員が確かめて予約にする）"""
+    template_name = 'reservations/requests.html'
+
+    def get(self, request):
+        facility = request.user.facility
+        pending = BookingRequest.objects.filter(facility=facility, status=BookingRequest.STATUS_PENDING)
+        rows = []
+        for req in pending:
+            state = services.day_state(facility, req.date)
+            rows.append({'req': req, 'state': state,
+                         'suggested': services.request_matches(facility, req)})
+        handled = (BookingRequest.objects.filter(facility=facility)
+                   .exclude(status=BookingRequest.STATUS_PENDING)[:20])
+        return render(request, self.template_name, {
+            'rows': rows, 'handled': handled,
+            'setting': services.get_setting(facility),
+            'beneficiaries': Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE),
+            'customers': Customer.objects.filter(facility=facility),
+        })
+
+    def post(self, request, pk=None):
+        facility = request.user.facility
+        req = get_object_or_404(BookingRequest, pk=pk or to_int(request.POST.get('request'), -1),
+                                facility=facility)
+        action = request.POST.get('action', '')
+        back = redirect('reservations:requests')
+
+        if action == 'apply':
+            beneficiary = Beneficiary.objects.filter(
+                facility=facility, pk=to_int(request.POST.get('beneficiary'), -1)).first()
+            if beneficiary is None:
+                messages.error(request, f"{get_terms(request.user)['beneficiary']}を選んでください。")
+                return back
+            customer = Customer.objects.filter(
+                facility=facility, pk=to_int(request.POST.get('customer'), -1)).first()
+            try:
+                res = services.apply_request(req, beneficiary, customer=customer, staff=request.user)
+            except services.ReservationError as e:
+                messages.error(request, str(e))
+                return back
+            messages.success(request, f'{services.jp_date(req.date)} {beneficiary.full_name} さんを'
+                                      f'「{res.get_status_display()}」で登録しました。'
+                                      '通知は送信待ちに入れています。')
+            return back
+
+        if action == 'decline':
+            req.status = BookingRequest.STATUS_DECLINED
+            req.handled_at, req.handled_by = timezone.now(), request.user
+            req.result_note = request.POST.get('reason', '').strip()[:200] or '見送り'
+            req.save(update_fields=['status', 'handled_at', 'handled_by', 'result_note'])
+            messages.success(request, 'この申し込みを見送りにしました。'
+                                      'お断りの連絡は、電話などで直接お願いします。')
+            return back
+
+        if action == 'register':
+            if not req.name:
+                messages.error(request, 'お名前が空のため、顧客台帳に追加できません。')
+                return back
+            customer = Customer.objects.create(
+                facility=facility, name=req.name, kana=req.kana, phone=req.phone,
+                note='空き状況ページのお申し込みから',
+            )
+            req.customer = customer
+            req.save(update_fields=['customer'])
+            messages.success(request, f'{customer.name} さんを顧客台帳に追加しました。'
+                                      '担当する利用者は顧客の画面で選んでください。')
+            return back
+
+        if action == 'delete':
+            req.delete()
+            messages.success(request, 'この申し込みを削除しました（連絡先も消えます）。')
+            return back
+
+        messages.error(request, '操作が正しくありません。')
+        return back
 
 
 class LineView(ReservationEnabledMixin, View):

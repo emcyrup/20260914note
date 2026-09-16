@@ -35,6 +35,8 @@ class ReservationSetting(models.Model):
                                     verbose_name='予定表の公開アドレス')
     public_calendar = models.BooleanField(default=True, verbose_name='顧客向けの予定表を公開する')
     public_booking = models.BooleanField(default=True, verbose_name='顧客が自分で予約できるようにする')
+    public_request = models.BooleanField(default=True, verbose_name='空き状況のページから申し込みを受ける')
+    request_auto_apply = models.BooleanField(default=False, verbose_name='名前が1人に決まるとき、その場で予約にする')
     booking_from_days = models.PositiveSmallIntegerField(default=1, verbose_name='何日先から受け付けるか',
                                                          help_text='0 なら当日ぶんも受け付けます。')
     booking_until_days = models.PositiveSmallIntegerField(default=60, verbose_name='何日先まで受け付けるか')
@@ -133,6 +135,51 @@ class Customer(models.Model):
 
     def child_names(self):
         return '、'.join(b.full_name for b in self.children.all())
+
+
+class BookingRequest(models.Model):
+    """
+    空き状況のページ（アドレスを知っている人なら誰でも開ける）から届いた申し込み。
+
+    ここでは予約にしない。職員が「どの利用者か」を確かめて反映したときだけ予約になる
+    （知らない名前で枠が埋まらないように）。
+    """
+
+    STATUS_PENDING = 'pending'
+    STATUS_DONE = 'done'
+    STATUS_DECLINED = 'declined'
+    STATUS_CHOICES = [(STATUS_PENDING, '未確認'), (STATUS_DONE, '予約にした'), (STATUS_DECLINED, '見送り')]
+
+    facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='booking_requests')
+    date = models.DateField(verbose_name='希望日')
+    name = models.CharField(max_length=100, verbose_name='お申し込みの方のお名前')
+    kana = models.CharField(max_length=100, blank=True, verbose_name='ふりがな')
+    phone = models.CharField(max_length=20, blank=True, verbose_name='電話番号')
+    child_name = models.CharField(max_length=100, blank=True, verbose_name='お子さまのお名前')
+    note = models.CharField(max_length=200, blank=True, verbose_name='ご要望')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_PENDING, verbose_name='状態')
+    reservation = models.ForeignKey('Reservation', on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='+', verbose_name='できた予約')
+    customer = models.ForeignKey(Customer, on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='booking_requests', verbose_name='顧客台帳の相手')
+    created_at = models.DateTimeField(auto_now_add=True)
+    handled_at = models.DateTimeField(null=True, blank=True)
+    handled_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='+')
+    result_note = models.CharField(max_length=200, blank=True, verbose_name='処理の結果')
+
+    class Meta:
+        verbose_name = '予約の申し込み'
+        verbose_name_plural = '予約の申し込み'
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['facility', 'status'])]
+
+    def __str__(self):
+        return f'{self.date} {self.name}（{self.get_status_display()}）'
+
+    @property
+    def is_pending(self):
+        return self.status == self.STATUS_PENDING
 
 
 class Reservation(models.Model):

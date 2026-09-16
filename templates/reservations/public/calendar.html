@@ -1,16 +1,76 @@
 {% extends 'reservations/public/base.html' %}
 
 {% block title %}{{ facility.name }} 空き状況{% endblock %}
-{% block head_sub %}空き状況（{{ year }}年{{ month }}月）{% endblock %}
+{% block head_sub %}空き状況とお申し込み（{{ year }}年{{ month }}月）{% endblock %}
 
 {% block content %}
 <div class="pub-card">
-  {% include 'reservations/public/_calendar.html' with can_select=False %}
+  {% include 'reservations/public/_calendar.html' with can_select=setting.public_request %}
 </div>
+
+{% if setting.public_request %}
+<div class="pub-card" id="bookCard">
+  <div class="fw-bold mb-2">ご利用のお申し込み</div>
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="request">
+
+    <label class="form-label small fw-semibold" for="reqDate">ご希望の日</label>
+    <input type="date" name="date" id="reqDate" class="form-control form-control-sm mb-2"
+           min="{{ book_from|date:'Y-m-d' }}" max="{{ book_until|date:'Y-m-d' }}" required>
+    <div class="form-text mb-2">
+      {{ book_from|date:'n月j日' }} 〜 {{ book_until|date:'n月j日' }} のぶんを承ります。
+      上の予定表の日にちを押すと、ここに入ります。
+    </div>
+
+    <label class="form-label small fw-semibold" for="reqChild">お子さまのお名前</label>
+    <input type="text" name="child_name" id="reqChild" class="form-control form-control-sm mb-2"
+           maxlength="100" required>
+
+    <label class="form-label small fw-semibold" for="reqName">お申し込みの方のお名前</label>
+    <input type="text" name="name" id="reqName" class="form-control form-control-sm mb-2"
+           maxlength="100" autocomplete="name" required>
+
+    <label class="form-label small fw-semibold" for="reqKana">ふりがな（任意）</label>
+    <input type="text" name="kana" id="reqKana" class="form-control form-control-sm mb-2" maxlength="100">
+
+    <label class="form-label small fw-semibold" for="reqPhone">電話番号（任意）</label>
+    <input type="tel" name="phone" id="reqPhone" class="form-control form-control-sm mb-2"
+           maxlength="20" autocomplete="tel">
+
+    <label class="form-label small fw-semibold" for="reqNote">ご要望（任意）</label>
+    <input type="text" name="note" id="reqNote" class="form-control form-control-sm mb-2" maxlength="200">
+
+    {# 見えない欄。人は書かない（自動投稿よけ） #}
+    <div style="position:absolute; left:-9999px;" aria-hidden="true">
+      <label for="website">この欄は入力しないでください</label>
+      <input type="text" name="website" id="website" tabindex="-1" autocomplete="off">
+    </div>
+
+    <button class="btn btn-brand w-100">この日でお申し込みする</button>
+    <div class="form-text mt-2">
+      お申し込みはこの時点では確定しません。事業所で確認のうえ、あらためてご連絡します。
+      満席の日は、キャンセル待ちとして承ります。
+    </div>
+  </form>
+</div>
+{% endif %}
+
 <div class="pub-card">
   <div class="small">
-    ご予約・お問い合わせは、{{ facility.name }} までご連絡ください。
+    お問い合わせは、{{ facility.name }} までご連絡ください。
     {% if facility.phone %}<div class="mt-1">電話：<a href="tel:{{ facility.phone }}">{{ facility.phone }}</a></div>{% endif %}
   </div>
 </div>
+
+{% if setting.public_request %}
+<script>
+  function pickDay(iso) {
+    var input = document.getElementById('reqDate');
+    if (!input) return;
+    input.value = iso;
+    document.getElementById('bookCard').scrollIntoView({behavior: 'smooth', block: 'center'});
+  }
+</script>
+{% endif %}
 {% endblock %}

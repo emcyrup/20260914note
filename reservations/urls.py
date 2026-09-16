@@ -14,5 +14,7 @@ urlpatterns = [
     path('customers/<int:pk>/save/', views.CustomerListView.as_view(), name='customer_save'),
     path('customers/<int:pk>/delete/', views.CustomerDeleteView.as_view(), name='customer_delete'),
     path('customers/<int:pk>/reissue/', views.CustomerTokenView.as_view(), name='customer_reissue'),
+    path('requests/', views.RequestListView.as_view(), name='requests'),
+    path('requests/<int:pk>/', views.RequestListView.as_view(), name='request_action'),
     path('line/', views.LineView.as_view(), name='line'),
 ]

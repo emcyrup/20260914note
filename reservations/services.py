@@ -13,7 +13,8 @@ import re
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from .models import ClosedDate, Customer, LineInbox, Reservation, ReservationNotice, ReservationSetting
+from .models import (BookingRequest, ClosedDate, Customer, LineInbox, Reservation, ReservationNotice,
+                     ReservationSetting)
 
 WEEK_JP = ['月', '火', '水', '木', '金', '土', '日']
 
@@ -585,3 +586,64 @@ def apply_message(facility, text, customer=None, staff=False, today=None, settin
         lines.append(f'ご予約の確認・取り消しはこちら\n{url}')
     lines.append(setting.sign_text)
     return True, '\n'.join(lines)
+
+
+# ---------------------------------------------------------------- 空き状況ページからの申し込み
+def request_matches(facility, req):
+    """
+    申し込みに書かれたお子さまの名前から、在籍している利用者を探す。
+    1人に決まらなければ None（職員が画面で選ぶ）。
+    """
+    from beneficiaries.models import Beneficiary
+    plain = f'{req.child_name}'.replace(' ', '').replace('　', '')
+    if not plain:
+        return None
+    found = []
+    for b in Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE):
+        names = [f'{b.last_name}{b.first_name}', f'{b.last_name_kana}{b.first_name_kana}'.strip()]
+        if any(n and n.replace(' ', '') == plain for n in names):
+            found.append(b)
+    return found[0] if len(found) == 1 else None
+
+
+@transaction.atomic
+def apply_request(req, beneficiary, customer=None, staff=None, note=''):
+    """申し込みを予約にする（職員の確認ずみ）。作った予約を返す"""
+    if not req.is_pending:
+        raise ReservationError('この申し込みはすでに処理ずみです。')
+    facility = req.facility
+    label = note or f'申し込み：{req.name} 様'
+    res, _ = create_reservation(facility, beneficiary, req.date, source=Reservation.SOURCE_WEB,
+                                customer=customer, note=label)
+    req.status = BookingRequest.STATUS_DONE
+    req.reservation = res
+    req.customer = customer
+    req.handled_at, req.handled_by = timezone.now(), staff
+    req.result_note = f'{jp_date(req.date)} {beneficiary.full_name} {res.get_status_display()}'[:200]
+    req.save(update_fields=['status', 'reservation', 'customer', 'handled_at', 'handled_by', 'result_note'])
+    return res
+
+
+def receive_request(facility, day, name, kana='', phone='', child_name='', note='', setting=None):
+    """
+    申し込みを受け取る。戻り値は (申し込み, できた予約 or None)。
+
+    既定では予約にせず、職員が確かめてから反映する。
+    設定「名前が1人に決まるとき、その場で予約にする」を入れているときだけ、
+    在籍している利用者1人に決まる場合に限り、その場で予約にする。
+    """
+    setting = setting or get_setting(facility)
+    req = BookingRequest.objects.create(
+        facility=facility, date=day, name=name[:100], kana=kana[:100], phone=phone[:20],
+        child_name=child_name[:100], note=note[:200],
+    )
+    if not setting.request_auto_apply:
+        return req, None
+    beneficiary = request_matches(facility, req)
+    if beneficiary is None:
+        return req, None
+    try:
+        res = apply_request(req, beneficiary, customer=customer_for(facility, beneficiary))
+    except ReservationError:
+        return req, None
+    return req, res

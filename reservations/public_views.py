@@ -30,8 +30,9 @@ from .models import Customer, Reservation, ReservationSetting
 
 logger = logging.getLogger(__name__)
 
-POST_LIMIT = 30           # 1つのアドレスから
-POST_WINDOW = 60 * 60     # 1時間に送れる操作の数
+POST_LIMIT = 30           # 1つのアドレスから1時間に送れる操作の数
+POST_WINDOW = 60 * 60     # その数え直しまでの秒数
+REQUEST_LIMIT = 5         # 同じ相手が1時間に送れる申し込みの数
 BAD_LIMIT = 10            # 開けないアドレスがこの回数続いたら記録に残す
 BAD_WINDOW = 60 * 60      # その数え直しまでの秒数
 
@@ -109,34 +110,98 @@ class PublicPageMixin(View):
             logger.warning('予約の公開ページ：開けないアドレスが %s 回続いた（%s）', count, client_key(request))
         return False
 
-    def throttled(self, request, token):
-        key = f'reservation_public_post:{token[:24]}'
+    def throttled(self, request, token, limit=POST_LIMIT):
+        """同じアドレス（申し込みは同じ相手）から、短い時間に操作が続いていないか"""
+        key = f'reservation_public_post:{token[:40]}'
         count = cache.get(key, 0)
-        if count >= POST_LIMIT:
+        if count >= limit:
             return True
         cache.set(key, count + 1, POST_WINDOW)
         return False
 
 
 class PublicCalendarView(PublicPageMixin):
-    """事業所の空き状況（だれでも見られるが、アドレスを知っている人だけ）"""
+    """
+    事業所の空き状況（アドレスを知っている人なら誰でも開ける）。
+
+    申し込みを受け付ける設定のときは、この画面から申し込める。
+    申し込みは **その場では予約にならない**。職員が「どの利用者か」を確かめて反映したときだけ予約になる
+    （知らない名前で枠が埋まらないように）。
+    """
     template_name = 'reservations/public/calendar.html'
     token_kind = tokens.CALENDAR
 
-    def get(self, request, token, year=None, month=None):
+    def get_setting(self, token):
         setting = get_object_or_404(ReservationSetting.objects.select_related('facility'),
                                     public_token=token, public_calendar=True)
-        facility = setting.facility
-        if not reservation_enabled(facility):
+        if not reservation_enabled(setting.facility):
             raise Http404('この事業所では予約管理を使っていません')
+        return setting
+
+    def get(self, request, token, year=None, month=None):
+        setting = self.get_setting(token)
+        facility = setting.facility
         today = datetime.date.today()
         year, month = month_or_404(year or today.year, month or today.month)
+        start, end = setting.booking_window(today)
+
+        def mark(day, cell):
+            ok = (setting.public_request and start <= day <= end and not cell['closed']
+                  and (not cell['full'] or setting.allow_waitlist))
+            return {'can_book': ok, 'waitlist_only': ok and cell['full']}
+
         return render(request, self.template_name, {
             'setting': setting, 'facility': facility, 'year': year, 'month': month, 'today': today,
-            'weeks': _month_weeks(facility, year, month, today),
+            'weeks': _month_weeks(facility, year, month, today,
+                                  bookable_of=mark if setting.public_request else None),
             'month_url': 'reservations_public:calendar_month', 'token': token,
+            'book_from': start, 'book_until': end,
             **_month_links(year, month),
         })
+
+    def post(self, request, token, year=None, month=None):
+        """申し込みを受け取る（予約にはしない）"""
+        setting = self.get_setting(token)
+        facility = setting.facility
+        back = redirect('reservations_public:calendar', token=token)
+        if not setting.public_request:
+            raise Http404('このページからの申し込みは受け付けていません')
+        if request.POST.get('website'):
+            return back   # 見えない欄。人は書かない（自動投稿よけ）
+        if self.throttled(request, f'req:{client_key(request)}', limit=REQUEST_LIMIT):
+            messages.error(request, '短い時間にお申し込みが続いたため、しばらく受け付けられません。'
+                                    'お急ぎの場合は事業所へお電話ください。')
+            return back
+
+        p = request.POST
+        name = p.get('name', '').strip()
+        child_name = p.get('child_name', '').strip()
+        try:
+            day = datetime.date.fromisoformat(p.get('date', ''))
+        except ValueError:
+            day = None
+        if not name or not child_name or day is None:
+            messages.error(request, 'お名前・お子さまのお名前・日にちを入れてください。')
+            return back
+
+        ok, reason = services.bookable(facility, day, setting)
+        if not ok:
+            messages.error(request, reason)
+            return back
+
+        req, res = services.receive_request(
+            facility, day, name=name, kana=p.get('kana', '').strip(), phone=p.get('phone', '').strip(),
+            child_name=child_name, note=p.get('note', '').strip(), setting=setting)
+        if res is None:
+            messages.success(request, f'{services.jp_date(day)} のお申し込みを承りました。'
+                                      '事業所で確認のうえ、あらためてご連絡します。')
+        elif res.status == Reservation.STATUS_CONFIRMED:
+            messages.success(request, f'{services.jp_date(day)} {res.beneficiary.full_name}さんの'
+                                      'ご予約を承りました。')
+        else:
+            messages.success(request, f'{services.jp_date(day)} {res.beneficiary.full_name}さんは'
+                                      'キャンセル待ちでお預かりしました。空きが出ましたらお知らせします。')
+        return back
 
 
 class CustomerPageView(PublicPageMixin):

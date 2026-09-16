@@ -33,6 +33,9 @@
       <a href="{% url 'reservations:calendar_month' next_year next_month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-right"></i></a>
     </div>
     <div class="d-flex gap-2 flex-wrap">
+      <a href="{% url 'reservations:requests' %}" class="btn btn-outline-secondary btn-sm position-relative"><i class="bi bi-inbox me-1"></i>申し込み
+        {% if pending_requests %}<span class="badge rounded-pill text-bg-danger ms-1">{{ pending_requests }}</span>{% endif %}
+      </a>
       <a href="{% url 'reservations:customers' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-people me-1"></i>顧客</a>
       {% if features.line %}
       <a href="{% url 'reservations:line' %}" class="btn btn-outline-secondary btn-sm position-relative"><i class="bi bi-chat-dots me-1"></i>公式LINE
@@ -117,10 +120,26 @@
                    {% if setting.public_calendar %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="public_calendar">空き状況のページを公開する</label>
           </div>
-          <div class="form-check mb-2">
+          <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="public_booking" id="public_booking"
                    {% if setting.public_booking %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="public_booking">顧客が自分のページから予約できるようにする</label>
+          </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="public_request" id="public_request"
+                   {% if setting.public_request %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="public_request">空き状況のページから申し込みを受ける</label>
+          </div>
+          <div class="form-text mb-1">
+            アドレスを知っている方なら誰でも申し込めます。届いた申し込みは
+            <a href="{% url 'reservations:requests' %}">申し込みの画面</a>に積まれ、
+            職員が{{ terms.beneficiary }}を確かめて「予約にする」を押したときだけ予約になります。
+          </div>
+          <div class="form-check mb-2">
+            <input type="checkbox" class="form-check-input" name="request_auto_apply" id="request_auto_apply"
+                   {% if setting.request_auto_apply %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="request_auto_apply">
+              お子さまの名前が在籍者1人に決まるときは、その場で予約にする</label>
           </div>
           <div class="row g-2">
             <div class="col-6">

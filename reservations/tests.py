@@ -11,7 +11,7 @@ from beneficiaries.models import Beneficiary
 from facilities.models import Facility
 
 from . import services
-from .models import ClosedDate, Customer, LineInbox, Reservation, ReservationNotice
+from .models import BookingRequest, ClosedDate, Customer, LineInbox, Reservation, ReservationNotice
 
 D = datetime.timedelta
 
@@ -708,3 +708,163 @@ class PublicTokenSafetyTests(TestCase):
         from reservations import tokens
         forged = signing.Signer(key='someone-elses-key', salt=tokens.CUSTOMER).sign('abcdefghij')
         self.assertEqual(self.client.get(self.customer_url(forged)).status_code, 404)
+
+
+class BookingRequestTests(TestCase):
+    """空き状況のページからの申し込み（職員が確かめて予約にする）"""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.f = Facility.objects.create(name='なゆた', use_reservation=True)
+        self.setting = services.get_setting(self.f)
+        self.setting.capacity = 1
+        self.setting.save()
+        self.a = child(self.f, '青木', 'はると')
+        self.today = datetime.date.today()
+        self.day = self.today + D(days=7)
+        self.user = StaffAccount.objects.create_user('u', password='pass12345', facility=self.f,
+                                                     role=StaffAccount.ROLE_ADMIN)
+
+    def page(self):
+        return reverse('reservations_public:calendar', args=[self.setting.public_token])
+
+    def send(self, **kw):
+        data = {'date': self.day.isoformat(), 'name': '青木 花子', 'child_name': '青木はると',
+                'kana': 'あおき はなこ', 'phone': '090-0000-0000', 'note': '15時ごろ'}
+        data.update(kw)
+        return self.client.post(self.page(), data)
+
+    # -- 顧客側 ----------------------------------------------------
+    def test_the_form_is_shown_and_the_request_is_stored(self):
+        self.assertContains(self.client.get(self.page()), 'ご利用のお申し込み')
+        self.send()
+        req = BookingRequest.objects.get(facility=self.f)
+        self.assertEqual((req.date, req.name, req.child_name, req.status),
+                         (self.day, '青木 花子', '青木はると', BookingRequest.STATUS_PENDING))
+        self.assertEqual(Reservation.objects.count(), 0)   # まだ予約にはしない
+
+    def test_the_reply_says_it_is_not_confirmed_yet(self):
+        res = self.client.post(self.page(), {'date': self.day.isoformat(), 'name': '青木 花子',
+                                             'child_name': '青木はると'}, follow=True)
+        self.assertContains(res, 'お申し込みを承りました')
+        self.assertContains(res, '確認のうえ')
+
+    def test_missing_fields_are_refused(self):
+        self.send(name='')
+        self.send(child_name='')
+        self.send(date='')
+        self.assertEqual(BookingRequest.objects.count(), 0)
+
+    def test_days_outside_the_window_and_closed_days_are_refused(self):
+        self.send(date=(self.today - D(days=1)).isoformat())
+        self.send(date=(self.today + D(days=400)).isoformat())
+        ClosedDate.objects.create(facility=self.f, date=self.day)
+        self.send()
+        self.assertEqual(BookingRequest.objects.count(), 0)
+
+    def test_the_hidden_field_stops_robots(self):
+        self.send(website='http://spam.example')
+        self.assertEqual(BookingRequest.objects.count(), 0)
+
+    def test_too_many_requests_are_refused(self):
+        for i in range(8):
+            self.send(date=(self.today + D(days=7 + i)).isoformat())
+        self.assertEqual(BookingRequest.objects.count(), 5)   # 1時間に5件まで
+
+    def test_requests_can_be_turned_off(self):
+        self.setting.public_request = False
+        self.setting.save()
+        self.assertNotContains(self.client.get(self.page()), 'ご利用のお申し込み')
+        self.assertEqual(self.send().status_code, 404)
+        self.assertEqual(BookingRequest.objects.count(), 0)
+
+    def test_auto_apply_books_when_the_name_matches_one_child(self):
+        self.setting.request_auto_apply = True
+        self.setting.save()
+        self.send()
+        req = BookingRequest.objects.get(facility=self.f)
+        self.assertEqual(req.status, BookingRequest.STATUS_DONE)
+        self.assertEqual(req.reservation.beneficiary, self.a)
+        self.assertEqual(req.reservation.source, Reservation.SOURCE_WEB)
+
+    def test_auto_apply_stays_pending_when_the_name_is_unknown(self):
+        self.setting.request_auto_apply = True
+        self.setting.save()
+        self.send(child_name='知らない 名前')
+        self.assertEqual(BookingRequest.objects.get(facility=self.f).status, BookingRequest.STATUS_PENDING)
+        self.assertEqual(Reservation.objects.count(), 0)
+
+    # -- 職員側 ----------------------------------------------------
+    def test_staff_screen_lists_and_applies(self):
+        self.send()
+        req = BookingRequest.objects.get(facility=self.f)
+        self.client.force_login(self.user)
+
+        page = self.client.get(reverse('reservations:requests'))
+        self.assertContains(page, '青木はると')
+        self.assertContains(page, '090-0000-0000')
+
+        self.client.post(reverse('reservations:request_action', args=[req.pk]),
+                         {'action': 'apply', 'beneficiary': self.a.pk})
+        req.refresh_from_db()
+        self.assertEqual(req.status, BookingRequest.STATUS_DONE)
+        res = Reservation.objects.get(facility=self.f, date=self.day)
+        self.assertEqual((res.beneficiary, res.status, res.source),
+                         (self.a, Reservation.STATUS_CONFIRMED, Reservation.SOURCE_WEB))
+        self.assertTrue(ReservationNotice.objects.filter(reservation=res).exists())
+
+    def test_applying_without_choosing_a_child_does_nothing(self):
+        self.send()
+        req = BookingRequest.objects.get(facility=self.f)
+        self.client.force_login(self.user)
+        self.client.post(reverse('reservations:request_action', args=[req.pk]), {'action': 'apply'})
+        req.refresh_from_db()
+        self.assertEqual(req.status, BookingRequest.STATUS_PENDING)
+        self.assertEqual(Reservation.objects.count(), 0)
+
+    def test_decline_register_and_delete(self):
+        self.send()
+        req = BookingRequest.objects.get(facility=self.f)
+        self.client.force_login(self.user)
+
+        self.client.post(reverse('reservations:request_action', args=[req.pk]),
+                         {'action': 'register'})
+        customer = Customer.objects.get(facility=self.f)
+        self.assertEqual((customer.name, customer.phone), ('青木 花子', '090-0000-0000'))
+
+        self.client.post(reverse('reservations:request_action', args=[req.pk]),
+                         {'action': 'decline', 'reason': '定員のため'})
+        req.refresh_from_db()
+        self.assertEqual((req.status, req.result_note), (BookingRequest.STATUS_DECLINED, '定員のため'))
+        self.assertEqual(Reservation.objects.count(), 0)
+
+        self.client.post(reverse('reservations:request_action', args=[req.pk]), {'action': 'delete'})
+        self.assertEqual(BookingRequest.objects.count(), 0)
+
+    def test_a_handled_request_cannot_be_applied_twice(self):
+        self.send()
+        req = BookingRequest.objects.get(facility=self.f)
+        self.client.force_login(self.user)
+        url = reverse('reservations:request_action', args=[req.pk])
+        self.client.post(url, {'action': 'apply', 'beneficiary': self.a.pk})
+        self.client.post(url, {'action': 'apply', 'beneficiary': self.a.pk})
+        self.assertEqual(Reservation.objects.count(), 1)
+
+    def test_another_facility_request_is_not_reachable(self):
+        other = Facility.objects.create(name='よその事業所', use_reservation=True)
+        theirs = BookingRequest.objects.create(facility=other, date=self.day, name='よその方')
+        self.client.force_login(self.user)
+        res = self.client.post(reverse('reservations:request_action', args=[theirs.pk]),
+                               {'action': 'delete'})
+        self.assertEqual(res.status_code, 404)
+        self.assertTrue(BookingRequest.objects.filter(pk=theirs.pk).exists())
+
+    def test_the_full_day_is_taken_as_a_waitlist(self):
+        services.create_reservation(self.f, child(self.f, '井上'), self.day)
+        self.send()
+        req = BookingRequest.objects.get(facility=self.f)
+        self.client.force_login(self.user)
+        self.client.post(reverse('reservations:request_action', args=[req.pk]),
+                         {'action': 'apply', 'beneficiary': self.a.pk})
+        self.assertEqual(Reservation.objects.get(beneficiary=self.a).status, Reservation.STATUS_WAITLIST)

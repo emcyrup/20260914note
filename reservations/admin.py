@@ -2,7 +2,8 @@ from django.contrib import admin
 
 from facilities.admin_mixins import FacilityScopedAdmin
 
-from .models import ClosedDate, Customer, LineInbox, Reservation, ReservationNotice, ReservationSetting
+from .models import (BookingRequest, ClosedDate, Customer, LineInbox, Reservation, ReservationNotice,
+                     ReservationSetting)
 
 
 @admin.register(ReservationSetting)
@@ -35,6 +36,13 @@ class ReservationAdmin(FacilityScopedAdmin):
 class ReservationNoticeAdmin(FacilityScopedAdmin):
     list_display = ['kind', 'date', 'customer', 'status', 'created_at', 'facility']
     list_filter = ['facility', 'kind', 'status']
+
+
+@admin.register(BookingRequest)
+class BookingRequestAdmin(FacilityScopedAdmin):
+    list_display = ['date', 'name', 'child_name', 'status', 'created_at', 'facility']
+    list_filter = ['facility', 'status']
+    date_hierarchy = 'date'
 
 
 @admin.register(LineInbox)
