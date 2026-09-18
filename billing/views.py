@@ -20,25 +20,13 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 
 from beneficiaries.models import Beneficiary
-from facilities.models import SupportContentTag, AddonMaster
+from facilities.models import SupportContentTag, AddonMaster, REGION_UNIT_PRICE, facility_addon_rows
 from schedules.models import ScheduledVisit
-
-# 地域区分別・1単位あたり単価（円）
-# 障害福祉サービス等報酬告示に基づく（令和6年度改定時点）
-REGION_UNIT_PRICE = {
-    '1':     Decimal('11.40'),
-    '2':     Decimal('11.12'),
-    '3':     Decimal('11.05'),
-    '4':     Decimal('10.90'),
-    '5':     Decimal('10.70'),
-    '6':     Decimal('10.42'),
-    '7':     Decimal('10.21'),
-    'other': Decimal('10.00'),
-}
 
 from .forms import CopaymentManagementForm, CopaymentOfficeRecordForm
 from .models import BillingMatrixAddon, BillingMatrixEntry, CopaymentManagement, CopaymentOfficeRecord
-from config.utils import date_or_404, month_or_404
+from config.utils import date_or_404, month_or_404, to_int
+from django.urls import reverse
 from config.concurrency import check_conflict
 
 
@@ -237,8 +225,9 @@ class CellPopupView(LoginRequiredMixin, BillingEnabledMixin, View):
         if is_auto_suggested:
             applied_addon_ids = _suggest_addons(visit, facility, target_date, beneficiary, individual_addons)
 
+        rows = {r.pk: r for r in facility_addon_rows(facility, addon_type='individual')}
         addon_list = [
-            {'addon': a, 'is_applied': a.pk in applied_addon_ids}
+            {'addon': a, 'is_applied': a.pk in applied_addon_ids, 'row': rows.get(a.pk)}
             for a in individual_addons
         ]
 
@@ -490,9 +479,12 @@ class CopaymentListView(LoginRequiredMixin, BillingEnabledMixin, View):
 
         rows = []
         for b in beneficiaries:
+            m = mgmt_map.get(b.pk)
             rows.append({
                 'beneficiary': b,
-                'management':  mgmt_map.get(b.pk),
+                'management':  m,
+                'can_print_sheet': bool(m and m.is_upper_limit_manager),
+                'is_manager_here': b.is_copayment_manager_here,
             })
 
         return render(request, 'billing/copayment_list.html', {
@@ -513,14 +505,27 @@ class CopaymentEditView(LoginRequiredMixin, BillingEnabledMixin, View):
     CopaymentManagement 本体＋事業所別実績（formset）を同時に保存する。
     """
 
-    def _get_formset_class(self):
+    def _get_formset_class(self, extra=3):
         return inlineformset_factory(
             CopaymentManagement,
             CopaymentOfficeRecord,
             form=CopaymentOfficeRecordForm,
-            extra=3,
+            extra=extra,
             can_delete=True,
         )
+
+    @staticmethod
+    def _office_initials(facility, beneficiary):
+        """利用者に登録した利用事業所から、実績行の初期値を作る（当施設を先頭に）"""
+        offices = list(beneficiary.offices.all())
+        rows = []
+        if not any(o.is_this_office for o in offices):
+            rows.append({'is_this_office': True, 'office_name': facility.name, 'office_number': facility.office_number})
+        for o in offices:
+            rows.append({'is_this_office': o.is_this_office,
+                         'office_name': facility.name if o.is_this_office else o.name,
+                         'office_number': (facility.office_number or o.office_number) if o.is_this_office else o.office_number})
+        return rows
 
     def get(self, request, beneficiary_pk, year, month):
         facility    = request.user.facility
@@ -533,19 +538,18 @@ class CopaymentEditView(LoginRequiredMixin, BillingEnabledMixin, View):
             year_month=year_month,
         ).first()
 
-        form = CopaymentManagementForm(instance=management)
-        FormSet = self._get_formset_class()
-
         if management:
-            formset = FormSet(instance=management)
+            form = CopaymentManagementForm(instance=management)
+            formset = self._get_formset_class()(instance=management)
         else:
-            formset = FormSet(instance=CopaymentManagement())
-            if formset.forms:
-                formset.forms[0].initial = {
-                    'is_this_office': True,
-                    'office_name':    facility.name,
-                    'office_number':  facility.office_number,
-                }
+            # 利用者に登録した利用事業所を初期値にする（上限管理事業所のフラグも）
+            initials = self._office_initials(facility, beneficiary)
+            form = CopaymentManagementForm(instance=CopaymentManagement(
+                is_upper_limit_manager=beneficiary.is_copayment_manager_here or not beneficiary.offices.exists(),
+            ))
+            formset = self._get_formset_class(extra=max(3, len(initials) + 1))(instance=CopaymentManagement())
+            for f, init in zip(formset.forms, initials):
+                f.initial = init
 
         return render(request, 'billing/copayment_edit.html', {
             'beneficiary': beneficiary,
@@ -554,8 +558,9 @@ class CopaymentEditView(LoginRequiredMixin, BillingEnabledMixin, View):
             'year_month':  year_month,
             'form':        form,
             'formset':     formset,
-            'conflict':    conflict,
+            'conflict':    None,
             'management':  management,
+            'can_print_sheet': bool(management and management.is_upper_limit_manager),
         })
 
     def post(self, request, beneficiary_pk, year, month):
@@ -579,7 +584,9 @@ class CopaymentEditView(LoginRequiredMixin, BillingEnabledMixin, View):
             messages.error(request, conflict)
         elif form.is_valid() and formset.is_valid():
             form.save()
-            formset.save()
+            records = formset.save()
+            # 「当施設」の行を1つだけ立てる（事業所番号か名前が当施設と一致する行、なければ先頭行）
+            self._mark_this_office(management, facility)
             messages.success(
                 request,
                 f'{beneficiary.full_name}（{month}月）の上限額管理を保存しました。',
@@ -596,6 +603,73 @@ class CopaymentEditView(LoginRequiredMixin, BillingEnabledMixin, View):
             'conflict':    conflict,
             'management':  management,
         })
+
+
+    @staticmethod
+    def _mark_this_office(management, facility):
+        rows = list(management.office_records.all())
+        if not rows:
+            return
+        mine = next((r for r in rows if facility.office_number and r.office_number == facility.office_number), None) \
+            or next((r for r in rows if r.office_name == facility.name), None) \
+            or next((r for r in rows if r.is_this_office), None) \
+            or rows[0]
+        for r in rows:
+            flag = r.pk == mine.pk
+            if r.is_this_office != flag:
+                r.is_this_office = flag
+                r.save(update_fields=['is_this_office'])
+
+
+class CopaymentSheetView(LoginRequiredMixin, BillingEnabledMixin, View):
+    """
+    利用者負担上限額管理結果票（他事業所への送付用）を PDF で出す。
+    当施設が上限管理事業所のときだけ。送付状（他事業所ごと）を先頭に付ける。
+    ?fmt=html で画面表示、?office=<pk> で送付先を1事業所に絞る。
+    """
+
+    def get(self, request, beneficiary_pk, year, month):
+        from config.pdf import pdf_or_html
+        facility    = request.user.facility
+        beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=facility)
+        year, month = month_or_404(year, month)
+        management  = get_object_or_404(CopaymentManagement, facility=facility, beneficiary=beneficiary,
+                                        year_month=f'{year}-{month:02d}')
+        if not management.is_upper_limit_manager:
+            messages.error(request, '当施設が上限額管理事業所のときだけ管理結果票を出せます。')
+            return redirect('billing:copayment_edit', beneficiary_pk=beneficiary_pk, year=year, month=month)
+
+        records = list(management.office_records.all())
+        others  = [r for r in records if not r.is_this_office]
+        office_pk = to_int(request.GET.get('office'))
+        if office_pk is not None:
+            others = [r for r in others if r.pk == office_pk]
+        # 送付先の連絡先（利用者の利用事業所に登録があれば）
+        offices = {o.office_number: o for o in beneficiary.offices.filter(is_this_office=False) if o.office_number}
+        offices_by_name = {o.name: o for o in beneficiary.offices.filter(is_this_office=False)}
+        letters = []
+        for r in others:
+            o = offices.get(r.office_number) or offices_by_name.get(r.office_name)
+            letters.append({'record': r, 'office': o})
+
+        cert = beneficiary.recipient_certificates.order_by('-valid_until').first()
+        ctx = {
+            'facility':    facility,
+            'beneficiary': beneficiary,
+            'management':  management,
+            'records':     records,
+            'letters':     letters,
+            'year':        year,
+            'month':       month,
+            'cert':        cert,
+            'total_cost':  sum(r.total_cost for r in records),
+            'total_original': sum(r.original_copayment for r in records),
+            'total_adjusted': sum(r.adjusted_copayment for r in records),
+            'issued_date': date.today(),
+            'back_url':    reverse('billing:copayment_edit', args=[beneficiary_pk, year, month]),
+        }
+        return pdf_or_html(request, 'billing/pdf/copayment_sheet.html', ctx,
+                           f'上限額管理結果票_{beneficiary.full_name}_{year}{month:02d}')
 
 
 class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
@@ -748,10 +822,11 @@ def _build_invoice_context(facility, beneficiary, year, month):
     monthly_cap  = cert.monthly_cap if cert else None
     cert_number  = cert.certificate_number if cert else ''
 
-    # 公費自己負担額の計算
-    unit_count_available = facility.base_unit_count is not None
+    # 公費自己負担額の計算（重身の利用者は重身用の基本報酬単位数）
+    base_unit_count = facility.base_units_for(beneficiary)
+    unit_count_available = base_unit_count is not None
     if unit_count_available and monthly_cap is not None:
-        base_units = Decimal(str(facility.base_unit_count))
+        base_units = Decimal(str(base_unit_count))
         # 令和8年6月以降新規指定事業所は 982/1000 の減算
         if facility.is_new_facility_r8:
             base_units = (base_units * Decimal('982') / Decimal('1000')).to_integral_value()

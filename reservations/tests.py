@@ -905,7 +905,7 @@ class SeedReservationTests(TestCase):
         out = self.seed(f)
 
         self.assertIn('顧客（予約の連絡先）', out)
-        self.assertEqual(Customer.objects.filter(facility=f).count(), 6)
+        self.assertEqual(Customer.objects.filter(facility=f).count(), 7)
         self.assertTrue(Reservation.objects.filter(facility=f, status=Reservation.STATUS_CONFIRMED).exists())
         self.assertTrue(Reservation.objects.filter(facility=f, status=Reservation.STATUS_WAITLIST).exists())
         self.assertEqual(BookingRequest.objects.filter(facility=f).count(), 2)
@@ -926,7 +926,7 @@ class SeedReservationTests(TestCase):
         f = Facility.objects.create(name='なゆた', use_reservation=True)
         self.seed(f)
         self.seed(f, reset=True)
-        self.assertEqual(Customer.objects.filter(facility=f).count(), 6)
+        self.assertEqual(Customer.objects.filter(facility=f).count(), 7)
         self.assertEqual(BookingRequest.objects.filter(facility=f).count(), 2)
         self.assertEqual(LineInbox.objects.filter(facility=f).count(), 1)
         self.assertEqual(ClosedDate.objects.filter(facility=f).count(), 1)

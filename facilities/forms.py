@@ -15,7 +15,7 @@ class FacilityForm(forms.ModelForm):
         fields = [
             'name', 'office_number', 'address', 'phone',
             'region_category', 'standard_close_time',
-            'base_unit_count', 'is_new_facility_r8',
+            'base_unit_count', 'base_unit_count_severe', 'is_new_facility_r8',
             'line_channel_access_token', 'line_channel_secret',
             'term_staff', 'term_beneficiary', 'logo', 'brand_color',
         ]

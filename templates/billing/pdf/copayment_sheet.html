@@ -1,0 +1,99 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}利用者負担上限額管理結果票 {{ beneficiary.full_name }} {{ year }}年{{ month }}月{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">上限額管理へ戻る</a>{% endblock %}
+{% block body %}
+{# ===== 送付状（他事業所ごとに1枚） ===== #}
+{% for l in letters %}
+<div class="{% if not forloop.first %}pb{% endif %}">
+  <p class="right">{{ issued_date|date:"Y年n月j日" }}</p>
+  <p style="font-size:13px;">{{ l.record.office_name }}　御中{% if l.office and l.office.contact_name %}<br><span class="small">（ご担当：{{ l.office.contact_name }} 様）</span>{% endif %}</p>
+  {% if l.office and l.office.fax %}<p class="small muted">FAX：{{ l.office.fax }}</p>{% endif %}
+  <p class="right" style="margin-top:20px;">
+    {{ facility.name }}<br>
+    {% if facility.office_number %}<span class="small">事業所番号：{{ facility.office_number }}</span><br>{% endif %}
+    {% if facility.address %}<span class="small">{{ facility.address }}</span><br>{% endif %}
+    {% if facility.phone %}<span class="small">TEL：{{ facility.phone }}</span>{% endif %}
+  </p>
+  <h1 style="margin-top:30px;">送　付　状</h1>
+  <p style="margin-top:20px;">
+    平素より大変お世話になっております。<br>
+    {{ beneficiary.full_name }} 様の{{ year }}年{{ month }}月分の利用者負担上限額管理につきまして、当事業所が上限額管理事業所として管理した結果を下記のとおり送付いたします。<br>
+    ご確認のうえ、貴事業所の請求にご反映くださいますようお願い申し上げます。
+  </p>
+  <div class="lbl">記</div>
+  <table style="margin-top:8px;">
+    <tr><th class="h" style="width:32%;">対象者</th><td>{{ beneficiary.full_name }}{% if cert %}（受給者証番号：{{ cert.certificate_number }}）{% endif %}</td></tr>
+    <tr><th class="h">対象年月</th><td>{{ year }}年{{ month }}月</td></tr>
+    <tr><th class="h">送付書類</th><td>利用者負担上限額管理結果票　1部</td></tr>
+    <tr><th class="h">管理結果</th><td>{{ management.get_management_result_display }}</td></tr>
+    <tr><th class="h">貴事業所の利用者負担額（管理後）</th><td>{{ l.record.adjusted_copayment }} 円（管理前 {{ l.record.original_copayment }} 円）</td></tr>
+  </table>
+  <p class="small muted" style="margin-top:16px;">ご不明な点は上記連絡先までお問い合わせください。</p>
+  <p class="right" style="margin-top:20px;">以上</p>
+</div>
+{% endfor %}
+
+{# ===== 利用者負担上限額管理結果票 ===== #}
+<div class="{% if letters %}pb{% endif %}">
+  <h1>利用者負担上限額管理結果票</h1>
+  <p class="right small">{{ issued_date|date:"Y年n月j日" }}</p>
+  <table>
+    <tr>
+      <th class="h" style="width:18%;">対象年月</th><td style="width:32%;">{{ year }}年{{ month }}月</td>
+      <th class="h" style="width:18%;">受給者証番号</th><td>{{ cert.certificate_number|default:"" }}</td>
+    </tr>
+    <tr>
+      <th class="h">支給決定障害者等氏名</th><td>{% if beneficiary.guardians.first %}{{ beneficiary.guardians.first.last_name }} {{ beneficiary.guardians.first.first_name }}{% endif %}</td>
+      <th class="h">支給決定に係る障害児氏名</th><td>{{ beneficiary.full_name }}</td>
+    </tr>
+    <tr>
+      <th class="h">利用者負担上限月額</th><td>{% if cert %}{{ cert.monthly_cap }} 円{% endif %}</td>
+      <th class="h">市町村</th><td>{{ cert.municipality|default:"" }}</td>
+    </tr>
+  </table>
+
+  <div class="lbl">管理事業所</div>
+  <table style="margin-top:4px;">
+    <tr><th class="h" style="width:18%;">事業所番号</th><td style="width:32%;">{{ facility.office_number }}</td>
+        <th class="h" style="width:18%;">事業所名称</th><td>{{ facility.name }}</td></tr>
+  </table>
+
+  <div class="lbl">利用者負担上限額管理結果</div>
+  <table style="margin-top:4px;">
+    {% for value, label in management.MANAGEMENT_RESULT_CHOICES %}
+    <tr><td class="c" style="width:8%;">{% if management.management_result == value %}<span class="on">{{ value }}</span>{% else %}{{ value }}{% endif %}</td><td>{{ label }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <div class="lbl">利用者負担額集計・調整欄</div>
+  <table style="margin-top:4px;">
+    <thead>
+      <tr>
+        <th style="width:6%;">項番</th><th style="width:16%;">事業所番号</th><th>事業所名称</th>
+        <th style="width:15%;">総費用額</th><th style="width:15%;">利用者負担額</th><th style="width:15%;">管理結果後<br>利用者負担額</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in records %}
+      <tr>
+        <td class="c">{{ forloop.counter }}</td>
+        <td class="c">{{ r.office_number }}</td>
+        <td>{{ r.office_name }}{% if r.is_this_office %}（管理事業所）{% endif %}</td>
+        <td class="right">{{ r.total_cost }}</td>
+        <td class="right">{{ r.original_copayment }}</td>
+        <td class="right">{{ r.adjusted_copayment }}</td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <th colspan="3" class="h">合計</th>
+        <td class="right">{{ total_cost }}</td>
+        <td class="right">{{ total_original }}</td>
+        <td class="right">{{ total_adjusted }}</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="small muted" style="margin-top:8px;">
+    ※ 管理結果後利用者負担額は、各事業所の利用者負担額を上限月額の範囲内で調整したものです。関係事業所は本票の金額を請求にご反映ください。
+  </p>
+</div>
+{% endblock %}

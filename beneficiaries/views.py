@@ -12,8 +12,8 @@ from django.db import models as db_models
 from django.conf import settings
 import anthropic
 
-from .models import Beneficiary, Guardian, RecipientCertificate
-from .forms import BeneficiaryForm, GuardianForm, RecipientCertificateForm
+from .models import Beneficiary, BeneficiaryOffice, Guardian, RecipientCertificate
+from .forms import BeneficiaryForm, BeneficiaryOfficeForm, GuardianForm, RecipientCertificateForm
 from facilities.context_processors import get_terms
 from config.concurrency import check_conflict
 
@@ -74,6 +74,8 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
         today = datetime.date.today()
         ctx['guardians'] = b.guardians.all()
         ctx['certificates'] = b.recipient_certificates.all()
+        ctx['offices'] = b.offices.all()
+        ctx['office_form'] = BeneficiaryOfficeForm()
         ctx['guardian_form'] = GuardianForm()
         ctx['certificate_form'] = RecipientCertificateForm()
         # 編集モーダル用に現在の利用者データをセットしたフォームを渡す
@@ -193,6 +195,59 @@ class GuardianUpdateView(LoginRequiredMixin, View):
             messages.success(request, '保護者情報を更新しました。')
         else:
             messages.error(request, '入力内容を確認してください。')
+        return redirect('beneficiaries:detail', pk=beneficiary_pk)
+
+
+# =============================================
+# 利用事業所（上限額管理の相手先） 追加 / 編集 / 削除
+# =============================================
+class BeneficiaryOfficeCreateView(LoginRequiredMixin, View):
+    """利用者詳細画面から利用事業所を追加する"""
+
+    def post(self, request, beneficiary_pk):
+        beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        form = BeneficiaryOfficeForm(request.POST)
+        if form.is_valid():
+            office = form.save(commit=False)
+            office.beneficiary = beneficiary
+            if office.is_this_office:
+                # 当施設の行は施設設定の名前・番号をそのまま使う
+                office.name = office.name or request.user.facility.name
+                office.office_number = office.office_number or request.user.facility.office_number
+                beneficiary.offices.filter(is_this_office=True).update(is_this_office=False)
+            office.save()
+            messages.success(request, '利用事業所を追加しました。')
+        else:
+            messages.error(request, '入力内容を確認してください。')
+        return redirect('beneficiaries:detail', pk=beneficiary_pk)
+
+
+class BeneficiaryOfficeUpdateView(LoginRequiredMixin, View):
+    """利用事業所を編集する"""
+
+    def post(self, request, beneficiary_pk, office_pk):
+        beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        office = get_object_or_404(BeneficiaryOffice, pk=office_pk, beneficiary=beneficiary)
+        form = BeneficiaryOfficeForm(request.POST, instance=office)
+        if form.is_valid():
+            office = form.save(commit=False)
+            if office.is_this_office:
+                beneficiary.offices.filter(is_this_office=True).exclude(pk=office.pk).update(is_this_office=False)
+            office.save()
+            messages.success(request, '利用事業所を更新しました。')
+        else:
+            messages.error(request, '入力内容を確認してください。')
+        return redirect('beneficiaries:detail', pk=beneficiary_pk)
+
+
+class BeneficiaryOfficeDeleteView(LoginRequiredMixin, View):
+    """利用事業所を削除する（POSTのみ）"""
+
+    def post(self, request, beneficiary_pk, office_pk):
+        beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        office = get_object_or_404(BeneficiaryOffice, pk=office_pk, beneficiary=beneficiary)
+        office.delete()
+        messages.success(request, '利用事業所を削除しました。')
         return redirect('beneficiaries:detail', pk=beneficiary_pk)
 
 

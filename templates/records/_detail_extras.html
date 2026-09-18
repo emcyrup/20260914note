@@ -1,0 +1,51 @@
+{% comment %} 日誌詳細：重身の記録・加算・連携・専門的支援 {% endcomment %}
+{% if selected_record.is_severe %}
+<div class="detail-section">
+  <div class="detail-section-label"><i class="bi bi-heart-pulse me-1"></i>重身の記録</div>
+  {% if selected_record.severe_care_rows %}
+  <div class="row g-1" style="font-size:0.85rem;">
+    {% for row in selected_record.severe_care_rows %}
+    <div class="{% if row.key == 'care_memo' %}col-12{% else %}col-6 col-md-4{% endif %}">
+      <span class="text-muted" style="font-size:0.72rem;">{{ row.label }}：</span>{{ row.value }}{% if row.unit %}<span class="text-muted" style="font-size:0.72rem;"> {{ row.unit }}</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="detail-section-text text-muted" style="font-size:0.85rem;">記録がありません。</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if features.billing %}
+<div class="detail-section">
+  <div class="detail-section-label"><i class="bi bi-plus-square me-1"></i>加算</div>
+  {% if selected_addons %}
+  <ul class="mb-1 ps-3" style="font-size:0.85rem;">
+    {% for r in selected_addons %}
+    <li>{{ r.name }} <span class="text-muted" style="font-size:0.72rem;">{% if r.code %}{{ r.code }} · {% endif %}{{ r.unit_count }}単位{% if r.price_yen %}（{{ r.price_yen }}円）{% endif %}</span></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="detail-section-text text-muted mb-1" style="font-size:0.85rem;">加算の入力はありません。</p>
+  {% endif %}
+  {% if selected_record.collaboration_note %}
+  <p class="detail-section-text mb-1" style="white-space:pre-line;"><strong>連携の内容：</strong>{{ selected_record.collaboration_note }}</p>
+  {% endif %}
+</div>
+{% elif selected_record.collaboration_note %}
+<div class="detail-section">
+  <div class="detail-section-label">連携の内容</div>
+  <p class="detail-section-text" style="white-space:pre-line;">{{ selected_record.collaboration_note }}</p>
+</div>
+{% endif %}
+
+{% if selected_record.has_special_support %}
+<div class="detail-section">
+  <div class="detail-section-label">専門的支援の実施</div>
+  <p class="detail-section-text mb-0">
+    {{ selected_record.date|date:"Y年n月j日" }}
+    {% if selected_record.special_support_start %}{{ selected_record.special_support_start|time:"H:i" }}〜{{ selected_record.special_support_end|time:"H:i"|default:"" }}{% endif %}
+    {% if selected_record.special_support_staff %}　担当：{{ selected_record.special_support_staff.display_name|default:selected_record.special_support_staff.username }}{% endif %}
+  </p>
+</div>
+{% endif %}

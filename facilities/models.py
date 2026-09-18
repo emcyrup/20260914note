@@ -1,5 +1,21 @@
+from decimal import Decimal
+
 from django.db import models
 from .uploads import logo_upload_to
+
+
+# 地域区分別・1単位あたり単価（円）
+# 障害福祉サービス等報酬告示に基づく（令和6年度改定時点）
+REGION_UNIT_PRICE = {
+    '1':     Decimal('11.40'),
+    '2':     Decimal('11.12'),
+    '3':     Decimal('11.05'),
+    '4':     Decimal('10.90'),
+    '5':     Decimal('10.70'),
+    '6':     Decimal('10.42'),
+    '7':     Decimal('10.21'),
+    'other': Decimal('10.00'),
+}
 
 
 class Facility(models.Model):
@@ -29,6 +45,11 @@ class Facility(models.Model):
     # 基本報酬単位数（請求書PDF生成に使用）
     base_unit_count = models.IntegerField(
         null=True, blank=True, verbose_name='1日あたり基本報酬単位数'
+    )
+    # 重症心身障害児（重身）の基本報酬単位数（普通用と単位が異なる）
+    base_unit_count_severe = models.IntegerField(
+        null=True, blank=True, verbose_name='重身の1日あたり基本報酬単位数',
+        help_text='重症心身障害児の利用者に使う単位数。空なら通常の単位数を使います。'
     )
     is_new_facility_r8 = models.BooleanField(
         default=False, verbose_name='令和8年6月以降新規指定事業所',
@@ -75,6 +96,17 @@ class Facility(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def unit_price(self):
+        """地域区分に応じた 1単位あたりの単価（円）"""
+        return REGION_UNIT_PRICE.get(self.region_category, Decimal('10.00'))
+
+    def base_units_for(self, beneficiary):
+        """利用者に応じた基本報酬単位数（重身なら重身用。未設定なら普通用）"""
+        if getattr(beneficiary, 'is_severe', False) and self.base_unit_count_severe:
+            return self.base_unit_count_severe
+        return self.base_unit_count
 
     def journal_section_keys(self):
         """日誌に出す項目のキーを優先順位の順で返す（設定が空なら標準の順番で全部）"""
@@ -136,6 +168,8 @@ class AddonMaster(models.Model):
     ]
 
     name       = models.CharField(max_length=200, verbose_name='加算名')
+    # 国保連請求のサービスコード（例：615xxx）。事業所側で確認して入力する
+    code       = models.CharField(max_length=10, blank=True, verbose_name='サービスコード')
     addon_type = models.CharField(
         max_length=20, choices=ADDON_TYPE_CHOICES, default='individual', verbose_name='加算種別'
     )
@@ -151,6 +185,16 @@ class AddonMaster(models.Model):
     def __str__(self):
         return f'{self.name}（{self.unit_count}単位）'
 
+    @property
+    def is_collaboration(self):
+        """他事業所・関係機関との連携に関する加算か（日誌で連携内容の記入欄を出す）"""
+        return '連携' in self.name
+
+    @property
+    def is_special_support(self):
+        """専門的支援の実施に関する加算か（日誌で担当者・開始／終了時刻の欄を出す）"""
+        return '専門的支援' in self.name
+
 
 class FacilityAddonSetting(models.Model):
     """
@@ -160,6 +204,9 @@ class FacilityAddonSetting(models.Model):
     facility   = models.ForeignKey(Facility, on_delete=models.CASCADE, verbose_name='施設')
     addon      = models.ForeignKey(AddonMaster, on_delete=models.CASCADE, verbose_name='加算')
     is_enabled = models.BooleanField(default=False, verbose_name='算定する')
+    # 事業所ごとの上書き（区分や地域で単位数・コードが変わる加算のため）。空ならマスタの値
+    code       = models.CharField(max_length=10, blank=True, verbose_name='サービスコード（事業所）')
+    unit_count = models.IntegerField(null=True, blank=True, verbose_name='単位数（事業所）')
 
     class Meta:
         verbose_name        = '施設加算設定'
@@ -168,6 +215,64 @@ class FacilityAddonSetting(models.Model):
 
     def __str__(self):
         return f'{self.facility.name} - {self.addon.name}'
+
+
+class AddonRow:
+    """
+    設定画面・日誌・請求で使う「この事業所での加算」の見え方。
+    マスタの値に事業所の上書き（コード・単位数）を重ね、円換算も持つ。
+    """
+
+    def __init__(self, facility, addon, setting=None):
+        self.facility = facility
+        self.addon = addon
+        self.setting = setting
+        self.is_enabled = bool(setting and setting.is_enabled)
+        self.code = (setting.code if setting and setting.code else addon.code) or ''
+        self.unit_count = setting.unit_count if setting and setting.unit_count is not None else addon.unit_count
+        self.override_code = setting.code if setting else ''
+        self.override_units = setting.unit_count if setting else None
+
+    @property
+    def pk(self):
+        return self.addon.pk
+
+    @property
+    def name(self):
+        return self.addon.name
+
+    @property
+    def price_yen(self):
+        """単位数 × 地域区分の単価（円・切り捨て）"""
+        if not self.unit_count:
+            return 0
+        return int(Decimal(self.unit_count) * self.facility.unit_price)
+
+    @property
+    def is_collaboration(self):
+        return self.addon.is_collaboration
+
+    @property
+    def is_special_support(self):
+        return self.addon.is_special_support
+
+
+def facility_addon_rows(facility, addon_type=None, enabled_only=False):
+    """
+    事業所の加算一覧（マスタ＋事業所の上書き）。
+    enabled_only=True のときは「算定する」にした加算だけ。ただし、その種別で1件も設定が
+    ないときは全件を返す（初めて使う事業所でも日誌に加算が出るように）。
+    """
+    addons = AddonMaster.objects.filter(is_active=True)
+    if addon_type:
+        addons = addons.filter(addon_type=addon_type)
+    settings_map = {s.addon_id: s for s in FacilityAddonSetting.objects.filter(facility=facility)}
+    rows = [AddonRow(facility, a, settings_map.get(a.pk)) for a in addons]
+    if enabled_only:
+        enabled = [r for r in rows if r.is_enabled]
+        if enabled or any(r.setting is not None for r in rows):
+            return enabled
+    return rows
 
 
 class EditingSession(models.Model):

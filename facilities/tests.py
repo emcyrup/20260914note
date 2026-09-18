@@ -28,10 +28,18 @@ class SeedDemoCommandTests(TestCase):
         call_command('seed_demo', stdout=out)
 
         bens = Beneficiary.objects.filter(facility=self.facility)
-        self.assertEqual(bens.count(), 6)
+        self.assertEqual(bens.count(), 7)
         self.assertTrue(all('サンプルデータ' in b.notes for b in bens))
-        self.assertEqual(Guardian.objects.filter(beneficiary__in=bens).count(), 7)
-        self.assertEqual(RecipientCertificate.objects.filter(beneficiary__in=bens).count(), 6)
+        self.assertEqual(Guardian.objects.filter(beneficiary__in=bens).count(), 8)
+        self.assertEqual(RecipientCertificate.objects.filter(beneficiary__in=bens).count(), 7)
+        # 重身の子：重身用の日誌と利用事業所（当施設が上限管理事業所）
+        severe = bens.get(is_severe=True)
+        self.assertTrue(severe.is_copayment_manager_here)
+        self.assertEqual(severe.other_offices.count(), 2)
+        self.assertTrue(severe.daily_records.filter(record_kind='severe').exclude(severe_care={}).exists())
+        self.assertFalse(bens.filter(is_severe=False, daily_records__record_kind='severe').exists())
+        self.facility.refresh_from_db()
+        self.assertEqual(self.facility.base_unit_count_severe, 1756)
         self.assertEqual(ActivityTag.objects.filter(facility=self.facility).count(), 8)
         self.assertEqual(SupportContentTag.objects.filter(facility=self.facility).count(), 8)
 
@@ -66,7 +74,7 @@ class SeedDemoCommandTests(TestCase):
         call_command('seed_demo', stdout=StringIO())
         with self.assertRaises(CommandError):
             call_command('seed_demo', stdout=StringIO())
-        self.assertEqual(Beneficiary.objects.filter(facility=self.facility).count(), 6)
+        self.assertEqual(Beneficiary.objects.filter(facility=self.facility).count(), 7)
 
     def test_reset_replaces_sample_data_but_keeps_real_users(self):
         real = Beneficiary.objects.create(
@@ -75,7 +83,7 @@ class SeedDemoCommandTests(TestCase):
         )
         call_command('seed_demo', stdout=StringIO())
         call_command('seed_demo', '--reset', stdout=StringIO())
-        self.assertEqual(Beneficiary.objects.filter(facility=self.facility).count(), 7)
+        self.assertEqual(Beneficiary.objects.filter(facility=self.facility).count(), 8)
         self.assertTrue(Beneficiary.objects.filter(pk=real.pk).exists())
 
     def test_requires_facility_choice_when_multiple(self):
@@ -83,7 +91,7 @@ class SeedDemoCommandTests(TestCase):
         with self.assertRaises(CommandError):
             call_command('seed_demo', stdout=StringIO())
         call_command('seed_demo', '--facility', str(self.facility.pk), stdout=StringIO())
-        self.assertEqual(Beneficiary.objects.filter(facility=self.facility).count(), 6)
+        self.assertEqual(Beneficiary.objects.filter(facility=self.facility).count(), 7)
 
 
 class DashboardWeekAndSupportTagPriceTests(TestCase):

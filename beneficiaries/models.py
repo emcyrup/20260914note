@@ -68,6 +68,8 @@ class Beneficiary(models.Model):
         max_length=1, choices=DISABILITY_CLASS_CHOICES, blank=True, verbose_name='障害区分'
     )
     disability_type = models.CharField(max_length=100, blank=True, verbose_name='障害種別')
+    # 重症心身障害児（重身）。日誌の種類と基本報酬単位数の切り替えに使う
+    is_severe = models.BooleanField(default=False, verbose_name='重症心身障害児（重身）')
     notes = models.TextField(blank=True, verbose_name='備考')
     # 利用予定曜日（月〜土）。Phase 3 の予定一括生成で使用する
     weekday_mon = models.BooleanField(default=False, verbose_name='月')
@@ -99,6 +101,21 @@ class Beneficiary(models.Model):
         return f'{self.last_name_kana} {self.first_name_kana}'
 
     @property
+    def manager_office(self):
+        """この利用者の上限管理事業所（登録があれば）"""
+        return self.offices.filter(is_manager=True).first()
+
+    @property
+    def is_copayment_manager_here(self):
+        """当施設がこの利用者の上限管理事業所か"""
+        return self.offices.filter(is_manager=True, is_this_office=True).exists()
+
+    @property
+    def other_offices(self):
+        """当施設以外の利用事業所"""
+        return self.offices.filter(is_this_office=False)
+
+    @property
     def scheduled_weekdays_display(self):
         """利用予定曜日を「月・水・金」のような表示用文字列で返す"""
         days = []
@@ -121,6 +138,43 @@ class Beneficiary(models.Model):
         if self.weekday_fri: days.append(4)
         if self.weekday_sat: days.append(5)
         return days
+
+
+class BeneficiaryOffice(models.Model):
+    """
+    利用者が利用している事業所（複数可）。
+    上限額管理では、どの事業所が上限管理事業所かを決めておく必要があるためフラグを持つ。
+    当施設が上限管理事業所のときは、他事業所へ「利用者負担上限額管理結果票」を送付できる。
+    """
+    beneficiary = models.ForeignKey(
+        Beneficiary, on_delete=models.CASCADE, related_name='offices', verbose_name='利用者'
+    )
+    name = models.CharField(max_length=200, verbose_name='事業所名')
+    office_number = models.CharField(max_length=20, blank=True, verbose_name='事業所番号')
+    is_this_office = models.BooleanField(default=False, verbose_name='当施設')
+    is_manager = models.BooleanField(default=False, verbose_name='上限管理事業所')
+    address = models.CharField(max_length=200, blank=True, verbose_name='住所')
+    phone = models.CharField(max_length=20, blank=True, verbose_name='電話番号')
+    fax = models.CharField(max_length=20, blank=True, verbose_name='FAX')
+    contact_name = models.CharField(max_length=100, blank=True, verbose_name='担当者名')
+    note = models.CharField(max_length=200, blank=True, verbose_name='備考')
+    order = models.PositiveSmallIntegerField(default=0, verbose_name='表示順')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '利用事業所'
+        verbose_name_plural = '利用事業所'
+        ordering = ['-is_this_office', 'order', 'pk']
+
+    def __str__(self):
+        return f'{self.beneficiary.full_name} - {self.name}'
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # 上限管理事業所は利用者につき1つ
+        if self.is_manager:
+            BeneficiaryOffice.objects.filter(beneficiary=self.beneficiary, is_manager=True).exclude(pk=self.pk).update(is_manager=False)
 
 
 class Guardian(models.Model):

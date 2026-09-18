@@ -1,0 +1,11 @@
+{% comment %} 日誌の種類（普通用／重身用）。kind は外側の x-data で持つ {% endcomment %}
+<div class="d-flex align-items-center gap-3 flex-wrap mb-3">
+  <label class="form-label small fw-semibold mb-0">日誌の種類</label>
+  {% for val, label in kind_choices %}
+  <div class="form-check form-check-inline mb-0">
+    <input type="radio" name="record_kind" value="{{ val }}" id="{{ prefix }}_kind_{{ val }}" class="form-check-input" x-model="kind">
+    <label for="{{ prefix }}_kind_{{ val }}" class="form-check-label small">{{ label }}</label>
+  </div>
+  {% endfor %}
+  <span class="text-muted" style="font-size:0.7rem;">重身用は基本報酬の単位が異なり、体温・排便などの記録欄が付きます</span>
+</div>

@@ -96,6 +96,7 @@
           <span class="ms-2 badge {% if beneficiary.status == 'active' %}text-bg-success{% else %}text-bg-secondary{% endif %}" style="font-size:0.7rem;">
             {{ beneficiary.get_status_display }}
           </span>
+          {% if beneficiary.is_severe %}<span class="ms-1 badge" style="background:#9a4e6c;font-size:0.7rem;">重身</span>{% endif %}
         </div>
       </div>
     </div>
@@ -189,7 +190,7 @@
           </div>
           <div class="col-6">
             <div class="detail-label">障害種別</div>
-            <div class="detail-value">{{ beneficiary.disability_type|default:'—' }}</div>
+            <div class="detail-value">{{ beneficiary.disability_type|default:'—' }}{% if beneficiary.is_severe %} <span class="badge" style="background:#9a4e6c;font-size:0.7rem;">重症心身障害児</span>{% endif %}</div>
           </div>
           <div class="col-12">
             <div class="detail-label">利用予定曜日</div>
@@ -251,6 +252,53 @@
           {% endfor %}
         {% else %}
           <p class="text-muted small mb-0">保護者が未登録です</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- 利用事業所（上限額管理） -->
+    <div class="col-12">
+      <div class="info-card">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="section-title mb-0">利用事業所（上限額管理）</div>
+          <button class="btn btn-sm btn-outline-primary"
+                  data-bs-toggle="modal" data-bs-target="#officeModal">
+            <i class="bi bi-plus me-1"></i>追加
+          </button>
+        </div>
+        <p class="text-muted small mb-2">
+          複数の事業所を利用している場合に登録します。「上限管理事業所」にした事業所が利用者負担上限額を管理します。
+          {% if beneficiary.is_copayment_manager_here %}<span class="fw-semibold" style="color:var(--color-primary);">当施設が上限管理事業所です。</span>{% if features.billing %}上限額管理の画面から、他事業所へ送る管理結果票（送付状つき）を出せます。{% endif %}{% endif %}
+        </p>
+        {% if offices %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0" style="font-size:0.85rem;">
+            <thead><tr style="background:#f8f9fa;"><th>事業所名</th><th>事業所番号</th><th>連絡先</th><th class="text-center">上限管理</th><th style="width:90px;"></th></tr></thead>
+            <tbody>
+              {% for o in offices %}
+              <tr>
+                <td class="fw-semibold">{{ o.name }}
+                  {% if o.is_this_office %}<span class="badge text-bg-light text-dark ms-1" style="font-size:0.7rem;">当施設</span>{% endif %}
+                  {% if o.note %}<div class="text-muted" style="font-size:0.72rem;">{{ o.note }}</div>{% endif %}
+                </td>
+                <td class="font-monospace">{{ o.office_number|default:'—' }}</td>
+                <td class="small">{{ o.contact_name }}{% if o.phone %} <span class="text-muted">TEL {{ o.phone }}</span>{% endif %}{% if o.fax %} <span class="text-muted">FAX {{ o.fax }}</span>{% endif %}</td>
+                <td class="text-center">{% if o.is_manager %}<span class="badge" style="background:var(--color-primary);font-size:0.7rem;">上限管理事業所</span>{% else %}—{% endif %}</td>
+                <td class="text-end text-nowrap">
+                  <button class="btn btn-sm btn-outline-secondary py-0" data-bs-toggle="modal" data-bs-target="#officeEditModal{{ o.pk }}"><i class="bi bi-pencil"></i></button>
+                  <form method="post" action="{% url 'beneficiaries:office_delete' beneficiary.pk o.pk %}" class="d-inline"
+                        onsubmit="return confirm('{{ o.name|escapejs }} を利用事業所から削除しますか？')">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-trash"></i></button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="text-muted small mb-0">利用事業所が未登録です（当施設だけを利用している場合は登録不要です）</p>
         {% endif %}
       </div>
     </div>
@@ -414,6 +462,15 @@
               <input type="text" name="disability_type" class="form-control"
                      value="{{ edit_form.disability_type.value|default:'' }}"
                      placeholder="例：自閉スペクトラム症">
+            </div>
+            <div class="col-sm-12">
+              <div class="form-check">
+                <input type="checkbox" name="is_severe" id="edit_is_severe" class="form-check-input"
+                       {% if edit_form.is_severe.value %}checked{% endif %}>
+                <label for="edit_is_severe" class="form-check-label small">重症心身障害児（重身）
+                  <span class="text-muted">— 日誌が重身用（体温・排便などの記録つき）になり、請求は重身の基本報酬単位数を使います</span>
+                </label>
+              </div>
             </div>
             <div class="col-sm-6">
               <label class="form-label small fw-semibold">在籍状況</label>
@@ -596,6 +653,140 @@
   </div>
 </div>
 {% endfor %}
+
+<!-- ========== 利用事業所 編集モーダル（事業所ごとに生成） ========== -->
+{% for o in offices %}
+<div class="modal fade" id="officeEditModal{{ o.pk }}" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'beneficiaries:office_update' beneficiary.pk o.pk %}">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">利用事業所を編集</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-8">
+              <label class="form-label small fw-semibold">事業所名 <span class="text-danger">*</span></label>
+              <input type="text" name="name" class="form-control" value="{{ o.name }}" required>
+            </div>
+            <div class="col-4">
+              <label class="form-label small fw-semibold">事業所番号</label>
+              <input type="text" name="office_number" class="form-control font-monospace" value="{{ o.office_number }}" maxlength="20">
+            </div>
+            <div class="col-12">
+              <div class="form-check form-check-inline">
+                <input type="checkbox" name="is_manager" id="office{{ o.pk }}_is_manager" class="form-check-input" {% if o.is_manager %}checked{% endif %}>
+                <label for="office{{ o.pk }}_is_manager" class="form-check-label small">上限管理事業所にする</label>
+              </div>
+              <div class="form-check form-check-inline">
+                <input type="checkbox" name="is_this_office" id="office{{ o.pk }}_is_this_office" class="form-check-input" {% if o.is_this_office %}checked{% endif %}>
+                <label for="office{{ o.pk }}_is_this_office" class="form-check-label small">当施設（{{ user.facility.name }}）</label>
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">住所</label>
+              <input type="text" name="address" class="form-control" value="{{ o.address }}">
+            </div>
+            <div class="col-4">
+              <label class="form-label small fw-semibold">電話番号</label>
+              <input type="tel" name="phone" class="form-control" value="{{ o.phone }}">
+            </div>
+            <div class="col-4">
+              <label class="form-label small fw-semibold">FAX</label>
+              <input type="tel" name="fax" class="form-control" value="{{ o.fax }}">
+            </div>
+            <div class="col-4">
+              <label class="form-label small fw-semibold">担当者名</label>
+              <input type="text" name="contact_name" class="form-control" value="{{ o.contact_name }}">
+            </div>
+            <div class="col-9">
+              <label class="form-label small fw-semibold">備考</label>
+              <input type="text" name="note" class="form-control" value="{{ o.note }}" placeholder="例：火・木に利用">
+            </div>
+            <div class="col-3">
+              <label class="form-label small fw-semibold">表示順</label>
+              <input type="number" name="order" class="form-control" value="{{ o.order|default:0 }}" min="0">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="submit" class="btn btn-primary px-4"><i class="bi bi-check-lg me-1"></i>保存する</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<!-- ========== 利用事業所 追加モーダル ========== -->
+<div class="modal fade" id="officeModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'beneficiaries:office_create' beneficiary.pk %}">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold">利用事業所を追加</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          {% with o=office_form.instance %}
+          <div class="row g-3">
+            <div class="col-8">
+              <label class="form-label small fw-semibold">事業所名 <span class="text-danger">*</span></label>
+              <input type="text" name="name" class="form-control" value="{{ o.name }}" required>
+            </div>
+            <div class="col-4">
+              <label class="form-label small fw-semibold">事業所番号</label>
+              <input type="text" name="office_number" class="form-control font-monospace" value="{{ o.office_number }}" maxlength="20">
+            </div>
+            <div class="col-12">
+              <div class="form-check form-check-inline">
+                <input type="checkbox" name="is_manager" id="officeNew_is_manager" class="form-check-input" {% if o.is_manager %}checked{% endif %}>
+                <label for="officeNew_is_manager" class="form-check-label small">上限管理事業所にする</label>
+              </div>
+              <div class="form-check form-check-inline">
+                <input type="checkbox" name="is_this_office" id="officeNew_is_this_office" class="form-check-input" {% if o.is_this_office %}checked{% endif %}>
+                <label for="officeNew_is_this_office" class="form-check-label small">当施設（{{ user.facility.name }}）</label>
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label small fw-semibold">住所</label>
+              <input type="text" name="address" class="form-control" value="{{ o.address }}">
+            </div>
+            <div class="col-4">
+              <label class="form-label small fw-semibold">電話番号</label>
+              <input type="tel" name="phone" class="form-control" value="{{ o.phone }}">
+            </div>
+            <div class="col-4">
+              <label class="form-label small fw-semibold">FAX</label>
+              <input type="tel" name="fax" class="form-control" value="{{ o.fax }}">
+            </div>
+            <div class="col-4">
+              <label class="form-label small fw-semibold">担当者名</label>
+              <input type="text" name="contact_name" class="form-control" value="{{ o.contact_name }}">
+            </div>
+            <div class="col-9">
+              <label class="form-label small fw-semibold">備考</label>
+              <input type="text" name="note" class="form-control" value="{{ o.note }}" placeholder="例：火・木に利用">
+            </div>
+            <div class="col-3">
+              <label class="form-label small fw-semibold">表示順</label>
+              <input type="number" name="order" class="form-control" value="{{ o.order|default:0 }}" min="0">
+            </div>
+          </div>
+          {% endwith %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="submit" class="btn btn-primary">追加する</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 <!-- ========== 保護者追加モーダル ========== -->
 <div class="modal fade" id="guardianModal" tabindex="-1">

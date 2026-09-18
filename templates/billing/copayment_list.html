@@ -45,13 +45,19 @@
           <th class="text-center px-2">管理結果</th>
           <th class="text-center px-2">当施設負担額</th>
           <th class="text-center px-2">合計負担額</th>
-          <th class="text-center px-2" style="width: 100px;">操作</th>
+          <th class="text-center px-2">上限管理</th>
+          <th class="text-center px-2" style="width: 160px;">操作</th>
         </tr>
       </thead>
       <tbody>
         {% for row in rows %}
         <tr>
           <td class="px-3 fw-semibold">{{ row.beneficiary.full_name }}</td>
+          <td class="text-center px-2 small">
+            {% if row.management %}{% if row.management.is_upper_limit_manager %}<span class="badge" style="background:var(--color-primary);font-size:0.7rem;">当施設が管理</span>{% else %}<span class="text-muted">他事業所が管理</span>{% endif %}
+            {% elif row.is_manager_here %}<span class="badge text-bg-light text-dark" style="font-size:0.7rem;">当施設が管理（台帳）</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
           {% if row.management %}
             <td class="text-center px-2">
               <span class="badge px-2"
@@ -70,11 +76,17 @@
             <td class="text-center text-muted px-2 small">—</td>
             <td class="text-center text-muted px-2 small">—</td>
           {% endif %}
-          <td class="text-center px-2">
+          <td class="text-center px-2 text-nowrap">
             <a href="{% url 'billing:copayment_edit' row.beneficiary.pk year month %}"
                class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size: 0.78rem;">
               {% if row.management %}編集{% else %}入力{% endif %}
             </a>
+            {% if row.can_print_sheet %}
+            <a href="{% url 'billing:copayment_sheet' row.beneficiary.pk year month %}"
+               class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 0.78rem;" title="他事業所へ送る管理結果票（送付状つき）をPDFで出す">
+              <i class="bi bi-file-earmark-pdf me-1"></i>管理票
+            </a>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}

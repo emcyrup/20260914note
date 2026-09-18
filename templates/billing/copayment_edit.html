@@ -19,7 +19,22 @@
       上限額管理 — {{ beneficiary.full_name }}
       <span class="text-muted small fw-normal ms-2">{{ year }}年{{ month }}月</span>
     </h5>
+    {% if can_print_sheet %}
+    <div class="ms-auto d-flex gap-1">
+      <a href="{% url 'billing:copayment_sheet' beneficiary.pk year month %}?fmt=html" target="_blank"
+         class="btn btn-sm btn-outline-secondary">画面で見る</a>
+      <a href="{% url 'billing:copayment_sheet' beneficiary.pk year month %}"
+         class="btn btn-sm btn-outline-primary" title="他事業所へ送る管理結果票（送付状つき）">
+        <i class="bi bi-file-earmark-pdf me-1"></i>管理票PDF
+      </a>
+    </div>
+    {% endif %}
   </div>
+  {% if not management and beneficiary.offices.exists %}
+  <div class="alert alert-light border small py-2 mb-3">
+    <i class="bi bi-building me-1"></i>{{ terms.beneficiary }}台帳の「利用事業所」を初期値にしています。当施設が上限管理事業所のときは、保存後に「管理票PDF」で送付状つきの管理結果票を出せます。
+  </div>
+  {% endif %}
 
   <form method="post" data-concurrency="copayment:{{ management.pk }}">
     {% csrf_token %}

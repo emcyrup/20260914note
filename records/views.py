@@ -25,6 +25,48 @@ from ai_assist.text import JAPANESE_RULES, clean_ai_dict, clean_ai_text, effort_
 from .paper import extract_paper_scan
 from config.utils import safe_next, to_int
 from config.concurrency import check_conflict, saved_at_label
+from .severe import clean_severe_care, severe_care_fields
+
+
+def to_time(value):
+    """'15:30' → time。形式が違えば None"""
+    from datetime import time as _time
+    try:
+        h, m = (value or '').strip().split(':')[:2]
+        return _time(int(h), int(m))
+    except (ValueError, AttributeError):
+        return None
+
+
+def _special_support_fields(request, facility):
+    """専門的支援の担当者・開始／終了時刻（終了が空なら開始の30分後）"""
+    p = request.POST
+    staff_id = None
+    staff_pk = p.get('special_support_staff')
+    if staff_pk and facility.staff_accounts.filter(pk=staff_pk).exists():
+        staff_id = int(staff_pk)
+    start = to_time(p.get('special_support_start'))
+    end = to_time(p.get('special_support_end'))
+    if start and not end:
+        end = (datetime.combine(date.today(), start) + timedelta(minutes=30)).time()
+    return {'special_support_staff_id': staff_id, 'special_support_start': start, 'special_support_end': end}
+
+
+def _record_kind(request, beneficiary, current=None):
+    kind = request.POST.get('record_kind')
+    if kind in (DailyRecord.KIND_STANDARD, DailyRecord.KIND_SEVERE):
+        return kind
+    if current:
+        return current
+    return DailyRecord.KIND_SEVERE if beneficiary.is_severe else DailyRecord.KIND_STANDARD
+
+
+def _sync_addons(request, record):
+    """日誌の「加算の入力」を請求セルへ反映する（請求機能を使う事業所のみ）"""
+    if not record.facility.use_billing or 'addons_present' not in request.POST:
+        return
+    from billing.services import sync_record_addons
+    sync_record_addons(record, request.POST.getlist('addon_ids'))
 
 
 def to_date(value):
@@ -234,6 +276,18 @@ class DailyRecordListView(LoginRequiredMixin, TemplateView):
                 for n in (1, 5)
             }
 
+        # 加算の入力（請求機能を使う事業所だけ）。選択中の日誌には、その日の請求セルの加算を初期値にする
+        addon_rows = []
+        selected_addon_ids = set()
+        selected_addons = []
+        if facility.use_billing:
+            from billing.services import applied_addon_ids, journal_addon_rows
+            from facilities.models import facility_addon_rows
+            addon_rows = journal_addon_rows(facility)
+            if selected_record:
+                selected_addon_ids = applied_addon_ids(facility, beneficiary, selected_record.date)
+                selected_addons = [r for r in facility_addon_rows(facility, addon_type='individual') if r.pk in selected_addon_ids]
+
         ctx.update({
             'beneficiary':     beneficiary,
             'records':         records,
@@ -242,6 +296,16 @@ class DailyRecordListView(LoginRequiredMixin, TemplateView):
             'support_tags':    support_tags,
             'status_choices':  DailyRecord.STATUS_CHOICES,
             'health_choices':  DailyRecord.HEALTH_CHOICES,
+            'kind_choices':    DailyRecord.KIND_CHOICES,
+            'default_kind':    DailyRecord.KIND_SEVERE if beneficiary.is_severe else DailyRecord.KIND_STANDARD,
+            'severe_fields':   severe_care_fields(),
+            'severe_fields_edit': severe_care_fields(selected_record.severe_care if selected_record else None),
+            'addon_rows':      addon_rows,
+            'selected_addon_ids': selected_addon_ids,
+            'selected_addon_ids_json': json.dumps([str(i) for i in selected_addon_ids]),
+            'selected_addons': selected_addons,
+            'collab_addon_ids_json':  json.dumps([str(r.pk) for r in addon_rows if r.is_collaboration]),
+            'special_addon_ids_json': json.dumps([str(r.pk) for r in addon_rows if r.is_special_support]),
             'staff_list':      facility.staff_accounts.all(),
             'new_date':        self.request.GET.get('new_date', ''),
             'domains': [
@@ -397,6 +461,10 @@ class DailyRecordCreateView(LoginRequiredMixin, View):
         defaults = {
             'facility':                facility,
             'author_id':               author_id,
+            'record_kind':             _record_kind(request, beneficiary),
+            'severe_care':             clean_severe_care(p),
+            'collaboration_note':      p.get('collaboration_note', ''),
+            **_special_support_fields(request, facility),
             'entry_time':              p.get('entry_time') or None,
             'exit_time':               p.get('exit_time') or None,
             'health_condition':        p.get('health_condition', DailyRecord.HEALTH_GOOD),
@@ -449,6 +517,7 @@ class DailyRecordCreateView(LoginRequiredMixin, View):
 
         # 写真を保存する
         _save_photos(request, record)
+        _sync_addons(request, record)
 
         messages.success(request, f'{date} の日誌を保存しました。')
         _suggest_addons_after_save(record)
@@ -481,6 +550,12 @@ class DailyRecordUpdateView(LoginRequiredMixin, View):
             record.author_id = author_pk
         elif not author_pk:
             pass  # 空の場合は変更しない
+        record.record_kind             = _record_kind(request, record.beneficiary, record.record_kind)
+        if record.record_kind == DailyRecord.KIND_SEVERE:
+            record.severe_care = clean_severe_care(p)
+        record.collaboration_note      = p.get('collaboration_note', record.collaboration_note)
+        for k, v in _special_support_fields(request, facility).items():
+            setattr(record, k, v)
         record.entry_time              = p.get('entry_time') or None
         record.exit_time               = p.get('exit_time') or None
         record.health_condition        = p.get('health_condition', record.health_condition)
@@ -516,6 +591,7 @@ class DailyRecordUpdateView(LoginRequiredMixin, View):
 
         # 写真を追加保存する（既存写真はそのまま残す）
         _save_photos(request, record)
+        _sync_addons(request, record)
 
         messages.success(request, '日誌を更新しました。')
         _suggest_addons_after_save(record)

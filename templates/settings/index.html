@@ -77,8 +77,14 @@
           {{ facility_form.standard_close_time }}
         </div>
         <div class="col-md-4">
-          <label class="form-label small fw-semibold">1日あたり基本報酬単位数</label>
+          <label class="form-label small fw-semibold">1日あたり基本報酬単位数（普通用）</label>
           {{ facility_form.base_unit_count }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">重身の基本報酬単位数
+            <span class="text-muted fw-normal">（重症心身障害児）</span>
+          </label>
+          {{ facility_form.base_unit_count_severe }}
         </div>
         <div class="col-md-4 d-flex align-items-end">
           <div class="form-check mb-2">
@@ -349,52 +355,82 @@
   </div>
 
   {% if features.billing %}
-  <!-- ===== 加算マスタ・体制加算設定 ===== -->
+  <!-- ===== 加算設定（コード・単位数・料金） ===== -->
   <div class="settings-card">
-    <div class="d-flex justify-content-between align-items-center mb-1">
-      <div class="settings-section-title mb-0">加算設定（体制加算）</div>
+    <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
+      <div class="settings-section-title mb-0">加算設定（サービスコード・単位数・料金）</div>
+      {% if user.can_switch_facility %}
       <form method="post" action="{% url 'facilities:addon_defaults' %}">
         {% csrf_token %}
         <button type="submit" class="btn btn-outline-secondary btn-sm">
           <i class="bi bi-download me-1"></i>標準加算マスタを読み込む
         </button>
       </form>
+      {% endif %}
     </div>
     <p class="text-muted small mb-3">
-      施設の人員配置・体制に応じて算定する加算にチェックを入れてください。<br>
-      ※ 送迎加算・延長支援加算など{{ terms.beneficiary }}ごとに異なる加算は、請求マトリックスの各セルで個別に管理します。
+      放課後等デイサービスの加算のコードと単位数・料金の一覧です。料金は「単位数 × {{ facility.get_region_category_display }}の単価 {{ unit_price }}円」で計算しています。<br>
+      サービスコードは国保連の請求で使う番号です。マスタが空の加算や、区分によって変わる加算は、この事業所の値を入力してください（空にするとマスタの値に戻ります）。<br>
+      ※ 個別加算で「算定する」にしたものが日誌の「加算の入力」に出ます（1つも選んでいないときは全部出ます）。体制加算は施設全体の月単位の加算です。
     </p>
 
     {% if no_addons %}
     <div class="text-center py-4" style="color:#a0b0b2;border:1px dashed #d0dadb;border-radius:10px;">
       <i class="bi bi-plus-circle" style="font-size:1.8rem;display:block;margin-bottom:8px;"></i>
       加算マスタが登録されていません。<br>
-      <span class="small">「標準加算マスタを読み込む」ボタンで放課後等デイの全加算を一括登録できます。</span>
+      <span class="small">「標準加算マスタを読み込む」ボタンで放課後等デイの加算を一括登録できます。</span>
     </div>
     {% else %}
     <form method="post" action="{% url 'facilities:addon_setting' %}">
       {% csrf_token %}
-      <div class="mb-3">
-        {% for item in addon_list %}
-        <div class="form-check py-2" style="border-bottom:1px solid #f5f5f5;">
-          <input class="form-check-input" type="checkbox" name="addon_ids"
-                 value="{{ item.addon.pk }}" id="addon_{{ item.addon.pk }}"
-                 {% if item.is_enabled %}checked{% endif %}>
-          <label class="form-check-label w-100" for="addon_{{ item.addon.pk }}">
-            <div class="fw-semibold" style="font-size:0.88rem;">{{ item.addon.name }}</div>
-            {% if item.addon.unit_count %}
-            <div class="text-muted small">{{ item.addon.unit_count }}単位</div>
-            {% endif %}
-            {% if item.addon.description %}
-            <div class="text-muted" style="font-size:0.75rem;margin-top:2px;">{{ item.addon.description }}</div>
-            {% endif %}
-          </label>
-        </div>
-        {% endfor %}
+      {% for group_label, group in addon_groups %}
+      <div class="fw-semibold small mt-3 mb-1" style="color:var(--color-primary-dark);">{{ group_label }}</div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle addon-table" style="font-size:0.82rem;">
+          <thead>
+            <tr style="background:#f8f9fa;">
+              <th style="width:64px;" class="text-center">算定する</th>
+              <th>加算名</th>
+              <th style="width:120px;">サービスコード</th>
+              <th style="width:100px;" class="text-end">単位数</th>
+              <th style="width:100px;" class="text-end">料金（円）</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in group %}
+            <tr>
+              <td class="text-center">
+                <input class="form-check-input" type="checkbox" name="addon_ids"
+                       value="{{ item.pk }}" id="addon_{{ item.pk }}"
+                       {% if item.is_enabled %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+              </td>
+              <td>
+                <label class="fw-semibold mb-0" for="addon_{{ item.pk }}">{{ item.name }}</label>
+                {% if item.addon.description %}
+                <div class="text-muted" style="font-size:0.72rem;">{{ item.addon.description }}</div>
+                {% endif %}
+              </td>
+              <td>
+                <input type="text" name="code_{{ item.pk }}" class="form-control form-control-sm font-monospace"
+                       value="{{ item.code }}" placeholder="{{ item.addon.code|default:'未入力' }}" maxlength="10"
+                       {% if not is_admin %}readonly{% endif %}>
+              </td>
+              <td>
+                <input type="number" name="units_{{ item.pk }}" class="form-control form-control-sm text-end"
+                       value="{{ item.unit_count }}" min="0" {% if not is_admin %}readonly{% endif %}>
+              </td>
+              <td class="text-end">{% if item.price_yen %}{{ item.price_yen }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
-      <button type="submit" class="btn btn-primary btn-sm">
+      {% endfor %}
+      {% if is_admin %}
+      <button type="submit" class="btn btn-primary btn-sm mt-2">
         <i class="bi bi-check-circle me-1"></i>加算設定を保存する
       </button>
+      {% endif %}
     </form>
     {% endif %}
   </div>

@@ -23,9 +23,9 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from accounts.models import StaffAccount
-from beneficiaries.models import Beneficiary, Guardian, RecipientCertificate
-from billing.models import BillingMatrixEntry
-from facilities.models import Facility, SupportContentTag
+from beneficiaries.models import Beneficiary, BeneficiaryOffice, Guardian, RecipientCertificate
+from billing.models import BillingMatrixAddon, BillingMatrixEntry
+from facilities.models import AddonMaster, Facility, SupportContentTag
 from records.models import ActivityTag, DailyRecord, StaffMemo
 from schedules.models import ScheduledVisit
 from support_plans.models import MonitoringRecord, PlanGoal, SupportPlan
@@ -54,6 +54,21 @@ BENEFICIARIES = [
          dtype='自閉スペクトラム症・知的障害', days='mon,thu,sat', cap=4600, guardians=[('伊藤', '沙織', 'mother')]),
     dict(last='渡辺', first='あおい', lk='わたなべ', fk='あおい', dob=(2016, 6, 30), gender='female',
          dtype='学習障害', days='tue,fri', cap=4600, guardians=[('渡辺', '真理', 'mother')]),
+    # 重症心身障害児（重身用の日誌・重身の基本報酬単位数を使う）。他事業所も利用し、当施設が上限管理事業所
+    dict(last='中村', first='みお', lk='なかむら', fk='みお', dob=(2015, 9, 14), gender='female',
+         dtype='重症心身障害（脳性まひ）', days='tue,thu', cap=4600, guardians=[('中村', '恵子', 'mother')],
+         severe=True, offices=[('児童デイ ひまわり', '2650000101', False), ('放課後デイ そら', '2650000102', False)]),
+]
+
+# 重身の記録のサンプル（日誌ごとに少しずつ変える）
+SEVERE_CARE_SAMPLES = [
+    {'temperature': '36.6', 'pulse': '92', 'spo2': '97', 'meal': '半量', 'water_ml': '250', 'urination': '2', 'defecation': '1',
+     'stool': '普通', 'seizure': 'なし', 'suction': '2', 'positioning': '30分ごとに体位変換', 'mood': '良い'},
+    {'temperature': '37.1', 'pulse': '98', 'spo2': '96', 'meal': '少量', 'water_ml': '200', 'urination': '3', 'defecation': '0',
+     'stool': 'なし', 'seizure': 'あり', 'seizure_note': '15:20 約20秒、声かけで回復', 'suction': '3', 'mood': '普通',
+     'care_memo': '午後にやや微熱。水分をこまめに勧めた。'},
+    {'temperature': '36.4', 'pulse': '88', 'spo2': '98', 'meal': '完食', 'water_ml': '300', 'urination': '2', 'defecation': '1',
+     'stool': '軟便', 'seizure': 'なし', 'suction': '1', 'skin': '発赤なし', 'mood': '良い'},
 ]
 
 # 活動：(活動名, めあて・観点, 考察の型, 活動タグ, 支援タグ, 5領域)
@@ -206,8 +221,17 @@ class Command(BaseCommand):
             facility.standard_close_time = datetime.time(17, 0); changed = True
         if not facility.base_unit_count:
             facility.base_unit_count = 604; changed = True
+        if not facility.base_unit_count_severe:
+            facility.base_unit_count_severe = 1756; changed = True
         if changed:
             facility.save()
+
+        # --- 加算マスタ（全事業所共通。空のときだけ標準を入れる） ---
+        if not AddonMaster.objects.exists():
+            from facilities.views import DEFAULT_ADDONS
+            for item in DEFAULT_ADDONS:
+                AddonMaster.objects.create(**item)
+        addons_by_name = {a.name: a for a in AddonMaster.objects.filter(is_active=True, addon_type='individual')}
 
         # --- タグ ---
         activity_tags = {}
@@ -237,6 +261,7 @@ class Command(BaseCommand):
                 last_name_kana=b['lk'], first_name_kana=b['fk'],
                 date_of_birth=datetime.date(*b['dob']), gender=b['gender'],
                 disability_class='2' if b['cap'] else '', disability_type=b['dtype'],
+                is_severe=b.get('severe', False),
                 notes=f'{SAMPLE_MARK}（seed_demo で作成）',
                 weekday_mon='mon' in days, weekday_tue='tue' in days, weekday_wed='wed' in days,
                 weekday_thu='thu' in days, weekday_fri='fri' in days, weekday_sat='sat' in days,
@@ -252,6 +277,14 @@ class Command(BaseCommand):
                 valid_from=fy_start, valid_until=fy_end,
                 municipality='京都市', support_office='相談支援事業所 サンプル',
             )
+            # 利用事業所（複数事業所を利用する子は、当施設を上限管理事業所にしておく）
+            if b.get('offices'):
+                BeneficiaryOffice.objects.create(beneficiary=ben, name=facility.name, office_number=facility.office_number,
+                                                 is_this_office=True, is_manager=True)
+                for k, (oname, onum, _) in enumerate(b['offices']):
+                    BeneficiaryOffice.objects.create(beneficiary=ben, name=oname, office_number=onum, order=k + 1,
+                                                     phone=f'075-000-01{k:02d}', fax=f'075-000-02{k:02d}', contact_name='担当 太郎',
+                                                     note=f'{SAMPLE_MARK}')
             beneficiaries.append(ben)
         counts['利用者'] = len(beneficiaries)
         counts['保護者'] = Guardian.objects.filter(beneficiary__in=beneficiaries).count()
@@ -321,6 +354,33 @@ class Command(BaseCommand):
             )
             rec.activity_tags.set([activity_tags[t] for t in atags])
             rec.support_tags.set([support_tags[t] for t in stags] + ([support_tags['送迎']] if v.has_pickup else []))
+            # 重身の子は重身用の日誌にして、体温・排泄などの記録を付ける
+            if v.beneficiary.is_severe:
+                rec.record_kind = DailyRecord.KIND_SEVERE
+                rec.severe_care = dict(rng.choice(SEVERE_CARE_SAMPLES))
+                rec.save(update_fields=['record_kind', 'severe_care'])
+            # 加算のサンプル：送迎は予定の送迎から、たまに専門的支援・関係機関連携
+            entry = BillingMatrixEntry.objects.filter(facility=facility, beneficiary=v.beneficiary, date=v.date).first()
+            if entry is not None:
+                picked = []
+                if v.has_pickup and '送迎加算（往・迎え）' in addons_by_name:
+                    picked.append(addons_by_name['送迎加算（往・迎え）'])
+                if v.has_dropoff and '送迎加算（復・送り）' in addons_by_name:
+                    picked.append(addons_by_name['送迎加算（復・送り）'])
+                r = rng.random()
+                if r < 0.15 and '専門的支援実施加算（個別実施分）' in addons_by_name:
+                    picked.append(addons_by_name['専門的支援実施加算（個別実施分）'])
+                    start = datetime.time(rng.choice([15, 16]), rng.choice([0, 30]))
+                    rec.special_support_staff = staff
+                    rec.special_support_start = start
+                    rec.special_support_end = (datetime.datetime.combine(v.date, start) + datetime.timedelta(minutes=30)).time()
+                    rec.save(update_fields=['special_support_staff', 'special_support_start', 'special_support_end'])
+                elif r < 0.22 and '関係機関連携加算Ⅱ（情報連携）' in addons_by_name:
+                    picked.append(addons_by_name['関係機関連携加算Ⅱ（情報連携）'])
+                    rec.collaboration_note = f'{v.beneficiary.last_name}さんの学校の担任と電話で情報共有（学校での様子・家庭での配慮事項）。'
+                    rec.save(update_fields=['collaboration_note'])
+                for a in picked:
+                    BillingMatrixAddon.objects.get_or_create(entry=entry, addon=a, defaults={'is_applied': True})
             n_records += 1
         counts['日誌'] = n_records
 

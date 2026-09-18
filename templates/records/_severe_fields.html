@@ -1,0 +1,32 @@
+{% comment %}
+重身用（重症心身障害児）の記録欄。日誌の種類が「重身用」のときだけ表示する。
+fields: severe_care_fields() の結果（value に保存済みの値）
+{% endcomment %}
+<div class="mb-3" x-show="kind === 'severe'" x-transition
+     style="background:#fbf3f6;border:1px solid #e8c9d6;border-radius:12px;padding:14px;">
+  <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-1">
+    <label class="form-label small fw-semibold mb-0" style="color:#9a4e6c;">
+      <i class="bi bi-heart-pulse me-1"></i>重身の記録（体温・排泄・医療的ケアなど）
+    </label>
+    <span class="text-muted" style="font-size:0.7rem;">使わない項目は空欄のままで構いません</span>
+  </div>
+  <div class="row g-2">
+    {% for f in fields %}
+    <div class="{% if f.kind == 'textarea' %}col-12{% else %}col-6 col-md-4{% endif %}">
+      <label class="form-label mb-0" style="font-size:0.72rem;">{{ f.label }}{% if f.unit %}<span class="text-muted">（{{ f.unit }}）</span>{% endif %}</label>
+      {% if f.kind == 'select' %}
+      <select name="severe_{{ f.key }}" class="form-select form-select-sm">
+        <option value="">—</option>
+        {% for c in f.choices %}<option value="{{ c }}" {% if f.value == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+      {% elif f.kind == 'textarea' %}
+      <textarea name="severe_{{ f.key }}" class="form-control form-control-sm" rows="2" placeholder="{{ f.placeholder }}">{{ f.value }}</textarea>
+      {% else %}
+      <input type="text" name="severe_{{ f.key }}" class="form-control form-control-sm"
+             inputmode="{% if f.kind == 'number' %}decimal{% else %}text{% endif %}"
+             value="{{ f.value }}" placeholder="{{ f.placeholder }}">
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>

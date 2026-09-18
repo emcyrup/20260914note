@@ -99,6 +99,14 @@
                    class="form-control" placeholder="例：自閉スペクトラム症">
           </div>
           <div class="col-12">
+            <div class="form-check">
+              <input type="checkbox" name="is_severe" id="is_severe" class="form-check-input" {% if form.is_severe.value %}checked{% endif %}>
+              <label for="is_severe" class="form-check-label">重症心身障害児（重身）
+                <span class="text-muted small">— 日誌が重身用になり、請求は重身の基本報酬単位数を使います</span>
+              </label>
+            </div>
+          </div>
+          <div class="col-12">
             <label class="form-label">在籍状況</label>
             <select name="status" class="form-select">
               {% for value, label in form.fields.status.choices %}

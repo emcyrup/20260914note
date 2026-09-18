@@ -15,7 +15,8 @@ from schedules.models import ScheduledVisit
 from accounts.views import AdminOnlyMixin
 from config import concurrency
 from .forms import ActivityTagForm, FacilityForm, SupportContentTagForm
-from .models import AddonMaster, Facility, FacilityAddonSetting, SupportContentTag
+from .models import AddonMaster, Facility, FacilityAddonSetting, SupportContentTag, facility_addon_rows
+from config.utils import to_int
 
 
 class DashboardView(LoginRequiredMixin, TemplateView):
@@ -122,16 +123,11 @@ class SettingsView(LoginRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         facility = self.request.user.facility
 
-        # 体制加算の一覧と、この施設のON/OFF状態を合わせて取得
-        addons = AddonMaster.objects.filter(is_active=True, addon_type='facility')
-        settings_map = {
-            s.addon_id: s.is_enabled
-            for s in FacilityAddonSetting.objects.filter(facility=facility)
-        }
-        addon_list = [
-            {'addon': addon, 'is_enabled': settings_map.get(addon.pk, False)}
-            for addon in addons
-        ]
+        # 加算の一覧（個別・体制）と、この施設のON/OFF・コード・単位数
+        addons = AddonMaster.objects.filter(is_active=True)
+        addon_list = facility_addon_rows(facility)
+        addon_individual = [r for r in addon_list if r.addon.addon_type == 'individual']
+        addon_facility = [r for r in addon_list if r.addon.addon_type == 'facility']
 
         from ai_assist.models import ReferenceDocument
         ctx['reference_documents'] = ReferenceDocument.objects.filter(facility=facility)
@@ -145,6 +141,8 @@ class SettingsView(LoginRequiredMixin, TemplateView):
             'activity_form': ActivityTagForm(),
             'support_form':  SupportContentTagForm(),
             'addon_list':    addon_list,
+            'addon_groups':  [('個別加算（利用者×日）', addon_individual), ('体制加算（施設全体・月単位）', addon_facility)],
+            'unit_price':    facility.unit_price,
             'no_addons':     not addons.exists(),
         })
         return ctx
@@ -356,7 +354,12 @@ DEFAULT_ADDONS = [
     {'name': '家族支援加算（居宅訪問・1時間未満）', 'addon_type': 'individual', 'unit_count': 200, 'description': '家族の居宅を訪問して1時間未満の支援を行った場合。月4回まで。'},
     {'name': '家族支援加算（事業所で対面）',        'addon_type': 'individual', 'unit_count': 100, 'description': '事業所で家族と対面して支援を行った場合。月4回まで。'},
     {'name': '家族支援加算（オンライン）',          'addon_type': 'individual', 'unit_count': 100, 'description': 'オンラインで家族支援を行った場合。月4回まで。'},
-    {'name': '専門的支援実施加算（個別実施分）',    'addon_type': 'individual', 'unit_count': 150, 'description': '理学療法士・作業療法士等の専門職が個別に支援を実施した場合。月2回まで。'},
+    {'name': '専門的支援実施加算（個別実施分）',    'addon_type': 'individual', 'unit_count': 150, 'description': '理学療法士・作業療法士等の専門職が個別に支援を実施した場合。月2回まで（重症心身障害児等は月6回まで）。日誌に担当者・開始／終了時刻を記録する。'},
+    {'name': '関係機関連携加算Ⅰ（計画作成時の会議等）', 'addon_type': 'individual', 'unit_count': 250, 'description': '個別支援計画の作成にあたり、学校・保育所等の関係機関と会議を開き連携した場合。月1回。日誌に連携の内容を記録する。'},
+    {'name': '関係機関連携加算Ⅱ（情報連携）',        'addon_type': 'individual', 'unit_count': 200, 'description': '関係機関との情報連携（会議によらない）を行った場合。月1回。日誌に連携の内容を記録する。'},
+    {'name': '関係機関連携加算Ⅲ（就学・就職時）',    'addon_type': 'individual', 'unit_count': 150, 'description': '就学先や就職先の関係機関と連携した場合。1回限り。'},
+    {'name': '関係機関連携加算Ⅳ（医療機関等）',      'addon_type': 'individual', 'unit_count': 200, 'description': '医療機関・相談支援事業所等と連携し情報共有した場合。月1回。'},
+    {'name': '集中的支援加算',                     'addon_type': 'individual', 'unit_count': 1000, 'description': '強度行動障害の状態が著しい児童に、高度な専門人材が集中的支援を行った場合。月4回まで（3か月）。'},
     {'name': '入浴支援加算',                       'addon_type': 'individual', 'unit_count': 70,  'description': '入浴の支援を行った場合。月8回まで。'},
     {'name': '子育てサポート加算',                 'addon_type': 'individual', 'unit_count': 80,  'description': '保護者への子育て支援を行った場合。月4回まで。'},
     {'name': '通所自立支援加算',                   'addon_type': 'individual', 'unit_count': 60,  'description': '自立した通所に向けた支援を行った場合。90日以内の算定。'},
@@ -376,17 +379,26 @@ DEFAULT_ADDONS = [
 
 
 class AddonSettingView(AdminOnlyMixin, View):
-    """施設が算定する体制加算をON/OFFで管理する"""
+    """
+    施設が算定する加算（個別・体制）の ON/OFF と、事業所ごとのサービスコード・単位数を保存する。
+    コード・単位数を空にするとマスタの値に戻る。
+    """
 
     def post(self, request):
         facility = request.user.facility
-        addons = AddonMaster.objects.filter(is_active=True, addon_type='facility')
+        addons = AddonMaster.objects.filter(is_active=True)
         enabled_ids = set(request.POST.getlist('addon_ids'))
         for addon in addons:
+            code = (request.POST.get(f'code_{addon.pk}') or '').strip()[:10]
+            units = to_int(request.POST.get(f'units_{addon.pk}'))
+            if code == addon.code:
+                code = ''
+            if units is not None and units == addon.unit_count:
+                units = None
             FacilityAddonSetting.objects.update_or_create(
                 facility=facility,
                 addon=addon,
-                defaults={'is_enabled': str(addon.pk) in enabled_ids},
+                defaults={'is_enabled': str(addon.pk) in enabled_ids, 'code': code, 'unit_count': units},
             )
         messages.success(request, '加算設定を保存しました。')
         return redirect('facilities:settings')

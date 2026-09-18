@@ -1,0 +1,75 @@
+{% comment %}
+日誌の最後の「加算の入力」。請求機能を使う事業所だけ。
+prefix / checked_json / record（編集時） / addon_rows / staff_list
+{% endcomment %}
+{% if features.billing %}
+<div class="mb-3 mt-3" style="border-top:1px solid #e8e8e8;padding-top:14px;"
+     x-data="addonSection({{ checked_json }}, {{ collab_addon_ids_json }}, {{ special_addon_ids_json }}, '{{ record.special_support_start|time:'H:i'|default:'' }}', '{{ record.special_support_end|time:'H:i'|default:'' }}', {% if record.collaboration_note %}true{% else %}false{% endif %}, {% if record.has_special_support %}true{% else %}false{% endif %})">
+  <input type="hidden" name="addons_present" value="1">
+  <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+    <label class="form-label small fw-semibold mb-0"><i class="bi bi-plus-square me-1"></i>加算の入力はありますか？</label>
+    <div class="btn-group btn-group-sm" role="group">
+      <button type="button" class="btn" :class="hasAddon ? 'btn-primary' : 'btn-outline-secondary'" @click="hasAddon = true">加算あり</button>
+      <button type="button" class="btn" :class="!hasAddon ? 'btn-primary' : 'btn-outline-secondary'" @click="hasAddon = false; checked = []">加算なし</button>
+    </div>
+    <span class="text-muted" style="font-size:0.7rem;">選んだ加算はこの日の請求マトリックスに反映されます</span>
+  </div>
+
+  <div x-show="hasAddon" x-transition>
+    {% if addon_rows %}
+    <div class="row g-1 mb-2">
+      {% for r in addon_rows %}
+      <div class="col-12 col-md-6">
+        <div class="form-check">
+          <input type="checkbox" name="addon_ids" value="{{ r.pk }}" id="{{ prefix }}_addon_{{ r.pk }}" class="form-check-input" x-model="checked">
+          <label for="{{ prefix }}_addon_{{ r.pk }}" class="form-check-label small">
+            {{ r.name }}
+            <span class="text-muted" style="font-size:0.7rem;">{% if r.code %}{{ r.code }} · {% endif %}{{ r.unit_count }}単位{% if r.price_yen %}（{{ r.price_yen }}円）{% endif %}</span>
+          </label>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="text-muted mb-2" style="font-size:0.72rem;" x-show="!checked.length">どの加算が必要か選んでください。</p>
+    {% else %}
+    <p class="text-muted small mb-2">加算マスタが登録されていません。施設設定の「加算設定」で読み込んでください。</p>
+    {% endif %}
+
+    <div class="d-flex gap-2 mb-2">
+      <button type="button" class="btn btn-sm btn-outline-secondary py-0" style="font-size:0.72rem;" x-show="!showCollab()" @click="openCollab = true">＋ 連携の内容を書く</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary py-0" style="font-size:0.72rem;" x-show="!showSpecial()" @click="openSpecial = true">＋ 専門的支援を記録する</button>
+    </div>
+
+    <!-- 他事業所・関係機関との連携（関係機関連携加算など） -->
+    <div class="mb-2" x-show="showCollab()" x-transition>
+      <label class="form-label mb-1" style="font-size:0.72rem;font-weight:600;color:#4e7d89;">他事業所・関係機関との連携の内容</label>
+      <textarea name="collaboration_note" class="form-control form-control-sm" rows="2"
+                placeholder="連携した事業所・学校などの名前、日時、内容（会議・情報共有など）">{{ record.collaboration_note|default:'' }}</textarea>
+    </div>
+
+    <!-- 専門的支援の実施（担当者・開始／終了。終了は開始の30分後を自動で入れる） -->
+    <div class="mb-2" x-show="showSpecial()" x-transition style="background:var(--sheet, #f8f9fa);border:1px solid var(--field-line, #e8e8e8);border-radius:10px;padding:10px;">
+      <label class="form-label mb-1" style="font-size:0.72rem;font-weight:600;color:#4e7d89;">専門的支援の実施</label>
+      <div class="row g-2">
+        <div class="col-12 col-md-6">
+          <label class="form-label mb-0" style="font-size:0.7rem;">担当者</label>
+          <select name="special_support_staff" class="form-select form-select-sm">
+            <option value="">— 選択 —</option>
+            {% for staff in staff_list %}
+            <option value="{{ staff.pk }}" {% if record.special_support_staff_id == staff.pk %}selected{% endif %}>{{ staff.display_name|default:staff.username }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label mb-0" style="font-size:0.7rem;">開始時刻</label>
+          <input type="time" name="special_support_start" class="form-control form-control-sm" x-model="start" @change="onStart()">
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label mb-0" style="font-size:0.7rem;">終了時刻 <span class="text-muted">（開始の30分後・変更可）</span></label>
+          <input type="time" name="special_support_end" class="form-control form-control-sm" x-model="end" @change="onEnd()">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}

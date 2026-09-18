@@ -81,10 +81,12 @@
              {% if item.is_applied %}checked{% endif %}>
       <label class="form-check-label ms-2 w-100" for="addon_{{ item.addon.pk }}">
         <div class="small fw-semibold">{{ item.addon.name }}</div>
-        {% if item.addon.unit_count %}
+        {% if item.row and item.row.unit_count %}
+        <div class="text-muted" style="font-size: 0.72rem;">{% if item.row.code %}{{ item.row.code }} · {% endif %}{{ item.row.unit_count }}単位{% if item.row.price_yen %}（{{ item.row.price_yen }}円）{% endif %}</div>
+        {% elif item.addon.unit_count %}
         <div class="text-muted" style="font-size: 0.72rem;">{{ item.addon.unit_count }}単位</div>
         {% else %}
-        <div class="text-warning" style="font-size: 0.72rem;">単位数：要確認</div>
+        <div class="text-warning" style="font-size: 0.72rem;">単位数：要確認（施設設定の加算設定で入力できます）</div>
         {% endif %}
       </label>
     </div>

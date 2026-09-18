@@ -13,5 +13,8 @@ urlpatterns = [
     path('<int:beneficiary_pk>/certificates/new/', views.RecipientCertificateCreateView.as_view(), name='certificate_create'),
     path('<int:beneficiary_pk>/certificates/<int:cert_pk>/edit/', views.RecipientCertificateUpdateView.as_view(), name='certificate_update'),
     path('<int:beneficiary_pk>/certificates/ocr/', views.RecipientCertificateOcrView.as_view(), name='certificate_ocr'),
+    path('<int:beneficiary_pk>/offices/new/', views.BeneficiaryOfficeCreateView.as_view(), name='office_create'),
+    path('<int:beneficiary_pk>/offices/<int:office_pk>/edit/', views.BeneficiaryOfficeUpdateView.as_view(), name='office_update'),
+    path('<int:beneficiary_pk>/offices/<int:office_pk>/delete/', views.BeneficiaryOfficeDeleteView.as_view(), name='office_delete'),
     path('guardians/<int:guardian_pk>/regenerate-line-code/', views.RegenerateLineCodeView.as_view(), name='regenerate_line_code'),
 ]

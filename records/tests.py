@@ -481,3 +481,120 @@ class PaperScanTests(TestCase):
         res = self.client.post(reverse('records:paper_delete', args=[scan.pk]))
         self.assertRedirects(res, reverse('records:paper_list'))
         self.assertFalse(PaperScan.objects.filter(pk=scan.pk).exists())
+
+
+class SevereJournalAndAddonTests(TestCase):
+    """重身用の日誌・加算の入力・専門的支援の時刻"""
+
+    def setUp(self):
+        from beneficiaries.models import Beneficiary
+        from facilities.models import AddonMaster, FacilityAddonSetting
+        self.facility = Facility.objects.create(name='はぴねす', use_billing=True, region_category='3')
+        self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility)
+        self.client.force_login(self.user)
+        self.ben = Beneficiary.objects.create(
+            facility=self.facility, last_name='中村', first_name='みお', date_of_birth='2015-09-14', is_severe=True,
+        )
+        self.pickup = AddonMaster.objects.create(name='送迎加算（往・迎え）', addon_type='individual', unit_count=54, code='615001')
+        self.collab = AddonMaster.objects.create(name='関係機関連携加算Ⅱ（情報連携）', addon_type='individual', unit_count=200)
+        self.special = AddonMaster.objects.create(name='専門的支援実施加算（個別実施分）', addon_type='individual', unit_count=150)
+        self.facility_addon = AddonMaster.objects.create(name='児童指導員等加配加算', addon_type='facility', unit_count=0)
+        # 事業所の上書き：単位数
+        FacilityAddonSetting.objects.create(facility=self.facility, addon=self.special, is_enabled=True, unit_count=123, code='615999')
+        FacilityAddonSetting.objects.create(facility=self.facility, addon=self.pickup, is_enabled=True)
+        FacilityAddonSetting.objects.create(facility=self.facility, addon=self.collab, is_enabled=True)
+
+    def _post_create(self, **extra):
+        data = {'date': '2026-09-15', 'status': 'draft', 'addons_present': '1'}
+        data.update(extra)
+        return self.client.post(reverse('records:create', args=[self.ben.pk]), data)
+
+    def test_list_page_shows_kind_and_severe_fields(self):
+        res = self.client.get(reverse('records:list', args=[self.ben.pk]))
+        self.assertContains(res, '重身用')
+        self.assertContains(res, 'severe_temperature')
+        self.assertContains(res, '加算の入力はありますか')
+        # 事業所の上書き（コード・単位数・円換算 123×11.05）
+        self.assertContains(res, '615999')
+        self.assertContains(res, '123単位（1359円）')
+
+    def test_create_severe_record_with_care_and_addons(self):
+        from billing.models import BillingMatrixAddon, BillingMatrixEntry
+        from records.models import DailyRecord
+        res = self._post_create(
+            record_kind='severe', severe_temperature='36.8', severe_defecation='1', severe_stool='普通',
+            severe_seizure='なし', addon_ids=[str(self.pickup.pk), str(self.collab.pk), str(self.facility_addon.pk)],
+            collaboration_note='学校の担任と電話で情報共有',
+        )
+        self.assertEqual(res.status_code, 302)
+        rec = DailyRecord.objects.get(beneficiary=self.ben)
+        self.assertEqual(rec.record_kind, 'severe')
+        self.assertEqual(rec.severe_care['temperature'], '36.8')
+        self.assertEqual(rec.severe_care['stool'], '普通')
+        self.assertEqual([r['label'] for r in rec.severe_care_rows], ['体温', '排便', '便の性状', '発作'])
+        self.assertEqual(rec.collaboration_note, '学校の担任と電話で情報共有')
+        entry = BillingMatrixEntry.objects.get(facility=self.facility, beneficiary=self.ben, date=rec.date)
+        self.assertEqual(entry.status, 'attended')
+        applied = set(BillingMatrixAddon.objects.filter(entry=entry, is_applied=True).values_list('addon_id', flat=True))
+        # 体制加算は個別加算ではないので入らない
+        self.assertEqual(applied, {self.pickup.pk, self.collab.pk})
+        # 詳細に加算と連携内容が出る
+        res = self.client.get(reverse('records:list', args=[self.ben.pk]) + f'?selected={rec.pk}')
+        self.assertContains(res, '学校の担任と電話で情報共有')
+        self.assertContains(res, '615001 · 54単位')
+        self.assertContains(res, '体温')
+
+    def test_default_kind_follows_beneficiary(self):
+        from records.models import DailyRecord
+        self._post_create()
+        self.assertEqual(DailyRecord.objects.get(beneficiary=self.ben).record_kind, 'severe')
+        self.ben.is_severe = False
+        self.ben.save()
+        self.client.post(reverse('records:create', args=[self.ben.pk]), {'date': '2026-09-16', 'status': 'draft'})
+        self.assertEqual(DailyRecord.objects.get(beneficiary=self.ben, date='2026-09-16').record_kind, 'standard')
+
+    def test_special_support_end_defaults_to_30_minutes_later(self):
+        from records.models import DailyRecord
+        self._post_create(special_support_staff=str(self.user.pk), special_support_start='15:00',
+                          addon_ids=[str(self.special.pk)])
+        rec = DailyRecord.objects.get(beneficiary=self.ben)
+        self.assertEqual(rec.special_support_staff_id, self.user.pk)
+        self.assertEqual(rec.special_support_start.strftime('%H:%M'), '15:00')
+        self.assertEqual(rec.special_support_end.strftime('%H:%M'), '15:30')
+        # 終了は編集できる
+        res = self.client.post(reverse('records:update', args=[rec.pk]), {
+            'status': 'draft', 'special_support_staff': str(self.user.pk),
+            'special_support_start': '15:00', 'special_support_end': '15:45', 'addons_present': '1',
+            'addon_ids': [str(self.special.pk)],
+        })
+        self.assertEqual(res.status_code, 302)
+        rec.refresh_from_db()
+        self.assertEqual(rec.special_support_end.strftime('%H:%M'), '15:45')
+        res = self.client.get(reverse('records:list', args=[self.ben.pk]) + f'?selected={rec.pk}')
+        self.assertContains(res, '専門的支援の実施')
+        self.assertContains(res, '15:00〜15:45')
+
+    def test_update_without_addon_section_keeps_billing_addons(self):
+        from billing.models import BillingMatrixAddon, BillingMatrixEntry
+        from records.models import DailyRecord
+        self._post_create(addon_ids=[str(self.pickup.pk)])
+        rec = DailyRecord.objects.get(beneficiary=self.ben)
+        # 加算の欄を送らない更新（請求機能を使わない画面など）では触らない
+        self.client.post(reverse('records:update', args=[rec.pk]), {'status': 'confirmed'})
+        entry = BillingMatrixEntry.objects.get(beneficiary=self.ben, date=rec.date)
+        self.assertEqual(BillingMatrixAddon.objects.filter(entry=entry).count(), 1)
+        # 「加算なし」で保存すると外れる
+        self.client.post(reverse('records:update', args=[rec.pk]), {'status': 'confirmed', 'addons_present': '1'})
+        self.assertEqual(BillingMatrixAddon.objects.filter(entry=entry).count(), 0)
+
+    def test_no_entry_created_when_no_addons(self):
+        from billing.models import BillingMatrixEntry
+        self._post_create()
+        self.assertFalse(BillingMatrixEntry.objects.filter(beneficiary=self.ben).exists())
+
+    def test_billing_off_hides_addon_section(self):
+        self.facility.use_billing = False
+        self.facility.save()
+        res = self.client.get(reverse('records:list', args=[self.ben.pk]))
+        self.assertNotContains(res, '加算の入力はありますか')
+        self.assertContains(res, '重身用')

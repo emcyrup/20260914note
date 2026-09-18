@@ -30,7 +30,7 @@
 <body>
   {% if not pdf %}
   <div class="toolbar">
-    <a class="outline" href="{% url 'custom_forms:index' %}">事業所様式へ戻る</a>
+    {% block back_link %}<a class="outline" href="{% url 'custom_forms:index' %}">事業所様式へ戻る</a>{% endblock %}
     <a href="?">PDFをダウンロード</a>
     <button onclick="window.print()">印刷する</button>
   </div>

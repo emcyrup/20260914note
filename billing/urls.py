@@ -29,6 +29,9 @@ urlpatterns = [
          views.CopaymentListView.as_view(), name='copayment_list_month'),
     path('copayment/<int:beneficiary_pk>/<int:year>/<int:month>/edit/',
          views.CopaymentEditView.as_view(), name='copayment_edit'),
+    # 上限額管理結果票（送付状つき PDF）
+    path('copayment/<int:beneficiary_pk>/<int:year>/<int:month>/sheet/',
+         views.CopaymentSheetView.as_view(), name='copayment_sheet'),
 
     # 月次請求集計 CSV ダウンロード
     path('csv/<int:year>/<int:month>/billing/',

@@ -53,9 +53,29 @@ class DailyRecord(models.Model):
                                     null=True, blank=True,
                                     related_name='authored_records', verbose_name='記録者')
 
+    # 日誌の種類（普通用／重身用）。重身は基本報酬の単位が異なり、体温・排便などの記録欄が付く
+    KIND_STANDARD = 'standard'
+    KIND_SEVERE   = 'severe'
+    KIND_CHOICES = [
+        (KIND_STANDARD, '普通用'),
+        (KIND_SEVERE,   '重身用（重症心身障害児）'),
+    ]
+    record_kind = models.CharField(max_length=10, choices=KIND_CHOICES, default=KIND_STANDARD, verbose_name='日誌の種類')
+    # 重身用の記録（体温・脈拍・SpO2・食事・排泄・発作・医療的ケアなど）。項目は records/severe.py
+    severe_care = models.JSONField(default=dict, blank=True, verbose_name='重身の記録')
+
     # 入退室時間（延長支援加算の計算に使用）
     entry_time = models.TimeField(null=True, blank=True, verbose_name='入室時間')
     exit_time  = models.TimeField(null=True, blank=True, verbose_name='退室時間')
+
+    # --- 加算に関する記録 ---
+    # 他事業所・関係機関と連携した加算（関係機関連携加算など）の内容
+    collaboration_note = models.TextField(blank=True, verbose_name='連携の内容')
+    # 専門的支援を実施したときの担当者・開始／終了時刻（終了は開始の30分後を初期値にする）
+    special_support_staff = models.ForeignKey(StaffAccount, on_delete=models.SET_NULL, null=True, blank=True,
+                                              related_name='special_supports', verbose_name='専門的支援の担当者')
+    special_support_start = models.TimeField(null=True, blank=True, verbose_name='専門的支援 開始')
+    special_support_end   = models.TimeField(null=True, blank=True, verbose_name='専門的支援 終了')
 
     # 体調
     HEALTH_GOOD    = 'good'
@@ -157,6 +177,29 @@ class DailyRecord(models.Model):
         return [{'text': v.get('text', ''), 'answer': v.get('answer'),
                  'label': self.VIEWPOINT_ANSWERS.get(v.get('answer'), '未確認')}
                 for v in (self.activity_viewpoints or [])]
+
+    @property
+    def is_severe(self):
+        return self.record_kind == self.KIND_SEVERE
+
+    @property
+    def severe_care_rows(self):
+        """テンプレート用：重身の記録を項目名つきで（入力があるものだけ）"""
+        from .severe import severe_care_rows
+        return severe_care_rows(self.severe_care)
+
+    @property
+    def applied_addons(self):
+        """この日の請求セルに付いている加算（請求機能を使う事業所のみ）"""
+        from billing.models import BillingMatrixAddon
+        return list(BillingMatrixAddon.objects.filter(
+            entry__facility_id=self.facility_id, entry__beneficiary_id=self.beneficiary_id,
+            entry__date=self.date, is_applied=True,
+        ).select_related('addon').order_by('addon__name'))
+
+    @property
+    def has_special_support(self):
+        return bool(self.special_support_staff_id or self.special_support_start)
 
     @property
     def has_ai_content(self):
