@@ -1,0 +1,64 @@
+{% load concurrency planbook_extras %}
+{% comment %} 目標（支援内容）の行。フォームの中で使う。goals, goal_fields, goal_categories, domains, locked {% endcomment %}
+<div class="pb-section">
+  <div class="h">{{ goals_title|default:'支援内容（個別支援計画書に載る目標）' }}</div>
+  <div class="b" x-data="{ rows: {{ goals|length }}, next: 1 }">
+    <div id="goalRows">
+      {% for row in goals %}
+      {% with g=row.goal x=row.x %}
+      <div class="pb-goal" data-goal-row>
+        <div class="num">{{ forloop.counter }}</div>
+        <input type="hidden" name="goal_idx" value="{{ g.pk }}">
+        <div class="row g-2">
+          <div class="col-md-4"><label>支援提供種別（支援提供カテゴリー）</label>
+            <select name="goal_{{ g.pk }}_category" class="form-select form-select-sm" {% if locked %}disabled{% endif %}>
+              <option value="">-選択する-</option>
+              {% for v, l in goal_categories %}<option value="{{ v }}" {% if x.category == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
+            </select></div>
+          <div class="col-md-2"><label>優先順位</label><input type="text" name="goal_{{ g.pk }}_priority" class="form-control form-control-sm" value="{{ x.priority }}" maxlength="2" {% if locked %}disabled{% endif %}></div>
+          <div class="col-md-6"><label>担当者 提供機関(施設)</label><input type="text" name="goal_{{ g.pk }}_staff" class="form-control form-control-sm" value="{{ x.staff }}" maxlength="70" data-count="c_{{ g.pk }}_staff" {% if locked %}disabled{% endif %}><div class="pb-count" id="c_{{ g.pk }}_staff"></div></div>
+          <div class="col-md-4"><label>短期目標(課題ニーズ)</label><textarea name="goal_{{ g.pk }}_content" class="form-control form-control-sm" rows="3" maxlength="210" data-count="c_{{ g.pk }}_content" {% if locked %}disabled{% endif %}>{{ g.content }}</textarea><div class="pb-count" id="c_{{ g.pk }}_content"></div></div>
+          <div class="col-md-4"><label>到達目標</label><textarea name="goal_{{ g.pk }}_target" class="form-control form-control-sm" rows="3" maxlength="210" data-count="c_{{ g.pk }}_target" {% if locked %}disabled{% endif %}>{{ x.target }}</textarea><div class="pb-count" id="c_{{ g.pk }}_target"></div></div>
+          <div class="col-md-4"><label>具体的な支援内容</label><textarea name="goal_{{ g.pk }}_support" class="form-control form-control-sm" rows="3" maxlength="210" data-count="c_{{ g.pk }}_support" {% if locked %}disabled{% endif %}>{{ g.support_content }}</textarea><div class="pb-count" id="c_{{ g.pk }}_support"></div></div>
+          <div class="col-md-4"><label>留意事項・算定する加算</label><textarea name="goal_{{ g.pk }}_notes" class="form-control form-control-sm" rows="2" maxlength="210" data-count="c_{{ g.pk }}_notes" {% if locked %}disabled{% endif %}>{{ x.notes }}</textarea><div class="pb-count" id="c_{{ g.pk }}_notes"></div></div>
+          <div class="col-md-4">
+            <label>見込み達成時期</label><input type="text" name="goal_{{ g.pk }}_timing" class="form-control form-control-sm" value="{{ x.timing }}" maxlength="12" {% if locked %}disabled{% endif %}>
+            <label class="mt-2">評価時期</label><input type="text" name="goal_{{ g.pk }}_eval_timing" class="form-control form-control-sm" value="{{ x.eval_timing }}" maxlength="12" {% if locked %}disabled{% endif %}>
+          </div>
+          <div class="col-md-4"><label>関連する5領域</label>
+            {% for v, l in domains %}<div class="form-check"><input type="checkbox" name="goal_{{ g.pk }}_domains" value="{{ v }}" id="d_{{ g.pk }}_{{ v }}" class="form-check-input" {% if v in x.domains %}checked{% endif %} {% if locked %}disabled{% endif %}><label class="form-check-label small" for="d_{{ g.pk }}_{{ v }}">{{ l }}</label></div>{% endfor %}
+          </div>
+        </div>
+        {% if not locked %}<button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="this.closest('[data-goal-row]').remove()"><i class="bi bi-trash"></i> この行を削除</button>{% endif %}
+      </div>
+      {% endwith %}
+      {% endfor %}
+    </div>
+    {% if not locked %}
+    <template id="goalRowTpl">
+      <div class="pb-goal" data-goal-row>
+        <div class="num">+</div>
+        <input type="hidden" name="goal_idx" value="new-__N__">
+        <div class="row g-2">
+          <div class="col-md-4"><label>支援提供種別（支援提供カテゴリー）</label>
+            <select name="goal_new-__N___category" class="form-select form-select-sm"><option value="">-選択する-</option>{% for v, l in goal_categories %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select></div>
+          <div class="col-md-2"><label>優先順位</label><input type="text" name="goal_new-__N___priority" class="form-control form-control-sm" maxlength="2"></div>
+          <div class="col-md-6"><label>担当者 提供機関(施設)</label><input type="text" name="goal_new-__N___staff" class="form-control form-control-sm" maxlength="70"></div>
+          <div class="col-md-4"><label>短期目標(課題ニーズ)</label><textarea name="goal_new-__N___content" class="form-control form-control-sm" rows="3" maxlength="210"></textarea></div>
+          <div class="col-md-4"><label>到達目標</label><textarea name="goal_new-__N___target" class="form-control form-control-sm" rows="3" maxlength="210"></textarea></div>
+          <div class="col-md-4"><label>具体的な支援内容</label><textarea name="goal_new-__N___support" class="form-control form-control-sm" rows="3" maxlength="210"></textarea></div>
+          <div class="col-md-4"><label>留意事項・算定する加算</label><textarea name="goal_new-__N___notes" class="form-control form-control-sm" rows="2" maxlength="210"></textarea></div>
+          <div class="col-md-4"><label>見込み達成時期</label><input type="text" name="goal_new-__N___timing" class="form-control form-control-sm" maxlength="12"><label class="mt-2">評価時期</label><input type="text" name="goal_new-__N___eval_timing" class="form-control form-control-sm" maxlength="12"></div>
+          <div class="col-md-4"><label>関連する5領域</label>{% for v, l in domains %}<div class="form-check"><input type="checkbox" name="goal_new-__N___domains" value="{{ v }}" class="form-check-input"><label class="form-check-label small">{{ l }}</label></div>{% endfor %}</div>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="this.closest('[data-goal-row]').remove()"><i class="bi bi-trash"></i> この行を削除</button>
+      </div>
+    </template>
+    <div class="text-center py-2">
+      <button type="button" class="btn text-white px-4" style="background:#f0717f;" @click="const t = document.getElementById('goalRowTpl').innerHTML.replaceAll('__N__', String(next++)); document.getElementById('goalRows').insertAdjacentHTML('beforeend', t)">支援内容を追加</button>
+      <div class="text-muted small mt-1">支援内容を更に、追加する場合は上記をクリックしてください。文字数は個別支援計画書に印刷できる上限です（担当者 70・目標と支援内容 210・時期 12）。</div>
+    </div>
+    {% endif %}
+    <input type="hidden" name="goal_idx_present" value="1">
+  </div>
+</div>

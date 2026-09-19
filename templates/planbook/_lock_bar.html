@@ -1,0 +1,21 @@
+{% load concurrency planbook_extras %}
+{% comment %} 完了（編集ロック）／ロックを外す。stage, obj, locked, missing(任意) {% endcomment %}
+<div class="pb-lock d-flex flex-wrap align-items-center gap-3 mb-4">
+  {% if locked %}
+  <div><i class="bi bi-lock-fill me-1"></i><strong>完了（編集ロック）</strong>
+    {% if obj.completed_at %}<span class="small text-muted ms-2">{{ obj.completed_at|date:'Y/m/d H:i' }}{% if obj.completed_by %} {{ obj.completed_by.display_name|default:obj.completed_by.username }}{% endif %}</span>{% endif %}
+  </div>
+  {% if plan.status != 'closed' %}
+  <form method="post" action="{% url 'planbook:stage_reopen' plan.pk stage %}" class="ms-auto" onsubmit="return confirm('ロックを外して修正しますか？');">
+    {% csrf_token %}<button class="btn btn-sm btn-outline-secondary"><i class="bi bi-unlock me-1"></i>ロックを外して修正</button>
+  </form>
+  {% endif %}
+  {% else %}
+  <button type="submit" name="action" value="complete" form="{{ form_id }}" class="btn btn-sm btn-secondary" {% if missing %}disabled{% endif %}>
+    <i class="bi bi-lock me-1"></i>完了する（編集ロック）
+  </button>
+  <div class="small">
+    {% if missing %}『{{ missing|join:'』『' }}』を記入すると完了ボタンを実行出来ます。{% else %}{{ hint|default:'保存してから完了すると、この記録は編集できなくなります（ロックは外せます）。' }}{% endif %}
+  </div>
+  {% endif %}
+</div>

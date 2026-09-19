@@ -30,6 +30,10 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         # かんたん3ステップの画面では「きょうの きろく」がホーム
         if request.user.ui_theme == 'simple':
             return redirect('records:simple_home')
+        # 計画書中心の画面（シンプル）では利用者一覧がホーム
+        facility = getattr(request.user, 'facility', None)
+        if facility is not None and facility.is_planbook:
+            return redirect('planbook:students')
         return super().get(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
@@ -192,8 +196,11 @@ class FeatureSettingsView(LoginRequiredMixin, View):
             form_set = request.POST.get('form_set', facility.form_set)
             if form_set in dict(Facility.FORM_SET_CHOICES):
                 facility.form_set = form_set
+            layout = request.POST.get('layout', facility.layout)
+            if layout in dict(Facility.LAYOUT_CHOICES):
+                facility.layout = layout
         facility.save(update_fields=['use_billing', 'use_line', 'use_reservation', 'journal_sections',
-                                     'form_set', 'updated_at'])
+                                     'form_set', 'layout', 'updated_at'])
         messages.success(request, '使う機能と日誌の項目を保存しました。')
         return redirect('facilities:settings')
 

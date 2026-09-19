@@ -76,6 +76,16 @@ class LineWebhookView(View):
         return text if handled else None
 
     @staticmethod
+    def _contact_note(facility, line_user_id, text):
+        """連携済みの保護者からの LINE を連絡帳（planbook）に積む"""
+        try:
+            from planbook.services import record_guardian_line
+            for g in Guardian.objects.filter(line_user_id=line_user_id, line_linked=True, beneficiary__facility=facility):
+                record_guardian_line(facility, g, text)
+        except Exception:  # noqa: BLE001
+            logger.exception('連絡帳への記録でエラー')
+
+    @staticmethod
     def _page_reply(facility, raw_text, line_user_id, base=''):
         """
         「予約」などの問い合わせに、顧客向け予定表のアドレスを返す。
@@ -185,6 +195,8 @@ class LineWebhookView(View):
 
             # 連携済みなら、登録コードの照合はしない（予約管理を使う事業所では受信箱に積む）
             if Guardian.objects.filter(line_user_id=line_user_id, line_linked=True).exists():
+                # 計画書中心の画面：保護者からの LINE を連絡帳に積む
+                self._contact_note(facility, line_user_id, raw_text)
                 if reservation_enabled(facility):
                     auto = self._auto_reply_for_customer(facility, raw_text, line_user_id, base)
                     if auto:

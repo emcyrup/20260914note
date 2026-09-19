@@ -31,6 +31,8 @@ class Command(BaseCommand):
         parser.add_argument('--copy-settings-from', type=int, metavar='施設ID', help='設定をコピーする既存施設の ID')
         parser.add_argument('--no-default-tags', action='store_true', help='標準の活動タグ・支援内容タグを入れない')
         parser.add_argument('--demo', action='store_true', help='架空のサンプルデータ（seed_demo）も投入する')
+        parser.add_argument('--layout', choices=['standard', 'planbook'], default=None,
+                            help='画面の型（planbook＝計画書中心・シンプル：利用者・完了期日一覧・スタッフ・保護者・連絡帳・施設の6メニュー）')
 
     def handle(self, *args, **o):
         name = o['name'].strip()
@@ -59,6 +61,12 @@ class Command(BaseCommand):
                                        default_tags=not o.get('no_default_tags'))
             if src is not None:
                 self.stdout.write(f'設定を「{src.name}」からコピーしました（呼び方・配色・使う機能・日誌の項目・単位数）')
+            if o.get('layout'):
+                facility.layout = o['layout']
+                if facility.layout == Facility.LAYOUT_PLANBOOK and not facility.brand_color:
+                    facility.brand_color = '#6f8f4e'  # 計画書中心の画面は緑系
+                facility.save(update_fields=['layout', 'brand_color', 'updated_at'])
+                self.stdout.write(f'画面の型：{facility.get_layout_display()}')
             self.stdout.write(self.style.SUCCESS(f'施設「{facility.name}」を作成しました（ID {facility.pk}）'))
             if not o.get('no_default_tags'):
                 self.stdout.write('標準の活動タグ・支援内容タグを入れました')

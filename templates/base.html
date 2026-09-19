@@ -47,7 +47,7 @@
 
   {% block extra_css %}{% endblock %}
 </head>
-<body class="{% if user.is_authenticated %}theme-{{ user.ui_theme }} mode-{{ user.prefs.mode }}{% endif %}"{% if user.is_authenticated and not reservation_only %} data-editing-url="{% url 'facilities:editing' %}"{% endif %}>
+<body class="{% if user.is_authenticated %}theme-{{ user.ui_theme }} mode-{{ user.prefs.mode }}{% if features.planbook %} layout-planbook{% endif %}{% endif %}"{% if user.is_authenticated and not reservation_only %} data-editing-url="{% url 'facilities:editing' %}"{% endif %}>
 
 {% if user.is_authenticated %}
 <!-- ========== アプリシェル（サイドバー＋メインエリア） ========== -->
@@ -108,6 +108,43 @@
         </a>
       </li>
       {% endif %}
+      {% elif features.planbook %}
+      <li>
+        <a class="sidebar-nav-item {% block nav_pb_students %}{% endblock %}" href="{% url 'planbook:students' %}">
+          <i class="bi bi-mortarboard"></i><span>{{ terms.beneficiary }}</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% block nav_pb_deadlines %}{% endblock %}" href="{% url 'planbook:deadlines' %}">
+          <i class="bi bi-book"></i><span>完了期日一覧</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% block nav_pb_staff %}{% endblock %}" href="{% url 'planbook:staff' %}">
+          <i class="bi bi-person-badge"></i><span>スタッフ</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% block nav_pb_guardians %}{% endblock %}" href="{% url 'planbook:guardians' %}">
+          <i class="bi bi-people"></i><span>保護者</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% block nav_pb_notes %}{% endblock %}" href="{% url 'planbook:notes' %}">
+          <i class="bi bi-envelope"></i><span>連絡帳</span>
+          {% if planbook_unread %}<span class="badge rounded-pill text-bg-danger ms-auto">{{ planbook_unread }}</span>{% endif %}
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% block nav_pb_facility %}{% endblock %}" href="{% url 'planbook:facility' %}">
+          <i class="bi bi-building"></i><span>施設</span>
+        </a>
+      </li>
+      <li class="nav-secondary">
+        <a class="sidebar-nav-item {% block nav_pb_settings %}{% endblock %}" href="{% url 'facilities:settings' %}">
+          <i class="bi bi-gear"></i><span>施設設定</span>
+        </a>
+      </li>
       {% else %}
       <li>
         <a class="sidebar-nav-item {% block nav_home %}{% endblock %}"
@@ -266,7 +303,7 @@
       {% block topbar_nav %}{% endblock %}
       <div class="d-flex align-items-center gap-2 flex-shrink-0">
         {% block topbar_actions %}{% endblock %}
-        {% if reservation_only %}
+        {% if reservation_only or features.planbook %}
         {% elif user.ui_theme == 'simple' %}
         <a href="{% url 'accounts:theme' %}" class="btn-memo" title="画面の見た目"><i class="bi bi-palette"></i><span>画面</span></a>
         {% else %}

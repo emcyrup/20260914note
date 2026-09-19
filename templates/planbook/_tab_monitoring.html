@@ -1,0 +1,38 @@
+{% load concurrency planbook_extras %}
+<div class="pb-section">
+  <div class="h">モニタリング（計画の実施状況の確認）
+    <span class="small fw-normal">次回期限：{% if next_due %}{{ next_due|date:'Y/m/d' }}{% if overdue %} <span class="badge text-bg-danger">期限超過</span>{% endif %}{% else %}—{% endif %}</span>
+  </div>
+  <div class="b p-0">
+    <table class="table table-sm mb-0 pb-table"><thead><tr><th>実施日</th><th>面談相手</th><th>担当</th><th>実施状況</th><th>達成状況</th><th>見直し</th><th>次回期限</th><th></th></tr></thead>
+      <tbody>{% for r in records %}<tr><td>{{ r.date|date:'Y/m/d' }}</td><td>{{ r.interviewed_with }}</td><td>{{ r.conducted_by.display_name|default:r.conducted_by.username|default:'' }}</td><td style="white-space:pre-line;">{{ r.implementation }}</td><td>{{ r.get_achievement_display }}</td><td>{% if r.review_needed %}必要{% endif %}</td><td>{{ r.next_due|date:'Y/m/d' }}</td>
+        <td><form method="post" action="{% url 'planbook:monitoring_delete' plan.pk r.pk %}" onsubmit="return confirm('この記録を削除しますか？');">{% csrf_token %}<button class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-trash"></i></button></form></td></tr>
+      {% empty %}<tr><td colspan="8" class="text-muted small">モニタリングの記録はまだありません。</td></tr>{% endfor %}</tbody></table>
+  </div>
+</div>
+{% if plan.status != 'closed' %}
+<form method="post" action="{% url 'planbook:monitoring_add' plan.pk %}" class="pb-section blue">
+  {% csrf_token %}
+  <div class="h">モニタリングを記録する</div>
+  <div class="b">
+    <div class="row g-3">
+      <div class="col-md-4"><label class="form-label small fw-semibold">実施日</label>{{ record_form.date }}</div>
+      <div class="col-md-4"><label class="form-label small fw-semibold">面談相手</label>{{ record_form.interviewed_with }}</div>
+      <div class="col-md-4"><label class="form-label small fw-semibold">担当職員</label>{{ record_form.conducted_by }}</div>
+      <div class="col-12"><label class="form-label small fw-semibold">計画通りに支援できているか</label>{{ record_form.implementation }}{% for e in record_form.implementation.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}</div>
+      <div class="col-md-4"><label class="form-label small fw-semibold">目標の達成状況</label>{{ record_form.achievement }}</div>
+      <div class="col-md-8"><label class="form-label small fw-semibold">達成状況の詳細・本人の変化</label>{{ record_form.achievement_detail }}</div>
+      <div class="col-md-4"><div class="form-check mt-4">{{ record_form.review_needed }}<label class="form-check-label small" for="{{ record_form.review_needed.id_for_label }}">計画の見直しが必要</label></div></div>
+      <div class="col-md-8"><label class="form-label small fw-semibold">見直しが必要な理由</label>{{ record_form.review_reason }}{% for e in record_form.review_reason.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}</div>
+      <div class="col-md-4"><label class="form-label small fw-semibold">次回モニタリング期限</label>{{ record_form.next_due }}</div>
+    </div>
+    <div class="text-end mt-3"><button class="btn btn-primary px-4"><i class="bi bi-check-lg me-1"></i>記録する</button></div>
+  </div>
+</form>
+{% endif %}
+{% if goals %}
+<div class="pb-section"><div class="h">この期の支援内容</div><div class="b p-0 table-responsive">
+  <table class="table table-sm mb-0 pb-table"><thead><tr><th>#</th><th>短期目標</th><th>到達目標</th><th>具体的な支援内容</th><th>達成時期</th><th>評価時期</th></tr></thead>
+  <tbody>{% for row in goals %}<tr><td>{{ forloop.counter }}</td><td>{{ row.goal.content }}</td><td>{{ row.x.target }}</td><td>{{ row.goal.support_content }}</td><td>{{ row.x.timing }}</td><td>{{ row.x.eval_timing }}</td></tr>{% endfor %}</tbody></table>
+</div></div>
+{% endif %}

@@ -1,0 +1,90 @@
+{% load concurrency planbook_extras %}
+<form method="post" id="tabForm" action="{% url 'planbook:plan_tab' beneficiary.pk plan.pk 'interview' %}" data-concurrency="interview:{{ obj.pk }}">
+  {% csrf_token %}
+  {% version_field obj %}
+  <input type="hidden" name="goal_idx" value="" disabled>
+  <div class="pb-section">
+    <div class="h">支援期間・作成・当面談に参加したスタッフ</div>
+    <div class="b">
+      <div class="pb-sub">これからの支援期間</div>
+      <div class="row g-3 mb-3">
+        <div class="col-md-6"><label class="form-label small fw-semibold">支援期間《開始》</label>{{ form.period_start }}</div>
+        <div class="col-md-6"><label class="form-label small fw-semibold">支援期間《終了》 <span class="text-muted fw-normal">（次回更新日になります）</span></label>{{ form.period_end }}{% for e in form.period_end.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}</div>
+      </div>
+      <div class="row g-3">
+        <div class="col-lg-6">
+          <div class="pb-section sky mb-0"><div class="h">作成</div><div class="b">
+            <div class="row g-2">
+              <div class="col-6"><label class="form-label small fw-semibold">面談実施日</label>{{ form.interview_date }}</div>
+              <div class="col-6"><label class="form-label small fw-semibold">作成日</label>{{ form.created_date }}</div>
+              <div class="col-12"><label class="form-label small fw-semibold">作成者（児童発達支援管理責任者）</label>{{ form.author }}</div>
+            </div></div></div>
+        </div>
+        <div class="col-lg-6">
+          <div class="pb-section sky mb-0"><div class="h">当面談に参加したスタッフ</div><div class="b">
+            <div class="row g-1">{% for cb in form.participants %}<div class="col-6 form-check ms-2">{{ cb.tag }} <label class="form-check-label small" for="{{ cb.id_for_label }}">{{ cb.choice_label }}</label></div>{% endfor %}</div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pb-section">
+    <div class="h">面談内容</div>
+    <div class="b p-0">
+      <table class="table table-bordered mb-0 pb-table">
+        <thead><tr><th style="width:18%;">領域</th><th style="width:41%;">親御様からの現状報告</th><th>スタッフからの支援策など、決定事項</th></tr></thead>
+        <tbody>
+          <tr><td>家庭での様子</td><td>{{ form.home_parent }}</td><td>{{ form.home_staff }}</td></tr>
+          <tr><td>学校等での様子</td><td>{{ form.school_parent }}</td><td>{{ form.school_staff }}</td></tr>
+          <tr><td>対人など協調性</td><td>{{ form.social_parent }}</td><td>{{ form.social_staff }}</td></tr>
+          <tr><td>将来の展望親御様からの要望</td><td colspan="2">{{ form.future_wishes }}</td></tr>
+          <tr><td>その他施設への親御様からの要望</td><td colspan="2">{{ form.other_wishes }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% include "planbook/_goals.html" with goals_title="面談の上修正または継続になった事項を更新" %}
+
+  <div class="pb-section">
+    <div class="h">提供時間と特記事項について
+      {% if prev_interview and not locked %}<button type="submit" name="copy_prev_schedule" value="1" class="btn btn-sm btn-primary py-0">前回の時間割をコピー</button>{% endif %}
+    </div>
+    <div class="b p-0 table-responsive">
+      <table class="table table-bordered mb-0 pb-table pb-sched" style="min-width:900px;">
+        <thead><tr><th style="width:14%;">曜日</th>{% for r in schedule_rows %}<th class="text-center">{{ r.label }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          <tr><td>提供時間</td>{% for r in schedule_rows %}<td data-timepair>
+            <input type="time" name="sched_{{ r.key }}_start" value="{{ r.start }}" class="form-control" data-start {% if locked %}disabled{% endif %}>
+            <div class="text-center text-muted" style="font-size:0.7rem;">〜</div>
+            <input type="time" name="sched_{{ r.key }}_end" value="{{ r.end }}" class="form-control" data-end {% if locked %}disabled{% endif %}>
+            <div class="text-center text-muted" style="font-size:0.7rem;" data-min>{{ r.minutes }}分</div></td>{% endfor %}</tr>
+          <tr><td>送迎 (迎え) 場所</td>{% for r in schedule_rows %}<td><input type="text" name="sched_{{ r.key }}_pickup" value="{{ r.pickup }}" class="form-control" {% if locked %}disabled{% endif %}></td>{% endfor %}</tr>
+          <tr><td>送迎 (送り) 場所</td>{% for r in schedule_rows %}<td><input type="text" name="sched_{{ r.key }}_dropoff" value="{{ r.dropoff }}" class="form-control" {% if locked %}disabled{% endif %}></td>{% endfor %}</tr>
+          <tr><td>特記事項</td><td colspan="7">{{ form.notes }}<div class="pb-count" id="c_notes"></div></td></tr>
+          <tr><td>延長支援時間<br><span class="text-muted" style="font-size:0.7rem;">（提供時間前）</span></td>{% for r in schedule_rows %}<td data-timepair>
+            <input type="time" name="sched_{{ r.key }}_ext_before_start" value="{{ r.ext_before_start }}" class="form-control" data-start {% if locked %}disabled{% endif %}>
+            <div class="text-center text-muted" style="font-size:0.7rem;">〜</div>
+            <input type="time" name="sched_{{ r.key }}_ext_before_end" value="{{ r.ext_before_end }}" class="form-control" data-end {% if locked %}disabled{% endif %}>
+            <div class="text-center text-muted" style="font-size:0.7rem;" data-min></div></td>{% endfor %}</tr>
+          <tr><td>延長支援時間<br><span class="text-muted" style="font-size:0.7rem;">（提供時間後）</span></td>{% for r in schedule_rows %}<td data-timepair>
+            <input type="time" name="sched_{{ r.key }}_ext_after_start" value="{{ r.ext_after_start }}" class="form-control" data-start {% if locked %}disabled{% endif %}>
+            <div class="text-center text-muted" style="font-size:0.7rem;">〜</div>
+            <input type="time" name="sched_{{ r.key }}_ext_after_end" value="{{ r.ext_after_end }}" class="form-control" data-end {% if locked %}disabled{% endif %}>
+            <div class="text-center text-muted" style="font-size:0.7rem;" data-min></div></td>{% endfor %}</tr>
+          <tr><td>延長を必要とする理由</td><td colspan="7">{{ form.extension_reason }}<div class="pb-count" id="c_ext"></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if not locked %}
+  <div class="d-flex justify-content-end mb-3"><button class="btn btn-primary px-4"><i class="bi bi-check-lg me-1"></i>保存する</button></div>
+  {% endif %}
+</form>
+{% include "planbook/_lock_bar.html" with stage='interview' form_id='tabForm' missing=missing %}
+<script>
+  (function(){ var n=document.querySelector('#tabForm [name=notes]'); if(n){n.setAttribute('data-count','c_notes');}
+    var e=document.querySelector('#tabForm [name=extension_reason]'); if(e){e.setAttribute('data-count','c_ext');} })();
+</script>

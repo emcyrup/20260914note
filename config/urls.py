@@ -22,6 +22,7 @@ urlpatterns = [
     path('billing/', include('billing.urls')),
     path('reports/', include('reports.urls')),
     path('forms/', include('custom_forms.urls')),
+    path('planbook/', include('planbook.urls')),
     path('reservations/', include('reservations.urls')),
     # 顧客向けの予定表（ログインなし。アドレスそのものが合い言葉）
     path('yoyaku/', include('reservations.public_urls')),

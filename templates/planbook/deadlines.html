@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% load planbook_extras %}
+{% block title %}完了期日一覧{% endblock %}
+{% block page_title %}完了期日一覧{% endblock %}
+{% block nav_pb_deadlines %}active{% endblock %}
+{% block content %}
+{% include "planbook/_head.html" %}
+<div class="px-2">
+  <div class="pb-title"><div class="pb-title-icon"><i class="bi bi-book-fill"></i></div><h2>完了期日一覧</h2></div>
+  <form method="get" class="pb-search" x-data="{ open: {% if q or include_inactive %}true{% else %}false{% endif %} }">
+    <button type="button" class="btn btn-sm btn-link text-secondary p-0 fw-semibold text-decoration-none" @click="open = !open"><span x-text="open ? '検索フォームを閉じる' : '検索フォームを開く'"></span> <i class="bi bi-chevron-down"></i></button>
+    {% if not include_inactive %}<span class="note">退所済みの{{ terms.beneficiary }}は含まれていません。</span>{% endif %}
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <div class="d-flex gap-2 align-items-center flex-wrap w-100 mt-1" x-show="open">
+      <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm" style="max-width:260px;" placeholder="氏名・かなで検索">
+      <label class="form-check-label small"><input type="checkbox" name="include_inactive" value="1" class="form-check-input me-1" {% if include_inactive %}checked{% endif %}>退所済みも含める</label>
+      <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-search me-1"></i>検索</button>
+    </div>
+  </form>
+  {% if rows %}
+  <div class="table-responsive">
+    <table class="table table-bordered align-middle pb-dark" style="font-size:0.85rem;">
+      <thead><tr>
+        <th><a href="?sort=name{% if q %}&q={{ q }}{% endif %}{% if include_inactive %}&include_inactive=1{% endif %}" class="text-white text-decoration-none">氏名 <i class="bi bi-arrow-down-up"></i></a></th>
+        <th class="text-center">入所日</th><th class="text-center">作成回数</th><th class="text-center">モニタリング</th><th class="text-center">面談記録</th>
+        <th class="text-center">個別支援計画書【原案】</th><th class="text-center">スタッフ会議</th><th class="text-center">個別支援計画書</th>
+        <th class="text-center"><a href="?sort=due{% if q %}&q={{ q }}{% endif %}{% if include_inactive %}&include_inactive=1{% endif %}" class="text-white text-decoration-none">次回更新日 <i class="bi bi-arrow-down-up"></i></a></th>
+      </tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><a href="{% url 'planbook:student' r.beneficiary.pk %}" class="text-decoration-none fw-semibold" style="color:#1c69d4;">{{ r.beneficiary.full_name }}</a></td>
+          <td class="text-center">{{ r.beneficiary.admission_date|date:'Y/m/d'|default:'—' }}</td>
+          <td class="text-center">
+            {% if r.plans %}
+            <form method="get" class="d-inline">{% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}{% if include_inactive %}<input type="hidden" name="include_inactive" value="1">{% endif %}<input type="hidden" name="sort" value="{{ sort }}">
+              <select name="p{{ r.beneficiary.pk }}" class="form-select form-select-sm d-inline-block" style="width:70px;" onchange="this.form.submit()">
+                {% for p in r.plans %}<option value="{{ forloop.counter }}" {% if r.period == forloop.counter %}selected{% endif %}>{{ forloop.counter }}</option>{% endfor %}
+              </select></form>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          {% with st=r.stages %}
+          <td class="text-center">{{ st.monitoring.label }}</td>
+          <td class="text-center {% if st.interview.state == 'none' and r.plan %}table-danger text-danger{% endif %}">{% if r.plan %}{{ st.interview.label }}{% if st.interview.state == 'done' %}<br><span class="small text-muted">{{ st.interview.date|date:'Y/m/d' }}</span>{% endif %}{% else %}—{% endif %}</td>
+          <td class="text-center">{% if r.plan %}{{ st.draft.label }}{% if st.draft.state == 'done' %}<br><span class="small text-muted">{{ st.draft.date|date:'Y/m/d' }}</span>{% endif %}{% else %}—{% endif %}</td>
+          <td class="text-center">{% if r.plan %}{{ st.meeting.label }}{% if st.meeting.state == 'done' %}<br><span class="small text-muted">{{ st.meeting.date|date:'Y/m/d' }}</span>{% endif %}{% else %}—{% endif %}</td>
+          <td class="text-center">{% if r.plan %}{{ st.plan.label }}{% if st.plan.state == 'done' %}<br><span class="small text-muted">{{ st.plan.date|date:'Y/m/d' }}</span>{% endif %}{% else %}—{% endif %}</td>
+          {% endwith %}
+          <td class="text-center {% if r.next_update and r.next_update < today %}table-danger fw-bold{% endif %}">{% if r.next_update %}{{ r.next_update|date:'Y/m/d' }}{% else %}--{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<div class="pb-empty">{{ terms.beneficiary }}が見つかりません。</div>{% endif %}
+</div>
+{% endblock %}

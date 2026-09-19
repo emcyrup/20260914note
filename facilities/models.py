@@ -31,8 +31,20 @@ class Facility(models.Model):
 
     name = models.CharField(max_length=100, verbose_name='施設名')
     office_number = models.CharField(max_length=20, blank=True, verbose_name='事業所番号')
+    postal_code = models.CharField(max_length=8, blank=True, verbose_name='郵便番号')
     address = models.CharField(max_length=200, blank=True, verbose_name='住所')
+    address2 = models.CharField(max_length=200, blank=True, verbose_name='住所2（建物名など）')
     phone = models.CharField(max_length=20, blank=True, verbose_name='電話番号')
+    # 運営会社（計画書中心の画面で「施設アカウント情報」に出す）
+    company_name = models.CharField(max_length=100, blank=True, verbose_name='会社名')
+    representative_name = models.CharField(max_length=100, blank=True, verbose_name='代表者名')
+    representative_email = models.EmailField(blank=True, verbose_name='代表者メールアドレス')
+    # 画面の型：標準（全機能）／計画書中心（利用者・完了期日・スタッフ・保護者・連絡帳・施設の6メニュー）
+    LAYOUT_STANDARD = 'standard'
+    LAYOUT_PLANBOOK = 'planbook'
+    LAYOUT_CHOICES = [(LAYOUT_STANDARD, '標準（記録・予定・請求まで全部）'),
+                      (LAYOUT_PLANBOOK, '計画書中心（シンプル：利用者・完了期日一覧・スタッフ・保護者・連絡帳・施設）')]
+    layout = models.CharField(max_length=20, choices=LAYOUT_CHOICES, default=LAYOUT_STANDARD, verbose_name='画面の型')
     # 地域区分（請求単価計算に使用）
     region_category = models.CharField(
         max_length=10, choices=REGION_CATEGORY_CHOICES, default='other', verbose_name='地域区分'
@@ -96,6 +108,10 @@ class Facility(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def is_planbook(self):
+        return self.layout == self.LAYOUT_PLANBOOK
 
     @property
     def unit_price(self):

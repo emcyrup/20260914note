@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block title %}保護者一覧{% endblock %}
+{% block page_title %}保護者一覧{% endblock %}
+{% block nav_pb_guardians %}active{% endblock %}
+{% block content %}
+{% include "planbook/_head.html" %}
+<div class="px-2">
+  <div class="pb-title"><div class="pb-title-icon"><i class="bi bi-people-fill"></i></div><h2>保護者一覧</h2>
+    <div class="pb-actions"><button class="btn btn-sm text-white" style="background:#1c69d4;" data-bs-toggle="modal" data-bs-target="#newGuardianModal"><i class="bi bi-plus-lg me-1"></i>新しい保護者の追加</button></div></div>
+  <form method="get" class="pb-search"><input type="text" name="q" value="{{ q }}" class="form-control form-control-sm" style="max-width:260px;" placeholder="保護者・{{ terms.beneficiary }}の名前で検索"><button class="btn btn-sm btn-outline-secondary"><i class="bi bi-search"></i></button></form>
+  {% if guardians %}
+  <div class="table-responsive"><table class="table align-middle pb-dark" style="font-size:0.88rem;">
+    <thead><tr><th>名前</th><th>メールアドレス</th><th>電話番号</th><th>{{ terms.beneficiary }}</th><th>関係</th>{% if features.line %}<th>LINE</th>{% endif %}</tr></thead>
+    <tbody>{% for g in guardians %}<tr>
+      <td><a href="{% url 'planbook:guardian' g.pk %}" class="text-decoration-none fw-semibold" style="color:#1c69d4;"><i class="bi bi-people me-1"></i>{{ g.full_name }}</a></td>
+      <td>{{ g.email|default:'—' }}</td><td>{{ g.phone|default:'—' }}</td>
+      <td><a href="{% url 'planbook:student' g.beneficiary.pk %}" class="text-decoration-none" style="color:#1c69d4;"><i class="bi bi-mortarboard me-1"></i>{{ g.beneficiary.full_name }}</a></td>
+      <td>{{ g.get_relation_display }}</td>
+      {% if features.line %}<td>{% if g.line_linked %}<span class="badge" style="background:#06C755;">連携済</span>{% else %}<span class="text-muted small">未連携</span>{% endif %}</td>{% endif %}
+    </tr>{% endfor %}</tbody></table></div>
+  {% else %}<div class="pb-empty">結果が見つかりません。</div>{% endif %}
+</div>
+<div class="modal fade" id="newGuardianModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <form method="post" id="newGuardianForm" action="" onsubmit="this.action = '/users/' + this.beneficiary.value + '/guardians/new/';">
+    {% csrf_token %}
+    <div class="modal-header"><h5 class="modal-title fw-bold">保護者を追加</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body"><div class="row g-3">
+      <div class="col-12"><label class="form-label small fw-semibold">{{ terms.beneficiary }} <span class="text-danger">*</span></label>
+        <select name="beneficiary" class="form-select" required>{% for s in students %}<option value="{{ s.pk }}">{{ s.full_name }}</option>{% endfor %}</select></div>
+      <div class="col-6"><label class="form-label small fw-semibold">姓 <span class="text-danger">*</span></label><input type="text" name="last_name" class="form-control" required></div>
+      <div class="col-6"><label class="form-label small fw-semibold">名 <span class="text-danger">*</span></label><input type="text" name="first_name" class="form-control" required></div>
+      <div class="col-6"><label class="form-label small fw-semibold">続柄</label><select name="relation" class="form-select"><option value="mother">母</option><option value="father">父</option><option value="other">その他</option></select></div>
+      <div class="col-6"><label class="form-label small fw-semibold">電話番号</label><input type="tel" name="phone" class="form-control"></div>
+      <div class="col-12"><label class="form-label small fw-semibold">メールアドレス</label><input type="email" name="email" class="form-control"></div>
+      <div class="col-12"><label class="form-label small fw-semibold">メモ</label><input type="text" name="memo" class="form-control"></div>
+      <div class="col-12"><div class="form-check"><input type="checkbox" name="is_primary" id="ng_primary" class="form-check-input" checked><label for="ng_primary" class="form-check-label small">主連絡先にする</label></div></div>
+    </div></div>
+    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button><button class="btn btn-primary">追加する</button></div>
+  </form></div></div></div>
+{% endblock %}

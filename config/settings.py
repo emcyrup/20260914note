@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'reports',
     'custom_forms',
     'reservations',
+    'planbook',
 ]
 
 MIDDLEWARE = [

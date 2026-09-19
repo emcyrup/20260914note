@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+{% load concurrency %}
+{% load planbook_extras %}
+{% block title %}{{ terms.beneficiary }}：{{ beneficiary.full_name }}{% endblock %}
+{% block page_title %}{{ beneficiary.full_name }} さん{% endblock %}
+{% block nav_pb_students %}active{% endblock %}
+{% block content %}
+{% include "planbook/_head.html" %}
+<div class="px-2">
+
+  <!-- 見出し：氏名・次回更新日・受給者証期限・受給者番号 -->
+  <div class="d-flex flex-wrap align-items-start gap-3 mb-2">
+    <div style="min-width:200px;">
+      <div class="pb-card-kana">{{ beneficiary.full_name_kana }}</div>
+      <div class="fw-bold" style="font-size:1.4rem;">{{ beneficiary.full_name }} <span class="fs-6 fw-normal">さん</span></div>
+      <span class="badge text-bg-light text-dark border" style="font-size:0.7rem;">{% if beneficiary.status == 'active' %}通所状態{% else %}退所{% endif %}</span>
+      {% if beneficiary.is_severe %}<span class="badge" style="background:#9a4e6c;font-size:0.7rem;">重身</span>{% endif %}
+    </div>
+    <div class="row g-2 flex-grow-1">
+      <div class="col-4"><div class="pb-kpi">次回更新日<div class="v">{% if next_update %}{{ next_update|date:'Y/m/d' }}{% else %}--{% endif %}</div></div></div>
+      <div class="col-4"><div class="pb-kpi">受給者証期限<div class="v">{% if cert %}{{ cert.valid_until|date:'Y/m/d' }}{% else %}--{% endif %}</div></div></div>
+      <div class="col-4"><div class="pb-kpi">受給者番号<div class="v">{% if cert and cert.certificate_number %}{{ cert.certificate_number }}{% else %}--{% endif %}</div></div></div>
+    </div>
+  </div>
+
+  <!-- 期 -->
+  <div class="d-flex align-items-center gap-2 mb-1">
+    {% for p in periods %}
+    <a href="{% url 'planbook:plan_tab' beneficiary.pk p.plan.pk 'interview' %}" class="pb-period {% if p.is_current %}is-current{% endif %}" title="{{ p.plan.title }}">{{ p.n }}</a>
+    {% endfor %}
+    <form method="post" action="{% url 'planbook:period_create' beneficiary.pk %}" class="d-inline"
+          onsubmit="return confirm('次の期（第{{ periods|length|add:1 }}期）の計画を作りますか？');">
+      {% csrf_token %}
+      <button class="pb-period" type="submit" title="次の期を作る" style="border-style:dashed;"><i class="bi bi-plus"></i></button>
+    </form>
+    <span class="text-muted small ms-1">{% if plan %}第{{ period_no }}期 {{ plan.get_status_display }}{% else %}「＋」で第1期の計画を作ります{% endif %}</span>
+  </div>
+
+  <!-- タブ -->
+  <div class="pb-tabs">
+    <a href="{% url 'planbook:student' beneficiary.pk %}" class="pb-tab {% if tab == 'profile' %}is-active{% else %}has-data{% endif %}">プロフィール</a>
+    {% if plan %}
+    {% for key, label in stage_list %}
+    {% with st=stages|get_item:key %}
+    <a href="{% url 'planbook:plan_tab' beneficiary.pk plan.pk key %}"
+       class="pb-tab {% if tab == key %}is-active{% elif st.state == 'progress' %}is-current{% elif st.state == 'done' %}has-data{% endif %}">{{ label }}</a>
+    {% endwith %}
+    {% endfor %}
+    {% endif %}
+  </div>
+
+  {% if tab == 'profile' %}{% include "planbook/_tab_profile.html" %}
+  {% elif tab == 'monitoring' %}{% include "planbook/_tab_monitoring.html" %}
+  {% elif tab == 'interview' %}{% include "planbook/_tab_interview.html" %}
+  {% elif tab == 'draft' %}{% include "planbook/_tab_draft.html" %}
+  {% elif tab == 'meeting' %}{% include "planbook/_tab_meeting.html" %}
+  {% elif tab == 'plan' %}{% include "planbook/_tab_plan.html" %}
+  {% endif %}
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+// 文字数の表示（maxlength のある入力）
+document.querySelectorAll('[data-count]').forEach(function (el) {
+  var out = document.getElementById(el.getAttribute('data-count'));
+  if (!out) return;
+  var max = parseInt(el.getAttribute('maxlength') || '0', 10);
+  function upd() { out.textContent = '(' + el.value.length + '/' + max + ')'; out.classList.toggle('over', max && el.value.length > max); }
+  el.addEventListener('input', upd); upd();
+});
+// 提供時間の分数
+function pbMinutes(row) {
+  var s = row.querySelector('[data-start]'), e = row.querySelector('[data-end]'), out = row.querySelector('[data-min]');
+  if (!s || !e || !out) return;
+  function calc() {
+    var a = s.value.split(':'), b = e.value.split(':');
+    if (a.length < 2 || b.length < 2) { out.textContent = '0分'; return; }
+    var n = (parseInt(b[0],10)*60+parseInt(b[1],10)) - (parseInt(a[0],10)*60+parseInt(a[1],10));
+    out.textContent = (n > 0 ? n : 0) + '分';
+  }
+  s.addEventListener('change', calc); e.addEventListener('change', calc); calc();
+}
+document.querySelectorAll('[data-timepair]').forEach(pbMinutes);
+</script>
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% block title %}{{ terms.beneficiary }}一覧{% endblock %}
+{% block page_title %}{{ terms.beneficiary }}一覧{% endblock %}
+{% block nav_pb_students %}active{% endblock %}
+{% block content %}
+{% load planbook_extras %}{% include "planbook/_head.html" %}
+<div class="px-2">
+  <div class="pb-title">
+    <div class="pb-title-icon"><i class="bi bi-mortarboard-fill"></i></div>
+    <h2>{{ terms.beneficiary }}一覧</h2>
+    <div class="pb-actions">
+      <a href="{% url 'planbook:student_import' %}" class="btn btn-sm text-white" style="background:#6f1fd1;"><i class="bi bi-file-earmark-arrow-up me-1"></i>ファイルから登録</a>
+      <a href="{% url 'planbook:student_create' %}" class="btn btn-sm text-white" style="background:#e8556d;"><i class="bi bi-plus-lg me-1"></i>追加</a>
+    </div>
+  </div>
+
+  <form method="get" class="pb-search" x-data="{ open: false }">
+    <button type="button" class="btn btn-sm btn-link text-secondary p-0 fw-semibold text-decoration-none" @click="open = !open">
+      <span x-text="open ? '検索フォームを閉じる' : '検索フォームを開く'">検索フォームを開く</span> <i class="bi" :class="open ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+    </button>
+    {% if not include_inactive %}<span class="note">退所済みの{{ terms.beneficiary }}は含まれていません。</span>{% endif %}
+    <div class="d-flex gap-2 align-items-center flex-wrap w-100 mt-1" x-show="open || {% if q or include_inactive %}true{% else %}false{% endif %}">
+      <input type="text" name="q" value="{{ q }}" class="form-control form-control-sm" style="max-width:260px;" placeholder="氏名・かなで検索">
+      <label class="form-check-label small"><input type="checkbox" name="include_inactive" value="1" class="form-check-input me-1" {% if include_inactive %}checked{% endif %}>退所済みも含める</label>
+      <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-search me-1"></i>検索</button>
+    </div>
+  </form>
+
+  {% if cards %}
+  <div class="row g-3">
+    {% for c in cards %}
+    <div class="col-12 col-md-6 col-xl-4">
+      <div class="pb-card h-100">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="pb-card-kana">{{ c.beneficiary.full_name_kana }}</div>
+            <a href="{% url 'planbook:student' c.beneficiary.pk %}" class="pb-card-name text-decoration-none text-dark">{{ c.beneficiary.full_name }}</a>
+            {% if c.beneficiary.status != 'active' %}<span class="badge text-bg-secondary ms-1">退所</span>{% endif %}
+          </div>
+          <a href="{% url 'planbook:student' c.beneficiary.pk %}" class="text-dark fs-5"><i class="bi bi-arrow-right-circle-fill"></i></a>
+        </div>
+        <div class="row g-2 mt-1">
+          <div class="col-6"><div class="pb-kpi">次回更新日<div class="v">{% if c.next_update %}{{ c.next_update|date:'Y/m/d' }}{% else %}--{% endif %}</div></div></div>
+          <div class="col-6"><div class="pb-kpi">受給者証期限<div class="v">{% if c.cert %}{{ c.cert.valid_until|date:'Y/m/d' }}{% else %}--{% endif %}</div></div></div>
+        </div>
+        <div class="text-center my-2">
+          {% if c.period %}<span class="pb-period is-current">{{ c.period }}</span>{% else %}<span class="text-muted small">計画がまだありません</span>{% endif %}
+        </div>
+        {% for key, label in stages %}
+        {% with st=c.stages|get_item:key %}
+        <div class="pb-stage-row">
+          <span class="{% if st.state == 'none' %}text-muted{% else %}fw-semibold{% endif %}">{{ label }}</span>
+          {% if key == 'monitoring' %}<span class="pb-badge na">{{ st.label }}</span>
+          {% else %}<span class="pb-badge {{ st.state }}{% if key == 'interview' and st.state == 'none' and c.plan %} alert{% endif %}">{{ st.label }}</span>{% endif %}
+        </div>
+        {% endwith %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="pb-empty">{{ terms.beneficiary }}が見つかりません。</div>
+  {% endif %}
+</div>
+{% endblock %}

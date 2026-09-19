@@ -71,6 +71,22 @@ class Beneficiary(models.Model):
     # 重症心身障害児（重身）。日誌の種類と基本報酬単位数の切り替えに使う
     is_severe = models.BooleanField(default=False, verbose_name='重症心身障害児（重身）')
     notes = models.TextField(blank=True, verbose_name='備考')
+    # --- 住まいと学校（計画書中心の画面のプロフィール） ---
+    GRADE_CHOICES = [
+        ('', '選択'), ('pre', '未就学'),
+        ('e1', '小1'), ('e2', '小2'), ('e3', '小3'), ('e4', '小4'), ('e5', '小5'), ('e6', '小6'),
+        ('j1', '中1'), ('j2', '中2'), ('j3', '中3'), ('h1', '高1'), ('h2', '高2'), ('h3', '高3'), ('other', 'その他'),
+    ]
+    postal_code = models.CharField(max_length=8, blank=True, verbose_name='郵便番号')
+    address = models.CharField(max_length=200, blank=True, verbose_name='住所')
+    mobile_phone = models.CharField(max_length=20, blank=True, verbose_name='携帯電話番号')
+    home_phone = models.CharField(max_length=20, blank=True, verbose_name='自宅電話番号')
+    school_name = models.CharField(max_length=100, blank=True, verbose_name='通学学校名')
+    grade = models.CharField(max_length=10, choices=GRADE_CHOICES, blank=True, verbose_name='学年')
+    admission_date = models.DateField(null=True, blank=True, verbose_name='入所日')
+    discharge_date = models.DateField(null=True, blank=True, verbose_name='退所日')
+    # 他システムや紙の記録がある（新規の利用者ではない）
+    has_prior_records = models.BooleanField(default=False, verbose_name='他システム・紙の記録がある')
     # 利用予定曜日（月〜土）。Phase 3 の予定一括生成で使用する
     weekday_mon = models.BooleanField(default=False, verbose_name='月')
     weekday_tue = models.BooleanField(default=False, verbose_name='火')
@@ -99,6 +115,10 @@ class Beneficiary(models.Model):
     @property
     def full_name_kana(self):
         return f'{self.last_name_kana} {self.first_name_kana}'
+
+    @property
+    def latest_certificate(self):
+        return self.recipient_certificates.order_by('-valid_until', '-pk').first()
 
     @property
     def manager_office(self):
@@ -213,12 +233,17 @@ class Guardian(models.Model):
     )
     line_code_expires_at = models.DateTimeField(default=_line_code_expiry, null=True, blank=True, verbose_name='登録コードの有効期限')
     is_primary = models.BooleanField(default=False, verbose_name='主連絡先')
+    memo = models.CharField(max_length=200, blank=True, verbose_name='メモ')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = '保護者'
         verbose_name_plural = '保護者'
+
+    @property
+    def full_name(self):
+        return f'{self.last_name} {self.first_name}'
 
     @property
     def line_code_valid(self):

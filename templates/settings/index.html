@@ -183,6 +183,11 @@
             {% for v, l in facility.FORM_SET_CHOICES %}<option value="{{ v }}" {% if facility.form_set == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
           </select>
           <div class="form-text">この設定は開発向けユーザーにだけ表示されます。標準以外を選ぶと、この事業所のサイドバーに「事業所様式」が出て、その事業所の帳票を作成・出力できます。</div>
+          <div class="small fw-semibold mt-3 mb-1">画面の型 <span class="badge text-bg-secondary fw-normal">開発向け</span></div>
+          <select name="layout" class="form-select form-select-sm">
+            {% for v, l in facility.LAYOUT_CHOICES %}<option value="{{ v }}" {% if facility.layout == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
+          </select>
+          <div class="form-text">「計画書中心（シンプル）」にすると、メニューが利用者・完了期日一覧・スタッフ・保護者・連絡帳・施設の6つになり、ホームが利用者一覧になります。標準の画面（記録・予定・請求など）は URL から引き続き使えます。</div>
           {% elif facility.form_set != 'standard' %}
           <div class="small fw-semibold mt-3 mb-1">帳票様式</div>
           <div class="small">この事業所専用の様式を使っています（サイドバー「事業所様式」）。変更はシステム担当にご相談ください。</div>

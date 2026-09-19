@@ -1721,3 +1721,17 @@ body.theme-stylish .btn-outline-secondary:disabled, body.mode-dark .btn-outline-
     background: linear-gradient(to right, rgba(255,255,255,0), rgba(120,110,95,0.14));
   }
 }
+
+
+/* ===== 計画書中心の画面（シンプル）：明るい緑のサイドバー ===== */
+.layout-planbook .sidebar { background: #dfe8d2; color: #2f3a2a; box-shadow: none; }
+.layout-planbook .sidebar::after { background: rgba(0, 0, 0, 0.06); }
+.layout-planbook .sidebar-brand-name, .layout-planbook .sidebar-user-name { color: #2f3a2a; }
+.layout-planbook .sidebar-brand-sub, .layout-planbook .sidebar-user-role, .layout-planbook .sidebar-theme-link,
+.layout-planbook .sidebar-dev-switch-label { color: #5d6b55; }
+.layout-planbook .sidebar-nav-item { color: #3d4a37; }
+.layout-planbook .sidebar-nav-item:hover { color: #1f2a1b; background: rgba(255, 255, 255, 0.55); }
+.layout-planbook .sidebar-nav-item.active { color: #1f2a1b; background: #fff; box-shadow: inset 3px 0 0 var(--color-primary); }
+.layout-planbook .sidebar-user { background: rgba(255, 255, 255, 0.5); }
+.layout-planbook .sidebar-logout-btn { color: #3d4a37; border-color: rgba(0, 0, 0, 0.15); }
+.layout-planbook .sidebar-brand-icon { background: var(--color-primary); }

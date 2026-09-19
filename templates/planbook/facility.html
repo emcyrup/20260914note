@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}施設のアカウント情報{% endblock %}
+{% block page_title %}施設{% endblock %}
+{% block nav_pb_facility %}active{% endblock %}
+{% block content %}
+{% include "planbook/_head.html" %}
+<div class="px-2" x-data="{ edit: {% if form.errors %}true{% else %}false{% endif %} }">
+  <div class="pb-title"><div class="pb-title-icon"><i class="bi bi-building-fill"></i></div><h2>{{ facility.name }}アカウント情報</h2>
+    {% if can_edit %}<div class="pb-actions"><button class="btn btn-sm text-white" style="background:#1c69d4;" @click="edit = !edit"><i class="bi bi-pencil me-1"></i>編集</button></div>{% endif %}</div>
+  <table class="table table-bordered pb-info" style="font-size:0.9rem;" x-show="!edit">
+    <thead><tr><th colspan="2" class="text-center">{{ facility.name }}詳細情報</th></tr></thead>
+    <tr><th>施設名</th><td>{{ facility.name }} <span class="badge text-bg-light text-muted">{{ facility.get_layout_display|truncatechars:12 }}</span></td></tr>
+    <tr><th>事業所番号</th><td>{{ facility.office_number }}</td></tr>
+    <tr><th>施設の郵便番号</th><td>{{ facility.postal_code }}</td></tr>
+    <tr><th>施設の住所1</th><td>{{ facility.address }}</td></tr>
+    <tr><th>施設の住所2</th><td>{{ facility.address2 }}</td></tr>
+    <tr><th>施設電話番号</th><td>{{ facility.phone }}</td></tr>
+    <tr><th>会社名</th><td>{{ facility.company_name }}</td></tr>
+    <tr><th>代表者名</th><td>{{ facility.representative_name }}</td></tr>
+    <tr><th>代表者メールアドレス</th><td>{{ facility.representative_email }}</td></tr>
+    <tr><th>{{ terms.beneficiary }}数</th><td>{{ student_count }}人</td></tr>
+  </table>
+  {% if can_edit %}
+  <form method="post" class="pb-section blue" x-show="edit" x-cloak>{% csrf_token %}<div class="h">アカウント情報を編集</div><div class="b"><div class="row g-3">
+    <div class="col-md-6"><label class="form-label small fw-semibold">施設名</label>{{ form.name }}</div>
+    <div class="col-md-6"><label class="form-label small fw-semibold">施設の郵便番号</label>{{ form.postal_code }}</div>
+    <div class="col-md-6"><label class="form-label small fw-semibold">施設の住所1</label>{{ form.address }}</div>
+    <div class="col-md-6"><label class="form-label small fw-semibold">施設の住所2</label>{{ form.address2 }}</div>
+    <div class="col-md-6"><label class="form-label small fw-semibold">施設電話番号</label>{{ form.phone }}</div>
+    <div class="col-md-6"><label class="form-label small fw-semibold">会社名</label>{{ form.company_name }}</div>
+    <div class="col-md-6"><label class="form-label small fw-semibold">代表者名</label>{{ form.representative_name }}</div>
+    <div class="col-md-6"><label class="form-label small fw-semibold">代表者メールアドレス</label>{{ form.representative_email }}</div>
+  </div>{% if form.errors %}<div class="text-danger small mt-2">{{ form.errors }}</div>{% endif %}
+  <div class="text-end mt-3"><button type="button" class="btn btn-outline-secondary" @click="edit=false">キャンセル</button> <button class="btn btn-primary px-4">保存する</button></div></div></form>
+  {% endif %}
+  <div class="d-flex justify-content-between flex-wrap gap-2 small">
+    <a href="{% url 'planbook:students' %}" class="text-decoration-none" style="color:#3ab0d8;"><i class="bi bi-arrow-left me-1"></i>{{ facility.name }} 施設の{{ terms.beneficiary }}({{ student_count }}) 情報へ</a>
+    <a href="{% url 'facilities:settings' %}" class="text-decoration-none" style="color:#3ab0d8;">事業所番号・LINE・使う機能などの施設設定へ<i class="bi bi-arrow-right ms-1"></i></a>
+  </div>
+</div>
+{% endblock %}

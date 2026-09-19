@@ -15,9 +15,13 @@ class BeneficiaryForm(forms.ModelForm):
             'weekday_mon', 'weekday_tue', 'weekday_wed',
             'weekday_thu', 'weekday_fri', 'weekday_sat',
             'notes', 'status',
+            'postal_code', 'address', 'mobile_phone', 'home_phone', 'school_name', 'grade',
+            'admission_date', 'discharge_date', 'has_prior_records',
         ]
         widgets = {
             'date_of_birth': forms.DateInput(attrs={'type': 'date'}),
+            'admission_date': forms.DateInput(attrs={'type': 'date'}),
+            'discharge_date': forms.DateInput(attrs={'type': 'date'}),
             'notes': forms.Textarea(attrs={'rows': 3}),
         }
         labels = {
@@ -33,7 +37,7 @@ class GuardianForm(forms.ModelForm):
         model = Guardian
         fields = [
             'last_name', 'first_name', 'relation',
-            'phone', 'email', 'is_primary',
+            'phone', 'email', 'is_primary', 'memo',
             'line_user_id', 'line_linked',
         ]
         labels = {

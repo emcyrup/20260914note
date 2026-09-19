@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}{{ terms.beneficiary }}を追加{% endblock %}
+{% block page_title %}{{ terms.beneficiary }}を追加{% endblock %}
+{% block nav_pb_students %}active{% endblock %}
+{% block content %}
+{% load planbook_extras %}{% include "planbook/_head.html" %}
+<div class="px-2" style="max-width:720px;">
+  <div class="pb-title"><div class="pb-title-icon"><i class="bi bi-person-plus-fill"></i></div><h2>{{ terms.beneficiary }}を追加</h2></div>
+  <form method="post" class="pb-section"><div class="h">基本情報</div>
+    <div class="b">
+      {% csrf_token %}
+      <div class="row g-3">
+        <div class="col-6"><label class="form-label small fw-semibold">姓 <span class="text-danger">*</span></label><input type="text" name="last_name" class="form-control" value="{{ form.last_name.value|default:'' }}" required></div>
+        <div class="col-6"><label class="form-label small fw-semibold">名 <span class="text-danger">*</span></label><input type="text" name="first_name" class="form-control" value="{{ form.first_name.value|default:'' }}" required></div>
+        <div class="col-6"><label class="form-label small fw-semibold">せい（ふりがな）</label><input type="text" name="last_name_kana" class="form-control" value="{{ form.last_name_kana.value|default:'' }}"></div>
+        <div class="col-6"><label class="form-label small fw-semibold">めい（ふりがな）</label><input type="text" name="first_name_kana" class="form-control" value="{{ form.first_name_kana.value|default:'' }}"></div>
+        <div class="col-6"><label class="form-label small fw-semibold">性別</label>
+          <select name="gender" class="form-select">{% for v, l in form.fields.gender.choices %}<option value="{{ v }}" {% if form.gender.value == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+        <div class="col-6"><label class="form-label small fw-semibold">生年月日 <span class="text-danger">*</span></label><input type="date" name="date_of_birth" class="form-control" value="{{ form.date_of_birth.value|default:'' }}" required></div>
+        <input type="hidden" name="status" value="active">
+      </div>
+      {% if form.errors %}<div class="text-danger small mt-2">{{ form.errors }}</div>{% endif %}
+      <div class="d-flex gap-2 justify-content-end mt-3">
+        <a href="{% url 'planbook:students' %}" class="btn btn-outline-secondary">キャンセル</a>
+        <button class="btn btn-primary px-4">追加する</button>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}保護者 {{ g.full_name }}様{% endblock %}
+{% block page_title %}保護者{{ g.full_name }}様の情報{% endblock %}
+{% block nav_pb_guardians %}active{% endblock %}
+{% block content %}
+{% include "planbook/_head.html" %}
+<div class="px-2" x-data="{ edit: {% if form.errors %}true{% else %}false{% endif %} }">
+  <div class="pb-title"><div class="pb-title-icon"><i class="bi bi-people-fill"></i></div><h2>保護者{{ g.full_name }}様の情報</h2>
+    <div class="pb-actions"><button class="btn btn-sm text-white" style="background:#1c69d4;" @click="edit = !edit"><i class="bi bi-pencil me-1"></i>編集</button></div></div>
+  <div class="pb-sub">保護者{{ g.full_name }}様の詳細ページ</div>
+  <table class="table table-bordered pb-info" style="font-size:0.9rem;" x-show="!edit">
+    <tr><th>名前</th><td>{{ g.full_name }}</td></tr>
+    <tr><th>メールアドレス</th><td>{{ g.email|default:'' }}</td></tr>
+    <tr><th>電話番号</th><td>{{ g.phone|default:'' }}</td></tr>
+    <tr><th>{{ terms.beneficiary }}</th><td><a href="{% url 'planbook:student' g.beneficiary.pk %}" class="text-decoration-none" style="color:#1c69d4;"><i class="bi bi-mortarboard me-1"></i>{{ g.beneficiary.full_name }}さん</a></td></tr>
+    <tr><th>{{ terms.beneficiary }}との関係</th><td>{{ g.get_relation_display }}</td></tr>
+    <tr><th>メモ</th><td>{{ g.memo|default:'' }}</td></tr>
+    {% if features.line %}<tr><th>LINE</th><td>{% if g.line_linked %}<span class="text-success fw-semibold">連携済み</span>{% else %}未連携{% if g.line_code_valid %}　登録コード <code>{{ g.line_registration_code }}</code>（{{ g.line_code_expires_at|date:'n/j H:i' }}まで）{% endif %}{% endif %}</td></tr>{% endif %}
+  </table>
+  <form method="post" class="pb-section blue" x-show="edit" x-cloak>
+    {% csrf_token %}
+    <div class="h">保護者情報を編集</div>
+    <div class="b"><div class="row g-3">
+      <div class="col-6"><label class="form-label small fw-semibold">姓</label><input type="text" name="last_name" class="form-control" value="{{ form.last_name.value|default:'' }}" required></div>
+      <div class="col-6"><label class="form-label small fw-semibold">名</label><input type="text" name="first_name" class="form-control" value="{{ form.first_name.value|default:'' }}" required></div>
+      <div class="col-6"><label class="form-label small fw-semibold">続柄</label><select name="relation" class="form-select">{% for v, l in form.fields.relation.choices %}<option value="{{ v }}" {% if form.relation.value == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-6"><label class="form-label small fw-semibold">電話番号</label><input type="tel" name="phone" class="form-control" value="{{ form.phone.value|default:'' }}"></div>
+      <div class="col-12"><label class="form-label small fw-semibold">メールアドレス</label><input type="email" name="email" class="form-control" value="{{ form.email.value|default:'' }}"></div>
+      <div class="col-12"><label class="form-label small fw-semibold">メモ</label><input type="text" name="memo" class="form-control" value="{{ form.memo.value|default:'' }}"></div>
+      <div class="col-12"><div class="form-check"><input type="checkbox" name="is_primary" id="g_primary" class="form-check-input" {% if form.is_primary.value %}checked{% endif %}><label for="g_primary" class="form-check-label small">主連絡先</label></div></div>
+    </div>{% if form.errors %}<div class="text-danger small mt-2">{{ form.errors }}</div>{% endif %}
+    <div class="text-end mt-3"><button type="button" class="btn btn-outline-secondary" @click="edit=false">キャンセル</button> <button class="btn btn-primary px-4">保存する</button></div></div>
+  </form>
+  <div class="p-3 rounded mb-3" style="background:#dbe8fb;border-left:5px solid #1c69d4;">この保護者の{{ terms.beneficiary }}関係を管理するには、<a href="{% url 'beneficiaries:detail' g.beneficiary.pk %}" class="btn btn-sm text-white" style="background:#1c69d4;">こちらへ</a></div>
+  <div class="p-3 rounded mb-3" style="background:#e3f6fb;border-left:5px solid #3ab0d8;"><a href="{% url 'planbook:note_thread' g.pk %}" class="btn btn-sm text-white" style="background:#3ab0d8;"><i class="bi bi-envelope me-1"></i>連絡帳を見る</a> <span class="small text-muted ms-2">{{ note_count }} 件</span></div>
+  {% if features.line and not g.line_linked %}
+  <div class="p-3 rounded mb-3" style="background:#fff8e1;border-left:5px solid #e0b93a;"><div class="fw-semibold small mb-1" style="color:#7a5a12;">保護者「{{ g.full_name }}様」の LINE 連携</div>
+    <div class="small">公式 LINE を友だち追加してもらい、登録コード{% if g.line_code_valid %} <code style="font-size:1rem;letter-spacing:.15em;">{{ g.line_registration_code }}</code>{% endif %} を送ってもらうと連携できます。
+      <form method="post" action="{% url 'beneficiaries:regenerate_line_code' g.pk %}" class="d-inline" onsubmit="return confirm('登録コードを再発行しますか？');">{% csrf_token %}<button class="btn btn-sm text-white" style="background:#e0b93a;"><i class="bi bi-envelope me-1"></i>登録コードを{% if g.line_code_valid %}再{% endif %}発行</button></form></div></div>
+  {% endif %}
+  <div class="p-3 rounded" style="background:#fdecec;border-left:5px solid #f0717f;"><div class="fw-semibold small mb-1 text-danger"><i class="bi bi-exclamation-triangle me-1"></i>この保護者情報を削除する</div>
+    <div class="small text-danger mb-2">削除すると{{ g.full_name }}様にメッセージが送れません。</div>
+    <form method="post" action="{% url 'planbook:guardian_delete' g.pk %}" onsubmit="return confirm('{{ g.full_name|escapejs }} 様の保護者情報を削除しますか？連絡帳も消えます。');">{% csrf_token %}<button class="btn btn-sm text-white" style="background:#f0717f;"><i class="bi bi-trash me-1"></i>情報を削除する</button></form></div>
+</div>
+{% endblock %}

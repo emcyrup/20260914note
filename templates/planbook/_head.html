@@ -1,0 +1,55 @@
+{% comment %} 計画書中心の画面（シンプル）で共通に使うスタイル {% endcomment %}
+<style>
+  [x-cloak] { display: none !important; }
+  .pb-title { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+  .pb-title h2 { font-size:1.35rem; font-weight:800; margin:0; }
+  .pb-title-icon { width:44px; height:44px; border-radius:50%; background:#2f3130; color:#fff; display:flex; align-items:center; justify-content:center; font-size:1.2rem; flex-shrink:0; }
+  .pb-title .pb-actions { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; }
+  .pb-search { background:#ededed; border-radius:6px; padding:8px 12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:14px; font-size:0.85rem; }
+  .pb-search .note { background:#e9f7e9; color:#2a7a2a; border-left:4px solid #3a9a3a; padding:4px 10px; font-weight:600; }
+  .pb-empty { background:#fffbe6; border-left:5px solid #e0b93a; padding:16px 20px; font-weight:700; color:#7a5a12; border-radius:4px; }
+  .pb-card { background:#fff; border:1px solid #e3e3e3; border-radius:10px; padding:14px; box-shadow:0 2px 8px rgba(0,0,0,.04); }
+  .pb-card-name { font-weight:800; font-size:1.15rem; }
+  .pb-card-kana { font-size:0.7rem; color:#777; letter-spacing:.1em; }
+  .pb-kpi { background:#4d4a45; color:#fff; border-radius:6px; padding:4px; text-align:center; font-size:0.72rem; font-weight:700; }
+  .pb-kpi .v { background:#fff; color:#333; border-radius:4px; margin-top:4px; padding:4px 2px; font-size:0.85rem; font-weight:600; }
+  .pb-period { width:30px; height:30px; border-radius:50%; border:2px solid #cfd4d8; color:#7b8388; display:inline-flex; align-items:center; justify-content:center; font-weight:800; font-size:0.85rem; text-decoration:none; background:#fff; }
+  .pb-period.is-current { border-color:#1c69d4; color:#1c69d4; box-shadow:0 0 0 2px #dbe8fb; }
+  .pb-stage-row { display:flex; justify-content:space-between; align-items:center; padding:8px 4px; border-top:1px solid #f0f0f0; font-size:0.85rem; }
+  .pb-badge { display:inline-block; min-width:74px; text-align:center; padding:4px 10px; border-radius:4px; font-size:0.78rem; font-weight:700; }
+  .pb-badge.none { background:#eee; color:#888; }
+  .pb-badge.none.alert { background:#fde2e2; color:#c0392b; }
+  .pb-badge.progress { background:#fff3cd; color:#8a6d1a; }
+  .pb-badge.done { background:#d9f2df; color:#1f7a3a; }
+  .pb-badge.na { background:#f2f2f2; color:#999; }
+  .pb-tabs { display:flex; gap:2px; border-bottom:3px solid #2b8fd6; margin:12px 0 14px; flex-wrap:wrap; }
+  .pb-tab { padding:8px 14px; background:#e9ecef; color:#999; text-decoration:none; font-weight:700; font-size:0.85rem; border-radius:6px 6px 0 0; }
+  .pb-tab.is-active { background:#2b8fd6; color:#fff; }
+  .pb-tab.is-current { background:#f0ad4e; color:#fff; }
+  .pb-tab.has-data { color:#444; }
+  .pb-section { border:2px solid #1f6f8b; border-radius:6px; margin-bottom:16px; background:#fff; }
+  .pb-section > .h { background:#1f6f8b; color:#fff; font-weight:700; padding:6px 12px; font-size:0.9rem; display:flex; justify-content:space-between; align-items:center; }
+  .pb-section > .b { padding:12px; }
+  .pb-section.blue { border-color:#1c69d4; } .pb-section.blue > .h { background:#1c69d4; }
+  .pb-section.sky > .h { background:#cdefff; color:#1f6f8b; }
+  .pb-sub { background:#dff3ff; color:#1f6f8b; font-weight:700; padding:4px 10px; border-radius:4px; font-size:0.85rem; margin-bottom:8px; }
+  .pb-table th { background:#e9ecef; font-weight:700; font-size:0.82rem; }
+  .pb-table td, .pb-table th { vertical-align:middle; }
+  .pb-dark th { background:#4d4a45; color:#fff; font-weight:700; }
+  .pb-info th { background:#4d4a45; color:#fff; font-weight:600; width:32%; }
+  .pb-info td { background:#fff; }
+  .pb-goal { border:1px solid #cfd4d8; border-radius:6px; padding:12px; margin-bottom:12px; position:relative; background:#fff; }
+  .pb-goal .num { position:absolute; right:14px; top:8px; font-size:2rem; color:#d8dde2; font-weight:800; }
+  .pb-goal label { font-size:0.75rem; color:#555; font-weight:600; margin-bottom:2px; }
+  .pb-count { font-size:0.7rem; color:#777; text-align:right; }
+  .pb-count.over { color:#c0392b; font-weight:700; }
+  .pb-lock { background:#dbe8fb; border-left:5px solid #1c69d4; padding:12px 16px; border-radius:4px; }
+  .pb-msg-me, .pb-msg-them { max-width:78%; padding:10px 14px; border-radius:14px; margin-bottom:10px; white-space:pre-wrap; font-size:0.9rem; }
+  .pb-msg-me { background:#d9f2df; margin-left:auto; border-bottom-right-radius:4px; }
+  .pb-msg-them { background:#fff; border:1px solid #e3e3e3; border-bottom-left-radius:4px; }
+  .pb-msg-meta { font-size:0.68rem; color:#888; margin-top:4px; }
+  .pb-sched td { padding:3px !important; }
+  .pb-sched input[type=time] { font-size:0.78rem; padding:2px 4px; }
+  .pb-sched input[type=text] { font-size:0.78rem; padding:2px 4px; }
+  @media (max-width: 767px) { .pb-title h2 { font-size:1.15rem; } .pb-tab { padding:6px 10px; font-size:0.78rem; } }
+</style>

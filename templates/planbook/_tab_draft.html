@@ -1,0 +1,25 @@
+{% load concurrency planbook_extras %}
+<form method="post" id="tabForm" action="{% url 'planbook:plan_tab' beneficiary.pk plan.pk 'draft' %}" data-concurrency="plandraft:{{ obj.pk }}">
+  {% csrf_token %}
+  {% version_field obj %}
+  <div class="pb-section">
+    <div class="h">個別支援計画書【原案】 — 計画期間と方針</div>
+    <div class="b">
+      <div class="row g-3">
+        <div class="col-md-6"><label class="form-label small fw-semibold">計画期間（開始）</label>{{ form.period_start }}</div>
+        <div class="col-md-6"><label class="form-label small fw-semibold">計画期間（終了）</label>{{ form.period_end }}{% for e in form.period_end.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}</div>
+        <div class="col-12"><label class="form-label small fw-semibold">本人・家族の意向（計画書に記載）</label>{{ form.family_wishes }}</div>
+        <div class="col-12"><label class="form-label small fw-semibold">総合的な支援の方針</label>{{ form.policy }}</div>
+        <div class="col-12"><label class="form-label small fw-semibold">留意事項</label>{{ form.notes }}</div>
+      </div>
+    </div>
+  </div>
+  {% include "planbook/_goals.html" with goals_title="支援内容（原案）" %}
+  {% if not locked %}
+  <div class="d-flex justify-content-end mb-3 gap-2">
+    {% if not goals %}<span class="text-muted small align-self-center">面談記録で入れた支援内容がここに引き継がれます。</span>{% endif %}
+    <button class="btn btn-primary px-4"><i class="bi bi-check-lg me-1"></i>保存する</button>
+  </div>
+  {% endif %}
+</form>
+{% include "planbook/_lock_bar.html" with stage='draft' form_id='tabForm' hint='原案ができたら完了して、スタッフ会議へ進みます。' %}

@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}連絡帳 {{ g.full_name }}様{% endblock %}
+{% block page_title %}連絡帳 — {{ g.full_name }}様{% endblock %}
+{% block nav_pb_notes %}active{% endblock %}
+{% block content %}
+{% include "planbook/_head.html" %}
+<div class="px-2" style="max-width:860px;">
+  <div class="pb-title"><div class="pb-title-icon"><i class="bi bi-envelope-fill"></i></div>
+    <div><h2>{{ g.full_name }}様との連絡帳</h2><div class="small text-muted"><a href="{% url 'planbook:student' g.beneficiary.pk %}">{{ g.beneficiary.full_name }}さん</a>・{{ g.get_relation_display }}
+      {% if features.line %}{% if g.line_linked %}<span class="badge ms-1" style="background:#06C755;">LINE連携済（記入すると LINE で届きます）</span>{% else %}<span class="badge text-bg-light text-muted ms-1">LINE未連携（記入は施設内の記録になります）</span>{% endif %}{% endif %}</div></div>
+    <div class="pb-actions"><a href="{% url 'planbook:notes' %}" class="btn btn-sm btn-outline-secondary">全ての連絡帳へ</a></div></div>
+  <div class="p-3 rounded mb-3" style="background:#f4f6f5;min-height:200px;">
+    {% for n in notes %}
+    <div class="d-flex flex-column {% if n.sender == 'staff' %}align-items-end{% else %}align-items-start{% endif %}">
+      <div class="{% if n.sender == 'staff' %}pb-msg-me{% else %}pb-msg-them{% endif %}">{{ n.body }}
+        <div class="pb-msg-meta">{{ n.created_at|date:'Y/m/d H:i' }}{% if n.sender == 'staff' %} {{ n.author.display_name|default:n.author.username|default:'' }}{% if n.line_sent %} · LINE送信済{% elif n.line_error %} · <span class="text-danger">LINE未送信</span>{% endif %}{% else %} 保護者{% endif %}</div></div>
+    </div>
+    {% empty %}<p class="text-muted small text-center my-5">まだやりとりがありません。下から記入してください。</p>{% endfor %}
+  </div>
+  <form method="post" class="pb-section blue"><div class="h">記入する</div><div class="b">
+    {% csrf_token %}
+    <textarea name="body" class="form-control" rows="3" required placeholder="保護者へのご連絡・今日の様子など"></textarea>
+    <div class="d-flex justify-content-between align-items-center mt-2"><span class="small text-muted">{% if line_ready %}記入と同時に LINE で送ります。{% else %}施設内の記録として残ります。{% endif %}</span><button class="btn btn-primary px-4"><i class="bi bi-send me-1"></i>記入{% if line_ready %}して送る{% endif %}</button></div>
+  </div></form>
+</div>
+{% endblock %}

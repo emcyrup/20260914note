@@ -1,0 +1,30 @@
+{% load concurrency planbook_extras %}
+<form method="post" id="tabForm" action="{% url 'planbook:plan_tab' beneficiary.pk plan.pk 'meeting' %}" data-concurrency="staffmeeting:{{ obj.pk }}">
+  {% csrf_token %}
+  {% version_field obj %}
+  <div class="pb-section">
+    <div class="h">スタッフ会議（担当者会議）</div>
+    <div class="b">
+      <div class="row g-3">
+        <div class="col-md-4"><label class="form-label small fw-semibold">開催日</label>{{ form.meeting_date }}</div>
+        <div class="col-md-8"><label class="form-label small fw-semibold">出席者</label>{{ form.attendees }}</div>
+        <div class="col-md-6"><div class="form-check">{{ form.beneficiary_attended }}<label class="form-check-label small" for="{{ form.beneficiary_attended.id_for_label }}">本人が出席した</label></div>
+          <div class="form-check">{{ form.guardian_attended }}<label class="form-check-label small" for="{{ form.guardian_attended.id_for_label }}">保護者が出席した</label></div></div>
+        <div class="col-md-6"><label class="form-label small fw-semibold">本人が出席しなかった理由</label>{{ form.absence_reason }}</div>
+        <div class="col-12"><label class="form-label small fw-semibold">原案への意見・協議内容（決定事項）</label>{{ form.opinions }}</div>
+        <div class="col-md-4"><div class="form-check mt-4">{{ form.revised }}<label class="form-check-label small" for="{{ form.revised.id_for_label }}">原案を修正した</label></div></div>
+        <div class="col-md-8"><label class="form-label small fw-semibold">修正内容</label>{{ form.revision_summary }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="pb-section">
+    <div class="h">原案の支援内容（確認用）</div>
+    <div class="b p-0 table-responsive">
+      <table class="table table-sm mb-0 pb-table"><thead><tr><th>#</th><th>種別</th><th>短期目標</th><th>到達目標</th><th>具体的な支援内容</th><th>達成時期</th></tr></thead>
+        <tbody>{% for row in goals %}<tr><td>{{ forloop.counter }}</td><td>{{ row.x.category_label }}</td><td>{{ row.goal.content }}</td><td>{{ row.x.target }}</td><td>{{ row.goal.support_content }}</td><td>{{ row.x.timing }}</td></tr>
+        {% empty %}<tr><td colspan="6" class="text-muted small">支援内容がまだありません（面談記録・原案で入力）。</td></tr>{% endfor %}</tbody></table>
+    </div>
+  </div>
+  {% if not locked %}<div class="d-flex justify-content-end mb-3"><button class="btn btn-primary px-4"><i class="bi bi-check-lg me-1"></i>保存する</button></div>{% endif %}
+</form>
+{% include "planbook/_lock_bar.html" with stage='meeting' form_id='tabForm' hint='会議の内容を記録して完了すると、個別支援計画書（確定）へ進みます。' %}

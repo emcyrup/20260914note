@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block title %}ファイルから登録{% endblock %}
+{% block page_title %}ファイルから登録{% endblock %}
+{% block nav_pb_students %}active{% endblock %}
+{% block content %}
+{% include "planbook/_head.html" %}
+<div class="px-2" style="max-width:860px;">
+  <div class="pb-title"><div class="pb-title-icon"><i class="bi bi-file-earmark-arrow-up-fill"></i></div><h2>{{ terms.beneficiary }}をファイルから登録</h2></div>
+  <div class="pb-section"><div class="h">1. ひな形をダウンロードして、{{ terms.beneficiary }}を1行ずつ入力する</div><div class="b">
+    <a href="{% url 'planbook:student_import_template' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-download me-1"></i>ひな形（CSV）をダウンロード</a>
+    <div class="small text-muted mt-2">Excel で開いて入力し、CSV（UTF-8 か Shift_JIS）または Excel（.xlsx）で保存してください。1行目は見出しのまま、2行目から{{ terms.beneficiary }}です。既存の Excel を使う場合は、見出しを下の名前に合わせると読み取れます。</div>
+    <div class="small mt-2"><span class="fw-semibold">見出し：</span>{{ headers|join:'、' }}</div>
+    <div class="small text-muted">姓・名・生年月日（例 2017-04-01）は必須です。性別は「男」「女」、学年は「小3」「中1」のように書きます。保護者の欄を入れると保護者も登録します。</div>
+  </div></div>
+  <form method="post" enctype="multipart/form-data" class="pb-section blue">{% csrf_token %}<div class="h">2. ファイルを選んで登録する</div><div class="b">
+    <input type="file" name="file" class="form-control" accept=".csv,.xlsx,text/csv" required>
+    <div class="text-end mt-3"><a href="{% url 'planbook:students' %}" class="btn btn-outline-secondary">戻る</a> <button class="btn btn-primary px-4"><i class="bi bi-upload me-1"></i>登録する</button></div>
+  </div></form>
+</div>
+{% endblock %}

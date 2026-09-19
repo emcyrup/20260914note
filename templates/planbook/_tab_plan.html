@@ -1,0 +1,46 @@
+{% load concurrency planbook_extras %}
+<div class="pb-section">
+  <div class="h">個別支援計画書（確定・交付）
+    <span>
+      <a href="{% url 'support_plans:print' plan.pk %}" class="btn btn-sm btn-light py-0" target="_blank"><i class="bi bi-printer me-1"></i>画面で見る</a>
+      <a href="{% url 'support_plans:pdf' plan.pk %}" class="btn btn-sm btn-light py-0"><i class="bi bi-file-earmark-pdf me-1"></i>PDF</a>
+    </span>
+  </div>
+  <div class="b">
+    <div class="row g-2 small mb-2">
+      <div class="col-md-4"><span class="text-muted">支援期間：</span>{% if interview and interview.period_start %}{{ interview.period_start|date:'Y/m/d' }}〜{{ interview.period_end|date:'Y/m/d' }}{% elif draft.period_start %}{{ draft.period_start|date:'Y/m/d' }}〜{{ draft.period_end|date:'Y/m/d' }}{% else %}—{% endif %}</div>
+      <div class="col-md-8"><span class="text-muted">総合的な支援の方針：</span>{{ draft.policy|default:'—' }}</div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm table-bordered mb-0 pb-table"><thead><tr><th>#</th><th>種別</th><th>優先</th><th>短期目標(課題ニーズ)</th><th>到達目標</th><th>具体的な支援内容</th><th>担当者</th><th>達成時期</th><th>評価時期</th></tr></thead>
+        <tbody>{% for row in goals %}<tr><td>{{ forloop.counter }}</td><td>{{ row.x.category_label }}</td><td>{{ row.x.priority }}</td><td>{{ row.goal.content }}</td><td>{{ row.x.target }}</td><td>{{ row.goal.support_content }}</td><td>{{ row.x.staff }}</td><td>{{ row.x.timing }}</td><td>{{ row.x.eval_timing }}</td></tr>
+        {% empty %}<tr><td colspan="9" class="text-muted small">支援内容がありません。</td></tr>{% endfor %}</tbody></table>
+    </div>
+  </div>
+</div>
+
+<form method="post" id="tabForm" action="{% url 'planbook:plan_tab' beneficiary.pk plan.pk 'plan' %}" data-concurrency="consentdelivery:{{ obj.pk }}">
+  {% csrf_token %}
+  {% version_field obj %}
+  <div class="pb-section">
+    <div class="h">説明・同意・交付</div>
+    <div class="b">
+      <div class="row g-3">
+        <div class="col-md-4"><label class="form-label small fw-semibold">説明日</label>{{ form.explained_date }}</div>
+        <div class="col-md-4"><label class="form-label small fw-semibold">説明した相手</label>{{ form.explained_to }}</div>
+        <div class="col-md-4"><label class="form-label small fw-semibold">説明した職員</label>{{ form.explained_by }}</div>
+        <div class="col-md-4"><label class="form-label small fw-semibold">同意の方法</label>{{ form.consent_method }}</div>
+        <div class="col-md-4"><label class="form-label small fw-semibold">同意日（書面）</label>{{ form.consent_date }}</div>
+        <div class="col-md-4"><label class="form-label small fw-semibold">署名者（書面）</label>{{ form.consent_signer }}</div>
+        <div class="col-md-4"><label class="form-label small fw-semibold">本人・家族への交付日</label>{{ form.delivered_to_user_date }}</div>
+        <div class="col-md-4"><label class="form-label small fw-semibold">相談支援事業所名</label>{{ form.consultation_office }}</div>
+        <div class="col-md-4"><label class="form-label small fw-semibold">相談支援事業所への交付日</label>{{ form.delivered_to_office_date }}</div>
+        <div class="col-md-4"><label class="form-label small fw-semibold">サービス開始日</label>{{ form.service_start_date }}</div>
+      </div>
+      {% if signatures %}<div class="small mt-2 text-success"><i class="bi bi-pen me-1"></i>電子サイン {{ signatures|length }} 件</div>
+      {% elif not locked %}<div class="small mt-2 text-muted">電子サインは<a href="{% url 'support_plans:step' plan.pk 4 %}">標準画面のステップ4</a>から取れます。書面の場合は同意日と署名者を入力してください。</div>{% endif %}
+    </div>
+  </div>
+  {% if not locked %}<div class="d-flex justify-content-end mb-3"><button class="btn btn-primary px-4"><i class="bi bi-check-lg me-1"></i>保存する</button></div>{% endif %}
+</form>
+{% include "planbook/_lock_bar.html" with stage='plan' form_id='tabForm' hint='説明・同意・交付・サービス開始日を入れて完了すると、計画は「実施中」になりモニタリングへ進みます。' %}

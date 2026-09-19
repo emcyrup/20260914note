@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}スタッフ一覧{% endblock %}
+{% block page_title %}スタッフ一覧{% endblock %}
+{% block nav_pb_staff %}active{% endblock %}
+{% block content %}
+{% include "planbook/_head.html" %}
+<div class="px-2">
+  <div class="pb-title"><div class="pb-title-icon"><i class="bi bi-person-badge-fill"></i></div><h2>施設:{{ user.facility.name }}のスタッフ一覧</h2>
+    {% if can_manage %}<div class="pb-actions"><a href="{% url 'accounts:staff' %}" class="btn btn-sm text-white" style="background:#e8556d;"><i class="bi bi-plus-lg me-1"></i>追加</a></div>{% endif %}</div>
+  <form method="get" class="pb-search"><input type="text" name="q" value="{{ q }}" class="form-control form-control-sm" style="max-width:260px;" placeholder="名前で検索"><button class="btn btn-sm btn-outline-secondary"><i class="bi bi-search"></i></button></form>
+  {% if staff %}
+  <div class="table-responsive"><table class="table align-middle pb-dark" style="font-size:0.88rem;">
+    <thead><tr><th>名前</th><th>役割</th><th>状態</th><th>追加日時</th></tr></thead>
+    <tbody>{% for s in staff %}<tr>
+      <td>{% if can_manage %}<a href="{% url 'accounts:staff' %}" class="text-decoration-none fw-semibold" style="color:#1c69d4;">{% endif %}<i class="bi bi-person-badge me-1"></i>{{ s.display_name|default:s.username }}{% if can_manage %}</a>{% endif %}</td>
+      <td>{{ s.get_role_display }}</td>
+      <td>{% if s.is_active %}<span class="badge" style="background:#c9f2d3;color:#1f7a3a;">現職</span>{% else %}<span class="badge text-bg-secondary">退職</span>{% endif %}</td>
+      <td>{{ s.date_joined|date:'Y年n月j日' }}</td></tr>{% endfor %}</tbody></table></div>
+  {% else %}<div class="pb-empty">スタッフが見つかりません。</div>{% endif %}
+  {% if can_manage %}<div class="pb-section blue mt-3"><div class="h">新規追加</div><div class="b" style="background:#dbe8fb;">{{ user.facility.name }}のスタッフを追加する（ログインIDの発行・権限・招待リンク）<div class="mt-2"><a href="{% url 'accounts:staff' %}" class="btn btn-sm text-white" style="background:#e8556d;"><i class="bi bi-plus-lg me-1"></i>追加</a></div></div></div>{% endif %}
+</div>
+{% endblock %}

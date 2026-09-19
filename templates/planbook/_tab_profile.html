@@ -1,0 +1,93 @@
+{% load concurrency planbook_extras %}
+<form method="post" action="{% url 'planbook:student' beneficiary.pk %}" data-concurrency="beneficiary:{{ beneficiary.pk }}">
+  {% csrf_token %}
+  {% version_field beneficiary %}
+  <div class="pb-section">
+    <div class="h">1. {{ beneficiary.full_name }}さん</div>
+    <div class="b">
+      <div class="row g-3">
+        <div class="col-md-6"><label class="form-label small fw-semibold">受給者番号</label><input type="text" name="cert_number" class="form-control" value="{{ cert_number }}" maxlength="20"></div>
+        <div class="col-md-6"><label class="form-label small fw-semibold">受給者証期限</label><input type="date" name="cert_until" class="form-control" value="{{ cert_until|date:'Y-m-d' }}"></div>
+        <div class="col-md-4"><label class="form-label small fw-semibold">状態</label>{{ form.status }}</div>
+        <div class="col-md-4"><label class="form-label small fw-semibold">入所日</label>{{ form.admission_date }}</div>
+        <div class="col-md-4"><label class="form-label small fw-semibold">退所</label>{{ form.discharge_date }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-6">
+      <div class="pb-section blue h-100">
+        <div class="h">この{{ terms.beneficiary }}は当施設に通所する事が初めての{{ terms.beneficiary }}（新規の{{ terms.beneficiary }}）ですか？</div>
+        <div class="b" style="background:#dbe8fb;">
+          <div class="form-check form-check-inline"><input type="radio" name="has_prior_records" value="" id="prior_no" class="form-check-input" {% if not form.has_prior_records.value %}checked{% endif %}><label for="prior_no" class="form-check-label fw-semibold">はい</label></div>
+          <div class="form-check form-check-inline"><input type="radio" name="has_prior_records" value="on" id="prior_yes" class="form-check-input" {% if form.has_prior_records.value %}checked{% endif %}><label for="prior_yes" class="form-check-label fw-semibold">いいえ（他システム又は、紙での記録が有る。）</label></div>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="pb-section h-100">
+        <div class="h">基本情報</div>
+        <div class="b">
+          <div class="row g-2">
+            <div class="col-6"><label class="form-label small fw-semibold">姓</label>{{ form.last_name }}</div>
+            <div class="col-6"><label class="form-label small fw-semibold">名</label>{{ form.first_name }}</div>
+            <div class="col-6"><label class="form-label small fw-semibold">せい（ふりがな）</label>{{ form.last_name_kana }}</div>
+            <div class="col-6"><label class="form-label small fw-semibold">めい（ふりがな）</label>{{ form.first_name_kana }}</div>
+            <div class="col-6"><label class="form-label small fw-semibold">性別</label>{{ form.gender }}</div>
+            <div class="col-6"><label class="form-label small fw-semibold">生年月日</label>{{ form.date_of_birth }}</div>
+            <div class="col-8"><label class="form-label small fw-semibold">障害種別</label>{{ form.disability_type }}</div>
+            <div class="col-4 d-flex align-items-end"><div class="form-check">{{ form.is_severe }}<label class="form-check-label small" for="{{ form.is_severe.id_for_label }}">重身</label></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pb-section mt-3">
+    <div class="h">{{ terms.beneficiary }}の住まいと学校情報</div>
+    <div class="b">
+      <div class="row g-3">
+        <div class="col-md-4"><label class="form-label small fw-semibold">〒 郵便番号</label>{{ form.postal_code }}<div class="form-text">1100001 と入力</div></div>
+        <div class="col-md-8"><label class="form-label small fw-semibold">住所</label>{{ form.address }}</div>
+        <div class="col-md-6"><label class="form-label small fw-semibold">携帯電話番号</label>{{ form.mobile_phone }}<div class="form-text">090123456789 と入力</div></div>
+        <div class="col-md-6"><label class="form-label small fw-semibold">自宅電話番号</label>{{ form.home_phone }}<div class="form-text">0662088181 と入力</div></div>
+        <div class="col-md-6"><label class="form-label small fw-semibold">通学学校名</label>{{ form.school_name }}</div>
+        <div class="col-md-3"><label class="form-label small fw-semibold">学年</label>{{ form.grade }}</div>
+        <div class="col-md-12"><label class="form-label small fw-semibold">備考</label>{{ form.notes }}</div>
+      </div>
+      {% if form.errors %}<div class="text-danger small mt-2">{{ form.errors }}</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="pb-section blue">
+    <div class="h">保護者名 <a href="{% url 'beneficiaries:detail' beneficiary.pk %}" class="text-white small fw-normal">保護者・受給者証の追加は{{ terms.beneficiary }}台帳から →</a></div>
+    <div class="b">
+      {% for g in guardians %}
+      <div class="{% if not forloop.last %}border-bottom pb-2 mb-2{% endif %}">
+        <a href="{% url 'planbook:guardian' g.pk %}" class="fw-bold text-decoration-none" style="color:#1c69d4;">{{ g.full_name }}様</a>
+        <div class="row g-3 small mt-0">
+          <div class="col-auto"><div class="text-muted" style="font-size:0.7rem;">電話番号</div>{{ g.phone|default:'—' }}</div>
+          <div class="col-auto"><div class="text-muted" style="font-size:0.7rem;">{{ terms.beneficiary }}との関係</div>{{ g.get_relation_display }}</div>
+          <div class="col-auto"><div class="text-muted" style="font-size:0.7rem;">メモ</div>{{ g.memo|default:'—' }}</div>
+          {% if features.line %}<div class="col-auto"><div class="text-muted" style="font-size:0.7rem;">LINE</div>{% if g.line_linked %}<span class="text-success">連携済</span>{% else %}未連携{% endif %}</div>{% endif %}
+        </div>
+      </div>
+      {% empty %}
+      <p class="text-muted small mb-0">保護者が未登録です。<a href="{% url 'beneficiaries:detail' beneficiary.pk %}">{{ terms.beneficiary }}台帳</a>から追加してください。</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+    <a href="{% url 'beneficiaries:detail' beneficiary.pk %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-printer me-1"></i>詳しい台帳を見る</a>
+    <button class="btn btn-primary px-4"><i class="bi bi-check-lg me-1"></i>保存する</button>
+  </div>
+</form>
+
+<div class="p-3 rounded" style="background:#fdecec;">
+  <form method="post" action="{% url 'planbook:student_delete' beneficiary.pk %}" onsubmit="return confirm('{{ beneficiary.full_name|escapejs }} さんを削除しますか？\n計画や記録がある場合は削除せず「退所」になります。');">
+    {% csrf_token %}
+    <button class="btn btn-sm text-white" style="background:#f0717f;"><i class="bi bi-trash me-1"></i>{{ terms.beneficiary }}を削除する</button>
+  </form>
+</div>
