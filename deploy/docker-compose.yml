@@ -1,9 +1,9 @@
 # =============================================
 # 本番用 Docker Compose（Compute Engine 1台構成）
-#   caddy（HTTPS終端・写真配信） → app（Gunicorn/Django） → db（PostgreSQL）
-#   サーバー上では /opt/dayservice に置き、同じ場所の .env を読む
+#   caddy（HTTPS終端） → app（Gunicorn/Django） → db（PostgreSQL）
+#   サーバー上では /opt/<アプリ名>（例 /opt/simple）に置き、同じ場所の .env を読む
+#   コンテナ・ボリューム名はディレクトリ名から付く（compose のプロジェクト名）
 # =============================================
-name: dayservice
 
 services:
   db:

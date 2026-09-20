@@ -250,7 +250,7 @@ python manage.py set_developer <ログインID> --off    # 解除
 
 データはすべて既存のテーブル（利用者・保護者・受給者証・個別支援計画・目標・モニタリング）を使い、面談記録と連絡帳だけ `planbook` アプリのテーブルです。他の事業所（標準の画面）には影響しません。
 
-別のサーバーで「シンプル」だけを動かす手順と、次に作る療育日記・シフトの案は [docs/SIMPLE_SERVER.md](docs/SIMPLE_SERVER.md) にまとめています（配備はブランチ `simple` → ワークフロー **Deploy (simple)**）。
+「シンプル」だけを GCP の別サーバー（Compute Engine・Docker Compose・Caddy）で動かす手順と、次に作る療育日記・シフトの案は [docs/SIMPLE_SERVER.md](docs/SIMPLE_SERVER.md) にまとめています（配備はブランチ `simple` → ワークフロー **Deploy (simple)**。VM の起動スクリプトは `deploy/setup-server.sh`）。
 
 ## 紙の日誌の取り込み（カメラ）
 

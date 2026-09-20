@@ -1,17 +1,16 @@
 # =============================================
-# 「シンプル」用の別サーバー（計画書中心の画面）へのデプロイ
+# 「シンプル」用の別サーバー（GCP Compute Engine・Docker Compose・Caddy）へのデプロイ
 #   ブランチ simple への push、または Actions から手動実行（任意のブランチを選べる）
-#   サーバー側の手順は deploy/venv-deploy.sh（開発環境と同じ：git checkout → pip → migrate → collectstatic → Gunicorn 再起動）
-#   手順の全体は docs/SIMPLE_SERVER.md
+#   テスト → イメージを GHCR に push → SSH で compose を同期して pull / up / migrate → ヘルスチェック
+#   サーバーの準備手順は docs/SIMPLE_SERVER.md
 #
 # 必要な GitHub Secrets（開発環境の DEV_* とは別に登録する）
-#   SIMPLE_DEPLOY_HOST     : サーバーの IP またはホスト名
-#   SIMPLE_DEPLOY_USER     : SSH ユーザー
-#   SIMPLE_DEPLOY_SSH_KEY  : 秘密鍵の中身
-#   SIMPLE_DEPLOY_SSH_PORT : SSH ポート（任意。既定 22）
-#   SIMPLE_APP_DIR         : サーバー上の clone 先（任意。既定 ~/simple）
-#   SIMPLE_VENV            : venv の場所（任意。既定 ~/env）
-#   SIMPLE_HEALTH_URL      : 配備後の確認 URL（例 https://simple.example.jp/healthz/）
+#   SIMPLE_DEPLOY_HOST     : VM の固定 IP
+#   SIMPLE_DEPLOY_SSH_KEY  : deploy ユーザーの秘密鍵（ed25519 の中身）
+#   SIMPLE_DEPLOY_USER     : SSH ユーザー（任意。既定 deploy）
+#   SIMPLE_APP_DIR         : サーバー上の置き場所（任意。既定 /opt/simple）
+#   SIMPLE_HEALTH_URL      : 配備後の確認 URL（任意。既定 http://<固定IP>/healthz/。ドメインを付けたら https://…/healthz/）
+#   GHCR_PULL_TOKEN        : リポジトリを Private にしたときだけ（read:packages）
 # Secrets が未登録のうちは、テストだけ実行して配備はスキップする（失敗にしない）
 # =============================================
 name: Deploy (simple)
@@ -23,16 +22,18 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 env:
-  APP_DIR: ${{ secrets.SIMPLE_APP_DIR || '~/simple' }}
-  VENV_DIR: ${{ secrets.SIMPLE_VENV || '~/env' }}
-  SSH_PORT: ${{ secrets.SIMPLE_DEPLOY_SSH_PORT || '22' }}
-  HEALTH_URL: ${{ secrets.SIMPLE_HEALTH_URL }}
+  IMAGE: ghcr.io/${{ github.repository }}
+  APP_DIR: ${{ secrets.SIMPLE_APP_DIR || '/opt/simple' }}
+  DEPLOY_USER: ${{ secrets.SIMPLE_DEPLOY_USER || 'deploy' }}
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -52,62 +53,102 @@ jobs:
         run: |
           python manage.py check
           python manage.py test --noinput
-
-  deploy:
-    needs: test
-    runs-on: ubuntu-latest
-    concurrency:
-      group: deploy-simple
-      cancel-in-progress: false
-    steps:
-      - name: Check secrets
+      - name: Check deploy secrets
+        id: check
         env:
           HOST: ${{ secrets.SIMPLE_DEPLOY_HOST }}
           KEY: ${{ secrets.SIMPLE_DEPLOY_SSH_KEY }}
         run: |
           if [ -z "$HOST" ] || [ -z "$KEY" ]; then
-            echo "SIMPLE_DEPLOY_HOST / SIMPLE_DEPLOY_SSH_KEY が未登録のため、配備はスキップします（docs/SIMPLE_SERVER.md 参照）"
-            echo "READY=false" >> "$GITHUB_ENV"
+            echo "SIMPLE_DEPLOY_HOST / SIMPLE_DEPLOY_SSH_KEY が未登録のため、イメージ作成と配備はスキップします（docs/SIMPLE_SERVER.md 参照）"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
           else
-            echo "READY=true" >> "$GITHUB_ENV"
+            echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
+  build:
+    needs: test
+    if: needs.test.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ env.IMAGE }}:simple-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:simple-${{ github.sha }}
+            ${{ env.IMAGE }}:simple
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-simple
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Set up SSH
-        if: env.READY == 'true'
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "${{ secrets.SIMPLE_DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "${{ env.SSH_PORT }}" -H "${{ secrets.SIMPLE_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H "${{ secrets.SIMPLE_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Checkout, migrate, restart gunicorn
-        if: env.READY == 'true'
-        env:
-          SHA: ${{ github.sha }}
-          REPO_URL: https://github.com/${{ github.repository }}.git
-          REMOTE_APP_DIR: ${{ env.APP_DIR }}
-          REMOTE_VENV: ${{ env.VENV_DIR }}
+      # compose / Caddyfile / backup.sh をサーバーに同期（.env はサーバー側で管理・上書きしない）
+      - name: Sync deploy files
         run: |
-          ssh -i ~/.ssh/deploy_key -p "${{ env.SSH_PORT }}" "${{ secrets.SIMPLE_DEPLOY_USER }}@${{ secrets.SIMPLE_DEPLOY_HOST }}" \
-            "SHA='$SHA' REPO_URL='$REPO_URL' APP_DIR_IN='$REMOTE_APP_DIR' VENV_IN='$REMOTE_VENV' bash -s" <<'REMOTE'
+          rsync -az -e "ssh -i ~/.ssh/deploy_key" \
+            deploy/docker-compose.yml deploy/Caddyfile deploy/backup.sh \
+            "${{ env.DEPLOY_USER }}@${{ secrets.SIMPLE_DEPLOY_HOST }}:${{ env.APP_DIR }}/"
+
+      - name: Pull image, migrate, restart
+        env:
+          APP_IMAGE: ${{ needs.build.outputs.image }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          REMOTE_APP_DIR: ${{ env.APP_DIR }}
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ env.DEPLOY_USER }}@${{ secrets.SIMPLE_DEPLOY_HOST }}" \
+            "APP_IMAGE='$APP_IMAGE' GHCR_USER='$GHCR_USER' GHCR_PULL_TOKEN='$GHCR_PULL_TOKEN' APP_DIR='$REMOTE_APP_DIR' bash -s" <<'REMOTE'
             set -euo pipefail
-            APP_DIR=$(eval echo "$APP_DIR_IN")
-            VENV=$(eval echo "$VENV_IN")
-            if [ ! -d "$APP_DIR/.git" ]; then
-              git clone --quiet "$REPO_URL" "$APP_DIR"
-            fi
             cd "$APP_DIR"
-            git fetch --quiet origin
-            git checkout --quiet "$SHA" -- deploy/venv-deploy.sh
-            APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh "$SHA"
+            test -f .env || { echo "ERROR: $APP_DIR/.env がありません。deploy/.env.simple.example を元に作成してください"; exit 1; }
+            chmod +x backup.sh
+            if [ -n "${GHCR_PULL_TOKEN:-}" ]; then
+              echo "$GHCR_PULL_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            fi
+            # 配備したイメージを .env に固定（手動で docker compose up しても同じイメージが使われる）
+            if grep -q '^APP_IMAGE=' .env; then
+              sed -i "s#^APP_IMAGE=.*#APP_IMAGE=$APP_IMAGE#" .env
+            else
+              printf '\nAPP_IMAGE=%s\n' "$APP_IMAGE" >> .env
+            fi
+            docker compose pull --quiet
+            docker compose up -d --remove-orphans
+            docker compose exec -T app python manage.py migrate --noinput
+            docker image prune -f >/dev/null
           REMOTE
 
-      - name: Health check (public URL)
-        if: env.READY == 'true' && env.HEALTH_URL != ''
+      - name: Health check
+        env:
+          HEALTH_URL: ${{ secrets.SIMPLE_HEALTH_URL || format('http://{0}/healthz/', secrets.SIMPLE_DEPLOY_HOST) }}
         run: |
           for i in $(seq 1 12); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${{ env.HEALTH_URL }}" || true)
-            case "$code" in 200) echo "healthy ($code)"; exit 0;; esac
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$HEALTH_URL" || true)
+            case "$code" in 200|301|308) echo "healthy ($code)"; exit 0;; esac
             echo "waiting... ($code)"; sleep 5
           done
           echo "health check failed"; exit 1
