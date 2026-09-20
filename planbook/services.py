@@ -25,8 +25,18 @@ STAGE_STEP = {'interview': SupportPlan.STEP_ASSESSMENT, 'draft': SupportPlan.STE
 
 # ---------------------------------------------------------------- 期
 def period_plans(beneficiary):
-    """利用者の計画を作った順に（1期, 2期, …）"""
-    return list(beneficiary.support_plans.order_by('created_at', 'pk'))
+    """利用者の計画を作った順に（1期, 2期, …）。prefetch してあればクエリを増やさない"""
+    return sorted(beneficiary.support_plans.all(), key=lambda p: (p.created_at, p.pk))
+
+
+def prefetch_for_cards(qs):
+    """一覧（カード・完了期日）用：利用者ごとの計画・面談記録・各ステップ・モニタリング・目標・受給者証をまとめて読む"""
+    from django.db.models import Prefetch
+    return qs.prefetch_related(
+        Prefetch('support_plans', queryset=SupportPlan.objects.select_related('interview', 'draft', 'meeting', 'consent')
+                 .prefetch_related('monitoring_records', 'goals').order_by('created_at', 'pk')),
+        'recipient_certificates',
+    )
 
 
 def period_number(plan):
@@ -87,7 +97,7 @@ def stage_status(plan):
     out['interview'] = {'state': _state(bool(iv and iv.is_completed), iv_started),
                         'date': iv.completed_at.date() if iv and iv.completed_at else iv.interview_date if iv else None}
     d = getattr(plan, 'draft', None)
-    d_started = bool(d and (d.period_start or d.policy)) or plan.goals.exists()
+    d_started = bool(d and (d.period_start or d.policy)) or bool(plan.goals.all())
     out['draft'] = {'state': _state(bool(d and d.is_completed), d_started), 'date': d.completed_at.date() if d and d.completed_at else None}
     m = getattr(plan, 'meeting', None)
     m_started = bool(m and (m.meeting_date or m.opinions))
@@ -95,7 +105,7 @@ def stage_status(plan):
     c = getattr(plan, 'consent', None)
     c_started = bool(c and (c.explained_date or c.service_start_date))
     out['plan'] = {'state': _state(bool(c and c.is_completed), c_started), 'date': c.completed_at.date() if c and c.completed_at else None}
-    last = plan.monitoring_records.order_by('-date').first()
+    last = max(plan.monitoring_records.all(), key=lambda r: (r.date, r.pk), default=None)
     out['monitoring'] = {'state': 'done' if last else 'none', 'date': last.date if last else None,
                          'label': last.date.strftime('%Y/%m/%d') if last else '--'}
     for k in ('interview', 'draft', 'meeting', 'plan'):

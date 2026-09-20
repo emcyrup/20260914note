@@ -59,7 +59,8 @@ def _student_card(b, plan=None):
 class StudentListView(LoginRequiredMixin, View):
     def get(self, request):
         qs = _active_filter(request, Beneficiary.objects.filter(facility=request.user.facility))
-        cards = [_student_card(b) for b in qs.order_by('last_name_kana', 'first_name_kana', 'pk')]
+        qs = services.prefetch_for_cards(qs.order_by('last_name_kana', 'first_name_kana', 'pk'))
+        cards = [_student_card(b) for b in qs]
         return render(request, 'planbook/students.html', {
             'cards': cards, 'q': request.GET.get('q', ''), 'include_inactive': request.GET.get('include_inactive') == '1',
             'stages': services.STAGES,
@@ -342,8 +343,9 @@ class MonitoringDeleteView(LoginRequiredMixin, View):
 class DeadlineListView(LoginRequiredMixin, View):
     def get(self, request):
         qs = _active_filter(request, Beneficiary.objects.filter(facility=request.user.facility))
+        qs = services.prefetch_for_cards(qs.order_by('last_name_kana', 'first_name_kana', 'pk'))
         rows = []
-        for b in qs.order_by('last_name_kana', 'first_name_kana', 'pk'):
+        for b in qs:
             plans = services.period_plans(b)
             sel = request.GET.get(f'p{b.pk}')
             plan = None

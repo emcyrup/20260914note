@@ -118,7 +118,8 @@ class Beneficiary(models.Model):
 
     @property
     def latest_certificate(self):
-        return self.recipient_certificates.order_by('-valid_until', '-pk').first()
+        """最新の受給者証（prefetch してあればクエリを増やさない）"""
+        return max(self.recipient_certificates.all(), key=lambda c: (c.valid_until, c.pk), default=None)
 
     @property
     def manager_office(self):
