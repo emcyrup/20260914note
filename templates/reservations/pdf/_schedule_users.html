@@ -1,0 +1,10 @@
+<table class="u">
+      <thead><tr><th>利用者名</th><th>希望</th><th>利用</th><th>残</th><th>契約</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr><td>{{ r.beneficiary.full_name }}</td><td class="n">{% if r.request %}{{ r.desired }}{% endif %}</td><td class="n">{{ r.confirmed }}</td><td class="n">{% if r.request %}{{ r.remaining }}{% endif %}</td><td class="n">{% if r.granted %}{{ r.granted }}{% endif %}</td></tr>
+        {% endfor %}
+        {% for i in "12345678" %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>{% endfor %}
+      </tbody>
+    </table>
+    <div class="small muted" style="margin-top:4px;">{{ facility.name }}</div>

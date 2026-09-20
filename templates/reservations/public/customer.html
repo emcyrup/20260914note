@@ -4,13 +4,22 @@
 {% block head_sub %}{{ customer.name }} 様のご予約ページ{% endblock %}
 
 {% block content %}
+<style>
+  .wish { border-collapse: collapse; width: 100%; font-size: 0.72rem; }
+  .wish th, .wish td { border: 1px solid #e6e1d8; text-align: center; padding: 1px; height: 26px; }
+  .wish th { background: #f6f4ef; font-weight: 600; }
+  .wish td.d { text-align: left; padding-left: 4px; white-space: nowrap; }
+  .wish tr.closed td, .wish td.off { background: #f1efea; }
+  .wish td.sun { color: #c0392b; } .wish td.sat { color: #2b6cb0; }
+  .wish input[type=checkbox] { width: 18px; height: 18px; }
+</style>
 
 <div class="pub-card">
   <div class="fw-bold mb-2">これからのご予約</div>
   {% for r in my_reservations %}
   <div class="d-flex justify-content-between align-items-center border-bottom py-2">
     <div>
-      <div class="fw-semibold">{{ r.date|date:'n月j日(D)' }}　{{ r.display_name }} さん</div>
+      <div class="fw-semibold">{{ r.date|date:'n月j日(D)' }}{% if r.start_time %} {{ r.time_label }}{% endif %}　{{ r.display_name }} さん</div>
       <div class="small {% if r.status == 'waitlist' %}text-warning-emphasis{% else %}text-success{% endif %}">
         {% if r.status == 'waitlist' %}キャンセル待ち{% else %}ご予約{% endif %}
       </div>
@@ -45,6 +54,13 @@
     <label class="form-label small fw-semibold" for="bookDate">日にち</label>
     <input type="date" name="date" id="bookDate" class="form-control form-control-sm mb-2"
            min="{{ book_from|date:'Y-m-d' }}" max="{{ book_until|date:'Y-m-d' }}" required>
+    {% if setting.slot_mode %}
+    <label class="form-label small fw-semibold" for="bookTime">時間</label>
+    <select name="start_time" id="bookTime" class="form-select form-select-sm mb-2" required>
+      {% for h in slot_hours %}<option value="{{ h }}">{{ h }}:00 〜</option>{% endfor %}
+    </select>
+    <div class="form-text mb-2">{{ setting.hours_text }}。{% if setting.closed_weekdays_text %}{{ setting.closed_weekdays_text }}はお休みです。{% endif %}</div>
+    {% endif %}
     <div class="form-text mb-2">
       {{ book_from|date:'n月j日' }} 〜 {{ book_until|date:'n月j日' }} のぶんをお申し込みいただけます。
       上の予定表の日にちを押すと、ここに入ります。
@@ -58,6 +74,60 @@
 {% else %}
 <div class="pub-card">
   <div class="small text-muted">ご予約のお申し込みは、お電話または公式LINEで承っています。</div>
+</div>
+{% endif %}
+
+{% if setting.slot_mode and wish_grid %}
+<div class="pub-card" id="wishCard">
+  <div class="fw-bold mb-1">月の利用希望を送る</div>
+  <div class="small text-muted mb-2">
+    可能な日時の枠に印を付けて送ってください（紙の「予約利用希望」と同じです）。
+    {% if setting.closed_weekdays_text %}{{ setting.closed_weekdays_text }}はお休みです。{% endif %}{{ setting.hours_text }}。
+  </div>
+  <form method="get" class="d-flex gap-2 mb-2">
+    <select name="wish" class="form-select form-select-sm" onchange="this.form.submit()">
+      {% for c in wish_choices %}<option value="{{ c.value }}" {% if c.selected %}selected{% endif %}>{{ c.year }}年{{ c.month }}月</option>{% endfor %}
+    </select>
+    {% if children|length > 1 %}
+    <select name="child" class="form-select form-select-sm" onchange="this.form.submit()">
+      {% for b in children %}<option value="{{ b.pk }}" {% if b.pk == wish_child.pk %}selected{% endif %}>{{ b.full_name }}</option>{% endfor %}
+    </select>
+    {% endif %}
+  </form>
+  {% if wish_req %}<div class="small text-success mb-2">{{ wish_month }}月のご希望は送信ずみです（希望 {{ wish_req.desired_count }} 回）。直して送り直すこともできます。</div>{% endif %}
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="wish">
+    <input type="hidden" name="beneficiary" value="{{ wish_child.pk }}">
+    <input type="hidden" name="wish_year" value="{{ wish_year }}">
+    <input type="hidden" name="wish_month" value="{{ wish_month }}">
+    <div class="d-flex align-items-center gap-2 mb-2">
+      <label class="small fw-semibold text-nowrap" for="wishCount">希望利用回数</label>
+      <input type="number" class="form-control form-control-sm" style="width: 80px;" id="wishCount" name="desired_count" min="0" max="99"
+             value="{{ wish_req.desired_count|default:0 }}">
+      <span class="small">回</span>
+    </div>
+    <div style="overflow-x: auto;">
+      <table class="wish">
+        <thead><tr><th style="min-width: 62px;">日付</th><th>終日</th>{% for h in wish_grid.hours %}<th>{{ h }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for row in wish_grid.rows %}
+          <tr class="{% if row.closed %}closed{% endif %}">
+            <td class="d {% if row.is_sunday %}sun{% elif row.is_saturday %}sat{% endif %}">{{ row.date|date:'j' }}({{ row.weekday }})</td>
+            {% if row.closed %}<td colspan="{{ wish_grid.hours|length|add:1 }}" class="small text-muted">お休み</td>
+            {% else %}
+              <td><input type="checkbox" name="all_{{ row.iso }}" value="1" {% if row.all_wished %}checked{% endif %}></td>
+              {% for c in row.cells %}{% if c.active %}<td><input type="checkbox" name="h_{{ row.iso }}" value="{{ c.hour }}" {% if c.wished %}checked{% endif %}></td>{% else %}<td class="off"></td>{% endif %}{% endfor %}
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="small text-muted my-2">終日に印を付けた日は、その日のどの枠でも大丈夫という意味になります。</div>
+    <input type="text" name="note" class="form-control form-control-sm mb-2" placeholder="ご要望があれば（任意）" value="{{ wish_req.note|default:'' }}">
+    <button class="btn btn-brand w-100">{{ wish_month }}月の希望を送る</button>
+  </form>
 </div>
 {% endif %}
 

@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ year }}年{{ month }}月 月予約利用希望 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}{{ month }}月 予約利用希望{% endblock %}
+{% block nav_reservations %}active{% endblock %}
+{% block nav_reservations_only %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .mr-item { grid-template-columns: 1.4fr 0.7fr 0.7fr 0.7fr 0.7fr 0.8fr auto; }
+  .mr-num { font-variant-numeric: tabular-nums; }
+  .mr-none { color: #999; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="btn-group">
+      <a href="{% url 'reservations:monthly_requests' prev_year prev_month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left"></i></a>
+      <a href="{% url 'reservations:calendar_month' year month %}" class="btn btn-outline-secondary btn-sm">カレンダーへ</a>
+      <a href="{% url 'reservations:monthly_requests' next_year next_month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-right"></i></a>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="{% url 'reservations:monthly_request_form' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-printer me-1"></i>空の用紙を印刷</a>
+      <a href="{% url 'reservations:monthly_schedule' year month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-grid-3x3 me-1"></i>月間予定表</a>
+      <form method="post" onsubmit="return confirm('{{ month }}月の利用希望から予約を割り当てて、月間予定表を作ります。\nすでに確定している予約は残し、希望回数に足りないぶんだけ足します。よろしいですか？');">
+        {% csrf_token %}
+        <button class="btn btn-primary btn-sm"><i class="bi bi-magic me-1"></i>月間予定表を作る</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card mb-3"><div class="card-body py-2 small text-muted">
+    用紙が {{ with_request }} 枚届いています{% if short %}（希望回数に足りない方 {{ short }} 名）{% endif %}。
+    {{ terms.beneficiary }}の名前を押すと、用紙の「可能な日時の○」を転記できます。
+    お休み：{{ setting.closed_weekdays_text|default:'なし' }}／{{ setting.hours_text }}／1枠 {{ setting.slot_capacity }} 人。
+  </div></div>
+
+  <div class="card">
+    <div class="row-list-item row-list-head mr-item">
+      <div>{{ terms.beneficiary }}</div><div>希望回数</div><div>○の枠</div><div>確定</div><div>残り</div><div>入口</div><div></div>
+    </div>
+    {% for r in rows %}
+    <div class="row-list-item mr-item {% if not r.request %}mr-none{% endif %}">
+      <div><a href="{% url 'reservations:monthly_request_edit' year month r.beneficiary.pk %}" class="fw-bold">{{ r.beneficiary.full_name }}</a>
+        {% if r.granted %}<span class="small text-muted ms-1">支給量 {{ r.granted }}日</span>{% endif %}</div>
+      <div class="mr-num"><span class="row-list-label">希望</span>{% if r.request %}{{ r.desired }} 回{% else %}—{% endif %}</div>
+      <div class="mr-num"><span class="row-list-label">○</span>{% if r.request %}{{ r.slots }} 枠{% else %}—{% endif %}</div>
+      <div class="mr-num"><span class="row-list-label">確定</span>{{ r.confirmed }} 回</div>
+      <div class="mr-num"><span class="row-list-label">残り</span>{% if r.request %}{% if r.remaining %}<span class="text-danger fw-bold">{{ r.remaining }} 回</span>{% else %}<span class="text-success">0</span>{% endif %}{% else %}—{% endif %}</div>
+      <div class="small">{% if r.request %}{{ r.request.get_source_display }}{% if r.request.note %}<div class="text-muted">{{ r.request.note }}</div>{% endif %}{% else %}用紙なし{% endif %}</div>
+      <div class="text-md-end">
+        <a href="{% url 'reservations:monthly_request_edit' year month r.beneficiary.pk %}" class="btn btn-sm btn-outline-secondary">{% if r.request %}転記・修正{% else %}転記する{% endif %}</a>
+        {% if r.request %}<a href="{% url 'reservations:monthly_request_form' year month %}?b={{ r.beneficiary.pk }}&fmt=html" class="btn btn-sm btn-outline-secondary" target="_blank"><i class="bi bi-printer"></i></a>{% endif %}
+      </div>
+    </div>
+    {% empty %}
+    <div class="text-center text-muted py-4">在籍中の{{ terms.beneficiary }}がいません。</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

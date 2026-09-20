@@ -21,12 +21,13 @@ from django.contrib import messages
 from django.core.cache import cache
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views import View
 
 from config.utils import month_or_404, reservation_enabled, to_int
 
-from . import services, tokens
-from .models import Customer, Reservation, ReservationSetting
+from . import monthly, services, tokens
+from .models import Customer, MonthlyRequest, Reservation, ReservationSetting
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,11 @@ def client_key(request):
     forwarded = request.META.get('HTTP_X_FORWARDED_FOR', '')
     ip = forwarded.split(',')[0].strip() if forwarded else request.META.get('REMOTE_ADDR', '')
     return ip or 'unknown'
+
+
+def today_first():
+    today = datetime.date.today()
+    return datetime.date(today.year, today.month, 1)
 
 
 def _month_links(year, month):
@@ -245,15 +251,40 @@ class CustomerPageView(PublicPageMixin):
         children = list(customer.children.all())
         mine = (Reservation.objects.filter(facility=facility, beneficiary__in=children, date__gte=today,
                                            status__in=Reservation.ACTIVE_STATUSES)
-                .select_related('beneficiary').order_by('date') if children else [])
-        return render(request, self.template_name, {
+                .select_related('beneficiary').order_by('date', 'start_time') if children else [])
+        ctx = {
             'customer': customer, 'facility': facility, 'setting': setting, 'children': children,
             'year': year, 'month': month, 'today': today,
             'weeks': _month_weeks(facility, year, month, today, bookable_of=mark),
             'my_reservations': mine, 'book_from': start, 'book_until': end,
             'token': token, 'month_url': 'reservations_public:customer_month',
             **_month_links(year, month),
-        })
+        }
+        if setting.slot_mode and children:
+            ctx.update(self.wish_context(request, facility, setting, children, today))
+        return render(request, self.template_name, ctx)
+
+    @staticmethod
+    def wish_context(request, facility, setting, children, today):
+        """月予約利用希望の入力（来月ぶんが既定。?wish=YYYY-MM と ?child=<ID> で切り替え）"""
+        ny, nm = monthly.next_month(today.year, today.month)
+        choices = [(today.year, today.month), (ny, nm), monthly.next_month(ny, nm)]
+        wish_year, wish_month = ny, nm
+        try:
+            y, m = request.GET.get('wish', '').split('-')
+            if (int(y), int(m)) in choices:
+                wish_year, wish_month = int(y), int(m)
+        except ValueError:
+            pass
+        child = next((b for b in children if str(b.pk) == request.GET.get('child', '')), children[0])
+        req = MonthlyRequest.objects.filter(beneficiary=child, year=wish_year, month=wish_month).first()
+        return {
+            'wish_year': wish_year, 'wish_month': wish_month, 'wish_child': child, 'wish_req': req,
+            'wish_choices': [{'year': y, 'month': m, 'value': f'{y}-{m:02d}', 'selected': (y, m) == (wish_year, wish_month)}
+                             for y, m in choices],
+            'wish_grid': monthly.request_grid(facility, wish_year, wish_month, setting, request=req),
+            'slot_hours': setting.all_slot_hours(),
+        }
 
     def post(self, request, token, year=None, month=None):
         customer = self.get_customer(token)
@@ -288,6 +319,26 @@ class CustomerPageView(PublicPageMixin):
             return back
 
         beneficiary = children.get(to_int(request.POST.get('beneficiary'), -1))
+
+        if action == 'wish':
+            # 月予約利用希望（時間枠で予約する事業所だけ）
+            if not setting.slot_mode or beneficiary is None:
+                messages.error(request, 'お子さまを選んでください。')
+                return back
+            year, month = to_int(request.POST.get('wish_year'), 0), to_int(request.POST.get('wish_month'), 0)
+            if not (1 <= month <= 12 and 2000 <= year <= 2100) or datetime.date(year, month, 1) < today_first():
+                messages.error(request, 'その月のご希望は受け付けられません。')
+                return back
+            wishes = monthly.wishes_from_post(request.POST, facility, year, month, setting)
+            req = monthly.save_request(facility, beneficiary, year, month,
+                                       to_int(request.POST.get('desired_count'), 0), wishes,
+                                       note=request.POST.get('note', '').strip(),
+                                       source=MonthlyRequest.SOURCE_WEB, customer=customer)
+            messages.success(request, f'{month}月の {beneficiary.full_name}さんのご希望を承りました'
+                                      f'（希望 {req.desired_count} 回・○ {req.slot_count(setting)} 枠）。'
+                                      '事業所で予定を組み、決まりましたらお知らせします。')
+            return redirect(f"{reverse('reservations_public:customer', args=[token])}?wish={year}-{month:02d}&child={beneficiary.pk}")
+
         try:
             day = datetime.date.fromisoformat(request.POST.get('date', ''))
         except ValueError:
@@ -302,7 +353,8 @@ class CustomerPageView(PublicPageMixin):
             return back
         try:
             res, _ = services.create_reservation(facility, beneficiary, day,
-                                                 source=Reservation.SOURCE_WEB, customer=customer)
+                                                 source=Reservation.SOURCE_WEB, customer=customer,
+                                                 start_time=request.POST.get('start_time'))
         except services.ReservationError as e:
             messages.error(request, str(e))
             return back

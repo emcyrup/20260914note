@@ -1,0 +1,39 @@
+{% comment %}療育記録の入力欄（追加・修正で共通）。rec が None なら追加用{% endcomment %}
+<div class="col-6 col-md-3">
+  <label class="form-label small fw-semibold">日付</label>
+  <input type="date" name="date" class="form-control form-control-sm" value="{% if rec %}{{ rec.date|date:'Y-m-d' }}{% else %}{{ default_date|date:'Y-m-d' }}{% endif %}" required>
+</div>
+<div class="col-6 col-md-2">
+  <label class="form-label small fw-semibold">時刻</label>
+  <input type="time" name="time" class="form-control form-control-sm" value="{% if rec %}{{ rec.time|time:'H:i' }}{% else %}{{ default_time }}{% endif %}">
+</div>
+<div class="col-6 col-md-4">
+  <label class="form-label small fw-semibold">担当</label>
+  <select name="staff" class="form-select form-select-sm">
+    <option value="">— 名前を書く —</option>
+    {% for s in staff_list %}<option value="{{ s.pk }}" {% if rec and rec.staff_id == s.pk %}selected{% elif not rec and s.pk == user.pk %}selected{% endif %}>{{ s }}</option>{% endfor %}
+  </select>
+</div>
+<div class="col-6 col-md-3">
+  <label class="form-label small fw-semibold">担当（名前で書く）</label>
+  <input type="text" name="staff_name" class="form-control form-control-sm" value="{% if rec %}{{ rec.staff_name }}{% endif %}" placeholder="アカウントがない人">
+</div>
+<div class="col-12">
+  <label class="form-label small fw-semibold">やったこと（①〜⑤）</label>
+  <div class="row g-1">
+    {% for i in activity_range %}
+    <div class="col-6 col-md">
+      <div class="input-group input-group-sm">
+        <span class="input-group-text">{{ i }}</span>
+        <input type="text" name="activity_{{ i }}" class="form-control" maxlength="100"
+               value="{% if rec %}{% for a in rec.activities %}{% if forloop.counter == i %}{{ a }}{% endif %}{% endfor %}{% endif %}"
+               placeholder="{% if i == 1 %}例：ウレタン棒{% elif i == 2 %}例：ブロック{% endif %}">
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+<div class="col-12">
+  <label class="form-label small fw-semibold">記録</label>
+  <textarea name="body" class="form-control form-control-sm" rows="4" placeholder="ようすや声かけ、次回に向けて">{% if rec %}{{ rec.body }}{% endif %}</textarea>
+</div>

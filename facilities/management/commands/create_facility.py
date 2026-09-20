@@ -3,11 +3,14 @@
 
   python manage.py create_facility "あおば教室" --admin aoba_admin --password '（初期パスワード）'
   python manage.py create_facility "あおば教室" --admin aoba_admin --password '…' --copy-settings-from 1 --demo
+  python manage.py create_facility "りょういく" --admin ryoiku --password '…' --copy-settings-from <なゆたのID> --preset ryoiku
 
 - 施設を作成し、標準の活動タグ・支援内容タグを入れる
 - --admin を付けると、その施設の管理者アカウント（権限区分＝管理者）を作る
 - --copy-settings-from <施設ID> で、呼び方・配色・使う機能・日誌の項目順・単位数などの設定を既存施設からコピーする
 - --demo を付けると架空のサンプルデータ（seed_demo）も投入する
+- --preset ryoiku で、療育の事業所向けの設定にする（予約管理＋療育記録を使う。予約は時間枠：1枠45分・1枠3人・
+  平日 10〜18 時・土日祝 9〜17 時・12 時は枠なし・月曜日と木曜日はお休み）
 記録（利用者・日誌・計画・請求）は施設ごとに完全に分かれる。職員は1つの施設にだけ所属する。
 """
 from django.core.management import call_command
@@ -17,6 +20,27 @@ from django.db import transaction
 from accounts.models import StaffAccount
 from facilities.models import Facility
 from facilities.services import COPY_FIELDS, create_facility  # noqa: F401  (COPY_FIELDS は互換のため公開)
+
+
+def apply_ryoiku_preset(facility):
+    """療育の事業所（りょういく）の設定：時間枠の予約と療育記録"""
+    from reservations.services import get_setting
+    facility.use_reservation = True
+    facility.use_therapy_record = True
+    if not facility.brand_color:
+        facility.brand_color = '#c2703a'   # 療育の画面は暖色系
+    facility.save(update_fields=['use_reservation', 'use_therapy_record', 'brand_color', 'updated_at'])
+    setting = get_setting(facility)
+    setting.slot_mode = True
+    setting.slot_capacity = 3
+    setting.slot_minutes = 45
+    setting.weekday_first_hour, setting.weekday_last_hour = 10, 18
+    setting.holiday_first_hour, setting.holiday_last_hour = 9, 17
+    setting.break_hours = [12]
+    setting.closed_weekdays = [0, 3]       # 月曜日・木曜日はお休み
+    setting.signature = setting.signature or facility.name
+    setting.save()
+    return setting
 
 
 class Command(BaseCommand):
@@ -33,6 +57,8 @@ class Command(BaseCommand):
         parser.add_argument('--demo', action='store_true', help='架空のサンプルデータ（seed_demo）も投入する')
         parser.add_argument('--layout', choices=['standard', 'planbook'], default=None,
                             help='画面の型（planbook＝計画書中心・シンプル：利用者・完了期日一覧・スタッフ・保護者・連絡帳・施設の6メニュー）')
+        parser.add_argument('--preset', choices=['ryoiku'], default=None,
+                            help='ryoiku＝療育の事業所：予約管理（時間枠・月予約利用希望・月間予定表）と療育記録を使う')
 
     def handle(self, *args, **o):
         name = o['name'].strip()
@@ -67,6 +93,10 @@ class Command(BaseCommand):
                     facility.brand_color = '#6f8f4e'  # 計画書中心の画面は緑系
                 facility.save(update_fields=['layout', 'brand_color', 'updated_at'])
                 self.stdout.write(f'画面の型：{facility.get_layout_display()}')
+            if o.get('preset') == 'ryoiku':
+                apply_ryoiku_preset(facility)
+                self.stdout.write('療育の事業所の設定にしました：予約管理（時間枠 1枠45分・1枠3人・平日10〜18時・土日祝9〜17時・'
+                                  '月木休）と療育記録を使います')
             self.stdout.write(self.style.SUCCESS(f'施設「{facility.name}」を作成しました（ID {facility.pk}）'))
             if not o.get('no_default_tags'):
                 self.stdout.write('標準の活動タグ・支援内容タグを入れました')

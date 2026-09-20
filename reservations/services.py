@@ -13,8 +13,8 @@ import re
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from .models import (BookingRequest, ClosedDate, Customer, LineInbox, Reservation, ReservationNotice,
-                     ReservationSetting)
+from .models import (BookingRequest, ClosedDate, Customer, LineInbox, MonthlyRequest, Reservation,  # noqa: F401
+                     ReservationNotice, ReservationSetting, hour_label)
 
 WEEK_JP = ['月', '火', '水', '木', '金', '土', '日']
 
@@ -45,21 +45,58 @@ def is_closed(facility, day, setting=None, closed=None):
 
 def capacity_of(facility, day, setting=None, closed=None):
     setting = setting or get_setting(facility)
-    return 0 if is_closed(facility, day, setting, closed) else setting.capacity
+    if is_closed(facility, day, setting, closed):
+        return 0
+    return setting.slot_capacity_of(day) if setting.slot_mode else setting.capacity
+
+
+def slot_states(setting, day, rows, closed=False):
+    """
+    時間枠ごとの予約数（時間枠で予約する事業所）。
+    rows はその日の有効な予約。開始時刻のない予約は最初の枠に数えない（枠の外として一覧にだけ出る）。
+    """
+    hours = [] if closed else setting.slot_hours(day)
+    slots = []
+    for h in hours:
+        mine = [r for r in rows if r.hour == h]
+        confirmed = [r for r in mine if r.status == Reservation.STATUS_CONFIRMED]
+        waiting = [r for r in mine if r.status == Reservation.STATUS_WAITLIST]
+        slots.append({
+            'hour': h, 'label': hour_label(h), 'capacity': setting.slot_capacity,
+            'confirmed': len(confirmed), 'waiting': len(waiting),
+            'remaining': max(setting.slot_capacity - len(confirmed), 0),
+            'full': len(confirmed) >= setting.slot_capacity,
+            'reservations': sorted(mine, key=lambda r: (r.status != Reservation.STATUS_CONFIRMED, r.created_at)),
+        })
+    return slots
+
+
+def slot_state(facility, day, hour, setting=None):
+    """1つの時間枠の状態（無い枠なら None）"""
+    setting = setting or get_setting(facility)
+    rows = list(Reservation.objects.filter(facility=facility, date=day, status__in=Reservation.ACTIVE_STATUSES))
+    for st in slot_states(setting, day, rows, closed=is_closed(facility, day, setting)):
+        if st['hour'] == hour:
+            return st
+    return None
 
 
 def day_state(facility, day, setting=None, closed=None):
-    """その日の枠・予約数・キャンセル待ち数・残り"""
+    """その日の枠・予約数・キャンセル待ち数・残り（時間枠のときは枠ごとの内訳 slots も）"""
     setting = setting or get_setting(facility)
     cap = capacity_of(facility, day, setting, closed)
-    rows = Reservation.objects.filter(facility=facility, date=day, status__in=Reservation.ACTIVE_STATUSES)
+    rows = list(Reservation.objects.filter(facility=facility, date=day, status__in=Reservation.ACTIVE_STATUSES))
     confirmed = sum(1 for r in rows if r.status == Reservation.STATUS_CONFIRMED)
     waiting = sum(1 for r in rows if r.status == Reservation.STATUS_WAITLIST)
-    return {
+    state = {
         'date': day, 'capacity': cap, 'confirmed': confirmed, 'waiting': waiting,
         'remaining': max(cap - confirmed, 0), 'closed': cap == 0,
         'full': cap > 0 and confirmed >= cap,
     }
+    if setting.slot_mode:
+        state['slots'] = slot_states(setting, day, rows, closed=cap == 0)
+        state['open_slots'] = [st for st in state['slots'] if not st['full']]
+    return state
 
 
 def month_states(facility, first_day, last_day):
@@ -74,7 +111,7 @@ def month_states(facility, first_day, last_day):
     states = {}
     day = first_day
     while day <= last_day:
-        cap = 0 if is_closed(facility, day, setting, closed) else setting.capacity
+        cap = capacity_of(facility, day, setting, closed)
         c = counts.get(day, {'confirmed': 0, 'waiting': 0})
         states[day] = {
             'date': day, 'capacity': cap, 'confirmed': c['confirmed'], 'waiting': c['waiting'],
@@ -110,6 +147,8 @@ def queue_notice(facility, kind, setting=None, customer=None, reservation=None, 
     """通知を送信待ちに積む。宛先が LINE 未連携なら「手渡し」として残す（文面をコピーして送る）"""
     setting = setting or get_setting(facility)
     child = reservation.display_name if reservation else ''
+    if reservation is not None and reservation.start_time and kind != ReservationNotice.KIND_VACANCY:
+        child = f'{reservation.time_label} {child}'
     text = body if body is not None else notice_body(kind, setting, day or (reservation.date if reservation else None), child)
     if kind == ReservationNotice.KIND_GROUP:
         status = ReservationNotice.STATUS_PENDING if to_line_id else ReservationNotice.STATUS_MANUAL
@@ -147,9 +186,25 @@ class ReservationError(Exception):
     pass
 
 
+def parse_hour(value):
+    """'10' / '10:00' → datetime.time(10, 0)。読めなければ None"""
+    if value is None or value == '':
+        return None
+    if isinstance(value, datetime.time):
+        return value.replace(second=0, microsecond=0)
+    text = str(value).strip().replace('：', ':')
+    try:
+        if ':' in text:
+            h, m = text.split(':', 1)
+            return datetime.time(int(h), int(m or 0))
+        return datetime.time(int(text), 0)
+    except (TypeError, ValueError):
+        return None
+
+
 @transaction.atomic
 def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STAFF, customer=None,
-                       note='', guest_name=''):
+                       note='', guest_name='', start_time=None, notify=True):
     """
     予約を1件作る。戻り値は (予約, 通知)。
 
@@ -157,12 +212,15 @@ def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STA
     - 休業日と重複は断る（例外）
     - `guest_name` を渡すと、まだ台帳にいない方のぶんとして席を押さえる
       （職員があとから利用者に結びつける）
+    - 時間枠で予約する事業所では `start_time`（その日の枠の時刻）が要る。空きの判定はその枠で行う
+    - `notify=False` なら通知を積まない（月間予定表の割り当てで、まとめて1通にするとき）
 
     同じ日に同時の申し込みが来ても枠を超えないよう、その日の行を先に押さえてから数える。
     先に押さえた申し込みが勝ち、あとの申し込みはキャンセル待ちかお断りになる。
     """
     setting = get_setting(facility)
     guest_name = (guest_name or '').strip()[:100]
+    start_time = parse_hour(start_time) if setting.slot_mode else None
     if beneficiary is None and not guest_name:
         raise ReservationError('だれの予約かが分かりません。')
     if beneficiary is not None and beneficiary.facility_id != facility.pk:
@@ -183,6 +241,13 @@ def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STA
 
     customer = customer or (customer_for(facility, beneficiary) if beneficiary is not None else None)
     st = day_state(facility, day, setting)
+    if setting.slot_mode:
+        if start_time is None:
+            raise ReservationError('時間の枠を選んでください。')
+        slot = next((x for x in st['slots'] if x['hour'] == start_time.hour), None)
+        if slot is None:
+            raise ReservationError(f'{jp_date(day)} {hour_label(start_time.hour)} の枠はありません。')
+        st = slot
     if not st['full']:
         status, kind, what = Reservation.STATUS_CONFIRMED, ReservationNotice.KIND_ACCEPTED, '予約'
     elif setting.allow_waitlist:
@@ -192,10 +257,12 @@ def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STA
 
     try:
         res = Reservation.objects.create(facility=facility, beneficiary=beneficiary, guest_name=guest_name,
-                                         customer=customer, date=day, status=status, source=source,
-                                         note=note[:200])
+                                         customer=customer, date=day, start_time=start_time, status=status,
+                                         source=source, note=note[:200])
     except IntegrityError:
         raise ReservationError(f'{jp_date(day)} の {who} さんの予約はすでにあります。')
+    if not notify:
+        return res, None
     notice = queue_notice(facility, kind, setting, customer=customer, reservation=res)
     queue_group_notice(facility, setting, day, who, what)
     return res, notice
@@ -225,10 +292,11 @@ def cancel_reservation(res, notify=True, base=''):
 
 
 @transaction.atomic
-def move_reservation(res, new_day, note=None, base=''):
+def move_reservation(res, new_day, note=None, base='', start_time=None):
     """
-    予約の日にちを変える（職員の操作）。
+    予約の日にち（時間枠のときは時刻も）を変える（職員の操作）。
     もとの日はキャンセル待ちを繰り上げ、新しい日は空きがなければキャンセル待ちにする。
+    `start_time` を渡さなければ、時刻はそのまま。
     """
     facility = res.facility
     setting = get_setting(facility)
@@ -237,25 +305,46 @@ def move_reservation(res, new_day, note=None, base=''):
     if note is not None:
         res.note = note[:200]
     old_day = res.date
-    if new_day == old_day:
+    new_time = res.start_time
+    if setting.slot_mode and start_time is not None:
+        new_time = parse_hour(start_time)
+        if new_time is None:
+            raise ReservationError('時間の枠を選んでください。')
+    if new_day == old_day and new_time == res.start_time:
         res.save(update_fields=['note', 'updated_at'])
         return res
 
     list(Reservation.objects.select_for_update().filter(facility=facility, date__in=[old_day, new_day]))
     if is_closed(facility, new_day, setting):
         raise ReservationError(f'{jp_date(new_day)} は休業日のため変更できません。')
-    if Reservation.objects.filter(beneficiary=res.beneficiary, date=new_day,
-                                  status__in=Reservation.ACTIVE_STATUSES).exclude(pk=res.pk).exists():
+    if new_day != old_day and Reservation.objects.filter(
+            beneficiary=res.beneficiary, date=new_day,
+            status__in=Reservation.ACTIVE_STATUSES).exclude(pk=res.pk).exists():
         raise ReservationError(f'{jp_date(new_day)} の {res.display_name} さんの予約はすでにあります。')
 
     st = day_state(facility, new_day, setting)
+    if setting.slot_mode:
+        slot = next((x for x in st['slots'] if new_time is not None and x['hour'] == new_time.hour), None)
+        if slot is None:
+            raise ReservationError(f'{jp_date(new_day)} {new_time.strftime("%H:%M") if new_time else ""} の枠はありません。')
+        # 同じ枠の中で自分を数えない
+        mine = 1 if (new_day == old_day and res.hour == new_time.hour
+                     and res.status == Reservation.STATUS_CONFIRMED) else 0
+        st = dict(slot, full=(slot['confirmed'] - mine) >= slot['capacity'])
     if st['full'] and not setting.allow_waitlist:
         raise ReservationError(f'{jp_date(new_day)} は満席で、キャンセル待ちを受けない設定です。')
     was_confirmed = res.status == Reservation.STATUS_CONFIRMED
     old_state = day_state(facility, old_day, setting)
     res.date = new_day
+    res.start_time = new_time
     res.status = Reservation.STATUS_WAITLIST if st['full'] else Reservation.STATUS_CONFIRMED
-    res.save(update_fields=['date', 'status', 'note', 'updated_at'])
+    res.save(update_fields=['date', 'start_time', 'status', 'note', 'updated_at'])
+    if new_day == old_day:
+        # 同じ日の別の枠へ。空いた枠のキャンセル待ちを繰り上げる
+        if was_confirmed:
+            promote_waitlist(facility, old_day, setting)
+        queue_notice(facility, ReservationNotice.KIND_MOVED, setting, customer=res.customer, reservation=res)
+        return res
 
     queue_notice(facility, ReservationNotice.KIND_MOVED, setting, customer=res.customer, reservation=res)
     queue_group_notice(facility, setting, old_day, res.display_name, f'{jp_date(new_day)} へ変更')
@@ -314,8 +403,14 @@ def promote_waitlist(facility, day, setting=None):
         st = day_state(facility, day, setting)
         if st['remaining'] <= 0:
             break
-        nxt = (Reservation.objects.filter(facility=facility, date=day, status=Reservation.STATUS_WAITLIST)
-               .order_by('created_at', 'pk').first())
+        waiting = (Reservation.objects.filter(facility=facility, date=day, status=Reservation.STATUS_WAITLIST)
+                   .order_by('created_at', 'pk'))
+        if setting.slot_mode:
+            # 空きのある枠のキャンセル待ちだけを、申し込み順に
+            open_hours = {x['hour'] for x in st['open_slots']}
+            nxt = next((w for w in waiting if w.hour in open_hours), None)
+        else:
+            nxt = waiting.first()
         if nxt is None:
             break
         nxt.status = Reservation.STATUS_CONFIRMED

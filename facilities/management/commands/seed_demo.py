@@ -405,6 +405,10 @@ class Command(BaseCommand):
         if facility.is_planbook:
             counts.update(self._create_planbook(facility, beneficiaries, staff, today))
 
+        # --- 療育記録（療育記録を使う施設だけ）---
+        if facility.use_therapy_record:
+            counts.update(self._create_therapy(facility, beneficiaries, staff, today, rng))
+
         return counts
 
     # ------------------------------------------------------------------
@@ -514,6 +518,10 @@ class Command(BaseCommand):
         setting = services.get_setting(facility)
         counts = {}
 
+        # 時間枠で予約する施設（りょういく）は、月予約利用希望→月間予定表の流れで入れる
+        if setting.slot_mode:
+            return self._create_slot_reservations(facility, beneficiaries, today, rng, setting)
+
         # まだ予約が1件も無く、枠が既定のままなら、満席とキャンセル待ちが見えるように少なくする
         if setting.capacity == 10 and not facility.reservations.exists():
             setting.capacity = 3
@@ -613,6 +621,114 @@ class Command(BaseCommand):
         )
         counts['公式LINEの受信（未処理）'] = 1
         return counts
+
+    def _create_slot_reservations(self, facility, beneficiaries, today, rng, setting):
+        """
+        時間枠で予約する施設のサンプル。
+
+        - 顧客台帳：利用者ごとの連絡先
+        - 今月と来月の月予約利用希望（用紙の転記）：希望回数 4〜8 回、可能な日時は曜日と時間帯にばらつきを持たせる
+        - 今月ぶんは割り当てて月間予定表にする（来月は用紙が届いた状態のまま）
+        """
+        from reservations import monthly
+        from reservations.models import Customer, ReservationNotice
+
+        counts = {}
+        customers = {}
+        for b in beneficiaries:
+            guardian = b.guardians.first()
+            if guardian is None:
+                continue
+            customer, _ = Customer.objects.get_or_create(
+                facility=facility, name=f'{guardian.last_name} {guardian.first_name}',
+                defaults={'kana': f'{b.last_name_kana}', 'phone': f'090-0000-{1000 + b.pk % 9000:04d}',
+                          'note': SAMPLE_MARK},
+            )
+            customer.children.add(b)
+            customers[b.pk] = customer
+        counts['顧客（予約の連絡先）'] = len(customers)
+
+        ny, nm = monthly.next_month(today.year, today.month)
+        made_requests = 0
+        for (year, month) in [(today.year, today.month), (ny, nm)]:
+            for i, b in enumerate(beneficiaries):
+                wishes = {}
+                # 利用者ごとに「行ける曜日」を2〜3つ、時間帯は午前寄り／午後寄り
+                weekdays = rng.sample([1, 2, 4, 5, 6], k=rng.choice([2, 3]))
+                afternoon = i % 2 == 1
+                for day in monthly.month_days(year, month):
+                    if day.weekday() not in weekdays or not setting.slot_hours(day):
+                        continue
+                    if rng.random() < 0.25:
+                        wishes[day.isoformat()] = 'all'
+                    else:
+                        hours = [h for h in setting.slot_hours(day) if (h >= 13) == afternoon]
+                        picked = sorted(rng.sample(hours, k=min(len(hours), rng.choice([2, 3]))))
+                        if picked:
+                            wishes[day.isoformat()] = picked
+                monthly.save_request(facility, b, year, month, desired_count=rng.choice([4, 5, 6, 8]),
+                                     wishes=wishes, note=f'{SAMPLE_MARK}' if i == 0 else '',
+                                     customer=customers.get(b.pk))
+                made_requests += 1
+        counts['月予約利用希望（今月・来月）'] = made_requests
+
+        result = monthly.assign_month(facility, today.year, today.month, setting, notify=True)
+        counts['予約（今月の月間予定表）'] = len(result.made)
+        if result.short:
+            counts['希望の枠に空きが足りなかった人'] = len(result.short)
+        keep = list(ReservationNotice.objects.filter(facility=facility)
+                    .order_by('-created_at').values_list('pk', flat=True)[:3])
+        ReservationNotice.objects.filter(facility=facility).exclude(pk__in=keep).delete()
+        counts['送信待ちの通知'] = len(keep)
+        return counts
+
+    # ------------------------------------------------------------------
+    def _create_therapy(self, facility, beneficiaries, staff, today, rng):
+        """療育記録のサンプル：留意点と、ここ2週間の予約（あれば）に合わせた記録"""
+        from therapy.models import TherapyProfile, TherapyRecord
+
+        cautions = [
+            '大きな音が苦手。予告してから活動を始める。',
+            '終わりの見通しが持てるように、タイマーを見せる。',
+            '座位が崩れやすいので、クッションで支える。',
+            '言葉での指示は短く。絵カードを併用。',
+            '疲れると手が出ることがある。休憩を先に入れる。',
+        ]
+        activities = [
+            ['ウレタン棒', 'アンパンマンブロック', 'トランポリン', 'シール貼り', 'えほん'],
+            ['ボールプール', 'ひも通し', 'パズル', 'おえかき', 'ふれあい遊び'],
+            ['バランスボール', '型はめ', 'ままごと', 'はさみ', 'うた'],
+            ['マット運動', '積み木', 'ねんど', '絵カード', 'リズム遊び'],
+        ]
+        bodies = [
+            '入室後すぐにトランポリンへ。10回跳んで「おわり」を伝えると自分で降りられた。ブロックは色をそろえて並べることに集中していた。',
+            'はじめは母から離れにくかったが、ボールプールに誘うと笑顔で入った。ひも通しは3つまで自分でできた。',
+            '型はめは丸と三角を見比べてから入れられるようになった。うたの時間は手拍子で参加。',
+            'ねんどを丸めて「だんご」と言えた。はさみは一回切りを5回。終わりの片づけも声かけで一緒にできた。',
+            '今日はやや疲れぎみ。マットの上でごろごろしてから活動へ。絵カードで「おちゃ」を要求できた。',
+        ]
+        from accounts.models import StaffAccount
+        staff_list = list(StaffAccount.objects.filter(facility=facility).order_by('pk')[:3]) or [None]
+        n_records = 0
+        for i, b in enumerate(beneficiaries):
+            TherapyProfile.objects.update_or_create(beneficiary=b, defaults={'cautions': cautions[i % len(cautions)]})
+            # 予約（過去2週間ぶん）があればその日付・時刻、なければ適当な日
+            days = []
+            if facility.use_reservation:
+                days = [(r.date, r.start_time) for r in b.reservations.filter(
+                    date__gte=today - datetime.timedelta(days=14), date__lte=today,
+                    status='confirmed').order_by('date')]
+            if not days:
+                days = [(today - datetime.timedelta(days=d), datetime.time(10 + (i % 4), 0)) for d in (10, 6, 2)]
+            for k, (day, when) in enumerate(days[:3]):
+                acts = activities[(i + k) % len(activities)]
+                TherapyRecord.objects.create(
+                    facility=facility, beneficiary=b, date=day, time=when,
+                    staff=staff_list[(i + k) % len(staff_list)],
+                    activities=acts[: rng.choice([3, 4, 5])], body=bodies[(i + k) % len(bodies)],
+                )
+                n_records += 1
+        return {'療育の留意点': len(beneficiaries), '療育記録': n_records}
 
     # ------------------------------------------------------------------
     def _create_custom_forms(self, facility, beneficiaries, staff, today):

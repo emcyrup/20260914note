@@ -5,6 +5,8 @@
 予約は「利用者1人につき1件」（1件＝枠1つ）で、人数は持たない。
 きょうだいで2人来る日は、利用者ごとに2件の予約になる。
 """
+import datetime
+
 from django.db import models
 
 from beneficiaries.models import Beneficiary
@@ -14,6 +16,14 @@ from .tokens import MAX_LENGTH as TOKEN_MAX_LENGTH, new_calendar_token, new_cust
 
 
 WEEKDAYS = [(0, '月'), (1, '火'), (2, '水'), (3, '木'), (4, '金'), (5, '土'), (6, '日')]
+
+
+def default_break_hours():
+    return [12]
+
+
+def hour_label(hour):
+    return f'{hour}:00'
 
 
 class ReservationSetting(models.Model):
@@ -53,6 +63,19 @@ class ReservationSetting(models.Model):
     booking_mode = models.CharField(max_length=10, choices=MODE_CHOICES, default=MODE_AUTO,
                                     verbose_name='予約の受け方')
     group_auto_apply = models.BooleanField(default=True, verbose_name='スタッフのグループの投稿を反映する')
+
+    # ---- 時間枠で予約する（りょういく：1枠45分・1枠3人・月予約利用希望から月間予定表を作る）----
+    slot_mode = models.BooleanField(default=False, verbose_name='時間枠で予約する',
+                                    help_text='1日の枠ではなく、1時間ごとの枠（1枠45分）に人数の上限を置きます。'
+                                              '月予約利用希望から月間予定表を作れます。')
+    slot_capacity = models.PositiveSmallIntegerField(default=3, verbose_name='1枠の人数')
+    slot_minutes = models.PositiveSmallIntegerField(default=45, verbose_name='1枠の長さ（分）')
+    weekday_first_hour = models.PositiveSmallIntegerField(default=10, verbose_name='平日の最初の枠（時）')
+    weekday_last_hour = models.PositiveSmallIntegerField(default=18, verbose_name='平日の最後の枠（時）')
+    holiday_first_hour = models.PositiveSmallIntegerField(default=9, verbose_name='土日祝の最初の枠（時）')
+    holiday_last_hour = models.PositiveSmallIntegerField(default=17, verbose_name='土日祝の最後の枠（時）')
+    break_hours = models.JSONField(default=default_break_hours, blank=True, verbose_name='枠を置かない時刻',
+                                   help_text='昼休みなど。例：12')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -87,6 +110,45 @@ class ReservationSetting(models.Model):
 
     def reissue_public_token(self):
         self.public_token = new_calendar_token()
+
+    # ---- 時間枠 ----
+    def break_hour_numbers(self):
+        return [n for n in (self.break_hours or []) if isinstance(n, int) and 0 <= n <= 23]
+
+    def slot_hours(self, day):
+        """その日の枠の開始時刻（時）。休業曜日は空。平日と土日祝で時間帯が違う"""
+        if not self.slot_mode or day.weekday() in self.closed_weekday_numbers():
+            return []
+        from config.jp_holidays import is_weekend_or_holiday
+        if is_weekend_or_holiday(day):
+            first, last = self.holiday_first_hour, self.holiday_last_hour
+        else:
+            first, last = self.weekday_first_hour, self.weekday_last_hour
+        skip = self.break_hour_numbers()
+        return [h for h in range(first, last + 1) if h not in skip]
+
+    def all_slot_hours(self):
+        """平日・土日祝を合わせた、枠のある時刻ぜんぶ（利用希望の用紙の列に使う）"""
+        skip = self.break_hour_numbers()
+        first = min(self.weekday_first_hour, self.holiday_first_hour)
+        last = max(self.weekday_last_hour, self.holiday_last_hour)
+        return [h for h in range(first, last + 1) if h not in skip]
+
+    def slot_capacity_of(self, day):
+        """その日の枠の合計人数（時間枠のとき）"""
+        return len(self.slot_hours(day)) * self.slot_capacity
+
+    @property
+    def hours_text(self):
+        """利用希望の用紙に書く時間帯の説明"""
+        return (f'平日 {self.weekday_first_hour}:00〜{self.weekday_last_hour}:00枠、'
+                f'土・日・祝 {self.holiday_first_hour}:00〜{self.holiday_last_hour}:00枠'
+                f'（1枠{self.slot_minutes}分）')
+
+    @property
+    def closed_weekdays_text(self):
+        labels = dict(WEEKDAYS)
+        return '・'.join(f'{labels[n]}曜日' for n in self.closed_weekday_numbers())
 
 
 class ClosedDate(models.Model):
@@ -215,8 +277,10 @@ class Reservation(models.Model):
     SOURCE_LINE = 'line'
     SOURCE_WEB = 'web'
     SOURCE_GROUP = 'group'
+    SOURCE_REQUEST = 'request'
     SOURCE_CHOICES = [(SOURCE_STAFF, '職員'), (SOURCE_LINE, '公式LINE'),
-                      (SOURCE_WEB, '顧客ページ'), (SOURCE_GROUP, 'スタッフのグループ')]
+                      (SOURCE_WEB, '顧客ページ'), (SOURCE_GROUP, 'スタッフのグループ'),
+                      (SOURCE_REQUEST, '月予約利用希望')]
 
     facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='reservations')
     beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='reservations',
@@ -226,6 +290,8 @@ class Reservation(models.Model):
     customer = models.ForeignKey(Customer, on_delete=models.SET_NULL, null=True, blank=True,
                                  related_name='reservations', verbose_name='連絡先')
     date = models.DateField(verbose_name='予約日')
+    # 時間枠で予約する事業所だけ使う（1日の枠の事業所では空）
+    start_time = models.TimeField(null=True, blank=True, verbose_name='開始時刻')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_CONFIRMED, verbose_name='状態')
     source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default=SOURCE_STAFF, verbose_name='入口')
     note = models.CharField(max_length=200, blank=True, verbose_name='備考')
@@ -236,7 +302,7 @@ class Reservation(models.Model):
     class Meta:
         verbose_name = '予約'
         verbose_name_plural = '予約'
-        ordering = ['date', 'created_at']
+        ordering = ['date', 'start_time', 'created_at']
         constraints = [
             # 同じ日・同じ利用者で有効な予約は1件だけ（取消・お断りは何件でも残せる）
             models.UniqueConstraint(fields=['beneficiary', 'date'], name='uniq_active_reservation',
@@ -261,6 +327,14 @@ class Reservation(models.Model):
     @property
     def is_guest(self):
         return not self.beneficiary_id
+
+    @property
+    def hour(self):
+        return self.start_time.hour if self.start_time else None
+
+    @property
+    def time_label(self):
+        return f'{self.start_time.hour}:{self.start_time.minute:02d}' if self.start_time else ''
 
     @property
     def is_active(self):
@@ -372,3 +446,79 @@ class LineInbox(models.Model):
         """取り込みずみ：本文と表示名を消す（個人情報を書き溜めない）"""
         self.text = ''
         self.display_name = ''
+
+
+class MonthlyRequest(models.Model):
+    """
+    月予約利用希望（時間枠で予約する事業所）。
+
+    利用者ごと・月ごとに1枚。「可能な日時の枠に○」を付けた用紙を職員が転記するか、
+    顧客が自分のページから送る。ここから月間予定表（予約）を作る。
+    wishes は {"2026-10-03": "all", "2026-10-05": [10, 11]} の形（"all" は終日）。
+    """
+
+    SOURCE_STAFF = 'staff'
+    SOURCE_WEB = 'web'
+    SOURCE_CHOICES = [(SOURCE_STAFF, '職員が転記'), (SOURCE_WEB, '顧客ページ')]
+
+    facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='monthly_requests')
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='monthly_requests',
+                                    verbose_name='利用者')
+    year = models.PositiveSmallIntegerField(verbose_name='年')
+    month = models.PositiveSmallIntegerField(verbose_name='月')
+    desired_count = models.PositiveSmallIntegerField(default=0, verbose_name='希望利用回数')
+    wishes = models.JSONField(default=dict, blank=True, verbose_name='可能な日時')
+    note = models.CharField(max_length=200, blank=True, verbose_name='備考')
+    source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default=SOURCE_STAFF, verbose_name='入口')
+    customer = models.ForeignKey(Customer, on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='monthly_requests', verbose_name='送った顧客')
+    created_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '月予約利用希望'
+        verbose_name_plural = '月予約利用希望'
+        unique_together = [('beneficiary', 'year', 'month')]
+        ordering = ['-year', '-month', 'beneficiary__last_name_kana']
+
+    def __str__(self):
+        return f'{self.year}年{self.month}月 {self.beneficiary.full_name}（希望{self.desired_count}回）'
+
+    @property
+    def label(self):
+        return f'{self.year}年{self.month}月'
+
+    def wish_of(self, day):
+        """その日の希望：'all'（終日）・時刻のリスト・None（希望なし）"""
+        value = (self.wishes or {}).get(day.isoformat())
+        if value == 'all':
+            return 'all'
+        if isinstance(value, list):
+            hours = sorted({h for h in value if isinstance(h, int)})
+            return hours or None
+        return None
+
+    def wish_hours(self, day, setting):
+        """その日に○の付いた枠の時刻（休業日・枠のない時刻は除く）"""
+        wish = self.wish_of(day)
+        hours = setting.slot_hours(day)
+        if wish is None:
+            return []
+        if wish == 'all':
+            return list(hours)
+        return [h for h in wish if h in hours]
+
+    def wished_days(self):
+        out = []
+        for key, value in (self.wishes or {}).items():
+            if value == 'all' or (isinstance(value, list) and value):
+                try:
+                    out.append(datetime.date.fromisoformat(key))
+                except ValueError:
+                    continue
+        return sorted(out)
+
+    def slot_count(self, setting):
+        return sum(len(self.wish_hours(d, setting)) for d in self.wished_days())

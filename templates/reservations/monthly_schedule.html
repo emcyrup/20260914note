@@ -1,0 +1,114 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ year }}年{{ month }}月 月間予定表 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}{{ year }}年 {{ month }}月 月間予定表{% endblock %}
+{% block nav_reservations %}active{% endblock %}
+{% block nav_reservations_only %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .ms-week { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: 0.74rem; margin-bottom: 14px; }
+  .ms-week th, .ms-week td { border: 1px solid #cfc8bb; padding: 0; vertical-align: top; }
+  .ms-week th { background: rgba(243,239,231,0.95); text-align: center; padding: 3px 2px; font-size: 0.78rem; }
+  .ms-week th.sun { color: var(--color-danger); } .ms-week th.sat { color: #0d6efd; }
+  .ms-week th.closed, .ms-week td.closed { background: #e6e6e6; color: #888; }
+  .ms-week td.out { background: #f6f6f6; }
+  .ms-week td.off { background: #ececec; }
+  .ms-week th.time { width: 46px; font-size: 0.72rem; }
+  .ms-box { display: block; height: 20px; line-height: 20px; padding: 0 4px; border-bottom: 1px dotted #ddd6c9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; color: inherit; }
+  .ms-box:last-child { border-bottom: 0; }
+  .ms-box.empty { color: #c9c2b5; }
+  .ms-box.empty:hover { background: var(--color-primary-bg); color: var(--color-primary); }
+  .ms-box.wait { color: #8a6d1f; background: #fff7df; }
+  .ms-box.over { color: var(--color-danger); }
+  .ms-count { font-weight: 400; font-size: 0.68rem; color: #6b6257; }
+  .ms-users { grid-template-columns: 1.4fr 0.6fr 0.6fr 0.6fr 0.6fr; }
+  @media (max-width: 768px) { .ms-week { font-size: 0.62rem; } .ms-box { height: 17px; line-height: 17px; padding: 0 2px; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="btn-group">
+      <a href="{% url 'reservations:monthly_schedule' prev_year prev_month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left"></i></a>
+      <a href="{% url 'reservations:calendar_month' year month %}" class="btn btn-outline-secondary btn-sm">カレンダーへ</a>
+      <a href="{% url 'reservations:monthly_schedule' next_year next_month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-right"></i></a>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="{% url 'reservations:monthly_requests' year month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-list-check me-1"></i>利用希望</a>
+      <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-printer me-1"></i>印刷（PDF）</a>
+      <form method="post" action="{% url 'reservations:monthly_requests' year month %}"
+            onsubmit="return confirm('{{ month }}月の利用希望から予約を割り当てます。\nすでに確定している予約は残し、希望回数に足りないぶんだけ足します。よろしいですか？');">
+        {% csrf_token %}
+        <button class="btn btn-primary btn-sm"><i class="bi bi-magic me-1"></i>利用希望から割り当てる</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-9">
+      {% for week in schedule.weeks %}
+      <table class="ms-week">
+        <thead><tr>
+          <th class="time"></th>
+          {% for d in week.days %}
+          <th class="{% if d.is_sunday %}sun{% elif d.is_saturday %}sat{% endif %}{% if d.closed %} closed{% endif %}">
+            {% if d.in_month %}{{ d.date|date:'j' }}日({{ d.date|date:'D' }}){% if d.holiday %}<div class="ms-count text-danger">{{ d.holiday }}</div>{% elif d.closed %}<div class="ms-count">お休み</div>{% else %}<div class="ms-count">{{ d.count }} 名</div>{% endif %}{% endif %}
+          </th>
+          {% endfor %}
+        </tr></thead>
+        <tbody>
+          {% for label in schedule.hour_labels %}
+          {% with idx=forloop.counter0 %}
+          <tr>
+            <th class="time">{{ label }}</th>
+            {% for d in week.days %}
+              {% for s in d.slots %}{% if forloop.counter0 == idx %}
+                {% if not d.in_month %}<td class="out"></td>
+                {% elif d.closed %}<td class="closed"></td>
+                {% elif not s.active %}<td class="off"></td>
+                {% else %}
+                <td>
+                  {% for r in s.boxes %}
+                    {% if r %}<a class="ms-box" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}" title="{{ r.display_name }} {{ r.time_label }}">{{ r.display_name }}</a>
+                    {% else %}<a class="ms-box empty" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}?hour={{ s.hour }}" title="{{ d.date|date:'n/j' }} {{ s.label }} に追加">＋</a>{% endif %}
+                  {% endfor %}
+                  {% for r in s.over %}<a class="ms-box over" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">{{ r.display_name }}（超過）</a>{% endfor %}
+                  {% for r in s.waiting %}<a class="ms-box wait" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">待 {{ r.display_name }}</a>{% endfor %}
+                </td>
+                {% endif %}
+              {% endif %}{% endfor %}
+            {% endfor %}
+          </tr>
+          {% endwith %}
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endfor %}
+      <div class="small text-muted">
+        網掛けはお休み（{{ schedule.closed_text|default:'なし' }}）とその日に無い時刻。1枠 {{ schedule.capacity }} 人。
+        「＋」を押すと、その日の画面でその枠に追加できます。名前を押すと、その日の画面で変更・取消ができます。
+      </div>
+    </div>
+    <div class="col-lg-3">
+      <div class="card">
+        <div class="row-list-item row-list-head ms-users small">
+          <div>{{ terms.beneficiary }}</div><div>希望</div><div>確定</div><div>残</div><div>契約</div>
+        </div>
+        {% for r in rows %}
+        <div class="row-list-item ms-users small">
+          <div><a href="{% url 'reservations:monthly_request_edit' year month r.beneficiary.pk %}">{{ r.beneficiary.full_name }}</a></div>
+          <div>{% if r.request %}{{ r.desired }}{% else %}—{% endif %}</div>
+          <div>{{ r.confirmed }}</div>
+          <div>{% if r.request and r.remaining %}<span class="text-danger fw-bold">{{ r.remaining }}</span>{% elif r.request %}0{% else %}—{% endif %}</div>
+          <div>{% if r.granted %}{{ r.granted }}{% else %}—{% endif %}</div>
+        </div>
+        {% empty %}
+        <div class="text-center text-muted small py-3">まだ利用希望も予約もありません。</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

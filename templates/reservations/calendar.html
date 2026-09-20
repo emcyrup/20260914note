@@ -36,6 +36,10 @@
       <a href="{% url 'reservations:requests' %}" class="btn btn-outline-secondary btn-sm position-relative"><i class="bi bi-inbox me-1"></i>申し込み
         {% if pending_requests %}<span class="badge rounded-pill text-bg-danger ms-1">{{ pending_requests }}</span>{% endif %}
       </a>
+      {% if setting.slot_mode %}
+      <a href="{% url 'reservations:monthly_requests' year month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-list-check me-1"></i>利用希望</a>
+      <a href="{% url 'reservations:monthly_schedule' year month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-grid-3x3 me-1"></i>月間予定表</a>
+      {% endif %}
       <a href="{% url 'reservations:customers' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-people me-1"></i>顧客</a>
       {% if features.line %}
       <a href="{% url 'reservations:line' %}" class="btn btn-outline-secondary btn-sm position-relative"><i class="bi bi-chat-dots me-1"></i>公式LINE
@@ -83,7 +87,7 @@
           <label class="form-label small fw-semibold" for="capacity">1日の枠（人）</label>
           <input type="number" class="form-control form-control-sm" id="capacity" name="capacity" min="1" max="99"
                  value="{{ setting.capacity }}" {% if not is_admin %}disabled{% endif %}>
-          <div class="form-text">枠の単位は1日あたりです（時間帯では分けません）。</div>
+          <div class="form-text">{% if setting.slot_mode %}時間枠で予約する設定のため、1日の枠は「枠の数 × 1枠の人数」で決まります（この欄は使いません）。{% else %}枠の単位は1日あたりです（時間帯では分けません）。{% endif %}</div>
         </div>
         <div class="col-md-4">
           <div class="small fw-semibold mb-2">休業曜日（枠0にする）</div>
@@ -95,6 +99,52 @@
               <label class="form-check-label small" for="wd{{ w.num }}">{{ w.label }}</label>
             </div>
             {% endfor %}
+          </div>
+        </div>
+        <div class="col-12">
+          <div class="settings-section-title">時間枠で予約する（療育の枠：1時間ごと・1枠45分）</div>
+          <div class="form-check mb-2">
+            <input type="checkbox" class="form-check-input" name="slot_mode" id="slot_mode"
+                   {% if setting.slot_mode %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="slot_mode"><strong>時間枠で予約する</strong>
+              <div class="form-text mt-0">1日の枠ではなく、1時間ごとの枠に人数の上限を置きます。予約に時刻が付き、
+                月予約利用希望（用紙・顧客ページ）から月間予定表を作れます。</div></label>
+          </div>
+          <div class="row g-2">
+            <div class="col-6 col-md-2">
+              <label class="form-label small fw-semibold" for="slot_capacity">1枠の人数</label>
+              <input type="number" class="form-control form-control-sm" id="slot_capacity" name="slot_capacity" min="1" max="20"
+                     value="{{ setting.slot_capacity }}" {% if not is_admin %}disabled{% endif %}>
+            </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label small fw-semibold" for="slot_minutes">1枠の長さ（分）</label>
+              <input type="number" class="form-control form-control-sm" id="slot_minutes" name="slot_minutes" min="10" max="180"
+                     value="{{ setting.slot_minutes }}" {% if not is_admin %}disabled{% endif %}>
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label small fw-semibold">平日の枠（時）</label>
+              <div class="input-group input-group-sm">
+                <input type="number" class="form-control" name="weekday_first_hour" min="0" max="23" value="{{ setting.weekday_first_hour }}" {% if not is_admin %}disabled{% endif %}>
+                <span class="input-group-text">〜</span>
+                <input type="number" class="form-control" name="weekday_last_hour" min="0" max="23" value="{{ setting.weekday_last_hour }}" {% if not is_admin %}disabled{% endif %}>
+              </div>
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label small fw-semibold">土・日・祝の枠（時）</label>
+              <div class="input-group input-group-sm">
+                <input type="number" class="form-control" name="holiday_first_hour" min="0" max="23" value="{{ setting.holiday_first_hour }}" {% if not is_admin %}disabled{% endif %}>
+                <span class="input-group-text">〜</span>
+                <input type="number" class="form-control" name="holiday_last_hour" min="0" max="23" value="{{ setting.holiday_last_hour }}" {% if not is_admin %}disabled{% endif %}>
+              </div>
+            </div>
+            <div class="col-6 col-md-2">
+              <label class="form-label small fw-semibold" for="break_hours">枠を置かない時刻</label>
+              <input type="text" class="form-control form-control-sm" id="break_hours" name="break_hours"
+                     value="{{ setting.break_hour_numbers|join:',' }}" placeholder="12" {% if not is_admin %}disabled{% endif %}>
+            </div>
+            <div class="col-12"><div class="form-text">
+              例：平日 10〜18、土日祝 9〜17、12 を除く → 平日は 10:00〜18:00 の8枠、土日祝は 9:00〜17:00 の8枠。祝日は自動で土日祝の時間帯になります。
+            </div></div>
           </div>
         </div>
         <div class="col-12">

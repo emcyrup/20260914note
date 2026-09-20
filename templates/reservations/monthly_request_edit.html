@@ -1,0 +1,118 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ month }}月 予約利用希望 {{ beneficiary.full_name }} — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}{{ month }}月 予約利用希望 — {{ beneficiary.full_name }}{% endblock %}
+{% block nav_reservations %}active{% endblock %}
+{% block nav_reservations_only %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .wish { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: 0.85rem; }
+  .wish th, .wish td { border: 1px solid #cfc8bb; text-align: center; padding: 2px; height: 32px; }
+  .wish th { background: rgba(243,239,231,0.9); font-weight: 600; font-size: 0.78rem; }
+  .wish td.day { text-align: left; padding-left: 6px; white-space: nowrap; }
+  .wish tr.closed td { background: #ececec; color: #999; }
+  .wish td.off { background: #ececec; }
+  .wish td.sun, .wish th.sun { color: var(--color-danger); } .wish td.sat { color: #0d6efd; }
+  .wish label { display: block; width: 100%; height: 100%; cursor: pointer; margin: 0; }
+  .wish input[type=checkbox] { width: 20px; height: 20px; }
+  .wish tr.allday td.slot input { opacity: 0.35; }
+  @media (max-width: 768px) { .wish { font-size: 0.72rem; } .wish input[type=checkbox] { width: 16px; height: 16px; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <a href="{% url 'reservations:monthly_requests' year month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left me-1"></i>{{ month }}月の一覧へ</a>
+    <div class="d-flex gap-2">
+      <a href="{% url 'reservations:monthly_request_form' year month %}?b={{ beneficiary.pk }}&fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-printer me-1"></i>用紙</a>
+    </div>
+  </div>
+
+  <form method="post" id="wishForm">
+    {% csrf_token %}
+    <div class="card mb-3"><div class="card-body">
+      <div class="row g-2 align-items-end">
+        <div class="col-6 col-md-3">
+          <label class="form-label small fw-semibold" for="desired_count">希望利用回数</label>
+          <input type="number" class="form-control form-control-sm" id="desired_count" name="desired_count" min="0" max="99"
+                 value="{{ req.desired_count|default:0 }}">
+        </div>
+        <div class="col-6 col-md-6">
+          <label class="form-label small fw-semibold" for="note">備考</label>
+          <input type="text" class="form-control form-control-sm" id="note" name="note" value="{{ req.note|default:'' }}" placeholder="任意">
+        </div>
+        <div class="col-12 col-md-3 d-grid">
+          <button class="btn btn-primary btn-sm">保存する</button>
+        </div>
+        <div class="col-12"><div class="form-text">
+          用紙の「可能な日時の枠」の○をそのまま写します。終日に○なら「終日」だけを入れてください。
+          お休み（{{ setting.closed_weekdays_text|default:'なし' }}）と、その日に無い時刻は網掛けです。{{ setting.hours_text }}。
+        </div></div>
+      </div>
+    </div></div>
+
+    <div class="card mb-3"><div class="card-body p-2">
+      <table class="wish">
+        <thead><tr>
+          <th style="width: 88px;">日付</th><th style="width: 46px;">終日</th>
+          {% for h in grid.hour_labels %}<th>{{ h }}</th>{% endfor %}
+        </tr></thead>
+        <tbody>
+          {% for row in grid.rows %}
+          <tr class="{% if row.closed %}closed{% endif %}{% if row.all_wished %} allday{% endif %}" data-day="{{ row.iso }}">
+            <td class="day {% if row.is_sunday %}sun{% elif row.is_saturday %}sat{% endif %}">
+              {{ row.date|date:'j' }}日({{ row.weekday }}){% if row.holiday %}<span class="small text-danger"> 祝</span>{% endif %}
+            </td>
+            {% if row.closed %}
+              <td colspan="{{ grid.hours|length|add:1 }}" class="small">お休み{% if row.holiday %}（{{ row.holiday }}）{% endif %}</td>
+            {% else %}
+              <td><label><input type="checkbox" name="all_{{ row.iso }}" value="1" class="allday" {% if row.all_wished %}checked{% endif %}></label></td>
+              {% for c in row.cells %}
+                {% if c.active %}
+                <td class="slot"><label><input type="checkbox" name="h_{{ row.iso }}" value="{{ c.hour }}" {% if c.wished %}checked{% endif %}></label></td>
+                {% else %}<td class="off"></td>{% endif %}
+              {% endfor %}
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+
+    <div class="d-flex justify-content-between flex-wrap gap-2 mb-3">
+      <div class="d-flex gap-2">
+        <button class="btn btn-primary">保存する</button>
+        <button class="btn btn-outline-primary" name="action" value="assign"
+                onclick="return confirm('保存して、この{{ terms.beneficiary }}のぶんだけ予約を割り当てます。よろしいですか？');">保存して割り当てる</button>
+      </div>
+      {% if req %}
+      <button class="btn btn-outline-danger" name="action" value="delete" formnovalidate
+              onclick="return confirm('{{ month }}月の利用希望を消します（作った予約は残ります）。よろしいですか？');">この月の希望を消す</button>
+      {% endif %}
+    </div>
+  </form>
+
+  {% if confirmed %}
+  <div class="card"><div class="card-body">
+    <div class="fw-bold mb-2">{{ month }}月に確定している予約（{{ confirmed|length }} 回）</div>
+    <div class="d-flex flex-wrap gap-2">
+      {% for r in confirmed %}
+      <a href="{% url 'reservations:day' r.date.year r.date.month r.date.day %}" class="badge text-bg-light border text-decoration-none">
+        {{ r.date|date:'n/j(D)' }} {{ r.time_label }}</a>
+      {% endfor %}
+    </div>
+  </div></div>
+  {% endif %}
+</div>
+
+<script>
+  // 「終日」を入れたら、その行の時刻のチェックを薄くする（送るときは終日だけを見る）
+  document.querySelectorAll('#wishForm input.allday').forEach(function (box) {
+    box.addEventListener('change', function () {
+      box.closest('tr').classList.toggle('allday', box.checked);
+    });
+  });
+</script>
+{% endblock %}

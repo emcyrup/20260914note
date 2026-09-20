@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'custom_forms',
     'reservations',
     'planbook',
+    'therapy',
 ]
 
 MIDDLEWARE = [

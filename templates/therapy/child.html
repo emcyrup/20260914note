@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+
+{% block title %}療育記録 {{ beneficiary.full_name }} — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}療育記録 — {{ beneficiary.full_name }}{% endblock %}
+{% block nav_therapy %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .th-rec { border-top: 1px solid #e6e1d8; padding: 10px 0; }
+  .th-rec:first-child { border-top: 0; }
+  .th-head { font-weight: 700; }
+  .th-acts { color: #4e5e50; }
+  .th-body { white-space: pre-wrap; }
+  .th-edit { background: rgba(243,239,231,0.55); border-radius: 8px; padding: 10px; margin-top: 8px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <a href="{% url 'therapy:index' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left me-1"></i>療育記録へ</a>
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="{% url 'beneficiaries:detail' beneficiary.pk %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-person me-1"></i>{{ terms.beneficiary }}台帳</a>
+      <a href="{% url 'therapy:pdf' beneficiary.pk %}?fmt=html{% if ym %}&ym={{ ym }}{% endif %}" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-printer me-1"></i>用紙で印刷{% if ym %}（{{ ym }}）{% endif %}</a>
+      <a href="{% url 'therapy:pdf' beneficiary.pk %}?fmt=html&blank=1" class="btn btn-outline-secondary btn-sm" target="_blank">空の用紙</a>
+    </div>
+  </div>
+
+  <div class="card mb-3"><div class="card-body">
+    <form method="post">
+      {% csrf_token %}<input type="hidden" name="action" value="cautions">
+      <label class="form-label fw-bold" for="cautions">留意点</label>
+      <textarea class="form-control form-control-sm" id="cautions" name="cautions" rows="3" placeholder="用紙の上の枠に書いてある、この{{ terms.beneficiary }}のときに気をつけること">{{ profile.cautions|default:'' }}</textarea>
+      <div class="d-flex justify-content-between align-items-center mt-2">
+        <div class="form-text mb-0">用紙の1枚目の上に印刷されます。</div>
+        <button class="btn btn-sm btn-outline-primary">留意点を保存</button>
+      </div>
+    </form>
+  </div></div>
+
+  <div class="card mb-3"><div class="card-body">
+    <div class="fw-bold mb-2">記録を追加する</div>
+    <form method="post" class="row g-2">
+      {% csrf_token %}<input type="hidden" name="action" value="add">
+      {% include 'therapy/_record_fields.html' with rec=None %}
+      <div class="col-12 text-end"><button class="btn btn-primary">追加する</button></div>
+    </form>
+  </div></div>
+
+  <div class="card"><div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+      <div class="fw-bold">これまでの記録{% if ym %}（{{ ym }}）{% endif %}</div>
+      <form method="get" class="d-flex gap-1">
+        <select name="ym" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">すべて（新しい200件）</option>
+          {% for m in months %}<option value="{{ m|date:'Y-m' }}" {% if ym == m|date:'Y-m' %}selected{% endif %}>{{ m|date:'Y年n月' }}</option>{% endfor %}
+        </select>
+      </form>
+    </div>
+    {% for rec in records %}
+    <div class="th-rec" id="rec{{ rec.pk }}">
+      <div class="d-flex justify-content-between flex-wrap gap-2">
+        <div class="th-head">{{ rec.date_label }}{% if rec.time %} {{ rec.time_label }}{% endif %}{% if rec.staff_label %}　担当 {{ rec.staff_label }}{% endif %}</div>
+        <div class="d-flex gap-1">
+          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('edit{{ rec.pk }}').classList.toggle('d-none')">修正</button>
+          <form method="post" onsubmit="return confirm('{{ rec.date|date:'n/j' }} の記録を削除します。よろしいですか？');">
+            {% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="record" value="{{ rec.pk }}">
+            <button class="btn btn-sm btn-outline-danger">削除</button>
+          </form>
+        </div>
+      </div>
+      {% if rec.activity_text %}<div class="th-acts">{{ rec.activity_text }}</div>{% endif %}
+      {% if rec.body %}<div class="th-body">{{ rec.body }}</div>{% endif %}
+      <div class="th-edit {% if edit_pk != rec.pk %}d-none{% endif %}" id="edit{{ rec.pk }}">
+        <form method="post" class="row g-2">
+          {% csrf_token %}<input type="hidden" name="action" value="edit"><input type="hidden" name="record" value="{{ rec.pk }}">
+          {% include 'therapy/_record_fields.html' with rec=rec %}
+          <div class="col-12 text-end"><button class="btn btn-sm btn-primary">保存する</button></div>
+        </form>
+      </div>
+    </div>
+    {% empty %}
+    <div class="text-center text-muted py-3">まだ記録がありません。</div>
+    {% endfor %}
+  </div></div>
+</div>
+{% endblock %}

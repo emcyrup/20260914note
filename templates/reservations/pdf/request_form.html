@@ -1,0 +1,45 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}{{ month }}月予約利用希望{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'reservations:monthly_requests' year month %}">利用希望の一覧へ戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .rf-title { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+  .rf-title .count { font-weight: 400; font-size: 13px; margin-left: 12px; }
+  .rf-name { margin: 4px 0 8px; font-size: 12px; }
+  .rf-note { font-size: 11px; margin-bottom: 8px; line-height: 1.6; }
+  table.rf { font-size: 10.5px; }
+  table.rf th, table.rf td { padding: 0; height: 17px; text-align: center; }
+  table.rf td.d { text-align: left; padding-left: 4px; white-space: nowrap; }
+  table.rf td.off, table.rf tr.closed td { background: #d9d9d9; }
+  table.rf td.sun { color: #c0392b; } table.rf td.sat { color: #2b6cb0; }
+  .mark { font-size: 13px; font-weight: 700; }
+</style>
+<div class="rf-title">{{ month }}月予約利用希望<span class="count">（希望利用回数 {% if req %}<u>&nbsp;{{ req.desired_count }}&nbsp;</u>{% else %}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{% endif %} 回）</span></div>
+<div class="rf-name">氏名（ {% if beneficiary %}<u>&nbsp;{{ beneficiary.full_name }}&nbsp;</u>{% else %}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{% endif %} ）</div>
+<div class="rf-note">
+  可能な日時の枠に○を付けてください。{% if setting.closed_weekdays_text %}{{ setting.closed_weekdays_text }}はお休みです。{% endif %}<br>
+  {{ setting.hours_text }}。網掛けの枠は利用できません。
+</div>
+<table class="rf">
+  <thead><tr>
+    <th style="width: 62px;">日付</th><th style="width: 30px;">曜日</th><th style="width: 34px;">終日</th>
+    {% for h in grid.hour_labels %}<th>{{ h }}</th>{% endfor %}
+  </tr></thead>
+  <tbody>
+    {% for row in grid.rows %}
+    <tr class="{% if row.closed %}closed{% endif %}">
+      <td class="d {% if row.is_sunday %}sun{% elif row.is_saturday %}sat{% endif %}">{{ row.date|date:'n/j' }}{% if row.holiday %} 祝{% endif %}</td>
+      <td class="{% if row.is_sunday %}sun{% elif row.is_saturday %}sat{% endif %}">{{ row.weekday }}</td>
+      {% if row.closed %}
+        <td colspan="{{ grid.hours|length|add:1 }}"></td>
+      {% else %}
+        <td>{% if row.all_wished %}<span class="mark">○</span>{% endif %}</td>
+        {% for c in row.cells %}<td class="{% if not c.active %}off{% endif %}">{% if c.wished and not row.all_wished %}<span class="mark">○</span>{% endif %}</td>{% endfor %}
+      {% endif %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if req and req.note %}<div class="small" style="margin-top:6px;">備考：{{ req.note }}</div>{% endif %}
+<div class="small muted" style="margin-top: 8px;">{{ facility.name }}{% if facility.phone %}　TEL {{ facility.phone }}{% endif %}</div>
+{% endblock %}

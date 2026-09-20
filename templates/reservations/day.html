@@ -32,6 +32,19 @@
     </div>
   </div>
 
+  {% if setting.slot_mode and not state.closed %}
+  <div class="card mb-3"><div class="card-body py-2">
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      <span class="small fw-semibold me-1">時間枠</span>
+      {% for s in state.slots %}
+      <span class="badge {% if s.full %}text-bg-danger{% elif s.confirmed %}text-bg-warning{% else %}text-bg-success{% endif %}" title="{{ s.label }}：予約 {{ s.confirmed }} / {{ s.capacity }}">
+        {{ s.label }} {{ s.confirmed }}/{{ s.capacity }}{% if s.waiting %} 待{{ s.waiting }}{% endif %}</span>
+      {% endfor %}
+      <a href="{% url 'reservations:monthly_schedule' date.year date.month %}" class="btn btn-sm btn-outline-secondary ms-auto"><i class="bi bi-grid-3x3 me-1"></i>月間予定表</a>
+    </div>
+  </div></div>
+  {% endif %}
+
   <div class="card mb-3">
     <div class="row-list-item row-list-head rsv-item">
       <div>{{ terms.beneficiary }}・状態</div><div>入口・連絡先</div><div>備考</div><div></div>
@@ -39,7 +52,9 @@
     {% for r in reservations %}
     <div class="row-list-item rsv-item">
       <div class="d-flex align-items-center gap-2 flex-wrap">
+        {% if r.start_time %}<span class="badge text-bg-light border">{{ r.time_label }}</span>{% endif %}
         <span class="fw-bold">{{ r.display_name }}</span>
+        {% if therapy and r.beneficiary_id %}<a href="{% url 'therapy:child' r.beneficiary_id %}?date={{ r.date|date:'Y-m-d' }}{% if r.start_time %}&time={{ r.start_time|time:'H:i' }}{% endif %}" class="small" title="療育記録を書く"><i class="bi bi-pencil-square"></i></a>{% endif %}
         {% if r.status == 'confirmed' %}<span class="badge text-bg-success">予約</span>{% else %}<span class="badge text-bg-warning">キャンセル待ち</span>{% endif %}
         {% if r.is_guest %}<span class="badge text-bg-secondary">台帳に未登録</span>{% endif %}
       </div>
@@ -64,7 +79,17 @@
           <input type="date" class="form-control form-control-sm" id="date{{ r.pk }}" name="date"
                  value="{{ r.date|date:'Y-m-d' }}" required>
         </div>
+        {% if setting.slot_mode %}
+        <div class="col-6 col-md-2">
+          <label class="form-label small fw-semibold" for="time{{ r.pk }}">時間枠</label>
+          <select class="form-select form-select-sm" id="time{{ r.pk }}" name="start_time">
+            {% for h in setting.all_slot_hours %}<option value="{{ h }}" {% if r.hour == h %}selected{% endif %}>{{ h }}:00</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-3">
+        {% else %}
         <div class="col-6 col-md-5">
+        {% endif %}
           <label class="form-label small fw-semibold" for="note{{ r.pk }}">備考</label>
           <input type="text" class="form-control form-control-sm" id="note{{ r.pk }}" name="note" value="{{ r.note }}">
         </div>
@@ -116,7 +141,17 @@
         </select>
         <div class="form-text">この日にすでに予約のある{{ terms.beneficiary }}は出ません。</div>
       </div>
+      {% if setting.slot_mode %}
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold">時間枠</label>
+        <select name="start_time" class="form-select form-select-sm" required>
+          {% for s in state.slots %}<option value="{{ s.hour }}" {% if s.hour == default_hour %}selected{% endif %} {% if s.full %}class="text-danger"{% endif %}>{{ s.label }}（{{ s.confirmed }}/{{ s.capacity }}）</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+      {% else %}
       <div class="col-md-5">
+      {% endif %}
         <label class="form-label small fw-semibold">備考</label>
         <input type="text" name="note" class="form-control form-control-sm" placeholder="任意">
       </div>
@@ -178,7 +213,7 @@
     <div class="fw-bold mb-2">この日の履歴</div>
     <ul class="list-unstyled small mb-0">
       {% for r in history %}
-      <li class="text-muted">{{ r.display_name }} — {{ r.get_status_display }}（{{ r.get_source_display }}・{{ r.created_at|date:'n/j H:i' }}）</li>
+      <li class="text-muted">{% if r.start_time %}{{ r.time_label }} {% endif %}{{ r.display_name }} — {{ r.get_status_display }}（{{ r.get_source_display }}・{{ r.created_at|date:'n/j H:i' }}）</li>
       {% endfor %}
     </ul>
   </div></div>

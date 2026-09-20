@@ -176,6 +176,10 @@
             <input type="checkbox" class="form-check-input" name="use_reservation" id="use_reservation" {% if facility.use_reservation %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_reservation">予約管理（1日の枠・キャンセル待ち・公式LINEからの申し込み・顧客台帳）</label>
           </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="use_therapy_record" id="use_therapy_record" {% if facility.use_therapy_record %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="use_therapy_record">療育記録（留意点・やったこと①〜⑤・担当・本文。用紙と同じ形で印刷）</label>
+          </div>
           <div class="form-text">使わない機能はメニューやボタンから消えます。記録は消えないので、あとから戻せます。</div>
           {% if is_developer %}
           <div class="small fw-semibold mt-3 mb-1">帳票様式 <span class="badge text-bg-secondary fw-normal">開発向け</span></div>

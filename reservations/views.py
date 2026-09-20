@@ -17,9 +17,9 @@ from config.concurrency import check_conflict
 from facilities.context_processors import get_terms
 from config.utils import date_or_404, home_url, month_or_404, reservation_enabled, to_int
 
-from . import services
-from .models import (BookingRequest, ClosedDate, Customer, LineInbox, Reservation, ReservationNotice,
-                     ReservationSetting)
+from . import monthly, services
+from .models import (BookingRequest, ClosedDate, Customer, LineInbox, MonthlyRequest, Reservation,
+                     ReservationNotice, ReservationSetting)
 
 
 class ReservationEnabledMixin(LoginRequiredMixin):
@@ -128,6 +128,27 @@ class SettingView(ReservationEnabledMixin, View):
             setting.booking_mode = mode
         setting.group_auto_apply = 'group_auto_apply' in request.POST
 
+        # 時間枠で予約する（りょういく）
+        setting.slot_mode = 'slot_mode' in request.POST
+        slot_capacity = to_int(request.POST.get('slot_capacity'), setting.slot_capacity)
+        slot_minutes = to_int(request.POST.get('slot_minutes'), setting.slot_minutes)
+        hours = {k: to_int(request.POST.get(k), getattr(setting, k))
+                 for k in ('weekday_first_hour', 'weekday_last_hour', 'holiday_first_hour', 'holiday_last_hour')}
+        if setting.slot_mode:
+            if not (1 <= slot_capacity <= 20 and 10 <= slot_minutes <= 180):
+                messages.error(request, '1枠の人数は1〜20人、1枠の長さは10〜180分で指定してください。')
+                return redirect('reservations:calendar')
+            if not all(0 <= v <= 23 for v in hours.values()) or \
+                    hours['weekday_first_hour'] > hours['weekday_last_hour'] or \
+                    hours['holiday_first_hour'] > hours['holiday_last_hour']:
+                messages.error(request, '枠の時間帯は 0〜23 時で、最初の枠が最後の枠より前になるように指定してください。')
+                return redirect('reservations:calendar')
+        setting.slot_capacity, setting.slot_minutes = slot_capacity, slot_minutes
+        for k, v in hours.items():
+            setattr(setting, k, v)
+        setting.break_hours = sorted({n for n in (to_int(v) for v in request.POST.get('break_hours', '').replace('、', ',').split(','))
+                                      if n is not None and 0 <= n <= 23})
+
         if 'clear_group' in request.POST:
             setting.notify_group_id = setting.notify_group_label = ''
         if 'reissue_public_token' in request.POST:
@@ -162,6 +183,9 @@ class DayView(ReservationEnabledMixin, View):
             'reservations': [r for r in rows if r.is_active],
             'history': [r for r in rows if not r.is_active],
             'candidates': candidates,
+            'slot_hours': setting.slot_hours(d) if setting.slot_mode else [],
+            'default_hour': to_int(request.GET.get('hour')),
+            'therapy': getattr(facility, 'use_therapy_record', False),
             'closed_date': ClosedDate.objects.filter(facility=facility, date=d).first(),
             'vacancy_text': services.vacancy_text(facility, d),
             'prev_day': d - datetime.timedelta(days=1), 'next_day': d + datetime.timedelta(days=1),
@@ -184,7 +208,8 @@ class DayView(ReservationEnabledMixin, View):
                 return back
             try:
                 res, notice = services.create_reservation(facility, beneficiary, d,
-                                                          note=request.POST.get('note', ''))
+                                                          note=request.POST.get('note', ''),
+                                                          start_time=request.POST.get('start_time'))
             except services.ReservationError as e:
                 messages.error(request, str(e))
                 return back
@@ -211,13 +236,19 @@ class DayView(ReservationEnabledMixin, View):
             except ValueError:
                 messages.error(request, '日にちが正しくありません。')
                 return back
+            old_time = res.start_time
             try:
-                services.move_reservation(res, new_day, note=request.POST.get('note', ''), base=base)
+                services.move_reservation(res, new_day, note=request.POST.get('note', ''), base=base,
+                                          start_time=request.POST.get('start_time') or None)
             except services.ReservationError as e:
                 messages.error(request, str(e))
                 return back
             if new_day == d:
-                messages.success(request, f'{res.display_name} さんの備考を保存しました。')
+                if res.start_time != old_time:
+                    messages.success(request, f'{res.display_name} さんの予約を {res.time_label} の枠に移しました'
+                                              f'（{res.get_status_display()}）。')
+                else:
+                    messages.success(request, f'{res.display_name} さんの備考を保存しました。')
                 return back
             messages.success(request, f'{res.display_name} さんの予約を '
                                       f'{services.jp_date(new_day)} に移しました（{res.get_status_display()}）。'
@@ -614,12 +645,157 @@ class CsvView(ReservationEnabledMixin, View):
         last = datetime.date(year, month, calendar.monthrange(year, month)[1])
         buf = StringIO()
         w = csv.writer(buf)
-        w.writerow(['日付', '利用者', '状態', '入口', '連絡先', '備考', '登録日時'])
+        w.writerow(['日付', '時刻', '利用者', '状態', '入口', '連絡先', '備考', '登録日時'])
         for r in (Reservation.objects.filter(facility=facility, date__gte=first, date__lte=last)
                   .select_related('beneficiary', 'customer').order_by('date', 'created_at')):
-            w.writerow([r.date, r.display_name, r.get_status_display(), r.get_source_display(),
+            w.writerow([r.date, r.time_label, r.display_name, r.get_status_display(), r.get_source_display(),
                         r.customer.name if r.customer else '', r.note,
                         timezone.localtime(r.created_at).strftime('%Y-%m-%d %H:%M')])
         resp = HttpResponse(buf.getvalue().encode('utf-8-sig'), content_type='text/csv; charset=utf-8-sig')
         resp['Content-Disposition'] = f'attachment; filename="reservations_{year}{month:02d}.csv"'
         return resp
+
+
+# =============================================
+# 月予約利用希望・月間予定表（時間枠で予約する事業所）
+# =============================================
+class SlotModeMixin(ReservationEnabledMixin):
+    """時間枠で予約する設定になっていなければ、予約カレンダーへ戻す"""
+
+    def dispatch(self, request, *args, **kwargs):
+        facility = getattr(request.user, 'facility', None)
+        if request.user.is_authenticated and facility is not None and reservation_enabled(facility) \
+                and not services.get_setting(facility).slot_mode:
+            messages.info(request, '月予約利用希望と月間予定表は、予約の設定で「時間枠で予約する」を入れると使えます。')
+            return redirect('reservations:calendar')
+        return super().dispatch(request, *args, **kwargs)
+
+
+def _month_ctx(year, month):
+    py, pm = monthly.prev_month(year, month)
+    ny, nm = monthly.next_month(year, month)
+    return {'year': year, 'month': month, 'prev_year': py, 'prev_month': pm, 'next_year': ny, 'next_month': nm}
+
+
+class MonthlyRequestListView(SlotModeMixin, View):
+    """月予約利用希望の一覧（利用者ごとの希望回数・○の枠数・確定数）"""
+    template_name = 'reservations/monthly_requests.html'
+
+    def get(self, request, year, month):
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        setting = services.get_setting(facility)
+        rows = monthly.request_rows(facility, year, month, setting)
+        return render(request, self.template_name, {
+            'rows': rows, 'setting': setting, 'facility': facility,
+            'with_request': sum(1 for r in rows if r['request']),
+            'short': sum(1 for r in rows if r['request'] and r['remaining']),
+            **_month_ctx(year, month),
+        })
+
+    def post(self, request, year, month):
+        """「月間予定表を作る」：利用希望から予約を割り当てる"""
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        setting = services.get_setting(facility)
+        result = monthly.assign_month(facility, year, month, setting, base=request.build_absolute_uri('/'))
+        if result.made or result.short:
+            messages.success(request, result.summary + (
+                ' 通知は送信待ちに入れています。' if result.notices else ''))
+        else:
+            messages.info(request, '割り当てるものがありません（利用希望が無いか、希望回数ぶんの予約がすでにあります）。')
+        return redirect('reservations:monthly_schedule', year=year, month=month)
+
+
+class MonthlyRequestEditView(SlotModeMixin, View):
+    """利用者1人の月予約利用希望（紙の用紙を転記する画面）"""
+    template_name = 'reservations/monthly_request_edit.html'
+
+    def get(self, request, year, month, pk):
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=facility)
+        setting = services.get_setting(facility)
+        req = MonthlyRequest.objects.filter(beneficiary=beneficiary, year=year, month=month).first()
+        grid = monthly.request_grid(facility, year, month, setting, request=req)
+        return render(request, self.template_name, {
+            'beneficiary': beneficiary, 'req': req, 'setting': setting, 'grid': grid,
+            'confirmed': [r for r in monthly.month_reservations(facility, year, month) if r.beneficiary_id == pk],
+            **_month_ctx(year, month),
+        })
+
+    def post(self, request, year, month, pk):
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=facility)
+        setting = services.get_setting(facility)
+        back = redirect('reservations:monthly_requests', year=year, month=month)
+        if request.POST.get('action') == 'delete':
+            MonthlyRequest.objects.filter(beneficiary=beneficiary, year=year, month=month).delete()
+            messages.success(request, f'{beneficiary.full_name} さんの {month}月の利用希望を消しました。')
+            return back
+        wishes = monthly.wishes_from_post(request.POST, facility, year, month, setting)
+        desired = to_int(request.POST.get('desired_count'), 0)
+        req = monthly.save_request(facility, beneficiary, year, month, desired, wishes,
+                                   note=request.POST.get('note', '').strip(), user=request.user)
+        messages.success(request, f'{beneficiary.full_name} さんの {month}月の利用希望を保存しました'
+                                  f'（希望 {req.desired_count} 回・○ {req.slot_count(setting)} 枠）。')
+        if request.POST.get('action') == 'assign':
+            result = monthly.assign_month(facility, year, month, setting, only=[req],
+                                          base=request.build_absolute_uri('/'))
+            messages.success(request, result.summary)
+            return redirect('reservations:monthly_schedule', year=year, month=month)
+        return back
+
+
+class MonthlyRequestFormView(SlotModeMixin, View):
+    """月予約利用希望の用紙（PDF）。?b=<利用者ID> で名前と○入り、無ければ空の用紙"""
+
+    def get(self, request, year, month):
+        from config.pdf import pdf_or_html
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        setting = services.get_setting(facility)
+        beneficiary = None
+        req = None
+        if request.GET.get('b'):
+            beneficiary = get_object_or_404(Beneficiary, pk=to_int(request.GET.get('b'), -1), facility=facility)
+            req = MonthlyRequest.objects.filter(beneficiary=beneficiary, year=year, month=month).first()
+        ctx = {'facility': facility, 'setting': setting, 'beneficiary': beneficiary, 'req': req,
+               'grid': monthly.request_grid(facility, year, month, setting, request=req),
+               'year': year, 'month': month}
+        name = f'{month}月予約利用希望' + (f'_{beneficiary.full_name}' if beneficiary else '')
+        return pdf_or_html(request, 'reservations/pdf/request_form.html', ctx, name)
+
+
+class MonthlyScheduleView(SlotModeMixin, View):
+    """月間予定表（週×時間枠×1枠の人数）。空の箱を押すとその日の画面で追加できる"""
+    template_name = 'reservations/monthly_schedule.html'
+
+    def get(self, request, year, month):
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        setting = services.get_setting(facility)
+        rows = monthly.request_rows(facility, year, month, setting)
+        return render(request, self.template_name, {
+            'schedule': monthly.month_schedule(facility, year, month, setting), 'setting': setting,
+            'rows': [r for r in rows if r['request'] or r['confirmed']],
+            'facility': facility, 'today': datetime.date.today(),
+            'therapy': getattr(facility, 'use_therapy_record', False),
+            **_month_ctx(year, month),
+        })
+
+
+class MonthlySchedulePdfView(SlotModeMixin, View):
+    """月間予定表の PDF（A4 横）"""
+
+    def get(self, request, year, month):
+        from config.pdf import pdf_or_html
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        setting = services.get_setting(facility)
+        rows = monthly.request_rows(facility, year, month, setting)
+        ctx = {'schedule': monthly.month_schedule(facility, year, month, setting), 'setting': setting,
+               'rows': [r for r in rows if r['request'] or r['confirmed']], 'facility': facility,
+               'year': year, 'month': month}
+        return pdf_or_html(request, 'reservations/pdf/monthly_schedule.html', ctx, f'{year}年{month}月_月間予定表')

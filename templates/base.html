@@ -176,6 +176,15 @@
         </a>
       </li>
       {% endif %}
+      {% if features.therapy %}
+      <li>
+        <a class="sidebar-nav-item {% block nav_therapy %}{% endblock %}"
+           href="{% url 'therapy:index' %}">
+          <i class="bi bi-clipboard2-heart"></i>
+          <span>療育記録</span>
+        </a>
+      </li>
+      {% endif %}
       <li>
         <a class="sidebar-nav-item {% block nav_records %}{% endblock %}"
            href="{% url 'records:dashboard' %}">

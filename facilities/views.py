@@ -185,6 +185,7 @@ class FeatureSettingsView(LoginRequiredMixin, View):
         facility.use_billing = 'use_billing' in request.POST
         facility.use_line = 'use_line' in request.POST
         facility.use_reservation = 'use_reservation' in request.POST
+        facility.use_therapy_record = 'use_therapy_record' in request.POST
         valid = [k for k, _ in Facility.JOURNAL_SECTIONS]
         keys = [k for k in request.POST.getlist('journal_sections') if k in valid]
         if not keys:
@@ -199,8 +200,8 @@ class FeatureSettingsView(LoginRequiredMixin, View):
             layout = request.POST.get('layout', facility.layout)
             if layout in dict(Facility.LAYOUT_CHOICES):
                 facility.layout = layout
-        facility.save(update_fields=['use_billing', 'use_line', 'use_reservation', 'journal_sections',
-                                     'form_set', 'layout', 'updated_at'])
+        facility.save(update_fields=['use_billing', 'use_line', 'use_reservation', 'use_therapy_record',
+                                     'journal_sections', 'form_set', 'layout', 'updated_at'])
         messages.success(request, '使う機能と日誌の項目を保存しました。')
         return redirect('facilities:settings')
 

@@ -83,6 +83,8 @@ class Facility(models.Model):
     use_line = models.BooleanField(default=True, verbose_name='LINE連携を使う')
     use_reservation = models.BooleanField(default=False, verbose_name='予約管理を使う',
                                           help_text='1日の枠・キャンセル待ち・公式LINEからの申し込みを扱います。')
+    use_therapy_record = models.BooleanField(default=False, verbose_name='療育記録を使う',
+                                             help_text='利用者ごとの留意点と、1回ごとの療育の記録（やったこと①〜⑤・担当・本文）。用紙と同じ形で印刷できます。')
     # 日誌で AI が作る項目と、その順番（空なら標準の順番で全部）
     journal_sections = models.JSONField(default=list, blank=True, verbose_name='日誌の項目と順番')
     # 事業所固有の帳票様式（標準以外を選ぶと「事業所様式」メニューが出る）
