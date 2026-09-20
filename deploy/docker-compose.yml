@@ -9,6 +9,8 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    # メモリの少ない VM（e2-micro 1GB）でも収まるように控えめに。増やすときは .env の PG_SHARED_BUFFERS
+    command: postgres -c shared_buffers=${PG_SHARED_BUFFERS:-32MB} -c max_connections=${PG_MAX_CONNECTIONS:-30}
     environment:
       POSTGRES_DB: ${DB_NAME:-dayservice}
       POSTGRES_USER: ${DB_USER:-dayservice}
@@ -25,6 +27,12 @@ services:
     # GitHub Actions がビルドして GHCR に push したイメージ。デプロイ時に APP_IMAGE で固定する
     image: ${APP_IMAGE:-ghcr.io/emcyrup/20260914note:latest}
     restart: unless-stopped
+    # ワーカー数は .env の GUNICORN_WORKERS / GUNICORN_THREADS で変える（1GB の VM なら 1 ワーカー）。
+    # --preload でアプリを先に読み込み、ワーカー間でメモリを共有する
+    command: >
+      gunicorn config.wsgi:application --bind 0.0.0.0:8000 --preload
+      --workers ${GUNICORN_WORKERS:-2} --threads ${GUNICORN_THREADS:-2} --timeout 120
+      --access-logfile - --error-logfile -
     env_file: .env
     environment:
       DB_HOST: db

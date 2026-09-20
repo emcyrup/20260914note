@@ -122,6 +122,8 @@ DJANGO_ALLOWED_HOSTS=<固定IP>
 CSRF_TRUSTED_ORIGINS=http://<固定IP>
 SECURE_SSL_REDIRECT=False
 DOMAIN=
+GUNICORN_WORKERS=1
+GUNICORN_THREADS=2
 DB_NAME=simple
 DB_USER=simple
 DB_PASSWORD=（3-2 で生成）
@@ -197,6 +199,7 @@ gunzip -c backups/db-YYYYMMDD-HHMMSS.sql.gz | docker compose exec -T db psql -U 
 | `CSRF verification failed` | `CSRF_TRUSTED_ORIGINS` が実際の URL と違う |
 | IP で動かしているのにログインできない | `SECURE_SSL_REDIRECT=False` を確認して `docker compose up -d` |
 | バックアップが GCS に届かない | VM のアクセススコープ（2-3）とバケットの権限（2-4） |
+| ページ遷移が数秒かかる（`free -m` で Swap の used が大きい） | メモリ不足。VM を e2-small（2GB）以上にするか、`.env` に `GUNICORN_WORKERS=1` を入れて `docker compose up -d app` |
 
 ## 3-10. ブランチの運用
 
