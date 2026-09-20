@@ -21,6 +21,7 @@ import random
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.utils import timezone
 
 from accounts.models import StaffAccount
 from beneficiaries.models import Beneficiary, BeneficiaryOffice, Guardian, RecipientCertificate
@@ -400,6 +401,101 @@ class Command(BaseCommand):
         if facility.use_reservation:
             counts.update(self._create_reservations(facility, beneficiaries, today, rng))
 
+        # --- 計画書中心の画面（シンプル）の分：面談記録・支援内容の行・プロフィール・連絡帳 ---
+        if facility.is_planbook:
+            counts.update(self._create_planbook(facility, beneficiaries, staff, today))
+
+        return counts
+
+    # ------------------------------------------------------------------
+    def _create_planbook(self, facility, beneficiaries, staff, today):
+        """
+        シンプル（計画書中心の画面）向けのサンプル。
+        - 各計画に面談記録（支援期間・面談日・参加スタッフ・面談内容の表・提供時間の時間割）。ステップ1が完了した計画は完了ロック
+        - 短期目標に支援提供種別・担当者・到達目標・達成時期・5領域（画面の「支援内容」の行）
+        - プロフィールの住まいと学校（郵便番号・住所・学校名・学年・入所日）
+        - 連絡帳（職員の記入と保護者からの返事）
+        """
+        from planbook.models import ContactNote, Interview
+        from planbook.services import sync_interview_to_assessment
+        D = datetime.timedelta
+        counts = {}
+        grades = ['e1', 'e2', 'e3', 'e4', 'e5', 'e6', 'j1', 'j2', 'j3']
+        for i, ben in enumerate(beneficiaries):
+            age = today.year - ben.date_of_birth.year - 6
+            ben.school_name = f'京都市立サンプル小学校' if age < 6 else '京都市立サンプル中学校'
+            ben.grade = grades[max(0, min(len(grades) - 1, age))]
+            ben.postal_code = '6128024'
+            ben.address = f'京都市伏見区深草○○町{i + 1}-{i + 2}'
+            ben.mobile_phone = f'090-1111-{2000 + i:04d}'
+            ben.admission_date = datetime.date(today.year - (1 if i % 2 else 0), 4, 1)
+            ben.has_prior_records = i % 3 == 0
+            ben.save(update_fields=['school_name', 'grade', 'postal_code', 'address', 'mobile_phone',
+                                    'admission_date', 'has_prior_records', 'updated_at'])
+
+        n_iv = 0
+        for plan in SupportPlan.objects.filter(beneficiary__in=beneficiaries).order_by('pk'):
+            a = plan.get_step(1)
+            d = plan.get_step(2)
+            start = d.period_start or (a.interview_date + D(days=14) if a.interview_date else today + D(days=14))
+            iv, _ = Interview.objects.get_or_create(plan=plan)
+            iv.period_start = start
+            iv.period_end = d.period_end or start + D(days=182)
+            iv.interview_date = a.interview_date or today - D(days=7)
+            iv.created_date = iv.interview_date + D(days=1)
+            iv.author = staff
+            iv.home_parent = '家では好きな工作に長く集中できる。予定が急に変わるとかんしゃくになることがある。'
+            iv.home_staff = '見通しカードを家庭でも使えるよう、同じ絵カードを渡す。'
+            iv.school_parent = '通級で個別の学習を受けている。休み時間は一人で過ごすことが多い。'
+            iv.school_staff = '事業所での小集団活動の様子を月1回学校へ伝える。'
+            iv.social_parent = '年下の子には優しいが、同年代とは言い合いになりやすい。'
+            iv.social_staff = '役割を決めた活動で、順番と役割を守れたらその場でほめる。'
+            iv.future_wishes = '友だちと一緒に遊べるようになってほしい。気持ちを言葉で伝えられるようになってほしい。'
+            iv.other_wishes = '送迎の時間を学校の下校時刻に合わせてほしい。'
+            sched = {}
+            for key, flag in (('mon', plan.beneficiary.weekday_mon), ('tue', plan.beneficiary.weekday_tue),
+                              ('wed', plan.beneficiary.weekday_wed), ('thu', plan.beneficiary.weekday_thu),
+                              ('fri', plan.beneficiary.weekday_fri), ('sat', plan.beneficiary.weekday_sat)):
+                if flag:
+                    sched[key] = ({'start': '10:00', 'end': '16:00', 'pickup': '自宅', 'dropoff': '自宅'} if key == 'sat'
+                                  else {'start': '15:00', 'end': '17:30', 'pickup': '学校', 'dropoff': '自宅'})
+            iv.schedule = sched
+            iv.notes = '送迎は学校の正門前で待ち合わせ。アレルギーなし。'
+            iv.save()
+            iv.participants.set([staff])
+            if plan.current_step >= 2 and not iv.is_completed:
+                iv.complete(staff)
+            sync_interview_to_assessment(iv)
+            n_iv += 1
+            # 支援内容の行（短期目標に画面の項目を足す）
+            for k, g in enumerate(plan.goals.filter(goal_type='short').order_by('order', 'pk')):
+                g.form_extra = {**(g.form_extra or {}), 'category': 'self' if k == 0 else 'family', 'priority': str(k + 1),
+                                'staff': '児童指導員・保育士', 'notes': '個別サポート加算Ⅰの算定を検討',
+                                'target': '職員の声かけなしで、活動の最後まで役割をやり切る' if k == 0 else '週に3回以上、自分から「手伝って」と言える',
+                                'timing': '3か月', 'eval_timing': '毎月末',
+                                'domains': ['cognition', 'social'] if k == 0 else ['language', 'social']}
+                g.save(update_fields=['form_extra', 'updated_at'])
+        counts['面談記録'] = n_iv
+
+        # 連絡帳（最初の3人の保護者）
+        n_notes = 0
+        for ben in beneficiaries[:3]:
+            g = ben.guardians.first()
+            if g is None or ContactNote.objects.filter(guardian=g).exists():
+                continue
+            name = ben.first_name
+            rows = [
+                (ContactNote.FROM_STAFF, f'今日は工作でロケットを作りました。{name}さんは最後まで集中して取り組めました。', 3),
+                (ContactNote.FROM_GUARDIAN, 'ありがとうございます。家でも作ったロケットを見せてくれました。', 3),
+                (ContactNote.FROM_STAFF, f'明日は公園に出かけます。{name}さんの帽子と水筒をお願いします。', 1),
+            ]
+            for sender, body, days_ago in rows:
+                note = ContactNote.objects.create(facility=facility, guardian=g, sender=sender, body=body,
+                                                  author=staff if sender == ContactNote.FROM_STAFF else None,
+                                                  is_read=sender == ContactNote.FROM_STAFF or ben != beneficiaries[0])
+                ContactNote.objects.filter(pk=note.pk).update(created_at=timezone.now() - D(days=days_ago))
+                n_notes += 1
+        counts['連絡帳'] = n_notes
         return counts
 
     # ------------------------------------------------------------------

@@ -269,3 +269,31 @@ class CreateFacilityLayoutTests(TestCase):
         f = Facility.objects.get(name='シンプル')
         self.assertTrue(f.is_planbook)
         self.assertEqual(f.brand_color, '#6f8f4e')
+
+
+class SeedPlanbookTests(TestCase):
+    def test_seed_demo_adds_interviews_and_notes_for_planbook_facility(self):
+        from io import StringIO
+        from django.core.management import call_command
+        f = Facility.objects.create(name='シンプル', layout=Facility.LAYOUT_PLANBOOK)
+        StaffAccount.objects.create_user(username='s', password='pw12345678', facility=f)
+        out = StringIO()
+        call_command('seed_demo', '--facility', str(f.pk), stdout=out)
+        self.assertIn('面談記録', out.getvalue())
+        self.assertEqual(Interview.objects.filter(plan__facility=f).count(), SupportPlan.objects.filter(facility=f).count())
+        self.assertTrue(Interview.objects.filter(plan__facility=f, completed_at__isnull=False).exists())
+        self.assertTrue(ContactNote.objects.filter(facility=f, sender=ContactNote.FROM_GUARDIAN, is_read=False).exists())
+        b = Beneficiary.objects.filter(facility=f).first()
+        self.assertTrue(b.school_name and b.grade and b.admission_date)
+        client = self.client
+        client.force_login(StaffAccount.objects.get(username='s'))
+        res = client.get(reverse('planbook:students'))
+        self.assertContains(res, '完了')
+        res = client.get(reverse('planbook:deadlines'))
+        self.assertEqual(res.status_code, 200)
+        plan = SupportPlan.objects.filter(facility=f).first()
+        res = client.get(reverse('planbook:plan_tab', args=[plan.beneficiary_id, plan.pk, 'interview']))
+        self.assertContains(res, '学校の正門前')
+        # 入れ直しても壊れない
+        call_command('seed_demo', '--facility', str(f.pk), '--reset', stdout=StringIO())
+        self.assertEqual(ContactNote.objects.filter(facility=f).count(), 9)
