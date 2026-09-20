@@ -64,10 +64,10 @@ sudo journalctl -u google-startup-scripts --no-pager | tail -n 5   # setup-serve
 id deploy && docker --version && echo "準備OK"
 ```
 
-`no such user` や `docker: command not found` が出たら起動スクリプトが走っていないので、その場で流す（2〜4 分、末尾に `setup-server: done`）：
+`no such user` や `docker: command not found` が出たら起動スクリプトが走っていない。リポジトリは Private なので `curl` では取れない。`sudo nano /root/setup-server.sh` に `deploy/setup-server.sh` の全文を貼って保存し、その場で流す（2〜4 分、末尾に `setup-server: done`）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/emcyrup/20260914note/simple/deploy/setup-server.sh | sudo bash
+sudo bash /root/setup-server.sh
 ```
 
 ### 2-4. バックアップ用バケット（任意・推奨）
@@ -142,7 +142,7 @@ BACKUP_GCS_BUCKET=simple-backups-<プロジェクトID>
 | `SIMPLE_DEPLOY_SSH_KEY` | 3-1 の秘密鍵の全文（`-----BEGIN` から `END ...-----` まで） |
 | `SIMPLE_HEALTH_URL` | 省略可（既定 `http://<固定IP>/healthz/`。ドメインを付けたら `https://<ドメイン>/healthz/`） |
 | `SIMPLE_DEPLOY_USER` / `SIMPLE_APP_DIR` | 既定（`deploy` / `/opt/simple`）と違うときだけ |
-| `GHCR_PULL_TOKEN` | リポジトリを Private にしたときだけ（Tokens (classic)、`read:packages`） |
+| `GHCR_PULL_TOKEN` | **必須**（リポジトリが Private のため、VM がイメージを取るのに要る）。GitHub の自分のアイコン → Settings → Developer settings → Personal access tokens → **Tokens (classic)** → Generate new token。スコープは `read:packages` だけ、期限は 1 年など。表示された `ghp_…` を登録する |
 
 ### 3-5. 初回の配備
 
@@ -159,7 +159,10 @@ exit
 
 `http://<固定IP>/` に `simple` でログインすると、利用者一覧がホームの6メニューの画面になります。`--demo` を付けると架空のサンプルも入ります（実データを入れる前だけ）。
 
-### 3-7. ドメインと HTTPS（LINE を使うなら必須）
+### 3-7. ドメインと HTTPS（LINE を使うなら必須。ドメインが決まるまでは IP のままでよい）
+
+ドメインが無い間は `http://<固定IP>/` で使えます（LINE の Webhook と音声入力だけ使えません）。急ぐ場合は DuckDNS（無料。`xxx.duckdns.org` を固定 IP に向けるだけ）でも Caddy の自動 HTTPS は動きます。ドメインが決まったら次のとおり切り替えます。
+
 
 1. ドメインの DNS で A レコードを固定IPに向ける（Cloudflare はプロキシをオフ）。
 2. `/opt/simple/.env` を `DJANGO_ALLOWED_HOSTS=<ドメイン>` `CSRF_TRUSTED_ORIGINS=https://<ドメイン>` `SECURE_SSL_REDIRECT=True` `DOMAIN=<ドメイン>` に直し、`docker compose up -d`（deploy ユーザーで `/opt/simple` にて）。Caddy が証明書を自動取得します。
