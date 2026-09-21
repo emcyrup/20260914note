@@ -369,15 +369,15 @@ class Command(BaseCommand):
                 if v.has_dropoff and '送迎加算（復・送り）' in addons_by_name:
                     picked.append(addons_by_name['送迎加算（復・送り）'])
                 r = rng.random()
-                if r < 0.15 and '専門的支援実施加算（個別実施分）' in addons_by_name:
-                    picked.append(addons_by_name['専門的支援実施加算（個別実施分）'])
+                if r < 0.15 and '専門的支援実施加算' in addons_by_name:
+                    picked.append(addons_by_name['専門的支援実施加算'])
                     start = datetime.time(rng.choice([15, 16]), rng.choice([0, 30]))
                     rec.special_support_staff = staff
                     rec.special_support_start = start
                     rec.special_support_end = (datetime.datetime.combine(v.date, start) + datetime.timedelta(minutes=30)).time()
                     rec.save(update_fields=['special_support_staff', 'special_support_start', 'special_support_end'])
-                elif r < 0.22 and '関係機関連携加算Ⅱ（情報連携）' in addons_by_name:
-                    picked.append(addons_by_name['関係機関連携加算Ⅱ（情報連携）'])
+                elif r < 0.22 and '関係機関連携加算Ⅱ（保育所・学校等との情報連携）' in addons_by_name:
+                    picked.append(addons_by_name['関係機関連携加算Ⅱ（保育所・学校等との情報連携）'])
                     rec.collaboration_note = f'{v.beneficiary.last_name}さんの学校の担任と電話で情報共有（学校での様子・家庭での配慮事項）。'
                     rec.save(update_fields=['collaboration_note'])
                 for a in picked:

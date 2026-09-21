@@ -257,3 +257,26 @@ class CreateFacilityCommandTests(TestCase):
         self.client.login(username='aoba', password='pw12345678')
         res = self.client.get(reverse('beneficiaries:list'))
         self.assertContains(res, '園児')
+
+
+class AddonDefaultsLoadTests(TestCase):
+    """標準の加算マスタの合わせ込み：追加・名前の付け替え・単位数の更新・無効化"""
+
+    def test_rename_update_and_retire(self):
+        from facilities.models import AddonMaster
+        from facilities.views import DEFAULT_ADDONS, load_default_addons
+        old = AddonMaster.objects.create(name='家族支援加算（オンライン）', addon_type='individual', unit_count=100)
+        stale = AddonMaster.objects.create(name='欠席時対応加算', addon_type='individual', unit_count=90)
+        gone = AddonMaster.objects.create(name='医療連携体制加算', addon_type='individual', unit_count=0)
+        added, renamed, updated, retired = load_default_addons()
+        old.refresh_from_db(); stale.refresh_from_db(); gone.refresh_from_db()
+        self.assertEqual((old.name, old.unit_count), ('家族支援加算Ⅰ（オンライン）', 80))
+        self.assertEqual(stale.unit_count, 94)
+        self.assertFalse(gone.is_active)
+        self.assertEqual((renamed, updated, retired), (1, 1, 1))
+        self.assertEqual(added, len(DEFAULT_ADDONS) - 2)
+        # 2回目は何も変わらない
+        self.assertEqual(load_default_addons(), (0, 0, 0, 0))
+        # 標準の名前は重複していない
+        names = [i['name'] for i in DEFAULT_ADDONS]
+        self.assertEqual(len(names), len(set(names)))
