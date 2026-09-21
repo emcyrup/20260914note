@@ -375,6 +375,16 @@ DEFAULT_ADDONS = [
     {'name': '個別サポート加算Ⅰ',                 'addon_type': 'individual', 'unit_count': 0,   'description': 'ケアニーズが高い・著しく重度の児童・要保護児童・不登校児童への手厚い個別支援。単位数は要確認。'},
     {'name': '個別サポート加算Ⅱ',                 'addon_type': 'individual', 'unit_count': 0,   'description': '個別サポート加算Ⅰとは異なる区分。単位数・算定要件は要確認。'},
     {'name': '個別サポート加算Ⅲ',                 'addon_type': 'individual', 'unit_count': 0,   'description': '個別サポート加算Ⅱとは異なる区分。単位数・算定要件は要確認。'},
+    # 令和6年度報酬改定の一覧（みちのーと お見積りページの加算一覧）にあって足りなかったもの。
+    # 単位数は確かなものだけ入れ、区分で変わるものは 0（要確認）にしている。サービスコードは事業所で入力する
+    {'name': '初期加算',                           'addon_type': 'individual', 'unit_count': 30,  'description': '利用開始から30日以内の期間に算定。'},
+    {'name': '家族支援加算Ⅱ（グループ・事業所で対面）', 'addon_type': 'individual', 'unit_count': 80,  'description': '複数の家族に対するグループでの相談援助を事業所で対面で行った場合。月4回まで。実施記録と参加者名簿を残す。'},
+    {'name': '家族支援加算Ⅱ（グループ・オンライン）',   'addon_type': 'individual', 'unit_count': 60,  'description': '複数の家族に対するグループでの相談援助をオンラインで行った場合。月4回まで。実施記録と参加者名簿を残す。'},
+    {'name': '保育・教育等移行支援加算',           'addon_type': 'individual', 'unit_count': 500, 'description': '保育所・学校等への移行に向けた支援を行い、移行後の状況を確認した場合。1回限り。移行支援計画・訪問記録・移行後の状況確認を残す。'},
+    {'name': '強度行動障害児支援加算',             'addon_type': 'individual', 'unit_count': 200, 'description': '強度行動障害を有する児童に、研修を修了した職員が支援計画シートに基づく支援を行った場合。開始から90日以内は加算あり（単位数は要確認）。支援計画シートと日々の支援記録を残す。'},
+    {'name': '人工内耳装用児支援加算',             'addon_type': 'individual', 'unit_count': 0,   'description': '児童発達支援。人工内耳を装用している児童に言語聴覚士等が支援を行った場合。区分により単位数が異なる（要確認）。'},
+    {'name': '送迎加算（医療的ケア児等の個別送迎）', 'addon_type': 'individual', 'unit_count': 0,   'description': '医療的ケア児等を個別に送迎した場合の上乗せ。区分により単位数が異なる（要確認）。個別送迎の記録を残す。'},
+    {'name': '食事提供加算',                       'addon_type': 'individual', 'unit_count': 30,  'description': '児童発達支援。事業所で調理した食事を提供した場合（所得区分等の要件あり）。食事提供と栄養面の配慮が分かる記録を残す。'},
     # 体制加算
     {'name': '児童指導員等加配加算',               'addon_type': 'facility', 'unit_count': 0,   'description': '指定基準を上回る児童指導員等を配置している場合。区分（Ⅰ〜Ⅲ等）により単位数が異なる。'},
     {'name': '専門的支援体制加算',                 'addon_type': 'facility', 'unit_count': 0,   'description': '理学療法士・作業療法士等の専門職員を配置・連携している場合。'},
@@ -383,6 +393,8 @@ DEFAULT_ADDONS = [
     {'name': '看護職員加配加算',                   'addon_type': 'facility', 'unit_count': 0,   'description': '看護職員を基準を超えて配置している場合。区分により単位数が異なる。'},
     {'name': '福祉・介護職員等処遇改善加算',       'addon_type': 'facility', 'unit_count': 0,   'description': '職員の処遇改善のための体制加算。区分（Ⅰ〜Ⅳ等）により単位数が異なる。'},
     {'name': '利用者負担上限額管理加算',           'addon_type': 'facility', 'unit_count': 150, 'description': '複数事業所を利用する利用者の負担上限額を管理する事業所に算定。月1回。'},
+    {'name': '自立支援担当職員配置加算',           'addon_type': 'facility', 'unit_count': 0,   'description': '放課後等デイサービス。進路相談・関係機関連携を担う職員を配置している場合。単位数は要確認。進路相談・関係機関連携の記録を残す。'},
+    {'name': '中核機能強化加算',                   'addon_type': 'facility', 'unit_count': 0,   'description': '児童発達支援センター。地域の中核機能（地域支援・インクルージョン推進等）を担う体制。区分により単位数が異なる（要確認）。地域支援の実績記録を残す。'},
 ]
 
 
