@@ -5,14 +5,23 @@
 #   - deploy ユーザー（GitHub Actions が SSH でログインする）
 #   - Docker / Docker Compose plugin
 #   - スワップ 2GB（e2-micro でも PDF 生成が落ちないように）
-#   - APP_DIR（既定 /opt/simple。compose・Caddyfile・.env を置く場所）
+#   - APP_DIR（compose・Caddyfile・.env を置く場所。既定 /opt/simple）
 #   - 毎日 3:30 の DB バックアップ cron
-#   別のディレクトリにするときは APP_DIR=/opt/xxx bash setup-server.sh
+#   置き場所を変えるには、次のどれかを使う（上から優先）
+#     1. VM のカスタムメタデータ `app-dir` に /opt/ryoiku などを入れる（起動スクリプトに貼るときはこれが楽）
+#     2. APP_DIR=/opt/xxx bash setup-server.sh
 # =============================================
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
+# GCE のカスタムメタデータ app-dir があれば使う（メタデータサーバーが無い環境では無視する）
+metadata_app_dir() {
+  curl -fsS --max-time 2 -H 'Metadata-Flavor: Google' \
+    http://metadata.google.internal/computeMetadata/v1/instance/attributes/app-dir 2>/dev/null || true
+}
+
 DEPLOY_USER=${DEPLOY_USER:-deploy}
+APP_DIR=${APP_DIR:-$(metadata_app_dir)}
 APP_DIR=${APP_DIR:-/opt/simple}
 APP_NAME=$(basename "$APP_DIR")
 

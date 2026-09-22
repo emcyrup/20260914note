@@ -272,6 +272,17 @@ python manage.py set_developer <ログインID> --off    # 解除
 
 「シンプル」だけを GCP の別サーバー（Compute Engine・Docker Compose・Caddy）で動かす手順と、次に作る療育日記・シフトの案は [docs/SIMPLE_SERVER.md](docs/SIMPLE_SERVER.md) にまとめています（配備はブランチ `simple` → ワークフロー **Deploy (simple)**。VM の起動スクリプトは `deploy/setup-server.sh`）。
 
+「りょういく」も同じ作りで別サーバーに出せます。手順は [docs/RYOIKU_SERVER.md](docs/RYOIKU_SERVER.md)（配備はブランチ `ryoiku` → ワークフロー **Deploy (ryoiku)**、置き場所は `/opt/ryoiku`、Secrets は `RYOIKU_*`）。
+
+| ブランチ | 配備先 | ワークフロー | 事業所 |
+|---|---|---|---|
+| `develop` | AWS 開発環境 | Deploy (dev) | 全部（ウィズユー藤森・はぴねす・なゆた・シンプル・りょういく） |
+| `simple` | GCP のシンプル用サーバー | Deploy (simple) | シンプル |
+| `ryoiku` | GCP のりょういく用サーバー | Deploy (ryoiku) | りょういく |
+| `main` | 配備先なし（許可制） | — | — |
+
+サーバーの部品（`deploy/setup-server.sh`・`docker-compose.yml`・`Caddyfile`・`backup.sh`）は共通です。置き場所は VM のカスタムメタデータ `app-dir`（例 `/opt/ryoiku`）で変えられます（未設定なら `/opt/simple`）。
+
 ## 紙の日誌の取り込み（カメラ）
 
 「記録」→「紙の日誌を取り込む」（ホームのクイックアクセスにもあります）で、過去の紙の日誌をスマートフォンのカメラで撮るか画像を選んで取り込みます。
