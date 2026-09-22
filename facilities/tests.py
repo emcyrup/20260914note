@@ -267,14 +267,17 @@ class AddonDefaultsLoadTests(TestCase):
         from facilities.views import DEFAULT_ADDONS, load_default_addons
         old = AddonMaster.objects.create(name='家族支援加算（オンライン）', addon_type='individual', unit_count=100)
         stale = AddonMaster.objects.create(name='欠席時対応加算', addon_type='individual', unit_count=90)
+        keep = AddonMaster.objects.create(name='送迎加算（往・迎え）', addon_type='individual', unit_count=54, code='999999')
         gone = AddonMaster.objects.create(name='医療連携体制加算', addon_type='individual', unit_count=0)
         added, renamed, updated, retired = load_default_addons()
         old.refresh_from_db(); stale.refresh_from_db(); gone.refresh_from_db()
         self.assertEqual((old.name, old.unit_count), ('家族支援加算Ⅰ（オンライン）', 80))
-        self.assertEqual(stale.unit_count, 94)
+        self.assertEqual((stale.unit_count, stale.code), (94, '635495'))     # 空のコードは標準で埋める
+        keep.refresh_from_db()
+        self.assertEqual(keep.code, '999999')                                  # 入力ずみのコードは残す
         self.assertFalse(gone.is_active)
-        self.assertEqual((renamed, updated, retired), (1, 1, 1))
-        self.assertEqual(added, len(DEFAULT_ADDONS) - 2)
+        self.assertEqual((renamed, updated, retired), (1, 2, 1))
+        self.assertEqual(added, len(DEFAULT_ADDONS) - 3)
         # 2回目は何も変わらない
         self.assertEqual(load_default_addons(), (0, 0, 0, 0))
         # 標準の名前は重複していない

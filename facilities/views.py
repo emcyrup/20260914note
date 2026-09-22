@@ -354,20 +354,21 @@ DEFAULT_ADDONS = [
     # 単位数は「令和６年度障害福祉サービス等報酬改定（障害児支援関係）改定事項の概要」（こども家庭庁・令和6年4月1日）と
     # 「障害福祉サービス費等の報酬算定構造」にもとづく（放課後等デイサービス・児童発達支援事業所）。
     # 定員や区分で幅のあるもの（体制加算）は 0 にして説明に幅を書き、事業所ごとに加算設定で単位数を入れる。
-    # サービスコードは事業所で確認して入力する（推測で入れない）。
+    # サービスコードは令和5年度の放デイコード表（種類コード 63）にあり、令和6年度でも名称・単位数が変わっていない加算だけに入れている。
+    # それ以外は事業所で確認して入力する（推測で入れない）。
     # ---- 個別加算（利用者×日／回）----
-    {'name': '送迎加算（往・迎え）',               'addon_type': 'individual', 'unit_count': 54,  'description': '利用者を自宅等から事業所まで迎えに行った場合（片道）。主として重症心身障害児を支援する事業所は、この加算ではなく重症心身障害児・医療的ケア児の送迎加算（40／80）を使う。'},
-    {'name': '送迎加算（復・送り）',               'addon_type': 'individual', 'unit_count': 54,  'description': '利用者を事業所から自宅等まで送り届けた場合（片道）。'},
+    {'name': '送迎加算（往・迎え）',               'addon_type': 'individual', 'code': '636240', 'unit_count': 54,  'description': '利用者を自宅等から事業所まで迎えに行った場合（片道）。主として重症心身障害児を支援する事業所は、この加算ではなく重症心身障害児・医療的ケア児の送迎加算（40／80）を使う。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '送迎加算（復・送り）',               'addon_type': 'individual', 'code': '636240', 'unit_count': 54,  'description': '利用者を事業所から自宅等まで送り届けた場合（片道）。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
     {'name': '送迎加算（重症心身障害児・片道の上乗せ）',            'addon_type': 'individual', 'unit_count': 40,  'description': '重症心身障害児を職員が付き添って送迎した場合、片道につき 54 に加えて算定。主として重症心身障害児を支援する事業所では片道 40 のみ。'},
     {'name': '送迎加算（医療的ケア児 スコア16点以上・片道の上乗せ）', 'addon_type': 'individual', 'unit_count': 80,  'description': '医療的ケアスコア16点以上の医療的ケア児を、医療的ケアが可能な職員が付き添って送迎した場合、片道につき 54 に加えて算定（重症心身障害児の事業所では片道 80 のみ）。'},
     {'name': '送迎加算（医療的ケア児 その他・片道の上乗せ）',        'addon_type': 'individual', 'unit_count': 40,  'description': '上記以外の医療的ケア児を、医療的ケアが可能な職員が付き添って送迎した場合、片道につき 54 に加えて算定（重症心身障害児の事業所では片道 40 のみ）。'},
-    {'name': '延長支援加算（30分以上1時間未満）',  'addon_type': 'individual', 'unit_count': 61,  'description': '基本報酬の最長の時間区分（放デイは平日3時間・学校休業日5時間）を超えて、預かりニーズに対応した支援を計画的に行った場合。この区分は、利用者の都合等で延長時間が計画より短くなったときだけ算定できる。職員2名以上（うち1名は人員基準上の職員）。'},
-    {'name': '延長支援加算（1時間以上2時間未満）', 'addon_type': 'individual', 'unit_count': 92,  'description': '延長時間が1時間以上2時間未満。'},
-    {'name': '延長支援加算（2時間以上）',          'addon_type': 'individual', 'unit_count': 123, 'description': '延長時間が2時間以上。'},
-    {'name': '延長支援加算（重症児・医療的ケア児 30分以上1時間未満）', 'addon_type': 'individual', 'unit_count': 128, 'description': '重症心身障害児・医療的ケア児の延長支援。30分以上1時間未満（計画より短くなったときのみ）。'},
-    {'name': '延長支援加算（重症児・医療的ケア児 1時間以上2時間未満）', 'addon_type': 'individual', 'unit_count': 192, 'description': '重症心身障害児・医療的ケア児の延長支援。1時間以上2時間未満。'},
-    {'name': '延長支援加算（重症児・医療的ケア児 2時間以上）',        'addon_type': 'individual', 'unit_count': 256, 'description': '重症心身障害児・医療的ケア児の延長支援。2時間以上。'},
-    {'name': '欠席時対応加算',                     'addon_type': 'individual', 'unit_count': 94,  'description': '利用者が急病等で欠席した際に連絡・相談援助を行った場合。月4回まで（重症心身障害児を支援する場合で定員充足率80％未満のときは月8回まで）。'},
+    {'name': '延長支援加算（30分以上1時間未満）',  'addon_type': 'individual', 'code': '636250', 'unit_count': 61,  'description': '基本報酬の最長の時間区分（放デイは平日3時間・学校休業日5時間）を超えて、預かりニーズに対応した支援を計画的に行った場合。この区分は、利用者の都合等で延長時間が計画より短くなったときだけ算定できる。職員2名以上（うち1名は人員基準上の職員）。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '延長支援加算（1時間以上2時間未満）', 'addon_type': 'individual', 'code': '636251', 'unit_count': 92,  'description': '延長時間が1時間以上2時間未満。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '延長支援加算（2時間以上）',          'addon_type': 'individual', 'code': '636252', 'unit_count': 123, 'description': '延長時間が2時間以上。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '延長支援加算（重症児・医療的ケア児 30分以上1時間未満）', 'addon_type': 'individual', 'code': '636253', 'unit_count': 128, 'description': '重症心身障害児・医療的ケア児の延長支援。30分以上1時間未満（計画より短くなったときのみ）。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '延長支援加算（重症児・医療的ケア児 1時間以上2時間未満）', 'addon_type': 'individual', 'code': '636254', 'unit_count': 192, 'description': '重症心身障害児・医療的ケア児の延長支援。1時間以上2時間未満。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '延長支援加算（重症児・医療的ケア児 2時間以上）',        'addon_type': 'individual', 'code': '636255', 'unit_count': 256, 'description': '重症心身障害児・医療的ケア児の延長支援。2時間以上。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '欠席時対応加算',                     'addon_type': 'individual', 'code': '635495', 'unit_count': 94,  'description': '利用者が急病等で欠席した際に連絡・相談援助を行った場合。月4回まで（重症心身障害児を支援する場合で定員充足率80％未満のときは月8回まで）。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
     {'name': '初期加算',                           'addon_type': 'individual', 'unit_count': 30,  'description': '利用開始から30日以内の期間に算定。'},
     {'name': '家族支援加算Ⅰ（居宅訪問・1時間以上）', 'addon_type': 'individual', 'unit_count': 300, 'description': '家族（きょうだいを含む）の居宅を訪問して、個別に1時間以上の相談援助等を行った場合。Ⅰは月4回まで。'},
     {'name': '家族支援加算Ⅰ（居宅訪問・1時間未満）', 'addon_type': 'individual', 'unit_count': 200, 'description': '家族の居宅を訪問して、個別に1時間未満の相談援助等を行った場合。Ⅰは月4回まで。'},
@@ -403,28 +404,28 @@ DEFAULT_ADDONS = [
     {'name': '食事提供加算Ⅰ（栄養士の助言）',     'addon_type': 'individual', 'unit_count': 30,  'description': '児童発達支援センター。低所得・中間所得世帯の児に、栄養士の助言・指導のもとで栄養面等に配慮した食事を提供した場合。'},
     {'name': '食事提供加算Ⅱ（管理栄養士の助言）', 'addon_type': 'individual', 'unit_count': 40,  'description': '児童発達支援センター。管理栄養士等の助言・指導のもとで食事を提供した場合。'},
     # 医療連携体制加算（Ⅰ〜Ⅵは改定前と同じ、Ⅶは令和6年度に 100→250）
-    {'name': '医療連携体制加算Ⅰ（看護1時間未満）',       'addon_type': 'individual', 'unit_count': 32,   'description': '医療的ケアを必要としない利用者への看護で、提供時間が1時間未満。'},
-    {'name': '医療連携体制加算Ⅱ（看護1〜2時間未満）',     'addon_type': 'individual', 'unit_count': 63,   'description': '医療的ケアを必要としない利用者への看護で、提供時間が1時間以上2時間未満。'},
-    {'name': '医療連携体制加算Ⅲ（看護2時間以上）',        'addon_type': 'individual', 'unit_count': 125,  'description': '医療的ケアを必要としない利用者への看護で、提供時間が2時間以上。'},
-    {'name': '医療連携体制加算Ⅳ（医療的ケア4時間未満・1人）',      'addon_type': 'individual', 'unit_count': 800,  'description': '医療的ケアを必要とする利用者への看護（4時間未満）。利用者が1人のとき。'},
-    {'name': '医療連携体制加算Ⅳ（医療的ケア4時間未満・2人）',      'addon_type': 'individual', 'unit_count': 500,  'description': '医療的ケアを必要とする利用者への看護（4時間未満）。利用者が2人のとき。'},
-    {'name': '医療連携体制加算Ⅳ（医療的ケア4時間未満・3〜8人）',   'addon_type': 'individual', 'unit_count': 400,  'description': '医療的ケアを必要とする利用者への看護（4時間未満）。利用者が3人以上8人以下のとき。'},
-    {'name': '医療連携体制加算Ⅴ（医療的ケア4時間以上・1人）',      'addon_type': 'individual', 'unit_count': 1600, 'description': '医療的ケアを必要とする利用者への看護（4時間以上）。利用者が1人のとき。'},
-    {'name': '医療連携体制加算Ⅴ（医療的ケア4時間以上・2人）',      'addon_type': 'individual', 'unit_count': 960,  'description': '医療的ケアを必要とする利用者への看護（4時間以上）。利用者が2人のとき。'},
-    {'name': '医療連携体制加算Ⅴ（医療的ケア4時間以上・3〜8人）',   'addon_type': 'individual', 'unit_count': 800,  'description': '医療的ケアを必要とする利用者への看護（4時間以上）。利用者が3人以上8人以下のとき。'},
-    {'name': '医療連携体制加算Ⅵ（喀痰吸引等の指導）',      'addon_type': 'individual', 'unit_count': 500,  'description': '看護職員が介護職員等に喀痰吸引等の指導を行った場合。'},
+    {'name': '医療連携体制加算Ⅰ（看護1時間未満）',       'addon_type': 'individual', 'code': '636230', 'unit_count': 32,   'description': '医療的ケアを必要としない利用者への看護で、提供時間が1時間未満。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '医療連携体制加算Ⅱ（看護1〜2時間未満）',     'addon_type': 'individual', 'code': '636231', 'unit_count': 63,   'description': '医療的ケアを必要としない利用者への看護で、提供時間が1時間以上2時間未満。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '医療連携体制加算Ⅲ（看護2時間以上）',        'addon_type': 'individual', 'code': '636232', 'unit_count': 125,  'description': '医療的ケアを必要としない利用者への看護で、提供時間が2時間以上。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '医療連携体制加算Ⅳ（医療的ケア4時間未満・1人）',      'addon_type': 'individual', 'code': '636280', 'unit_count': 800,  'description': '医療的ケアを必要とする利用者への看護（4時間未満）。利用者が1人のとき。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '医療連携体制加算Ⅳ（医療的ケア4時間未満・2人）',      'addon_type': 'individual', 'code': '636281', 'unit_count': 500,  'description': '医療的ケアを必要とする利用者への看護（4時間未満）。利用者が2人のとき。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '医療連携体制加算Ⅳ（医療的ケア4時間未満・3〜8人）',   'addon_type': 'individual', 'code': '636282', 'unit_count': 400,  'description': '医療的ケアを必要とする利用者への看護（4時間未満）。利用者が3人以上8人以下のとき。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '医療連携体制加算Ⅴ（医療的ケア4時間以上・1人）',      'addon_type': 'individual', 'code': '636283', 'unit_count': 1600, 'description': '医療的ケアを必要とする利用者への看護（4時間以上）。利用者が1人のとき。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '医療連携体制加算Ⅴ（医療的ケア4時間以上・2人）',      'addon_type': 'individual', 'code': '636284', 'unit_count': 960,  'description': '医療的ケアを必要とする利用者への看護（4時間以上）。利用者が2人のとき。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '医療連携体制加算Ⅴ（医療的ケア4時間以上・3〜8人）',   'addon_type': 'individual', 'code': '636285', 'unit_count': 800,  'description': '医療的ケアを必要とする利用者への看護（4時間以上）。利用者が3人以上8人以下のとき。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '医療連携体制加算Ⅵ（喀痰吸引等の指導）',      'addon_type': 'individual', 'code': '639992', 'unit_count': 500,  'description': '看護職員が介護職員等に喀痰吸引等の指導を行った場合。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
     {'name': '医療連携体制加算Ⅶ（喀痰吸引等の実施）',      'addon_type': 'individual', 'unit_count': 250,  'description': '喀痰吸引等が必要な障害児に対して、認定特定行為業務従事者が医療機関等との連携により喀痰吸引等を行った場合（医療的ケア区分による基本報酬を算定している場合は算定しない）。令和6年度に 100→250。'},
     # ---- 体制加算（施設全体・日／月）。定員や区分で幅があるものは 0 にして、事業所ごとに加算設定で入れる ----
     {'name': '児童指導員等加配加算',               'addon_type': 'facility', 'unit_count': 0,   'description': '基準の人員に加えて児童指導員等またはその他の従業者を配置。児童発達支援事業所・放デイは定員区分ごとに、常勤専従・経験5年以上 75〜187、常勤専従・経験5年未満 59〜152、常勤換算・経験5年以上 49〜123、常勤換算・経験5年未満 43〜107、その他の従業者 36〜90（1日につき）。'},
     {'name': '専門的支援体制加算',                 'addon_type': 'facility', 'unit_count': 0,   'description': '基準の人員に加えて理学療法士等を配置している場合。児童発達支援事業所・放デイは定員区分に応じて 49〜123（1日につき）。'},
-    {'name': '福祉専門職員配置等加算Ⅰ',           'addon_type': 'facility', 'unit_count': 15,  'description': '社会福祉士等の有資格者を一定割合以上配置している場合（1日につき）。'},
-    {'name': '福祉専門職員配置等加算Ⅱ',           'addon_type': 'facility', 'unit_count': 10,  'description': '社会福祉士等の有資格者を一定割合配置している場合（Ⅰより基準が低い）。'},
-    {'name': '福祉専門職員配置等加算Ⅲ',           'addon_type': 'facility', 'unit_count': 6,   'description': '常勤の従業者が一定割合以上、または勤続年数3年以上の常勤の従業者が一定割合以上の場合。'},
+    {'name': '福祉専門職員配置等加算Ⅰ',           'addon_type': 'facility', 'code': '635492', 'unit_count': 15,  'description': '社会福祉士等の有資格者を一定割合以上配置している場合（1日につき）。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '福祉専門職員配置等加算Ⅱ',           'addon_type': 'facility', 'code': '635490', 'unit_count': 10,  'description': '社会福祉士等の有資格者を一定割合配置している場合（Ⅰより基準が低い）。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
+    {'name': '福祉専門職員配置等加算Ⅲ',           'addon_type': 'facility', 'code': '635491', 'unit_count': 6,   'description': '常勤の従業者が一定割合以上、または勤続年数3年以上の常勤の従業者が一定割合以上の場合。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
     {'name': '看護職員加配加算',                   'addon_type': 'facility', 'unit_count': 0,   'description': '看護職員を基準を超えて配置している場合（主として重症心身障害児を支援する事業所）。定員と区分により単位数が異なる。'},
     {'name': '中核機能強化事業所加算',             'addon_type': 'facility', 'unit_count': 0,   'description': '市町村が地域の中核拠点として位置付ける児童発達支援事業所・放デイで、専門人材を配置して関係機関との連携体制を確保しながら専門的・包括的な支援に取り組んだ場合。定員区分に応じて 75〜187（重症心身障害児の事業所は 125〜374）（1日につき）。'},
     {'name': '自立支援担当職員配置加算',           'addon_type': 'facility', 'unit_count': 0,   'description': '放デイ。進路相談・関係機関連携を担う職員を配置している場合。単位数は要確認。'},
     {'name': '福祉・介護職員等処遇改善加算',       'addon_type': 'facility', 'unit_count': 0,   'description': '職員の処遇改善のための体制加算。所定単位数に区分ごとの率を掛ける（単位数ではなく率）。'},
-    {'name': '利用者負担上限額管理加算',           'addon_type': 'facility', 'unit_count': 150, 'description': '複数事業所を利用する利用者の負担上限額を管理する事業所に算定。月1回。'},
+    {'name': '利用者負担上限額管理加算',           'addon_type': 'facility', 'code': '635370', 'unit_count': 150, 'description': '複数事業所を利用する利用者の負担上限額を管理する事業所に算定。月1回。サービスコードは令和5年度の放デイコード表による（令和6年度の表で要確認）。'},
 ]
 
 
@@ -487,6 +488,7 @@ def load_default_addons():
     - 名前が無いものは追加する
     - 名前を変えた加算は付け替える（請求に使われている行はそのまま名前と単位数だけ変わる）
     - 標準にある名前で単位数・説明が違うものは標準の値にする（事業所ごとの上書きは FacilityAddonSetting にあるので影響しない）
+    - サービスコードは、空のときだけ標準の値を入れる
     - 令和6年度改定で無くなった名前は無効にする
     """
     defaults = {item['name']: item for item in DEFAULT_ADDONS}
@@ -498,7 +500,8 @@ def load_default_addons():
         item = defaults[new]
         row.name, row.unit_count, row.description = new, item['unit_count'], item['description']
         row.addon_type = item['addon_type']
-        row.save(update_fields=['name', 'unit_count', 'description', 'addon_type'])
+        row.code = row.code or item.get('code', '')
+        row.save(update_fields=['name', 'unit_count', 'description', 'addon_type', 'code'])
         renamed += 1
     added = updated = 0
     for item in DEFAULT_ADDONS:
@@ -506,10 +509,16 @@ def load_default_addons():
         if row is None:
             AddonMaster.objects.create(**item)
             added += 1
-        elif (row.unit_count, row.description, row.addon_type) != (item['unit_count'], item['description'], item['addon_type']):
+        else:
+            changed = (row.unit_count, row.description, row.addon_type) != (item['unit_count'], item['description'], item['addon_type'])
             row.unit_count, row.description, row.addon_type = item['unit_count'], item['description'], item['addon_type']
-            row.save(update_fields=['unit_count', 'description', 'addon_type'])
-            updated += 1
+            # サービスコードは、空のときだけ標準の値を入れる（開発向けユーザーが入れた値は消さない）
+            if not row.code and item.get('code'):
+                row.code = item['code']
+                changed = True
+            if changed:
+                row.save(update_fields=['unit_count', 'description', 'addon_type', 'code'])
+                updated += 1
     retired = AddonMaster.objects.filter(name__in=ADDON_RETIRED, is_active=True).update(is_active=False)
     return added, renamed, updated, retired
 
