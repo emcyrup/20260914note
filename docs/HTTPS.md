@@ -3,6 +3,10 @@
 音声入力（ブラウザのマイク）と LINE の写真送信・Webhook は HTTPS が必須です。
 Caddy が証明書（Let's Encrypt）を自動で取得・更新するため、サーバー側の作業は `.env` の4項目だけです。
 
+> **GCP の別サーバー（`/opt/ryoiku`・`/opt/simple`）は `deploy/enable-https.sh` で1行で切り替えられます**（事前確認・`.env` の書き換え・証明書の確認・前の `http://<IP>/…` からの転送まで）。
+> 例：`sudo -u deploy bash -lc "cd /opt/ryoiku && ./enable-https.sh check yours.example.jp"` → `… ./enable-https.sh yours.example.jp`。手順とドメインの選び方は `docs/RYOIKU_SERVER.md` 3-7。
+> 以下は手で行う場合（元の `/opt/dayservice` の例）です。
+
 ## 1. ドメインを用意する
 
 - 例：`dayservice.example.jp`（お名前.com・ムームードメイン・Cloudflare などで取得。サブドメインでも可）

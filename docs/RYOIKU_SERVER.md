@@ -184,14 +184,60 @@ exit
 
 `http://<固定IP>/` に `ryoiku` でログインし、**予約 → 利用希望／月間予定表**と**療育記録**が出ることを確認します。予約の決まりごと（1枠の人数・時間帯・お休み）は、予約カレンダー下の設定で管理者が変えられます。
 
-### 3-7. ドメインと HTTPS（LINE を使うなら必須。ドメインが決まるまでは IP のままでよい）
+### 3-7. ドメインと HTTPS（音声入力・LINE を使うなら必須）
 
-ドメインが無い間は `http://<固定IP>/` で使えます（LINE の Webhook と音声入力だけ使えません）。急ぐ場合は DuckDNS（無料。`xxx.duckdns.org` を固定 IP に向けるだけ）でも Caddy の自動 HTTPS は動きます。
+ドメインが無い間は `http://<固定IP>/` で使えます。ただし **音声入力（留意点・日誌のマイク）と LINE の Webhook は https でないと動きません**。
+切り替えはサーバーで **1行** です（`enable-https.sh` が `.env` の書き換え・証明書の取得・https で開けるかの確認まで行います）。
 
-1. ドメインの DNS で A レコードを固定IPに向ける（Cloudflare はプロキシをオフ）。
-2. `/opt/ryoiku/.env` を `DJANGO_ALLOWED_HOSTS=<ドメイン>` `CSRF_TRUSTED_ORIGINS=https://<ドメイン>` `SECURE_SSL_REDIRECT=True` `DOMAIN=<ドメイン>` に直し、`docker compose up -d`（deploy ユーザーで `/opt/ryoiku` にて）。Caddy が証明書を自動取得します。
-3. GitHub Secrets の `RYOIKU_HEALTH_URL` を `https://<ドメイン>/healthz/` にする。
-4. LINE Developers の Webhook URL に `https://<ドメイン>/line/webhook/<施設ID>/` を登録し、施設設定でチャネルアクセストークン・シークレットを入れる。詳しくは `docs/HTTPS.md`。
+#### ① ドメインを決める
+
+| 方法 | 例 | 費用・手間 | 向いている使い方 |
+|---|---|---|---|
+| **独自ドメインを取る**（おすすめ） | `yours-room.jp`・`app.yours-room.com` | 年 1,000〜4,000 円ほど（種類で違う）。お名前.com・ムームードメイン・Cloudflare などで取得 | 保護者に配る顧客ページも含めて、ずっと使う |
+| **いまのホームページのドメインを借りる** | `app.<事業所のドメイン>` | 費用なし。ホームページの管理者（制作会社など）に A レコードの追加を頼む | 事業所のドメインがすでにある |
+| DuckDNS（無料） | `yours-room.duckdns.org` | 無料。GitHub などでログインして名前を取るだけ | すぐ試したい・費用をかけたくない |
+| sslip.io（登録不要） | `34-104-220-242.sslip.io` | 無料・登録不要（IP をそのまま名前にしたもの）。利用者が多く、証明書の発行回数の上限で取れない日がある | **確認用だけ**（音声入力を試すなど）。保護者には配らない |
+
+#### ② DNS を固定 IP に向ける
+
+ドメインの管理画面で **A レコード** を作ります（sslip.io は不要）。
+
+| 種別 | ホスト名 | 値 |
+|---|---|---|
+| A | `app`（ドメインそのものなら `@`） | `34.104.220.242`（固定 IP `ryoiku-ip`） |
+
+Cloudflare を使うときはプロキシ（オレンジの雲）を **オフ**。DuckDNS は画面の「current ip」に固定 IP を入れて update。
+
+#### ③ 事前確認（何も変えない）
+
+```bash
+sudo -u deploy bash -lc "cd /opt/ryoiku && ./enable-https.sh check <ドメイン>"
+```
+
+「DNS … OK」「443 番 … 接続できる」なら準備完了。「向いていません」は DNS の反映待ち（数分〜数時間）か A レコードの間違い、「443 番 … 接続できない」は VM の編集で「HTTPS トラフィックを許可する」をオンにします。
+
+#### ④ 切り替える
+
+```bash
+sudo -u deploy bash -lc "cd /opt/ryoiku && ./enable-https.sh <ドメイン>"
+```
+
+- `.env` の `DOMAIN`・`DJANGO_ALLOWED_HOSTS`・`CSRF_TRUSTED_ORIGINS`・`SECURE_SSL_REDIRECT=True`・`RESERVATION_SITE_URL`・`CADDYFILE=Caddyfile.https`・`LEGACY_HOST=<固定IP>` を書き換え（前の `.env` は `.env.bak-<日時>` に残る）、Caddy が Let's Encrypt の証明書を取ります（1分ほど）。
+- 「OK: https://<ドメイン>/ で開けます」と出れば完了。
+- **これまでの `http://34.104.220.242/…` は、同じパスのまま `https://<ドメイン>/…` へ転送**されます。保護者に配った顧客ページのアドレスやブックマークもそのまま使えます（これから配るアドレスは画面上で https のものに変わります）。
+- 証明書の更新は Caddy が自動で行います。
+
+#### ⑤ 仕上げ
+
+1. GitHub → Settings → Secrets → `RYOIKU_HEALTH_URL` を `https://<ドメイン>/healthz/` にする（配備後の確認を https で行うため）。
+2. ブラウザで `https://<ドメイン>/` を開き、鍵マークを確認。療育記録の留意点で 🎤「音声入力」を押し、マイクの許可を出して文字が入ることを確認。
+3. LINE を使うなら、LINE Developers の Webhook URL を `https://<ドメイン>/line/webhook/<施設ID>/` にし、施設設定でチャネルアクセストークン・シークレットを入れる（`docs/HTTPS.md` 6）。
+
+#### 戻す・変える
+
+- IP に戻す：`sudo -u deploy bash -lc "cd /opt/ryoiku && ./enable-https.sh off"`
+- 別のドメインに変える：新しいドメインで ②〜④ をもう一度。
+- 一度 https で開いたブラウザは、そのドメインを1年間 https でしか開きません（HSTS）。ドメインをやめるときは IP で開いてください。
 
 **ゆあーずで LINE を使う場面**：保護者の顧客ページ（月予約利用希望の送信・予約の確認）のアドレスを LINE で配るとき、月間予定表を作ったあとの「ご利用日が決まりました」を送るときです。ドメインが無くても、顧客ページのアドレスは `http://<固定IP>/yoyaku/mypage/<アドレス>/` として画面からコピーして渡せます。
 
@@ -223,6 +269,8 @@ gunzip -c backups/db-YYYYMMDD-HHMMSS.sql.gz | docker compose exec -T db psql -U 
 | 502 Bad Gateway | `docker compose logs app`（SECRET_KEY 未設定・DB_PASSWORD 不一致が多い） |
 | `CSRF verification failed` | `CSRF_TRUSTED_ORIGINS` が実際の URL と違う |
 | IP で動かしているのにログインできない | `SECURE_SSL_REDIRECT=False` を確認して `docker compose up -d` |
+| `enable-https.sh` が無い | この手順が入った版がまだ配備されていない。Actions → Deploy (ryoiku) → Run workflow |
+| `enable-https.sh` が「まだ https で開けません」 | 表示された Caddy のログを見る（DNS の反映待ち・443 が閉じている・Let's Encrypt の回数制限）。`./enable-https.sh off` で元に戻せる |
 | バックアップが GCS に届かない | VM のアクセススコープ（2-3）とバケットの権限（2-4） |
 | ページ遷移が数秒かかる（`free -m` で Swap の used が大きい） | メモリ不足。VM を e2-small（2GB）以上にする |
 | 月間予定表に名前が出ない | 利用希望を保存してから「月間予定表を作る」を押したか。希望回数が 0 だと割り当てません |

@@ -57,8 +57,11 @@ services:
       # 例: DOMAIN=app.example.com → Let's Encrypt で自動HTTPS。空なら :80（http://<IP>）で待ち受け
       # Caddy は「空文字」の環境変数に既定値を当ててくれないので、compose 側で確定させてから渡す
       SITE_ADDRESS: ${DOMAIN:-:80}
+      # HTTPS にしたあと、前の http://<固定IP>/… をドメインへ転送する（Caddyfile.https で使う）
+      LEGACY_HOST: ${LEGACY_HOST:-localhost}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # 既定は Caddyfile。ドメインで HTTPS にしたら enable-https.sh が CADDYFILE=Caddyfile.https にする
+      - ./${CADDYFILE:-Caddyfile}:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

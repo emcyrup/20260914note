@@ -107,11 +107,11 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "${{ secrets.SIMPLE_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
-      # compose / Caddyfile / backup.sh をサーバーに同期（.env はサーバー側で管理・上書きしない）
+      # compose / Caddyfile / backup.sh / enable-https.sh をサーバーに同期（.env はサーバー側で管理・上書きしない）
       - name: Sync deploy files
         run: |
           rsync -az -e "ssh -i ~/.ssh/deploy_key" \
-            deploy/docker-compose.yml deploy/Caddyfile deploy/backup.sh \
+            deploy/docker-compose.yml deploy/Caddyfile deploy/Caddyfile.https deploy/backup.sh deploy/enable-https.sh \
             "${{ env.DEPLOY_USER }}@${{ secrets.SIMPLE_DEPLOY_HOST }}:${{ env.APP_DIR }}/"
 
       - name: Pull image, migrate, restart
@@ -126,7 +126,7 @@ jobs:
             set -euo pipefail
             cd "$APP_DIR"
             test -f .env || { echo "ERROR: $APP_DIR/.env がありません。deploy/.env.simple.example を元に作成してください"; exit 1; }
-            chmod +x backup.sh
+            chmod +x backup.sh enable-https.sh
             if [ -n "${GHCR_PULL_TOKEN:-}" ]; then
               echo "$GHCR_PULL_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             fi

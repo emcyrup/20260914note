@@ -272,7 +272,7 @@ python manage.py set_developer <ログインID> --off    # 解除
 
 「シンプル」だけを GCP の別サーバー（Compute Engine・Docker Compose・Caddy）で動かす手順と、次に作る療育日記・シフトの案は [docs/SIMPLE_SERVER.md](docs/SIMPLE_SERVER.md) にまとめています（配備はブランチ `simple` → ワークフロー **Deploy (simple)**。VM の起動スクリプトは `deploy/setup-server.sh`）。
 
-「発達支援ルーム　ゆあーず」（旧名 りょういく）も同じ作りで別サーバーに出せます。手順は [docs/RYOIKU_SERVER.md](docs/RYOIKU_SERVER.md)（配備はブランチ `ryoiku` → ワークフロー **Deploy (ryoiku)**、置き場所は `/opt/ryoiku`、Secrets は `RYOIKU_*`）。
+「発達支援ルーム　ゆあーず」（旧名 りょういく）も同じ作りで別サーバーに出せます。ドメインを決めたら `./enable-https.sh <ドメイン>` の1行で HTTPS に切り替えられます（前の `http://<IP>/…` はドメインへ転送。docs/RYOIKU_SERVER.md 3-7）。手順は [docs/RYOIKU_SERVER.md](docs/RYOIKU_SERVER.md)（配備はブランチ `ryoiku` → ワークフロー **Deploy (ryoiku)**、置き場所は `/opt/ryoiku`、Secrets は `RYOIKU_*`）。
 
 | ブランチ | 配備先 | ワークフロー | 事業所 |
 |---|---|---|---|

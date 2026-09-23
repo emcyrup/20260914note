@@ -1,0 +1,15 @@
+# ドメインで HTTPS にしたあとの Caddyfile（enable-https.sh が .env の CADDYFILE=Caddyfile.https で切り替える）
+#   {$SITE_ADDRESS} = ドメイン。Caddy が Let's Encrypt の証明書を自動で取り、http:// は https:// へ転送する
+#   {$LEGACY_HOST}  = それまで使っていた固定 IP。http://<IP>/… で開いた人（配ったアドレス・ブックマーク）を
+#                     同じパスのまま https://<ドメイン>/… へ転送する
+{$SITE_ADDRESS} {
+	encode gzip
+
+	# /media/ は Django が配信する（ログイン中の職員の事業所のファイルだけ返す）。Caddy で直接配信しないこと。
+
+	reverse_proxy app:8000
+}
+
+http://{$LEGACY_HOST} {
+	redir https://{$SITE_ADDRESS}{uri} permanent
+}
