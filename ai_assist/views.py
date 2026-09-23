@@ -140,3 +140,23 @@ class DocumentDeleteView(AdminRequiredMixin, View):
         doc.delete()
         messages.success(request, f'「{title}」を削除しました。')
         return redirect('facilities:settings')
+
+
+class TranscribeView(LoginRequiredMixin, View):
+    """
+    画面で録った音声（WAV・1分未満）を文字にして返す。iPhone の音声入力で使う（static/js/voice-input.js）。
+    音声は保存しない。
+    """
+
+    def post(self, request):
+        from . import speech
+        f = request.FILES.get('audio')
+        if f is None:
+            return JsonResponse({'error': '音声が届いていません。'}, status=400)
+        if f.size > speech.MAX_BYTES + 4096:
+            return JsonResponse({'error': '音声が長すぎます（1回に送れるのは1分まで）。'}, status=400)
+        try:
+            text = speech.transcribe(f.read())
+        except speech.SpeechError as e:
+            return JsonResponse({'error': str(e)}, status=400 if '形式' in str(e) or '長すぎ' in str(e) else 502)
+        return JsonResponse({'text': text})

@@ -48,6 +48,7 @@ def branding(request):
                      'planbook': facility.is_planbook, 'therapy': facility.use_therapy_record},
         'planbook_unread': _planbook_unread(facility) if facility.is_planbook else 0,
         'pending_staff_count': _pending_staff(user, facility),
+        'speech_server': bool(settings.GOOGLE_SPEECH_API_KEY),
         'journal_sections': facility.journal_section_keys(),
         **standalone_context(),
         **developer_context(user),

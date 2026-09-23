@@ -45,7 +45,7 @@
 
   // うまく動かないときに調べるための記録（話した言葉そのものは残さず、文字数だけ）
   // 保存・読み込み直しをしても消えないよう、このタブのあいだは sessionStorage にも残す
-  var VERSION = 'v6';
+  var VERSION = 'v8';
   var LOG_KEY = 'voice-input-log', LOG = [], T0 = Date.now(), seq = 0;
   try { LOG = JSON.parse(sessionStorage.getItem(LOG_KEY) || '[]') || []; } catch (e) { LOG = []; }
   function log(msg) {
@@ -55,7 +55,7 @@
   }
   log('ready ' + VERSION + ' page=' + location.pathname + ' ' +
       (SR ? (window.SpeechRecognition ? 'SpeechRecognition' : 'webkitSpeechRecognition') : 'no-SR') +
-      ' oneShot=' + ONE_SHOT + ' secure=' + window.isSecureContext + ' ua=' + UA);
+      ' oneShot=' + ONE_SHOT + ' server=' + !!window.VOICE_INPUT_SERVER + ' secure=' + window.isSecureContext + ' ua=' + UA);
 
   function note(btn, text) {
     var id = btn.getAttribute('data-voice-note');
@@ -147,6 +147,14 @@
     clearInterval(a.timer);
     clearTimeout(a.retryTimer);
     keepAwake(a, false);
+    if (a.server) {
+      stopServer(a);
+      a.btn.classList.remove('recording');
+      a.btn.innerHTML = a.label;
+      showBusy(a);
+      if (message) note(a.btn, message);
+      return;
+    }
     if (a.pending) {                        // まだ確定していない言葉も捨てずに入れる
       var p = a.pending; a.pending = '';
       append(a, p);
@@ -293,7 +301,7 @@
         if (active === a && rec._viOpen && !rec._viSpeech) {
           log('#' + id + ' hint: no speech on iPhone');
           note(a.btn, '音声が届いていないようです（iPhone では2回目以降の録音で起きることがあります）。' +
-                      'いったん止めて、ページを読み込み直してから録音してください。議事録は先に「保存する」を押してください。');
+                      '欄をタップしてキーボードの🎤（音声入力）で話すか、ページを読み込み直してから録音してください（議事録は先に「保存する」）。');
         }
       }, HINT_MS);
     }
@@ -348,13 +356,154 @@
     }
   }
 
+  // ===== サーバーで文字にする（iPhone） =====
+  // 画面で音声を録り（16kHz・モノラルの WAV）、話の区切り（15〜55 秒）ごとにサーバーへ送って文字にしてもらう。
+  // iPhone のブラウザの音声認識は、1ページで1回しか文字にならないことがあるため
+  var SERVER = window.VOICE_INPUT_SERVER || null;
+  var SEG_MIN = (cfg.segMinSec || 15), SEG_MAX = (cfg.segMaxSec || 55);
+  var LOUD = 0.015, QUIET = 0.008, QUIET_RUN = 4;       // 音の大きさ（RMS）のめやす
+  var uploads = 0, chain = Promise.resolve(), waitingSubmit = null;
+
+  function useServer() {
+    if (cfg.engine === 'server') return !!SERVER;
+    if (cfg.engine === 'browser') return false;
+    return IOS && !!SERVER && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  }
+
+  function csrf() {
+    var el = document.querySelector('[name=csrfmiddlewaretoken]');
+    if (el && el.value) return el.value;
+    var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
+  function toWav(chunks, rate) {
+    var total = 0, i, j;
+    for (i = 0; i < chunks.length; i++) total += chunks[i].length;
+    var ratio = rate / 16000, n = Math.floor(total / ratio);
+    var flat = new Float32Array(total), off = 0;
+    for (i = 0; i < chunks.length; i++) { flat.set(chunks[i], off); off += chunks[i].length; }
+    var buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+    function str(o, t) { for (var k = 0; k < t.length; k++) v.setUint8(o + k, t.charCodeAt(k)); }
+    str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    str(36, 'data'); v.setUint32(40, n * 2, true);
+    for (i = 0; i < n; i++) {                           // 16kHz に間引く（区間の平均）
+      var a0 = Math.floor(i * ratio), a1 = Math.min(total, Math.floor((i + 1) * ratio)), sum = 0;
+      for (j = a0; j < a1; j++) sum += flat[j];
+      var x = a1 > a0 ? sum / (a1 - a0) : 0;
+      x = Math.max(-1, Math.min(1, x));
+      v.setInt16(44 + i * 2, x < 0 ? x * 0x8000 : x * 0x7fff, true);
+    }
+    return new Blob([buf], {type: 'audio/wav'});
+  }
+
+  function showBusy(a) {
+    var box = liveBox(a.target);
+    if (uploads > 0) box.textContent = '文字にしています…（' + uploads + '）';
+    else if (active === a) box.textContent = '録音中：話の区切りごとに文字になります';
+    else box.textContent = '';
+  }
+
+  function cut(a) {
+    // ここまでの音声を1つにまとめて送る。声が入っていなければ送らない
+    var chunks = a.chunks, secs = a.samples / a.rate, loud = a.loud;
+    a.chunks = []; a.samples = 0; a.loud = false; a.quietRun = 0;
+    if (!chunks.length) return;
+    if (!loud || secs < 0.5) { log('segment ' + secs.toFixed(1) + 's ' + (loud ? 'too short' : 'silent') + ' → skip'); return; }
+    var blob = toWav(chunks, a.rate), n = ++seq;
+    log('segment #' + n + ' ' + secs.toFixed(1) + 's ' + Math.round(blob.size / 1024) + 'KB → upload');
+    uploads++;
+    showBusy(a);
+    chain = chain.then(function () {
+      var body = new FormData();
+      body.append('audio', blob, 'voice.wav');
+      return fetch(SERVER.url, {method: 'POST', body: body, credentials: 'same-origin', headers: {'X-CSRFToken': csrf()}})
+        .then(function (r) { return r.json().catch(function () { return {error: '文字にできませんでした（' + r.status + '）。'}; }); })
+        .then(function (d) {
+          if (d.error) {
+            log('segment #' + n + ' error');
+            a.errors = (a.errors || 0) + 1;
+            note(a.btn, d.error);
+            if (a.errors >= 2 && active === a) stop('');
+            return;
+          }
+          a.errors = 0;
+          log('segment #' + n + ' text=' + (d.text || '').length);
+          if (d.text) append(a, d.text);
+        })
+        .catch(function () { log('segment #' + n + ' network error'); note(a.btn, '通信できず、一部が文字になりませんでした。電波の良い所でお試しください。'); });
+    }).then(function () {
+      uploads--;
+      showBusy(a);
+      if (uploads === 0 && waitingSubmit) {           // 保存を待たせていたら、文字にしてから送る
+        var w = waitingSubmit; waitingSubmit = null;
+        if (w.form.requestSubmit) w.form.requestSubmit(w.submitter || undefined); else w.form.submit();
+      }
+    });
+  }
+
+  function startServer(a) {
+    a.server = true;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    var ctx;
+    try { ctx = new AC(); } catch (e) { stop('この端末では録音を始められませんでした。'); return; }
+    a.ctx = ctx;
+    if (ctx.resume) ctx.resume();                     // 押したときに動かしておく（iPhone は押した時でないと鳴らない）
+    log('server engine start rate=' + ctx.sampleRate);
+    navigator.mediaDevices.getUserMedia({audio: {channelCount: 1, echoCancellation: true, noiseSuppression: true}})
+      .then(function (stream) {
+        if (active !== a) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+        a.stream = stream;
+        var src = ctx.createMediaStreamSource(stream);
+        var proc = ctx.createScriptProcessor(4096, 1, 1);
+        a.src = src; a.proc = proc; a.rate = ctx.sampleRate;
+        a.chunks = []; a.samples = 0; a.loud = false; a.quietRun = 0;
+        proc.onaudioprocess = function (e) {
+          if (active !== a) return;
+          var d = e.inputBuffer.getChannelData(0), sum = 0;
+          for (var i = 0; i < d.length; i++) sum += d[i] * d[i];
+          var rms = Math.sqrt(sum / d.length);
+          a.chunks.push(new Float32Array(d));
+          a.samples += d.length;
+          if (rms > LOUD) { a.loud = true; a.lastHeard = Date.now(); }
+          a.quietRun = rms < QUIET ? a.quietRun + 1 : 0;
+          var secs = a.samples / a.rate;
+          if (secs >= SEG_MAX || (secs >= SEG_MIN && a.quietRun >= QUIET_RUN)) cut(a);
+          if (Date.now() - a.lastHeard > SILENCE_MS) stop('しばらく声が聞こえなかったので止めました。続けるときはもう一度押してください。');
+        };
+        src.connect(proc);
+        proc.connect(ctx.destination);
+        log('server engine mic on');
+        showBusy(a);
+      })
+      .catch(function (err) {
+        log('getUserMedia ' + (err && err.name));
+        if (active !== a) return;
+        stop(err && err.name === 'NotAllowedError'
+          ? 'マイクの使用が許可されていません。ブラウザの設定で、このサイトのマイクを「許可」にしてください。'
+          : 'マイクを使えませんでした（' + (err && err.name) + '）。ほかのアプリがマイクを使っていないか確かめてください。');
+      });
+  }
+
+  function stopServer(a) {
+    // 残りの音声を送ってから、マイクを止める
+    if (a.chunks && a.samples) cut(a);
+    try { if (a.proc) { a.proc.onaudioprocess = null; a.proc.disconnect(); } } catch (e) { /* もう止まっている */ }
+    try { if (a.src) a.src.disconnect(); } catch (e) { /* もう止まっている */ }
+    if (a.stream) a.stream.getTracks().forEach(function (t) { t.stop(); });
+    try { if (a.ctx && a.ctx.close) a.ctx.close(); } catch (e) { /* もう止まっている */ }
+    log('server engine stop');
+  }
+
   function start(btn, target) {
     if (!target) return;
     if (!window.isSecureContext) {
       note(btn, '音声入力は https のページでだけ使えます（いまは http のため、ブラウザがマイクを使わせません）。');
       return;
     }
-    if (!SR) {
+    if (!SR && !useServer()) {
       note(btn, 'このブラウザは音声入力に対応していません。Chrome・Edge・Safari をお使いください。');
       return;
     }
@@ -369,7 +518,8 @@
     a.timer = setInterval(function () { paint(a); }, 1000);
     note(btn, '');
     keepAwake(a, true);
-    begin(a, 0);
+    if (useServer()) startServer(a);
+    else begin(a, 0);
   }
 
   function toggle(btn, target) {
@@ -383,6 +533,7 @@
   window.VoiceInput = {
     toggle: toggle, stop: function () { stop(); }, isActive: function () { return !!active; },
     log: function () { return LOG.join('\n'); },
+    busy: function () { return uploads; },
   };
 
   document.addEventListener('click', function (e) {
@@ -394,7 +545,16 @@
   // 画面を離れたら止める（戻ったときに勝手に録音が続かないように）。入りかけの言葉は欄に入れる
   document.addEventListener('visibilitychange', function () { log('visibility ' + document.visibilityState); if (document.hidden) stop(); });
   // フォームを送る前に止める（最後の言葉を欄に入れてから送る）
-  document.addEventListener('submit', function () { stop(); }, true);
+  document.addEventListener('submit', function (e) {
+    stop();
+    if (uploads > 0 && !waitingSubmit) {      // 文字にしている途中なら、終わってから送る
+      e.preventDefault();
+      waitingSubmit = {form: e.target, submitter: e.submitter};
+      log('submit waits for ' + uploads + ' upload(s)');
+    } else if (uploads > 0) {
+      e.preventDefault();
+    }
+  }, true);
   // 開いていたダイアログ（メモなど）を閉じたら止める
   document.addEventListener('hidden.bs.modal', function (e) {
     if (active && e.target.contains(active.btn)) stop();

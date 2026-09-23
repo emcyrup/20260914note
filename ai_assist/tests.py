@@ -235,3 +235,103 @@ class CleanAiTextTests(TestCase):
         self.assertEqual(effort_kwargs('claude-opus-5'), {'output_config': {'effort': 'low'}})
         self.assertEqual(effort_kwargs('claude-sonnet-5', 'medium'), {'output_config': {'effort': 'medium'}})
         self.assertEqual(effort_kwargs('claude-haiku-4-5-20251001'), {})
+
+
+class SpeechTranscribeTests(TestCase):
+    """iPhone の音声入力：画面で録った WAV をサーバーで文字にする（Google Cloud Speech-to-Text）"""
+
+    def setUp(self):
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず')
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.login(username='ryo', password='pw12345678')
+        from django.urls import reverse
+        self.url = reverse('ai_assist:transcribe')
+
+    @staticmethod
+    def wav(seconds=1.0, rate=16000, channels=1, bits=16):
+        import struct
+        n = int(rate * seconds) * channels * (bits // 8)
+        return (b'RIFF' + struct.pack('<I', 36 + n) + b'WAVE' + b'fmt ' +
+                struct.pack('<IHHIIHH', 16, 1, channels, rate, rate * channels * bits // 8, channels * bits // 8, bits) +
+                b'data' + struct.pack('<I', n) + b'\x00' * n)
+
+    def post(self, data):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        return self.client.post(self.url, {'audio': SimpleUploadedFile('voice.wav', data, content_type='audio/wav')})
+
+    def reply(self, status, payload):
+        from types import SimpleNamespace
+        import json as _json
+        return SimpleNamespace(status_code=status, json=lambda: payload, text=_json.dumps(payload))
+
+    @override_settings(GOOGLE_SPEECH_API_KEY='k', GOOGLE_SPEECH_MODEL='latest_long')
+    def test_transcribes_wav(self):
+        with mock.patch('ai_assist.speech.requests.post') as post:
+            post.return_value = self.reply(200, {'results': [{'alternatives': [{'transcript': 'きょうは晴れ。'}]},
+                                                            {'alternatives': [{'transcript': ' 公園に行った。'}]}]})
+            res = self.post(self.wav())
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['text'], 'きょうは晴れ。公園に行った。')
+        kwargs = post.call_args.kwargs
+        self.assertEqual(kwargs['params'], {'key': 'k'})
+        cfg = kwargs['json']['config']
+        self.assertEqual((cfg['encoding'], cfg['sampleRateHertz'], cfg['languageCode'], cfg['model']),
+                         ('LINEAR16', 16000, 'ja-JP', 'latest_long'))
+        self.assertTrue(cfg['enableAutomaticPunctuation'])
+
+    @override_settings(GOOGLE_SPEECH_API_KEY='k')
+    def test_retries_with_default_model_on_400(self):
+        with mock.patch('ai_assist.speech.requests.post') as post:
+            post.side_effect = [self.reply(400, {'error': {'message': 'model not supported'}}),
+                                self.reply(200, {'results': [{'alternatives': [{'transcript': 'はい'}]}]})]
+            res = self.post(self.wav())
+        self.assertEqual(res.json()['text'], 'はい')
+        second = post.call_args_list[1].kwargs['json']['config']
+        self.assertEqual(second['model'], 'default')
+        self.assertNotIn('enableAutomaticPunctuation', second)
+
+    @override_settings(GOOGLE_SPEECH_API_KEY='k')
+    def test_silence_returns_empty_text(self):
+        with mock.patch('ai_assist.speech.requests.post', return_value=self.reply(200, {})):
+            res = self.post(self.wav())
+        self.assertEqual(res.json()['text'], '')
+
+    @override_settings(GOOGLE_SPEECH_API_KEY='k')
+    def test_rejects_wrong_format_and_long_audio(self):
+        with mock.patch('ai_assist.speech.requests.post') as post:
+            self.assertEqual(self.post(b'not a wav file at all, just text......................').status_code, 400)
+            self.assertEqual(self.post(self.wav(rate=44100)).status_code, 400)
+            self.assertEqual(self.post(self.wav(channels=2)).status_code, 400)
+            self.assertEqual(self.post(self.wav(seconds=65)).status_code, 400)
+            post.assert_not_called()
+        self.assertEqual(self.client.post(self.url).status_code, 400)
+
+    @override_settings(GOOGLE_SPEECH_API_KEY='k')
+    def test_google_errors_are_explained(self):
+        with mock.patch('ai_assist.speech.requests.post', return_value=self.reply(403, {'error': {}})):
+            res = self.post(self.wav())
+        self.assertEqual(res.status_code, 502)
+        self.assertIn('API キー', res.json()['error'])
+        import requests
+        with mock.patch('ai_assist.speech.requests.post', side_effect=requests.ConnectionError('x')):
+            res = self.post(self.wav())
+        self.assertIn('つながりませんでした', res.json()['error'])
+
+    @override_settings(GOOGLE_SPEECH_API_KEY='')
+    def test_not_configured(self):
+        res = self.post(self.wav())
+        self.assertEqual(res.status_code, 502)
+        self.assertIn('GOOGLE_SPEECH_API_KEY', res.json()['error'])
+
+    def test_login_required(self):
+        self.client.logout()
+        self.assertEqual(self.post(self.wav()).status_code, 302)
+
+    def test_page_tells_script_whether_server_is_on(self):
+        from django.urls import reverse
+        with override_settings(GOOGLE_SPEECH_API_KEY='k'):
+            self.assertContains(self.client.get(reverse('minutes:index')), "window.VOICE_INPUT_SERVER = {url: '/ai/transcribe/'}")
+        with override_settings(GOOGLE_SPEECH_API_KEY=''):
+            self.assertContains(self.client.get(reverse('minutes:index')), 'window.VOICE_INPUT_SERVER = null')
