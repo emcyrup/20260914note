@@ -190,3 +190,7 @@ LOGGING = {
         'django.request': {'handlers': ['console'], 'level': 'ERROR', 'propagate': False},
     },
 }
+
+# messages.error() を Bootstrap の赤い枠（alert-danger）で出す（既定の "error" には色が付かない）
+from django.contrib.messages import constants as _message_constants  # noqa: E402
+MESSAGE_TAGS = {_message_constants.ERROR: 'danger'}

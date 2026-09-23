@@ -360,6 +360,7 @@ class RyoikuScreenTests(TestCase):
         self.assertEqual((a.date, a.start_time.hour), (datetime.date(2026, 10, 17), 11))
         res = self.client.post(url, {'action': 'move', 'a': a.pk, 'date': '2026-10-19', 'hour': '11'}, follow=True)
         self.assertContains(res, '休業日')                              # 月曜はお休み
+        self.assertContains(res, 'alert-danger')                        # エラーは赤い枠で出る
         # ほかの事業所の予約は触れない
         f2 = Facility.objects.create(name='ほか', use_reservation=True)
         x, _ = services.create_reservation(f2, child(f2, '他'), d1, notify=False)
