@@ -686,10 +686,21 @@ class MonthlyRequestListView(SlotModeMixin, View):
         facility = request.user.facility
         setting = services.get_setting(facility)
         rows = monthly.request_rows(facility, year, month, setting)
+        base = request.build_absolute_uri('/')
+        targets, no_contact = monthly.wish_targets(facility, year, month, base)
+        for t in targets:
+            ask = t['ask']
+            t['open_ask'] = ask if ask and ask.status in monthly.WISH_NOTICE_OPEN else None
+            t['body'] = t['open_ask'].body if t['open_ask'] else monthly.wish_ask_body(
+                setting, t['customer'], t['missing'] or t['kids'], year, month, t['url'])
         return render(request, self.template_name, {
             'rows': rows, 'setting': setting, 'facility': facility,
             'with_request': sum(1 for r in rows if r['request']),
+            'from_web': sum(1 for r in rows if r['request'] and r['request'].source == MonthlyRequest.SOURCE_WEB),
             'short': sum(1 for r in rows if r['request'] and r['remaining']),
+            'targets': targets, 'no_contact': no_contact,
+            'targets_missing': sum(1 for t in targets if t['missing']),
+            'default_deadline': max(datetime.date(*monthly.prev_month(year, month), 20), datetime.date.today()),
             **_month_ctx(year, month),
         })
 
@@ -705,6 +716,73 @@ class MonthlyRequestListView(SlotModeMixin, View):
         else:
             messages.info(request, '割り当てるものがありません（利用希望が無いか、希望回数ぶんの予約がすでにあります）。')
         return redirect('reservations:monthly_schedule', year=year, month=month)
+
+
+class MonthlyWishAskView(SlotModeMixin, View):
+    """
+    保護者に利用希望を入力してもらう（顧客ページの URL を配る）。
+    action=ask は連絡先ごとにお願いを積み、LINE でつながっている方にはその場で送る。
+    action=contacts は連絡先の無い利用者に、保護者台帳から顧客を作る。
+    action=handed は「コピーして送る」のお願いを、渡しおえた（送信ずみ）にする。
+    """
+
+    def post(self, request, year, month):
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        setting = services.get_setting(facility)
+        back = redirect(reverse('reservations:monthly_requests', args=[year, month]) + '#ask')
+        action = request.POST.get('action')
+        base = request.build_absolute_uri('/')
+
+        if action == 'contacts':
+            _, no_contact = monthly.wish_targets(facility, year, month, base)
+            made, joined = monthly.make_contacts(facility, no_contact)
+            if made or joined:
+                messages.success(request, f'連絡先を {len(made)} 件作りました' + (
+                    f'（{len(joined)} 名はきょうだいの連絡先に足しました）' if joined else '') + '。')
+            else:
+                messages.info(request, '連絡先の無い方はいません。')
+            return back
+
+        if action == 'handed':
+            notice = get_object_or_404(ReservationNotice, pk=to_int(request.POST.get('notice'), -1), facility=facility,
+                                       kind=ReservationNotice.KIND_WISH, status__in=monthly.WISH_NOTICE_OPEN)
+            notice.status, notice.sent_at = ReservationNotice.STATUS_SENT, timezone.now()
+            notice.error_message = '職員が文面をコピーして送りました'
+            notice.save(update_fields=['status', 'sent_at', 'error_message'])
+            messages.success(request, f'{notice.customer.name if notice.customer else ""} 様へのお願いを「送った」にしました。')
+            return back
+
+        if action != 'ask':
+            messages.error(request, '操作を選んでください。')
+            return back
+        try:
+            deadline = datetime.date.fromisoformat(request.POST.get('deadline', '')) if request.POST.get('deadline') else None
+        except ValueError:
+            deadline = None
+        only = None
+        if request.POST.get('customer'):
+            only = {to_int(request.POST.get('customer'), -1)}
+        notices = monthly.ask_for_wishes(facility, year, month, setting, base=base, deadline=deadline,
+                                         only_missing=request.POST.get('scope', 'missing') != 'all', customers=only)
+        if not notices:
+            messages.info(request, 'お願いを送る相手がいません（全員の利用希望が届いているか、連絡先がありません）。')
+            return back
+        line_ids = [n.pk for n in notices if n.status == ReservationNotice.STATUS_PENDING]
+        sent = failed = 0
+        if line_ids:
+            from line_integration.sending import send_reservation_notices
+            sent, failed = send_reservation_notices(facility, ids=line_ids)
+        manual = len(notices) - len(line_ids)
+        text = f'{month}月の利用希望の入力のお願いを {len(notices)} 件作りました。'
+        if sent:
+            text += f' LINE で {sent} 件送りました。'
+        if failed:
+            text += f' {failed} 件は LINE で送れませんでした（公式LINEの設定を確かめてください）。'
+        if manual:
+            text += f' LINE でつながっていない {manual} 件は、下の一覧の「文面をコピー」で送ってください。'
+        messages.success(request, text)
+        return back
 
 
 class MonthlyRequestEditView(SlotModeMixin, View):

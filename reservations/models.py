@@ -353,6 +353,7 @@ class ReservationNotice(models.Model):
     KIND_REMINDER = 'reminder'
     KIND_VACANCY = 'vacancy'
     KIND_GROUP = 'group'
+    KIND_WISH = 'wish'
     KIND_CHOICES = [
         (KIND_ACCEPTED, '受付'),
         (KIND_WAITLISTED, 'キャンセル待ち'),
@@ -363,6 +364,7 @@ class ReservationNotice(models.Model):
         (KIND_REMINDER, '前日のお知らせ'),
         (KIND_VACANCY, '空き枠'),
         (KIND_GROUP, '予約の増減（グループ）'),
+        (KIND_WISH, '利用希望の入力のお願い'),
     ]
 
     STATUS_PENDING = 'pending'

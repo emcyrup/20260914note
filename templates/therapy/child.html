@@ -36,13 +36,22 @@
       {% csrf_token %}<input type="hidden" name="action" value="cautions">
       <div class="d-flex justify-content-between align-items-center mb-1">
         <label class="form-label fw-bold mb-0" for="cautions">留意点</label>
-        <button type="button" class="voice-btn btn btn-sm" data-voice-target="cautions" data-voice-note="cautions-voice-note"
-                title="音声で入力（もう一度押すと止まる）"><i class="bi bi-mic"></i> 音声入力</button>
+        <div class="d-flex gap-1">
+          <button type="button" class="voice-btn btn btn-sm" data-voice-target="cautions" data-voice-note="cautions-voice-note"
+                  title="音声で入力（もう一度押すと止まる）"><i class="bi bi-mic"></i> 音声入力</button>
+          <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" id="cautions-summary"
+                  data-url="{% url 'therapy:cautions_summary' beneficiary.pk %}"
+                  title="入っている文をAIが短い箇条書きに整えます"><i class="bi bi-magic"></i> 要約</button>
+        </div>
       </div>
       <div id="cautions-voice-note" class="alert alert-warning small py-1 px-2 mb-1 d-none"></div>
+      <div id="cautions-summary-note" class="alert alert-info small py-1 px-2 mb-1 d-none">
+        <span class="msg"></span>
+        <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline d-none" id="cautions-undo">元の文に戻す</button>
+      </div>
       <textarea class="form-control form-control-sm" id="cautions" name="cautions" rows="3" placeholder="用紙の上の枠に書いてある、この{{ terms.beneficiary }}のときに気をつけること">{{ profile.cautions|default:'' }}</textarea>
       <div class="d-flex justify-content-between align-items-center mt-2">
-        <div class="form-text mb-0">用紙の1枚目の上に印刷されます。</div>
+        <div class="form-text mb-0">用紙の1枚目の上に印刷されます。話して入れたあと「要約」を押すと、短い箇条書きに整えます。</div>
         <button class="btn btn-sm btn-outline-primary">留意点を保存</button>
       </div>
     </form>
@@ -98,4 +107,47 @@
 
 {% block extra_js %}
 <script src="{% static 'js/voice-input.js' %}?v=1"></script>
+<script>
+(function () {
+  var btn = document.getElementById('cautions-summary');
+  var area = document.getElementById('cautions');
+  var box = document.getElementById('cautions-summary-note');
+  var undo = document.getElementById('cautions-undo');
+  var before = null;
+  function show(text, cls, canUndo) {
+    box.className = 'alert small py-1 px-2 mb-1 alert-' + cls;
+    box.querySelector('.msg').textContent = text;
+    undo.classList.toggle('d-none', !canUndo);
+  }
+  btn.addEventListener('click', function () {
+    var rec = document.querySelector('.voice-btn.recording');
+    if (rec) rec.click();                         // 音声入力中なら止めてから
+    var text = area.value.trim();
+    if (!text) { show('留意点が空です。先に音声入力か文字で入れてください。', 'warning', false); return; }
+    var label = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 要約中';
+    var body = new FormData();
+    body.append('text', text);
+    body.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+    fetch(btn.dataset.url, {method: 'POST', body: body, credentials: 'same-origin'})
+      .then(function (r) { return r.json().catch(function () { return {error: '要約できませんでした（' + r.status + '）。'}; }); })
+      .then(function (data) {
+        if (data.error) { show(data.error, 'danger', false); return; }
+        before = area.value;
+        area.value = data.result;
+        area.rows = Math.max(3, Math.min(12, data.result.split('\n').length + 1));
+        area.dispatchEvent(new Event('input', {bubbles: true}));
+        show('要約して書き換えました。内容を確かめて「留意点を保存」を押してください。', 'info', true);
+      })
+      .catch(function () { show('通信できませんでした。もう一度お試しください。', 'danger', false); })
+      .finally(function () { btn.disabled = false; btn.innerHTML = label; });
+  });
+  undo.addEventListener('click', function () {
+    if (before === null) return;
+    area.value = before; before = null;
+    show('元の文に戻しました。', 'secondary', false);
+  });
+})();
+</script>
 {% endblock %}

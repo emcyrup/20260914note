@@ -84,16 +84,18 @@
     可能な日時の枠に印を付けて送ってください（紙の「予約利用希望」と同じです）。
     {% if setting.closed_weekdays_text %}{{ setting.closed_weekdays_text }}はお休みです。{% endif %}{{ setting.hours_text }}。
   </div>
-  <form method="get" class="d-flex gap-2 mb-2">
+  <form method="get" action="#wishCard" class="d-flex gap-2 mb-2">
     <select name="wish" class="form-select form-select-sm" onchange="this.form.submit()">
       {% for c in wish_choices %}<option value="{{ c.value }}" {% if c.selected %}selected{% endif %}>{{ c.year }}年{{ c.month }}月</option>{% endfor %}
     </select>
     {% if children|length > 1 %}
     <select name="child" class="form-select form-select-sm" onchange="this.form.submit()">
-      {% for b in children %}<option value="{{ b.pk }}" {% if b.pk == wish_child.pk %}selected{% endif %}>{{ b.full_name }}</option>{% endfor %}
+      {% for b in children %}<option value="{{ b.pk }}" {% if b.pk == wish_child.pk %}selected{% endif %}>{{ b.full_name }}{% if b.pk in wish_sent_ids %}（送信ずみ）{% else %}（まだ）{% endif %}</option>{% endfor %}
     </select>
     {% endif %}
   </form>
+  {% if children|length > 1 %}<div class="small fw-semibold mb-1">{{ wish_child.full_name }}さんの{{ wish_month }}月のご希望</div>{% endif %}
+  {% if wish_decided %}<div class="small text-warning-emphasis bg-warning-subtle rounded px-2 py-1 mb-2">{{ wish_month }}月の予定はすでに組んでいます。送り直すと事業所で確かめてからご連絡します。</div>{% endif %}
   {% if wish_req %}<div class="small text-success mb-2">{{ wish_month }}月のご希望は送信ずみです（希望 {{ wish_req.desired_count }} 回）。直して送り直すこともできます。</div>{% endif %}
   <form method="post">
     {% csrf_token %}
@@ -128,6 +130,7 @@
     <input type="text" name="note" class="form-control form-control-sm mb-2" placeholder="ご要望があれば（任意）" value="{{ wish_req.note|default:'' }}">
     <button class="btn btn-brand w-100">{{ wish_month }}月の希望を送る</button>
   </form>
+  {% if wish_waiting %}<div class="small text-muted mt-2">送ったあと、{% for b in wish_waiting %}{{ b.full_name }}さん{% if not forloop.last %}・{% endif %}{% endfor %}のぶんも続けて入れてください。</div>{% endif %}
 </div>
 {% endif %}
 

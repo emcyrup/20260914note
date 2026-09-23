@@ -27,12 +27,13 @@ def push_text(facility, to_line_id, text):
         return False, str(e)
 
 
-def send_reservation_notices(facility, limit=50):
-    """送信待ちの通知を順に送る。LINE未連携ぶん（手渡し）はそのまま残す"""
+def send_reservation_notices(facility, limit=50, ids=None):
+    """送信待ちの通知を順に送る。LINE未連携ぶん（手渡し）はそのまま残す。`ids` を渡すとその通知だけ送る"""
     from reservations.models import ReservationNotice
-    rows = ReservationNotice.objects.filter(
-        facility=facility, status=ReservationNotice.STATUS_PENDING
-    ).order_by('created_at')[:limit]
+    rows = ReservationNotice.objects.filter(facility=facility, status=ReservationNotice.STATUS_PENDING)
+    if ids is not None:
+        rows = rows.filter(pk__in=list(ids))
+    rows = rows.order_by('created_at')[:limit]
     sent = failed = 0
     for notice in rows:
         ok, error = push_text(facility, notice.to_line_id, notice.body)

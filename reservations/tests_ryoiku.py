@@ -1,5 +1,6 @@
 """時間枠の予約・月予約利用希望・月間予定表（りょういく）のテスト"""
 import datetime
+from unittest import mock
 
 from django.test import TestCase
 from django.urls import reverse
@@ -400,6 +401,120 @@ class CustomerWishPageTests(TestCase):
         self.assertContains(res, 'ご予約を承りました')
         self.assertEqual(Reservation.objects.get(beneficiary=self.kid).start_time, datetime.time(hour, 0))
 
+
+class WishAskTests(TestCase):
+    """保護者に入力ページの URL を配る"""
+
+    def setUp(self):
+        from beneficiaries.models import Guardian
+        self.f, self.s = ryoiku()
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f,
+                                                     role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.aoki, self.inoue, self.ueda, self.eguchi = (child(self.f, n) for n in ('青木', '井上', '上田', '江口'))
+        self.line_mom = Customer.objects.create(facility=self.f, name='青木 母', line_user_id='U-aoki')
+        self.line_mom.children.add(self.aoki)
+        self.paper_mom = Customer.objects.create(facility=self.f, name='井上 母')
+        self.paper_mom.children.add(self.inoue)
+        # 上田・江口は顧客が無い。上田は保護者台帳に LINE つきの母、江口は台帳も無い
+        Guardian.objects.create(beneficiary=self.ueda, last_name='上田', first_name='花子', phone='090-1111-2222',
+                                is_primary=True)
+        self.url = reverse('reservations:monthly_wish_ask', args=[2026, 10])
+
+    def test_targets_and_ask(self):
+        rows, no_contact = monthly.wish_targets(self.f, 2026, 10, 'http://t.example/')
+        self.assertEqual({r['customer'] for r in rows}, {self.line_mom, self.paper_mom})
+        self.assertEqual(set(no_contact), {self.ueda, self.eguchi})
+        aoki_row = next(r for r in rows if r['customer'] == self.line_mom)
+        self.assertEqual(aoki_row['url'], f'http://t.example/yoyaku/mypage/{self.line_mom.token}/?wish=2026-10#wishCard')
+        # 井上は用紙が届いている → 「まだの方だけ」なら青木の母だけ
+        monthly.save_request(self.f, self.inoue, 2026, 10, 2, {'2026-10-03': 'all'})
+        made = monthly.ask_for_wishes(self.f, 2026, 10, self.s, base='http://t.example/',
+                                      deadline=datetime.date(2026, 9, 20))
+        self.assertEqual([n.customer for n in made], [self.line_mom])
+        n = made[0]
+        self.assertEqual((n.kind, n.status, n.to_line_id), ('wish', 'pending', 'U-aoki'))
+        self.assertIn('10月のご利用希望の入力をお願いします（青木 子さん）', n.body)
+        self.assertIn('9月20日(日)までに', n.body)
+        self.assertIn(aoki_row['url'], n.body)
+        # もう一度積むと、まだ送っていないお願いは置き換える（重ならない）
+        monthly.ask_for_wishes(self.f, 2026, 10, self.s, base='http://t.example/', only_missing=False)
+        self.assertEqual(ReservationNotice.objects.filter(kind='wish', customer=self.line_mom).count(), 1)
+        paper = ReservationNotice.objects.get(kind='wish', customer=self.paper_mom)
+        self.assertEqual(paper.status, 'manual')           # LINE が無い方は「コピーして送る」
+
+    def test_make_contacts_from_guardians(self):
+        from beneficiaries.models import Guardian
+        # 江口のきょうだい（江口 弟）も同じ母。LINE でつながっている
+        Guardian.objects.create(beneficiary=self.eguchi, last_name='江口', first_name='母', line_user_id='U-eguchi',
+                                line_linked=True, is_primary=True)
+        brother = child(self.f, '江口', '弟')
+        Guardian.objects.create(beneficiary=brother, last_name='江口', first_name='母', line_user_id='U-eguchi',
+                                line_linked=True, is_primary=True)
+        _, no_contact = monthly.wish_targets(self.f, 2026, 10)
+        made, joined = monthly.make_contacts(self.f, sorted(no_contact, key=lambda b: b.pk))
+        self.assertEqual(len(made), 2)
+        self.assertEqual(len(joined), 1)
+        eguchi = Customer.objects.get(line_user_id='U-eguchi')
+        self.assertEqual(set(eguchi.children.all()), {self.eguchi, brother})
+        ueda = Customer.objects.get(children=self.ueda)
+        self.assertEqual((ueda.name, ueda.phone, ueda.line_user_id), ('上田 花子', '090-1111-2222', ''))
+        self.assertEqual(monthly.wish_targets(self.f, 2026, 10)[1], [])
+
+    @mock.patch('line_integration.sending.push_text', return_value=(True, ''))
+    def test_screen_ask_sends_line_only_for_wish(self, push):
+        # ほかの送信待ち（ご利用日が決まりました など）は一緒に送らない
+        other = services.queue_notice(self.f, ReservationNotice.KIND_ACCEPTED, self.s, customer=self.line_mom,
+                                      day=datetime.date(2026, 10, 1), body='別の通知')
+        page = self.client.get(reverse('reservations:monthly_requests', args=[2026, 10]))
+        self.assertContains(page, '保護者に入力してもらう')
+        self.assertContains(page, '上田 子')                # 連絡先の無い方
+        self.assertContains(page, f'/yoyaku/mypage/{self.paper_mom.token}/?wish=2026-10')
+        res = self.client.post(self.url, {'action': 'ask', 'deadline': '2026-09-20', 'scope': 'missing'}, follow=True)
+        self.assertContains(res, 'LINE で 1 件送りました')
+        self.assertContains(res, '文面をコピー')
+        self.assertEqual(push.call_count, 1)
+        self.assertEqual(push.call_args.args[1], 'U-aoki')
+        other.refresh_from_db()
+        self.assertEqual(other.status, 'pending')
+        # 手渡しのお願いを「送った」にする
+        paper = ReservationNotice.objects.get(kind='wish', customer=self.paper_mom)
+        self.client.post(self.url, {'action': 'handed', 'notice': paper.pk})
+        paper.refresh_from_db()
+        self.assertEqual(paper.status, 'sent')
+        # 連絡先を作る
+        self.client.post(self.url, {'action': 'contacts'})
+        self.assertTrue(Customer.objects.filter(children=self.eguchi).exists())
+
+    def test_parent_input_reaches_list_and_staff_group(self):
+        self.s.notify_group_id = 'G-staff'
+        self.s.save()
+        sister = child(self.f, '青木', '妹')
+        self.line_mom.children.add(sister)
+        today = datetime.date.today()
+        y, m = monthly.next_month(today.year, today.month)
+        page_url = reverse('reservations_public:customer', args=[self.line_mom.token])
+        page = self.client.get(page_url + f'?wish={y}-{m:02d}')
+        self.assertContains(page, '（まだ）')
+        day = next(d for d in monthly.month_days(y, m) if self.s.slot_hours(d))
+        res = self.client.post(page_url, {'action': 'wish', 'beneficiary': self.aoki.pk, 'wish_year': y, 'wish_month': m,
+                                          'desired_count': '2', f'all_{day.isoformat()}': '1'})
+        # 送ったあとは、まだのきょうだいの欄へ
+        self.assertEqual(res['Location'], f'{page_url}?wish={y}-{m:02d}&child={sister.pk}#wishCard')
+        req = MonthlyRequest.objects.get(beneficiary=self.aoki, year=y, month=m)
+        self.assertEqual((req.source, req.desired_count, req.wishes), ('web', 2, {day.isoformat(): 'all'}))
+        group = ReservationNotice.objects.get(kind='group', to_line_id='G-staff')
+        self.assertIn('青木 子さんの利用希望が届きました', group.body)
+        self.assertNotIn('母', group.body)
+        # 職員の一覧に「保護者が入力」で出る
+        lst = self.client.get(reverse('reservations:monthly_requests', args=[y, m]))
+        self.assertContains(lst, '保護者が入力')
+        # 予定を組んだあとに直すと、その旨を返す
+        monthly.assign_month(self.f, y, m, self.s, notify=False)
+        res = self.client.post(page_url, {'action': 'wish', 'beneficiary': self.aoki.pk, 'wish_year': y, 'wish_month': m,
+                                          'desired_count': '1', f'all_{day.isoformat()}': '1'}, follow=True)
+        self.assertContains(res, 'すでに組んでいる')
+        self.assertTrue(ReservationNotice.objects.filter(kind='group', body__contains='直されました').exists())
 
 class PresetAndSeedTests(TestCase):
     def test_create_facility_preset(self):

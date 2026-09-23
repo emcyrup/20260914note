@@ -276,10 +276,19 @@ class CustomerPageView(PublicPageMixin):
                 wish_year, wish_month = int(y), int(m)
         except ValueError:
             pass
-        child = next((b for b in children if str(b.pk) == request.GET.get('child', '')), children[0])
-        req = MonthlyRequest.objects.filter(beneficiary=child, year=wish_year, month=wish_month).first()
+        sent = {r.beneficiary_id: r for r in MonthlyRequest.objects.filter(
+            beneficiary__in=children, year=wish_year, month=wish_month)}
+        chosen = next((b for b in children if str(b.pk) == request.GET.get('child', '')), None)
+        # 選ばれていなければ、まだ送っていないお子さまを先に出す
+        child = chosen or next((b for b in children if b.pk not in sent), children[0])
+        req = sent.get(child.pk)
+        first, last = monthly.month_range(wish_year, wish_month)
         return {
             'wish_year': wish_year, 'wish_month': wish_month, 'wish_child': child, 'wish_req': req,
+            'wish_sent_ids': set(sent),
+            'wish_waiting': [b for b in children if b.pk not in sent and b.pk != child.pk],
+            'wish_decided': Reservation.objects.filter(
+                beneficiary=child, date__gte=first, date__lte=last, status=Reservation.STATUS_CONFIRMED).exists(),
             'wish_choices': [{'year': y, 'month': m, 'value': f'{y}-{m:02d}', 'selected': (y, m) == (wish_year, wish_month)}
                              for y, m in choices],
             'wish_grid': monthly.request_grid(facility, wish_year, wish_month, setting, request=req),
@@ -330,14 +339,24 @@ class CustomerPageView(PublicPageMixin):
                 messages.error(request, 'その月のご希望は受け付けられません。')
                 return back
             wishes = monthly.wishes_from_post(request.POST, facility, year, month, setting)
+            again = MonthlyRequest.objects.filter(beneficiary=beneficiary, year=year, month=month).exists()
             req = monthly.save_request(facility, beneficiary, year, month,
                                        to_int(request.POST.get('desired_count'), 0), wishes,
                                        note=request.POST.get('note', '').strip(),
                                        source=MonthlyRequest.SOURCE_WEB, customer=customer)
-            messages.success(request, f'{month}月の {beneficiary.full_name}さんのご希望を承りました'
-                                      f'（希望 {req.desired_count} 回・○ {req.slot_count(setting)} 枠）。'
-                                      '事業所で予定を組み、決まりましたらお知らせします。')
-            return redirect(f"{reverse('reservations_public:customer', args=[token])}?wish={year}-{month:02d}&child={beneficiary.pk}")
+            first, last = monthly.month_range(year, month)
+            decided = Reservation.objects.filter(beneficiary=beneficiary, date__gte=first, date__lte=last,
+                                                 status=Reservation.STATUS_CONFIRMED).exists()
+            monthly.tell_staff_wish(facility, setting, req, again=again, decided=decided)
+            text = (f'{month}月の {beneficiary.full_name}さんのご希望を承りました'
+                    f'（希望 {req.desired_count} 回・○ {req.slot_count(setting)} 枠）。')
+            text += ('この月の予定はすでに組んでいるため、変更は事業所で確かめてからご連絡します。' if decided
+                     else '事業所で予定を組み、決まりましたらお知らせします。')
+            messages.success(request, text)
+            nxt = next((b for pk, b in children.items() if pk != beneficiary.pk and not MonthlyRequest.objects.filter(
+                beneficiary=b, year=year, month=month).exists()), beneficiary)
+            return redirect(f"{reverse('reservations_public:customer', args=[token])}"
+                            f"?wish={year}-{month:02d}&child={nxt.pk}#wishCard")
 
         try:
             day = datetime.date.fromisoformat(request.POST.get('date', ''))

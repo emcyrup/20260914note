@@ -1,7 +1,9 @@
 """療育記録のテスト"""
 import datetime
+from types import SimpleNamespace
+from unittest import mock
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from accounts.models import StaffAccount
@@ -100,3 +102,57 @@ class TherapyTests(TestCase):
         res = self.client.get(reverse('therapy:index') + f'?date={day.isoformat()}')
         self.assertContains(res, '未記録')
         self.assertContains(res, f'time={s.slot_hours(day)[0]:02d}:00')
+
+
+@override_settings(ANTHROPIC_API_KEY='test-key')
+class CautionsSummaryTests(TestCase):
+    def setUp(self):
+        self.f = Facility.objects.create(name='りょういく', use_therapy_record=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子',
+                                              last_name_kana='あおき', date_of_birth=datetime.date(2019, 4, 1))
+        self.url = reverse('therapy:cautions_summary', args=[self.kid.pk])
+
+    @mock.patch('therapy.views.anthropic.Anthropic')
+    def test_summarizes_to_bullets(self, client_cls):
+        client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[
+            SimpleNamespace(type='thinking', thinking='...'),
+            SimpleNamespace(type='text', text='・大きな音が苦手\n\n- 疲れると手が出る。休憩を先に入れる\n* 電車の話が好き'),
+        ])
+        res = self.client.post(self.url, {'text': 'えーと、大きな音が苦手で、あの、疲れると手が出ることがあるので休憩を先に。電車の話が好き'})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['result'], '・大きな音が苦手\n・疲れると手が出る。休憩を先に入れる\n・電車の話が好き')
+        kwargs = client_cls.return_value.messages.create.call_args.kwargs
+        self.assertIn('箇条書き', kwargs['system'])
+        self.assertIn('青木 子さん', kwargs['messages'][0]['content'])
+        self.assertIn('電車の話が好き', kwargs['messages'][0]['content'])
+        # 要約は返すだけで、保存はしない
+        self.assertFalse(TherapyProfile.objects.filter(beneficiary=self.kid).exists())
+
+    def test_empty_text(self):
+        res = self.client.post(self.url, {'text': '  '})
+        self.assertEqual(res.status_code, 400)
+
+    @override_settings(ANTHROPIC_API_KEY='')
+    def test_missing_api_key(self):
+        res = self.client.post(self.url, {'text': 'メモ'})
+        self.assertEqual(res.status_code, 500)
+        self.assertIn('ANTHROPIC_API_KEY', res.json()['error'])
+
+    @mock.patch('therapy.views.anthropic.Anthropic', side_effect=RuntimeError('boom'))
+    def test_api_error(self, _):
+        res = self.client.post(self.url, {'text': 'メモ'})
+        self.assertEqual(res.status_code, 500)
+        self.assertIn('エラー', res.json()['error'])
+
+    def test_other_facility_child_is_404(self):
+        other = Facility.objects.create(name='ほか', use_therapy_record=True)
+        kid = Beneficiary.objects.create(facility=other, last_name='他', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        res = self.client.post(reverse('therapy:cautions_summary', args=[kid.pk]), {'text': 'メモ'})
+        self.assertEqual(res.status_code, 404)
+
+    def test_button_on_page(self):
+        res = self.client.get(reverse('therapy:child', args=[self.kid.pk]))
+        self.assertContains(res, 'id="cautions-summary"')
+        self.assertContains(res, self.url)

@@ -10,6 +10,8 @@
   .mr-item { grid-template-columns: 1.4fr 0.7fr 0.7fr 0.7fr 0.7fr 0.8fr auto; }
   .mr-num { font-variant-numeric: tabular-nums; }
   .mr-none { color: #999; }
+  .ask-item { grid-template-columns: 1.1fr 1.6fr 0.7fr 1fr auto; }
+  .ask-kid { display: inline-block; margin-right: 8px; white-space: nowrap; }
 </style>
 {% endblock %}
 
@@ -32,7 +34,7 @@
   </div>
 
   <div class="card mb-3"><div class="card-body py-2 small text-muted">
-    用紙が {{ with_request }} 枚届いています{% if short %}（希望回数に足りない方 {{ short }} 名）{% endif %}。
+    用紙が {{ with_request }} 枚届いています{% if from_web %}（うち保護者のページから {{ from_web }} 枚）{% endif %}{% if short %}（希望回数に足りない方 {{ short }} 名）{% endif %}。
     {{ terms.beneficiary }}の名前を押すと、用紙の「可能な日時の○」を転記できます。
     お休み：{{ setting.closed_weekdays_text|default:'なし' }}／{{ setting.hours_text }}／1枠 {{ setting.slot_capacity }} 人。
   </div></div>
@@ -49,7 +51,7 @@
       <div class="mr-num"><span class="row-list-label">○</span>{% if r.request %}{{ r.slots }} 枠{% else %}—{% endif %}</div>
       <div class="mr-num"><span class="row-list-label">確定</span>{{ r.confirmed }} 回</div>
       <div class="mr-num"><span class="row-list-label">残り</span>{% if r.request %}{% if r.remaining %}<span class="text-danger fw-bold">{{ r.remaining }} 回</span>{% else %}<span class="text-success">0</span>{% endif %}{% else %}—{% endif %}</div>
-      <div class="small">{% if r.request %}{{ r.request.get_source_display }}{% if r.request.note %}<div class="text-muted">{{ r.request.note }}</div>{% endif %}{% else %}用紙なし{% endif %}</div>
+      <div class="small">{% if r.request %}{% if r.request.source == 'web' %}<span class="badge text-bg-info">保護者が入力</span> <span class="text-muted">{{ r.request.updated_at|date:'n/j H:i' }}</span>{% else %}{{ r.request.get_source_display }}{% endif %}{% if r.request.note %}<div class="text-muted">{{ r.request.note }}</div>{% endif %}{% else %}用紙なし{% endif %}</div>
       <div class="text-md-end">
         <a href="{% url 'reservations:monthly_request_edit' year month r.beneficiary.pk %}" class="btn btn-sm btn-outline-secondary">{% if r.request %}転記・修正{% else %}転記する{% endif %}</a>
         {% if r.request %}<a href="{% url 'reservations:monthly_request_form' year month %}?b={{ r.beneficiary.pk }}&fmt=html" class="btn btn-sm btn-outline-secondary" target="_blank"><i class="bi bi-printer"></i></a>{% endif %}
@@ -59,5 +61,98 @@
     <div class="text-center text-muted py-4">在籍中の{{ terms.beneficiary }}がいません。</div>
     {% endfor %}
   </div>
+
+  <div class="card mt-4" id="ask">
+    <div class="card-body pb-2">
+      <div class="fw-bold mb-1"><i class="bi bi-send me-1"></i>保護者に入力してもらう（入力ページの URL を配る）</div>
+      <div class="small text-muted mb-2">
+        保護者ごとの入力ページ（ログイン不要）の URL を送ります。保護者が送った内容は、そのまま上の一覧に「保護者が入力」として入ります（転記は要りません）。
+        LINE でつながっている方にはその場で送り、つながっていない方は「文面をコピー」してメールや個別の LINE で送ってください。
+        {% if targets_missing %}まだ届いていない方：{{ targets_missing }} 件。{% endif %}
+      </div>
+      {% if targets %}
+      <form method="post" action="{% url 'reservations:monthly_wish_ask' year month %}" class="d-flex flex-wrap align-items-end gap-2"
+            onsubmit="return confirm('{{ month }}月の利用希望の入力のお願いを送ります。LINE でつながっている方には、すぐに届きます。よろしいですか？');">
+        {% csrf_token %}<input type="hidden" name="action" value="ask">
+        <div><label class="form-label small mb-0" for="askDeadline">締め切り（文面に入ります・任意）</label>
+          <input type="date" class="form-control form-control-sm" id="askDeadline" name="deadline" value="{{ default_deadline|date:'Y-m-d' }}"></div>
+        <div><label class="form-label small mb-0" for="askScope">送る相手</label>
+          <select class="form-select form-select-sm" id="askScope" name="scope">
+            <option value="missing">まだ届いていない方だけ</option>
+            <option value="all">全員（届いている方にも）</option>
+          </select></div>
+        <button class="btn btn-primary btn-sm"><i class="bi bi-send me-1"></i>入力のお願いを送る</button>
+      </form>
+      {% endif %}
+    </div>
+    {% if no_contact %}
+    <div class="card-body py-2 border-top small">
+      <span class="text-danger fw-bold">連絡先（顧客）が無いため送れない方：</span>
+      {% for b in no_contact %}{{ b.full_name }}{% if not forloop.last %}、{% endif %}{% endfor %}
+      <form method="post" action="{% url 'reservations:monthly_wish_ask' year month %}" class="d-inline ms-2">
+        {% csrf_token %}<input type="hidden" name="action" value="contacts">
+        <button class="btn btn-sm btn-outline-primary py-0">保護者台帳から連絡先を作る</button>
+      </form>
+      <a href="{% url 'reservations:customers' %}" class="ms-2">顧客台帳で登録する</a>
+    </div>
+    {% endif %}
+    {% if targets %}
+    <div class="row-list-item row-list-head ask-item">
+      <div>宛先</div><div>{{ terms.beneficiary }}（✓ 届いた）</div><div>LINE</div><div>お願い</div><div></div>
+    </div>
+    {% for t in targets %}
+    <div class="row-list-item ask-item">
+      <div class="fw-bold">{{ t.customer.name }}</div>
+      <div class="small">{% for k in t.children %}<span class="ask-kid">{% if k.request %}<i class="bi bi-check-circle-fill text-success"></i>{% else %}<i class="bi bi-circle text-muted"></i>{% endif %} {{ k.beneficiary.full_name }}{% if not k.request %}<span class="text-danger small">（まだ）</span>{% endif %}</span>{% endfor %}</div>
+      <div class="small"><span class="row-list-label">LINE</span>{% if t.line %}<span class="text-success">つながっている</span>{% else %}<span class="text-muted">なし</span>{% endif %}</div>
+      <div class="small"><span class="row-list-label">お願い</span>
+        {% if not t.missing %}<span class="text-success">入力ずみ</span>
+        {% elif t.open_ask %}<span class="badge text-bg-warning">コピーして送る</span>
+        {% elif t.ask and t.ask.status == 'sent' %}<span class="text-success">送った {{ t.ask.sent_at|date:'n/j H:i' }}</span>
+        {% elif t.ask and t.ask.status == 'failed' %}<span class="text-danger">送れず</span>
+        {% else %}<span class="text-muted">まだ</span>{% endif %}</div>
+      <div class="text-md-end text-nowrap">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-copy="{{ t.url }}" title="入力ページの URL をコピー"><i class="bi bi-link-45deg"></i> URL</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-copy="{{ t.body }}"><i class="bi bi-clipboard"></i> 文面をコピー</button>
+        {% if t.open_ask %}
+        <form method="post" action="{% url 'reservations:monthly_wish_ask' year month %}" class="d-inline">
+          {% csrf_token %}<input type="hidden" name="action" value="handed"><input type="hidden" name="notice" value="{{ t.open_ask.pk }}">
+          <button class="btn btn-sm btn-outline-success" title="コピーした文面を送りおえたら押す">送った</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    {% elif not no_contact %}
+    <div class="card-body pt-0 small text-muted">在籍中の{{ terms.beneficiary }}がいません。</div>
+    {% endif %}
+  </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('click', function (e) {
+  var btn = e.target.closest('[data-copy]');
+  if (!btn) return;
+  var text = btn.getAttribute('data-copy');
+  function done() {
+    var label = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-check2"></i> コピーしました';
+    setTimeout(function () { btn.innerHTML = label; }, 1500);
+  }
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(done, function () { window.prompt('コピーしてください', text); });
+  } else {
+    // http のページではクリップボードが使えないので、選んでコピーできる形で出す
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+    document.body.removeChild(ta);
+    if (ok) done(); else window.prompt('コピーしてください', text);
+  }
+});
+</script>
 {% endblock %}

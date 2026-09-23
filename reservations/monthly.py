@@ -409,3 +409,123 @@ def month_schedule(facility, year, month, setting=None):
         weeks.append({'days': days, 'start': week[0], 'end': week[-1]})
     return {'year': year, 'month': month, 'hours': hours, 'hour_labels': [hour_label(h) for h in hours],
             'weeks': weeks, 'capacity': setting.slot_capacity, 'closed_text': setting.closed_weekdays_text}
+
+
+# ---------------------------------------------------------------- 保護者に入力してもらう（URL の配信）
+WISH_NOTICE_OPEN = (ReservationNotice.STATUS_PENDING, ReservationNotice.STATUS_MANUAL)
+
+
+def wish_page_url(customer, year, month, base=''):
+    """顧客ページの「利用希望」の欄を、その月を選んだ状態で開く URL"""
+    url = services.customer_page_url(customer, base)
+    return f'{url}?wish={year}-{month:02d}#wishCard' if url else ''
+
+
+def wish_ask_body(setting, customer, children, year, month, url, deadline=None):
+    names = '・'.join(f'{b.full_name}さん' for b in children)
+    lines = [f'{customer.name} 様',
+             f'{month}月のご利用希望の入力をお願いします（{names}）。',
+             '下のページで、ご希望の回数と、来られる日時に○を付けて送ってください。']
+    if deadline:
+        lines.append(f'{services.jp_date(deadline)}までにお願いします。')
+    lines += [url, setting.sign_text]
+    return '\n'.join(line for line in lines if line)
+
+
+def wish_targets(facility, year, month, base=''):
+    """
+    入力のお願いを送る相手の一覧（顧客＝連絡先ごと）。
+    在籍中の利用者を担当している顧客だけ。お子さまごとに、利用希望が届いているかを付ける。
+    顧客（連絡先）が1人もいない利用者は `no_contact` に分けて返す。
+    """
+    active = {b.pk: b for b in Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE)}
+    requests = {r.beneficiary_id: r for r in MonthlyRequest.objects.filter(facility=facility, year=year, month=month)}
+    asks = {}
+    for n in (ReservationNotice.objects.filter(facility=facility, kind=ReservationNotice.KIND_WISH,
+                                               date=datetime.date(year, month, 1))
+              .order_by('created_at')):
+        asks[n.customer_id] = n                       # いちばん新しいお願い
+    from .models import Customer
+    rows, covered = [], set()
+    for c in Customer.objects.filter(facility=facility).prefetch_related('children').order_by('kana', 'name'):
+        kids = [active[b.pk] for b in c.children.all() if b.pk in active]
+        if not kids:
+            continue
+        covered.update(b.pk for b in kids)
+        kid_rows = [{'beneficiary': b, 'request': requests.get(b.pk)} for b in kids]
+        rows.append({
+            'customer': c, 'children': kid_rows, 'kids': kids,
+            'missing': [k['beneficiary'] for k in kid_rows if k['request'] is None],
+            'url': wish_page_url(c, year, month, base),
+            'line': c.can_notify, 'ask': asks.get(c.pk),
+        })
+    no_contact = [b for pk, b in active.items() if pk not in covered]
+    return rows, no_contact
+
+
+def ask_for_wishes(facility, year, month, setting=None, base='', deadline=None, only_missing=True, customers=None):
+    """
+    保護者へ「利用希望の入力のお願い」を積む（連絡先ごとに1通、入力ページの URL 付き）。
+    LINE でつながっている方は送信待ち、そうでない方は「コピーして送る」になる。
+    同じ月のまだ送っていないお願いは、新しい文面に置き換える。
+    `only_missing` なら、まだ利用希望が届いていないお子さまがいる方だけ。
+    """
+    setting = setting or services.get_setting(facility)
+    rows, _ = wish_targets(facility, year, month, base)
+    first = datetime.date(year, month, 1)
+    made = []
+    for row in rows:
+        c = row['customer']
+        if customers is not None and c.pk not in customers:
+            continue
+        kids = row['missing'] if only_missing else row['kids']
+        if not kids or not row['url']:
+            continue
+        ReservationNotice.objects.filter(facility=facility, kind=ReservationNotice.KIND_WISH, customer=c,
+                                         date=first, status__in=WISH_NOTICE_OPEN).delete()
+        body = wish_ask_body(setting, c, kids, year, month, row['url'], deadline)
+        made.append(services.queue_notice(facility, ReservationNotice.KIND_WISH, setting, customer=c,
+                                          day=first, body=body))
+    return made
+
+
+def make_contacts(facility, beneficiaries):
+    """
+    顧客（連絡先）が無い利用者に、保護者台帳から連絡先を作る。
+    主連絡先の保護者（いなければ最初の保護者）の名前・電話・LINE を使う。
+    同じ LINE の顧客がすでにいれば、そこにお子さまを足す（きょうだい）。保護者の登録も無ければ「○○さんの保護者」。
+    """
+    from .models import Customer
+    made, joined = [], []
+    for b in beneficiaries:
+        g = (b.guardians.filter(is_primary=True).first() or b.guardians.order_by('pk').first())
+        line_id = (g.line_user_id if g and g.line_linked else '') or ''
+        existing = Customer.objects.filter(facility=facility, line_user_id=line_id).first() if line_id else None
+        if existing is None and g and g.phone:
+            existing = Customer.objects.filter(facility=facility, phone=g.phone,
+                                               name=g.full_name).first()
+        if existing is not None:
+            existing.children.add(b)
+            joined.append(existing)
+            continue
+        c = Customer.objects.create(
+            facility=facility, name=(g.full_name if g else f'{b.full_name}さんの保護者')[:100],
+            phone=(g.phone if g else '')[:20], line_user_id=line_id,
+            note='利用希望のお願いのときに保護者台帳から作成')
+        c.children.add(b)
+        made.append(c)
+    return made, joined
+
+
+def tell_staff_wish(facility, setting, req, again=False, decided=False):
+    """保護者のページから利用希望が届いたことを、スタッフの LINE グループへ（設定しているときだけ）。保護者の名前は書かない"""
+    if not setting.notify_group_id:
+        return None
+    what = '直されました' if again else '届きました'
+    line = (f'【利用希望】{req.month}月 {req.beneficiary.full_name}さんの利用希望が{what}'
+            f'（希望 {req.desired_count} 回・○ {req.slot_count(setting)} 枠）')
+    if decided:
+        line += '。この月の予定はすでに組んであります。確かめてください'
+    return ReservationNotice.objects.create(
+        facility=facility, kind=ReservationNotice.KIND_GROUP, date=datetime.date(req.year, req.month, 1),
+        to_line_id=setting.notify_group_id, body=line, status=ReservationNotice.STATUS_PENDING)
