@@ -28,7 +28,10 @@
   var SILENCE_MS = cfg.silenceMs || 3 * 60 * 1000;   // これだけ何も聞き取れなければ止める
   var MAX_NET_RETRY = 3;                             // 通信エラーでつなぎ直す回数（聞き取れたら数え直す）
   var MAX_QUICK_END = 8;                             // すぐ終わってしまうのが続いたら止める（マイクが使えない状態）
+  var MAX_ERR_RUN = 8;                               // 聞き取れないままエラーで終わるのが続いたら止める
+  var CLOSE_WAIT_MS = 1500;                          // 止めた聞き取りが終わりきるのを待つ長さ（過ぎたら打ち切る）
   var active = null;
+  var closing = [];                                  // 止めるように言ったが、まだ終わっていない聞き取り
 
   function note(btn, text) {
     var id = btn.getAttribute('data-voice-note');
@@ -108,6 +111,7 @@
 
   function paint(a) {
     if (a.compact) { a.btn.innerHTML = '<i class="bi bi-stop-fill"></i>'; return; }
+    if (a.waiting) { a.btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 準備中'; return; }
     a.btn.innerHTML = '<i class="bi bi-stop-fill"></i> 止める ' + clock(Math.floor((Date.now() - a.started) / 1000));
   }
 
@@ -123,11 +127,23 @@
       append(a, p);
       a.committed = p;                      // あとから同じ言葉が確定しても重ねない
     }
-    try { if (a.rec) a.rec.stop(); } catch (e) { /* もう止まっている */ }
+    if (a.rec && a.rec._open) {
+      // 止めきるまで少しかかる（最後の言葉が届く）。終わる前に次を始めるとぶつかるので、覚えておく
+      var r = a.rec;
+      closing.push(r);
+      try { r.stop(); } catch (e) { forget(r); }
+      setTimeout(function () { if (r._open) { try { r.abort(); } catch (e) { /* もう止まっている */ } forget(r); } }, CLOSE_WAIT_MS);
+    }
     a.btn.classList.remove('recording');
     a.btn.innerHTML = a.label;
     liveBox(a.target).textContent = '';
     if (message) note(a.btn, message);
+  }
+
+  function forget(rec) {
+    rec._open = false;
+    var i = closing.indexOf(rec);
+    if (i >= 0) closing.splice(i, 1);
   }
 
   function listen(a) {
@@ -177,16 +193,24 @@
       // no-speech・aborted などは onend でつなぎ直す
     };
     rec.onend = function () {
+      forget(rec);
       if (a.pending) {                      // 確定しないまま終わった言葉（iPhone など）も入れる
         var p = a.pending; a.pending = '';
         append(a, p);
       }
       if (active !== a) return;             // 止めるボタンで止めた
       liveBox(a.target).textContent = '';
-      a.quickEnds = (Date.now() - a.sessionStart < 1000 && !a.lastError) ? (a.quickEnds || 0) + 1 : 0;
+      var err = a.lastError;
       a.lastError = '';
+      a.quickEnds = (Date.now() - a.sessionStart < 1000 && !err) ? (a.quickEnds || 0) + 1 : 0;
       if (a.quickEnds > MAX_QUICK_END) {
         stop('音声の聞き取りがすぐに止まってしまいます。ほかのタブやアプリでマイクを使っていないか確かめて、もう一度押してください。');
+        return;
+      }
+      // aborted・network などで終わったときは、少し間をあけてつなぎ直す（すぐだと同じ理由でまた終わる）
+      a.errRun = (err && err !== 'no-speech') ? (a.errRun || 0) + 1 : 0;
+      if (a.errRun > MAX_ERR_RUN) {
+        stop('音声の聞き取りを始められませんでした。ページを読み込み直してから、もう一度押してください。');
         return;
       }
       if (Date.now() - a.lastHeard > SILENCE_MS) {
@@ -194,14 +218,28 @@
         return;
       }
       a.restarts++;
-      begin(a, 0);                          // 自動でつなぎ直す
+      if (a.errRun) a.retryTimer = setTimeout(function () { begin(a, 0); }, Math.min(250 * a.errRun, 2000));
+      else begin(a, 0);                     // 自動でつなぎ直す
     };
+    rec._open = true;
     rec.start();
   }
 
   // 聞き取りを始める。始め直せないとき（前の聞き取りがまだ終わりきっていない）は少し待ってやり直す
   function begin(a, tries) {
     if (active !== a) return;
+    if (closing.length && tries < CLOSE_WAIT_MS / 100) {
+      // 前に止めた聞き取りが終わりきるのを待ってから始める（ぶつかると新しい方が聞き取れない）
+      a.waiting = true;
+      paint(a);
+      a.retryTimer = setTimeout(function () { begin(a, tries + 1); }, 100);
+      return;
+    }
+    if (closing.length) {                   // 待っても終わらないときは打ち切る
+      closing.slice().forEach(function (r) { try { r.abort(); } catch (e) { /* もう止まっている */ } forget(r); });
+    }
+    a.waiting = false;
+    paint(a);
     try {
       listen(a);
     } catch (err) {
