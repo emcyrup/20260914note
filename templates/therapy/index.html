@@ -6,74 +6,93 @@
 
 {% block extra_css %}
 <style>
-  .th-item { grid-template-columns: 1.4fr 1fr 1fr auto; }
-  .th-child { grid-template-columns: 1.6fr 0.8fr 1fr auto; }
+  .th-row { display: flex; align-items: center; gap: 12px; padding: 11px 16px; border-top: 1px solid var(--line); }
+  .th-row:first-child { border-top: 0; }
+  .th-time { flex: 0 0 64px; font-weight: 700; font-size: 1.05rem; font-variant-numeric: tabular-nums; color: var(--lake-text); }
+  .th-main { flex: 1 1 auto; min-width: 0; }
+  .th-name { font-weight: 700; color: inherit; text-decoration: none; }
+  a.th-name:hover { text-decoration: underline; }
+  .th-meta { font-size: 0.8rem; color: #8a8378; }
+  .th-acts { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; }
+  .th-count { font-variant-numeric: tabular-nums; }
+  .th-sum { font-size: 0.82rem; color: #6b6257; }
+  @media (max-width: 576px) { .th-row { padding: 10px 12px; gap: 10px; } .th-time { flex-basis: 48px; font-size: 0.95rem; } }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="px-2" style="max-width: 1000px;">
+<div class="px-2" style="max-width: 900px;">
   <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <div class="d-flex align-items-center gap-2">
       <div class="btn-group">
-        <a href="?date={{ prev_day|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left"></i></a>
+        <a href="?date={{ prev_day|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm" title="前の日"><i class="bi bi-chevron-left"></i></a>
         <a href="{% url 'therapy:index' %}" class="btn btn-outline-secondary btn-sm">今日</a>
-        <a href="?date={{ next_day|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-right"></i></a>
+        <a href="?date={{ next_day|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm" title="次の日"><i class="bi bi-chevron-right"></i></a>
       </div>
-      <form method="get" class="d-flex gap-1">
-        <input type="date" name="date" class="form-control form-control-sm" value="{{ day|date:'Y-m-d' }}" onchange="this.form.submit()">
+      <form method="get">
+        <input type="date" name="date" class="form-control form-control-sm" value="{{ day|date:'Y-m-d' }}" onchange="this.form.submit()" aria-label="日付">
       </form>
     </div>
-    <div class="fw-bold">{{ day|date:'n月j日(D)' }}</div>
+    <div class="fw-bold fs-6">{{ day|date:'n月j日(D)' }}</div>
   </div>
 
   <div class="card mb-3">
-    <div class="card-body pb-1"><div class="fw-bold">この日の予約から書く</div>
-      <div class="form-text">予約の名前を押すと、日付と時刻の入った記録の入力欄が開きます。</div></div>
-    {% if reservations %}
-    <div class="row-list-item row-list-head th-item"><div>{{ terms.beneficiary }}</div><div>時刻</div><div>記録</div><div></div></div>
+    <div class="card-body pb-2 d-flex justify-content-between align-items-end flex-wrap gap-1">
+      <div>
+        <div class="fw-bold"><i class="bi bi-calendar-check me-1"></i>この日の予約から書く</div>
+        <div class="th-sum">押すと、日付と時刻の入った入力欄が開きます。</div>
+      </div>
+      {% if reservations %}<div class="th-sum">予約 {{ reservations|length }} 件・記録ずみ {{ written_count }} 件</div>{% endif %}
+    </div>
     {% for r in reservations %}
-    <div class="row-list-item th-item">
-      <div class="fw-bold">{{ r.beneficiary.full_name }}</div>
-      <div><span class="row-list-label">時刻</span>{{ r.time_label|default:'—' }}</div>
-      <div>{% if r.written %}<span class="badge text-bg-success">記録ずみ</span>{% else %}<span class="badge text-bg-light border">未記録</span>{% endif %}</div>
-      <div class="text-md-end"><a href="{% url 'therapy:child' r.beneficiary.pk %}?date={{ day|date:'Y-m-d' }}{% if r.start_time %}&time={{ r.start_time|time:'H:i' }}{% endif %}" class="btn btn-sm {% if r.written %}btn-outline-secondary{% else %}btn-primary{% endif %}"><i class="bi bi-pencil-square me-1"></i>{% if r.written %}開く{% else %}書く{% endif %}</a></div>
-    </div>
-    {% endfor %}
-    {% else %}
-    <div class="text-center text-muted py-3 small">この日の予約はありません{% if not features.reservation %}（予約管理を使っていません）{% endif %}。下の一覧から{{ terms.beneficiary }}を選んで書けます。</div>
-    {% endif %}
-  </div>
-
-  {% if today_records %}
-  <div class="card mb-3"><div class="card-body">
-    <div class="fw-bold mb-2">この日に書いた記録（{{ today_records|length }} 件）</div>
-    {% for rec in today_records %}
-    <div class="border-bottom py-2 small">
-      <a href="{% url 'therapy:child' rec.beneficiary.pk %}" class="fw-bold">{{ rec.beneficiary.full_name }}</a>
-      {% if rec.time %}<span class="text-muted ms-1">{{ rec.time_label }}</span>{% endif %}
-      {% if rec.staff_label %}<span class="text-muted ms-1">担当 {{ rec.staff_label }}</span>{% endif %}
-      {% if rec.activity_text %}<div>{{ rec.activity_text }}</div>{% endif %}
-      {% if rec.body %}<div class="text-muted text-truncate">{{ rec.body|truncatechars:80 }}</div>{% endif %}
-    </div>
-    {% endfor %}
-  </div></div>
-  {% endif %}
-
-  <div class="card">
-    <div class="row-list-item row-list-head th-child"><div>{{ terms.beneficiary }}</div><div>記録数</div><div>最終記録</div><div></div></div>
-    {% for c in children %}
-    <div class="row-list-item th-child">
-      <div><a href="{% url 'therapy:child' c.beneficiary.pk %}" class="fw-bold">{{ c.beneficiary.full_name }}</a></div>
-      <div><span class="row-list-label">記録</span>{{ c.count }} 件</div>
-      <div><span class="row-list-label">最終</span>{% if c.last %}{{ c.last|date:'Y/n/j' }}{% else %}—{% endif %}</div>
-      <div class="text-md-end d-flex gap-1 justify-content-md-end">
-        <a href="{% url 'therapy:child' c.beneficiary.pk %}?date={{ day|date:'Y-m-d' }}" class="btn btn-sm btn-outline-primary">書く</a>
-        <a href="{% url 'therapy:pdf' c.beneficiary.pk %}?fmt=html" class="btn btn-sm btn-outline-secondary" target="_blank" title="用紙で見る"><i class="bi bi-printer"></i></a>
+    <div class="th-row">
+      <div class="th-time">{{ r.time_label|default:'—' }}</div>
+      <div class="th-main">
+        <a href="{% url 'therapy:child' r.beneficiary.pk %}" class="th-name">{{ r.beneficiary.full_name }}</a>
+        <div>{% if r.written %}<span class="badge text-bg-success">記録ずみ</span>{% else %}<span class="badge text-bg-light border">未記録</span>{% endif %}</div>
+      </div>
+      <div class="th-acts">
+        <a href="{% url 'therapy:child' r.beneficiary.pk %}?date={{ day|date:'Y-m-d' }}{% if r.start_time %}&time={{ r.start_time|time:'H:i' }}{% endif %}#add"
+           class="btn btn-sm {% if r.written %}btn-outline-secondary{% else %}btn-primary{% endif %} text-nowrap"><i class="bi bi-pencil-square me-1"></i>{% if r.written %}開く{% else %}書く{% endif %}</a>
       </div>
     </div>
     {% empty %}
-    <div class="text-center text-muted py-4">在籍中の{{ terms.beneficiary }}がいません。</div>
+    <div class="text-center text-muted py-3 small border-top">この日の予約はありません{% if not features.reservation %}（予約管理を使っていません）{% endif %}。下の一覧から{{ terms.beneficiary }}を選んで書けます。</div>
+    {% endfor %}
+  </div>
+
+  {% if today_records %}
+  <div class="card mb-3">
+    <div class="card-body pb-2"><div class="fw-bold"><i class="bi bi-journal-check me-1"></i>この日に書いた記録（{{ today_records|length }} 件）</div></div>
+    {% for rec in today_records %}
+    <div class="th-row">
+      <div class="th-time">{% if rec.time %}{{ rec.time|time:'G:i' }}{% else %}—{% endif %}</div>
+      <div class="th-main">
+        <a href="{% url 'therapy:child' rec.beneficiary.pk %}#rec{{ rec.pk }}" class="th-name">{{ rec.beneficiary.full_name }}</a>
+        {% if rec.staff_label %}<span class="th-meta ms-1">担当 {{ rec.staff_label }}</span>{% endif %}
+        {% if rec.activity_text %}<div class="small">{{ rec.activity_text }}</div>{% endif %}
+        {% if rec.body %}<div class="th-meta text-truncate">{{ rec.body|truncatechars:80 }}</div>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-body pb-2"><div class="fw-bold"><i class="bi bi-people me-1"></i>{{ terms.beneficiary }}ごとの記録</div></div>
+    {% for c in children %}
+    <div class="th-row">
+      <div class="th-main">
+        <a href="{% url 'therapy:child' c.beneficiary.pk %}" class="th-name">{{ c.beneficiary.full_name }}</a>
+        <div class="th-meta th-count">記録 {{ c.count }} 件・最終 {% if c.last %}{{ c.last|date:'Y/n/j' }}{% else %}—{% endif %}</div>
+      </div>
+      <div class="th-acts">
+        <a href="{% url 'therapy:child' c.beneficiary.pk %}?date={{ day|date:'Y-m-d' }}#add" class="btn btn-sm btn-outline-primary text-nowrap"><i class="bi bi-pencil me-1"></i>書く</a>
+        <a href="{% url 'therapy:pdf' c.beneficiary.pk %}?fmt=html" class="btn btn-sm btn-outline-secondary" target="_blank" title="用紙で印刷"><i class="bi bi-printer"></i></a>
+      </div>
+    </div>
+    {% empty %}
+    <div class="text-center text-muted py-4 border-top">在籍中の{{ terms.beneficiary }}がいません。</div>
     {% endfor %}
   </div>
 </div>

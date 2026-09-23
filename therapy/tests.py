@@ -57,7 +57,8 @@ class TherapyTests(TestCase):
         self.assertEqual(rec.time_label, '10時00分')
 
         res = self.client.get(self.url)
-        self.assertContains(res, '①ウレタン棒 ②アンパンマンブロック ③シール貼り')
+        for chip in ('①ウレタン棒', '②アンパンマンブロック', '③シール貼り'):
+            self.assertContains(res, f'<span class="th-chip">{chip}</span>', html=True)
         self.assertContains(res, '担当 永山')
 
         res = self.client.post(self.url, {'action': 'edit', 'record': rec.pk, 'date': '2026-10-04', 'time': '',

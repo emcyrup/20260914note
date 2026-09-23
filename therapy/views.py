@@ -88,6 +88,7 @@ class IndexView(TherapyEnabledMixin, View):
         return render(request, self.template_name, {
             'day': day, 'prev_day': day - datetime.timedelta(days=1), 'next_day': day + datetime.timedelta(days=1),
             'reservations': reservations, 'children': children,
+            'written_count': sum(1 for r in reservations if r.written),
             'today_records': (TherapyRecord.objects.filter(facility=facility, date=day)
                               .select_related('beneficiary', 'staff').order_by('time', 'pk')),
         })
@@ -118,6 +119,7 @@ class ChildView(TherapyEnabledMixin, View):
             'staff_list': StaffAccount.objects.filter(facility=facility, is_active=True).order_by('display_name', 'username'),
             'default_date': default_date, 'default_time': default_time,
             'activity_range': range(1, ACTIVITY_MAX + 1), 'edit_pk': to_int(request.GET.get('edit')),
+            'cautions_rows': min(max(len((profile.cautions if profile else '').splitlines()) + 1, 4), 12),
         })
 
     def post(self, request, pk):

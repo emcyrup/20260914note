@@ -7,16 +7,30 @@
 
 {% block extra_css %}
 <style>
-  .voice-btn { color: var(--color-primary); border: 1px solid var(--color-primary-light); border-radius: 6px; padding: 1px 8px; white-space: nowrap; }
-  .voice-btn:hover { background: var(--color-primary-bg); }
-  .voice-btn.recording { color: #fff; background: var(--color-danger); border-color: var(--color-danger); animation: voice-rec 1s infinite; }
+  .th-card-title { font-weight: 700; display: flex; align-items: center; gap: 6px; }
+  .th-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+  .th-tools .btn { white-space: nowrap; }
+  .th-voice.recording { color: #fff; background: var(--color-danger); border-color: var(--color-danger); animation: voice-rec 1s infinite; }
   @keyframes voice-rec { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
-  .th-rec { border-top: 1px solid #e6e1d8; padding: 10px 0; }
-  .th-rec:first-child { border-top: 0; }
-  .th-head { font-weight: 700; }
-  .th-acts { color: #4e5e50; }
-  .th-body { white-space: pre-wrap; }
-  .th-edit { background: rgba(243,239,231,0.55); border-radius: 8px; padding: 10px; margin-top: 8px; }
+  #cautions { line-height: 1.7; }
+  .th-save-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 8px; }
+  .th-save-row .btn { white-space: nowrap; flex: 0 0 auto; }
+  .th-rec { border-top: 1px solid var(--line); padding: 14px 16px; }
+  .th-rec-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .th-rec-date { font-weight: 700; font-size: 1rem; }
+  .th-rec-meta { font-size: 0.82rem; color: #8a8378; margin-left: 6px; }
+  .th-rec-btns { display: flex; gap: 4px; flex: 0 0 auto; }
+  .th-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 4px; }
+  .th-chip { font-size: 0.8rem; padding: 2px 9px; border-radius: 999px; background: var(--color-primary-bg); color: var(--lake-text); border: 1px solid rgba(0,0,0,0.06); }
+  .th-body { white-space: pre-wrap; line-height: 1.7; }
+  .th-edit { background: rgba(243,239,231,0.55); border-radius: 8px; padding: 12px; margin-top: 10px; }
+  .th-list-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .th-list-head select { width: auto; }
+  @media (max-width: 576px) {
+    .th-save-row { flex-direction: column; align-items: stretch; }
+    .th-save-row .btn { width: 100%; }
+    .th-rec { padding: 12px; }
+  }
 </style>
 {% endblock %}
 
@@ -34,43 +48,43 @@
   <div class="card mb-3"><div class="card-body">
     <form method="post">
       {% csrf_token %}<input type="hidden" name="action" value="cautions">
-      <div class="d-flex justify-content-between align-items-center mb-1">
-        <label class="form-label fw-bold mb-0" for="cautions">留意点</label>
-        <div class="d-flex gap-1">
-          <button type="button" class="voice-btn btn btn-sm" data-voice-target="cautions" data-voice-note="cautions-voice-note"
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+        <label class="th-card-title mb-0" for="cautions"><i class="bi bi-exclamation-diamond"></i>留意点</label>
+        <div class="th-tools">
+          <button type="button" class="th-voice btn btn-sm btn-outline-secondary" data-voice-target="cautions" data-voice-note="cautions-voice-note"
                   title="音声で入力（もう一度押すと止まる）"><i class="bi bi-mic"></i> 音声入力</button>
-          <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" id="cautions-summary"
+          <button type="button" class="btn btn-sm btn-outline-primary" id="cautions-summary"
                   data-url="{% url 'therapy:cautions_summary' beneficiary.pk %}"
                   title="入っている文をAIが短い箇条書きに整えます"><i class="bi bi-magic"></i> 要約</button>
         </div>
       </div>
-      <div id="cautions-voice-note" class="alert alert-warning small py-1 px-2 mb-1 d-none"></div>
-      <div id="cautions-summary-note" class="alert alert-info small py-1 px-2 mb-1 d-none">
+      <div id="cautions-voice-note" class="alert alert-warning small py-1 px-2 mb-2 d-none"></div>
+      <div id="cautions-summary-note" class="alert alert-info small py-1 px-2 mb-2 d-none">
         <span class="msg"></span>
         <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline d-none" id="cautions-undo">元の文に戻す</button>
       </div>
-      <textarea class="form-control form-control-sm" id="cautions" name="cautions" rows="3" placeholder="用紙の上の枠に書いてある、この{{ terms.beneficiary }}のときに気をつけること">{{ profile.cautions|default:'' }}</textarea>
-      <div class="d-flex justify-content-between align-items-center mt-2">
+      <textarea class="form-control" id="cautions" name="cautions" rows="{{ cautions_rows }}" placeholder="用紙の上の枠に書いてある、この{{ terms.beneficiary }}のときに気をつけること">{{ profile.cautions|default:'' }}</textarea>
+      <div class="th-save-row">
         <div class="form-text mb-0">用紙の1枚目の上に印刷されます。話して入れたあと「要約」を押すと、短い箇条書きに整えます。</div>
-        <button class="btn btn-sm btn-outline-primary">留意点を保存</button>
+        <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>留意点を保存</button>
       </div>
     </form>
   </div></div>
 
-  <div class="card mb-3"><div class="card-body">
-    <div class="fw-bold mb-2">記録を追加する</div>
+  <div class="card mb-3" id="add"><div class="card-body">
+    <div class="th-card-title mb-2"><i class="bi bi-plus-circle"></i>記録を追加する</div>
     <form method="post" class="row g-2">
       {% csrf_token %}<input type="hidden" name="action" value="add">
       {% include 'therapy/_record_fields.html' with rec=None %}
-      <div class="col-12 text-end"><button class="btn btn-primary">追加する</button></div>
+      <div class="col-12 text-end"><button class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>追加する</button></div>
     </form>
   </div></div>
 
-  <div class="card"><div class="card-body">
-    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-      <div class="fw-bold">これまでの記録{% if ym %}（{{ ym }}）{% endif %}</div>
-      <form method="get" class="d-flex gap-1">
-        <select name="ym" class="form-select form-select-sm" onchange="this.form.submit()">
+  <div class="card">
+    <div class="card-body pb-2 th-list-head">
+      <div class="th-card-title"><i class="bi bi-journal-text"></i>これまでの記録{% if ym %}（{{ ym }}）{% endif %}<span class="th-rec-meta">{{ records|length }} 件</span></div>
+      <form method="get">
+        <select name="ym" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="月で絞る">
           <option value="">すべて（新しい200件）</option>
           {% for m in months %}<option value="{{ m|date:'Y-m' }}" {% if ym == m|date:'Y-m' %}selected{% endif %}>{{ m|date:'Y年n月' }}</option>{% endfor %}
         </select>
@@ -78,17 +92,21 @@
     </div>
     {% for rec in records %}
     <div class="th-rec" id="rec{{ rec.pk }}">
-      <div class="d-flex justify-content-between flex-wrap gap-2">
-        <div class="th-head">{{ rec.date_label }}{% if rec.time %} {{ rec.time_label }}{% endif %}{% if rec.staff_label %}　担当 {{ rec.staff_label }}{% endif %}</div>
-        <div class="d-flex gap-1">
-          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('edit{{ rec.pk }}').classList.toggle('d-none')">修正</button>
+      <div class="th-rec-head">
+        <div>
+          <span class="th-rec-date">{{ rec.date|date:'Y年n月j日' }}（{{ rec.date|date:'D' }}）</span>{% if rec.time %}<span class="th-rec-date ms-1">{{ rec.time|time:'G:i' }}</span>{% endif %}
+          {% if rec.staff_label %}<span class="th-rec-meta">担当 {{ rec.staff_label }}</span>{% endif %}
+        </div>
+        <div class="th-rec-btns">
+          <button type="button" class="btn btn-sm btn-outline-secondary" title="修正" aria-label="修正"
+                  onclick="document.getElementById('edit{{ rec.pk }}').classList.toggle('d-none')"><i class="bi bi-pencil"></i><span class="d-none d-sm-inline ms-1">修正</span></button>
           <form method="post" onsubmit="return confirm('{{ rec.date|date:'n/j' }} の記録を削除します。よろしいですか？');">
             {% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="record" value="{{ rec.pk }}">
-            <button class="btn btn-sm btn-outline-danger">削除</button>
+            <button class="btn btn-sm btn-outline-danger" title="削除" aria-label="削除"><i class="bi bi-trash"></i><span class="d-none d-sm-inline ms-1">削除</span></button>
           </form>
         </div>
       </div>
-      {% if rec.activity_text %}<div class="th-acts">{{ rec.activity_text }}</div>{% endif %}
+      {% if rec.activity_list %}<div class="th-chips">{% for a in rec.activity_list %}<span class="th-chip">{{ a }}</span>{% endfor %}</div>{% endif %}
       {% if rec.body %}<div class="th-body">{{ rec.body }}</div>{% endif %}
       <div class="th-edit {% if edit_pk != rec.pk %}d-none{% endif %}" id="edit{{ rec.pk }}">
         <form method="post" class="row g-2">
@@ -99,9 +117,9 @@
       </div>
     </div>
     {% empty %}
-    <div class="text-center text-muted py-3">まだ記録がありません。</div>
+    <div class="text-center text-muted py-4 border-top">まだ記録がありません。上の「記録を追加する」から書けます。</div>
     {% endfor %}
-  </div></div>
+  </div>
 </div>
 {% endblock %}
 
@@ -120,7 +138,7 @@
     undo.classList.toggle('d-none', !canUndo);
   }
   btn.addEventListener('click', function () {
-    var rec = document.querySelector('.voice-btn.recording');
+    var rec = document.querySelector('[data-voice-target].recording');
     if (rec) rec.click();                         // 音声入力中なら止めてから
     var text = area.value.trim();
     if (!text) { show('留意点が空です。先に音声入力か文字で入れてください。', 'warning', false); return; }
