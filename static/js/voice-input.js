@@ -10,7 +10,8 @@
  * - Chrome（パソコン）：黙った間や約1分ごとに聞き取りが切れる → 止めるボタンを押すまで自動でつなぎ直す
  * - Android の Chrome：続けて聞く（continuous）と同じ言葉が重なって返る → 1文ずつ聞いてつなぎ直す。
  *   同じ言葉が続けて2回確定したときは1回にする
- * - iPhone・iPad（Safari）：resultIndex が当てにならない・確定しないまま終わることがある
+ * - iPhone・iPad（Safari・Chrome とも中身は同じ）：resultIndex が当てにならない・確定しないまま終わることがある
+ *   止めたあとに新しく作った聞き取りには音が届かない → ページで1つだけ作って使い回す
  *   → 何番目まで欄に入れたかを自分で数える。確定しないまま終わった言葉も欄に入れる
  * - 通信が一瞬切れた（network）：何回かはつなぎ直す
  * - 聞き取りを始め直せない（InvalidStateError）：少し待ってやり直す
@@ -38,6 +39,9 @@
   var closing = [];                                  // 止めるように言ったが、まだ終わっていない聞き取り
   var lastEndAt = 0;                                 // 最後に聞き取りが終わった時刻
   var lastRec = null;
+  var shared = null;                                 // iPhone：ページで1つだけ作って使い回す聞き取り
+  var sessions = 0;                                  // このページで始めた聞き取りの数
+  var HINT_MS = 10000;                               // iPhone：2回目以降、これだけ何も聞き取れないと案内を出す
 
   // うまく動かないときに調べるための記録（話した言葉そのものは残さず、文字数だけ）
   var LOG = [], T0 = Date.now(), seq = 0;
@@ -145,10 +149,11 @@
     }
     if (a.rec && a.rec._viOpen) {
       // 止めきるまで少しかかる（最後の言葉が届く）。終わる前に次を始めるとぶつかるので、覚えておく
-      var r = a.rec;
+      var r = a.rec, sid = r._viId;
       closing.push(r);
       try { r.stop(); } catch (e) { forget(r); }
-      setTimeout(function () { if (r._viOpen) { try { r.abort(); } catch (e) { /* もう止まっている */ } forget(r); } }, CLOSE_WAIT_MS);
+      // 同じ聞き取りのままなら打ち切る（iPhone は使い回すので、次の録音を打ち切らないよう番号を確かめる）
+      setTimeout(function () { if (r._viOpen && r._viId === sid) { log('stop did not end → abort'); try { r.abort(); } catch (e) { /* もう止まっている */ } } }, CLOSE_WAIT_MS);
     }
     a.btn.classList.remove('recording');
     a.btn.innerHTML = a.label;
@@ -163,17 +168,33 @@
   }
 
   function listen(a) {
-    if (lastRec && !lastRec._viOpen) { try { lastRec.abort(); } catch (e) { /* もう止まっている */ } }
-    var rec = new SR();
+    var rec;
+    if (IOS) {
+      // iPhone・iPad：止めたあとに新しく作った聞き取りは、始まっても音が届かない（2回目が文字にならない）。
+      // ページで1つだけ作って、start()・stop() をくり返して使う
+      if (!shared) shared = new SR();
+      rec = shared;
+    } else {
+      if (lastRec && !lastRec._viOpen) { try { lastRec.abort(); } catch (e) { /* もう止まっている */ } }
+      rec = new SR();
+    }
     var id = ++seq;
+    rec._viId = id;
     lastRec = rec;
     rec._viHeardAudio = false;
-    ['start', 'audiostart', 'soundstart', 'speechstart', 'speechend', 'soundend', 'audioend', 'nomatch'].forEach(function (ev) {
-      rec.addEventListener && rec.addEventListener(ev, function () {
-        log('#' + id + ' ' + ev);
-        if (ev === 'audiostart' || ev === 'start') { rec._viHeardAudio = true; clearTimeout(rec._viWatch); }
+    rec._viSpeech = false;
+    rec._viEnded = false;
+    sessions++;
+    if (!rec._viLogged) {                   // 使い回すときも、知らせの記録は1回だけ付ける
+      rec._viLogged = true;
+      ['start', 'audiostart', 'soundstart', 'speechstart', 'speechend', 'soundend', 'audioend', 'nomatch'].forEach(function (ev) {
+        rec.addEventListener && rec.addEventListener(ev, function () {
+          log('#' + rec._viId + ' ' + ev);
+          if (ev === 'audiostart' || ev === 'start') { rec._viHeardAudio = true; clearTimeout(rec._viWatch); }
+          if (ev === 'speechstart' || ev === 'soundstart') rec._viSpeech = true;
+        });
       });
-    });
+    }
     rec.lang = 'ja-JP';
     rec.continuous = !ONE_SHOT;
     rec.interimResults = true;
@@ -182,7 +203,7 @@
     a.sessionStart = Date.now();
     a.pending = '';
     rec.onresult = function (e) {
-      rec._viHeardAudio = true; clearTimeout(rec._viWatch);
+      rec._viHeardAudio = true; rec._viSpeech = true; clearTimeout(rec._viWatch);
       log('#' + id + ' result idx=' + e.resultIndex + ' n=' + e.results.length + ' ' +
           Array.prototype.map.call(e.results, function (r) { return (r.isFinal ? 'F' : 'i') + (r[0] ? r[0].transcript.length : 0); }).join(','));
       var interim = '';
@@ -227,6 +248,7 @@
       rec._viEnded = true;
       log('#' + id + ' end' + (active !== a ? ' (stopped)' : ''));
       clearTimeout(rec._viWatch);
+      clearTimeout(rec._viHint);
       lastEndAt = Date.now();
       forget(rec);
       if (a.pending) {                      // 確定しないまま終わった言葉（iPhone など）も入れる
@@ -256,9 +278,20 @@
       if (a.errRun) a.retryTimer = setTimeout(function () { begin(a, 0); }, Math.min(250 * a.errRun, 2000));
       else begin(a, 0);                     // 自動でつなぎ直す
     };
+    log('#' + id + ' start() continuous=' + rec.continuous + (a.restarts ? ' restart' : '') + (IOS ? ' shared' : ''));
+    rec.start();                            // 始められないときは例外になる（begin でやり直す）
     rec._viOpen = true;
-    log('#' + id + ' start() continuous=' + rec.continuous + (a.restarts ? ' restart' : ''));
-    rec.start();
+    if (IOS && sessions > 1) {
+      // それでも音が届かないとき（iPhone の不具合）は、黙って待たせずに案内する
+      clearTimeout(rec._viHint);
+      rec._viHint = setTimeout(function () {
+        if (active === a && rec._viOpen && !rec._viSpeech) {
+          log('#' + id + ' hint: no speech on iPhone');
+          note(a.btn, '音声が届いていないようです（iPhone では2回目以降の録音で起きることがあります）。' +
+                      'いったん止めて、ページを読み込み直してから録音してください。議事録は先に「保存する」を押してください。');
+        }
+      }, HINT_MS);
+    }
     // 始めたのにマイクが動き出さない（何の知らせも来ない）ときは、打ち切ってやり直す
     rec._viWatch = setTimeout(function () {
       if (rec._viOpen && !rec._viHeardAudio && active === a) {
@@ -273,16 +306,21 @@
   // 聞き取りを始める。始め直せないとき（前の聞き取りがまだ終わりきっていない）は少し待ってやり直す
   function begin(a, tries) {
     if (active !== a) return;
-    if (closing.length && tries < CLOSE_WAIT_MS / 100) {
-      // 前に止めた聞き取りが終わりきるのを待ってから始める（ぶつかると新しい方が聞き取れない）
+    if (closing.length && tries < CLOSE_WAIT_MS / 100 + 30) {
+      // 前に止めた聞き取りが終わりきるのを待ってから始める（ぶつかると新しい方が聞き取れない）。
+      // 1.5 秒で終わらなければ打ち切り（abort）、終わりの知らせをさらに 3 秒まで待つ
+      if (tries === CLOSE_WAIT_MS / 100) {
+        log('closing did not end → abort');
+        closing.forEach(function (r) { try { r.abort(); } catch (e) { /* もう止まっている */ } });
+      }
       a.waiting = true;
       paint(a);
       a.retryTimer = setTimeout(function () { begin(a, tries + 1); }, 100);
       return;
     }
-    if (closing.length) {                   // 待っても終わらないときは打ち切る
-      log('closing did not end → abort');
-      closing.slice().forEach(function (r) { try { r.abort(); } catch (e) { /* もう止まっている */ } forget(r); });
+    if (closing.length) {                   // それでも終わりの知らせが来ないときは、終わったものとして進める
+      log('closing never ended → forget');
+      closing.slice().forEach(forget);
     }
     if (!a.restarts && Date.now() - lastEndAt < START_GAP_MS && tries < 20) {
       // 押して始めるときは、前の聞き取りが終わってから少し間をあける（すぐだとマイクが動かない端末がある）
