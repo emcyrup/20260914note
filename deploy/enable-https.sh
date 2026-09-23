@@ -2,7 +2,7 @@
 # =============================================
 # ドメインで HTTPS にする（GCP の別サーバー：/opt/ryoiku・/opt/simple など）
 #
-#   ./enable-https.sh check <ドメイン>   … 事前確認だけ（DNS が固定 IP を向いているか・443 が開いているか）
+#   ./enable-https.sh check <ドメイン>   … 事前確認だけ（DNS が固定 IP を向いているか・443 番を受けられるか）
 #   ./enable-https.sh <ドメイン>         … .env を書き換えて Caddy に証明書を取らせ、https で開けるまで確かめる
 #   ./enable-https.sh off                … IP（http://<固定IP>/）で動かす状態に戻す
 #
@@ -69,12 +69,25 @@ check() {
   else
     say "  → OK"
   fi
-  # 443 番に外から届くか（自分自身の外向き IP 宛て。Caddy が 443 を開いていれば接続できる）
-  if timeout 5 bash -c "exec 3<>/dev/tcp/$ip/443" 2>/dev/null; then
-    say "443 番（HTTPS）        : 接続できる"
+  # 443 番：① サーバーの中で Caddy が受けているか（docker の 443:443）
+  #         ② GCP のファイアウォールで開いているか（VM に https-server タグ＝「HTTPS トラフィックを許可する」）
+  # VM の中から自分の外向き IP へつなぐ確かめ方は GCP では届かない（折り返さない）ので使わない
+  if timeout 5 bash -c "exec 3<>/dev/tcp/127.0.0.1/443" 2>/dev/null; then
+    say "443 番（サーバー内）   : 受けている"
   else
-    say "443 番（HTTPS）        : 接続できない → VM の編集で「HTTPS トラフィックを許可する」をオン（ファイアウォール default-allow-https）"
+    say "443 番（サーバー内）   : 受けていない → docker compose ps で caddy が動いているか確かめてください"
     ok=1
+  fi
+  local tags
+  tags=$(curl -s --max-time 3 -H 'Metadata-Flavor: Google' \
+    'http://metadata.google.internal/computeMetadata/v1/instance/tags' || true)
+  if [ -z "$tags" ]; then
+    say "443 番（ファイアウォール）: 確かめられない（GCP 以外）。外から https が通るようにしてください"
+  elif printf '%s' "$tags" | grep -q '"https-server"'; then
+    say "443 番（ファイアウォール）: 開いている（https-server）"
+  else
+    say "443 番（ファイアウォール）: https-server タグがありません → VM の編集で「HTTPS トラフィックを許可する」をオンにして保存"
+    say "  （独自のファイアウォール規則で 443 を開けている場合は、そのまま進めて構いません）"
   fi
   return $ok
 }
@@ -83,7 +96,8 @@ wait_https() {
   local domain=$1 code=""
   say "証明書の取得を待っています（最大2分）…"
   for _ in $(seq 1 24); do
-    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "https://$domain/healthz/" || true)
+    # サーバーの中から自分の外向き IP へは届かないので、ドメイン名のまま 127.0.0.1 につなぐ（証明書も確かめる）
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 --resolve "$domain:443:127.0.0.1" "https://$domain/healthz/" || true)
     if [ "$code" = "200" ]; then
       say "OK: https://$domain/ で開けます（healthz 200）"
       return 0
