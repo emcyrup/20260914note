@@ -6,6 +6,7 @@ LINE連携のビュー定義
 """
 
 import logging
+import re
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -21,6 +22,7 @@ from beneficiaries.models import Beneficiary, Guardian
 from config.utils import home_url, reservation_enabled
 from facilities.models import Facility
 from records.models import DailyRecord
+from reservations.services import link_guardian_to_customer
 
 from .models import LineDeliveryLog
 
@@ -37,6 +39,7 @@ class LineWebhookView(View):
     - TextMessage   : お子様のお名前を送ってもらい、保護者とLINE User IDを紐づける
     """
 
+    CODE_RE = re.compile(r'^[A-Z0-9]{8}$')   # 登録コード（8文字の英数字）
     LINK_FAIL_LIMIT = 5          # この回数を超えて間違えた LINE ユーザーは
     LINK_FAIL_WINDOW = 60 * 60   # この秒数の間、照合しない
     RECEIVED_REPLY = ('承りました。事業所で内容を確認のうえ、あらためてご連絡します。\n'
@@ -193,6 +196,20 @@ class LineWebhookView(View):
                 self._inbox(facility, event, raw_text, source_type, line_user_id)
                 return
 
+            # 連携済みの人が、きょうだいの登録コードを送ってきたときは、その子の保護者としてもつなぐ
+            if (self.CODE_RE.match(text) and line_user_id
+                    and Guardian.objects.filter(line_user_id=line_user_id, line_linked=True).exists()):
+                sibling = Guardian.objects.filter(
+                    beneficiary__facility=facility, line_registration_code=text, line_linked=False,
+                    line_code_expires_at__gt=timezone.now(),
+                ).select_related('beneficiary').first()
+                if sibling is not None:
+                    sibling.mark_line_linked(line_user_id)
+                    sibling.save()
+                    link_guardian_to_customer(sibling)
+                    reply(f'{sibling.beneficiary.full_name}様の保護者としても登録しました。')
+                    return
+
             # 連携済みなら、登録コードの照合はしない（予約管理を使う事業所では受信箱に積む）
             if Guardian.objects.filter(line_user_id=line_user_id, line_linked=True).exists():
                 # 計画書中心の画面：保護者からの LINE を連絡帳に積む
@@ -233,6 +250,7 @@ class LineWebhookView(View):
                 if guardian:
                     guardian.mark_line_linked(line_user_id)
                     guardian.save()
+                    link_guardian_to_customer(guardian)
                     cache.delete(fail_key)
                     reply_text = (
                         f'{guardian.beneficiary.full_name}様の保護者として登録しました。\n'

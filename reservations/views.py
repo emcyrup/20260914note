@@ -503,12 +503,24 @@ class LineView(ReservationEnabledMixin, View):
                 facility=facility, status__in=(ReservationNotice.STATUS_SENT, ReservationNotice.STATUS_FAILED)
             ).select_related('customer')[:20],
             'beneficiaries': Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE),
+            'unlinked_customers': Customer.objects.filter(facility=facility, line_user_id='').prefetch_related('children'),
         })
 
     def post(self, request):
         facility = request.user.facility
         action = request.POST.get('action', '')
         back = redirect('reservations:line')
+
+        if action == 'link':
+            # 受信箱の送り主（LINE）を、顧客台帳にいる人につなぐ
+            entry = get_object_or_404(LineInbox, pk=to_int(request.POST.get('entry'), -1), facility=facility)
+            customer = get_object_or_404(Customer, pk=to_int(request.POST.get('customer'), -1), facility=facility)
+            ok, reason = services.link_customer_line(customer, entry.line_user_id)
+            if ok:
+                messages.success(request, f'この LINE を「{customer.name}」さんにつなぎました。これからのお知らせは LINE で届きます。')
+            else:
+                messages.error(request, reason)
+            return back
 
         if action in ('apply', 'ignore', 'register'):
             entry = get_object_or_404(LineInbox, pk=to_int(request.POST.get('entry'), -1), facility=facility)

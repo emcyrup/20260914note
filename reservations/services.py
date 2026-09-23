@@ -903,3 +903,50 @@ def page_reply(facility, text, customer=None, setting=None, base='', today=None)
 
     body = f'{lead}\n{url}\n{setting.sign_text}'
     return body, bool(parsed['dates'])
+
+
+# ---------------------------------------------------------------- 顧客台帳と LINE をつなぐ
+def link_customer_line(customer, line_user_id):
+    """
+    顧客台帳の人に LINE のユーザー ID を付ける。ほかの顧客がすでに使っていれば付けない。
+    戻り値は (付けたか, 理由)。
+    """
+    if not line_user_id:
+        return False, 'LINE のユーザー ID がありません。'
+    other = Customer.objects.filter(facility=customer.facility, line_user_id=line_user_id).exclude(pk=customer.pk).first()
+    if other is not None:
+        return False, f'この LINE はすでに「{other.name}」さんにつながっています。'
+    customer.line_user_id = line_user_id
+    customer.save(update_fields=['line_user_id', 'updated_at'])
+    return True, ''
+
+
+def link_guardian_to_customer(guardian):
+    """
+    保護者が登録コードで LINE をつないだとき、予約の顧客台帳にも同じ LINE を付ける
+    （月予約利用希望のお願い・「ご利用日が決まりました」などが LINE で届くように）。
+    - 同じ LINE の顧客がいれば、そのお子さまを担当に足す（きょうだい）
+    - お子さまの顧客で LINE の無い人がいれば、その人に付ける（保護者の名前が同じ人を優先）
+    - 顧客がいなければ、保護者台帳から作る
+    予約管理を使わない事業所では何もしない。戻り値は顧客（または None）。
+    """
+    from config.utils import reservation_enabled
+    beneficiary = guardian.beneficiary
+    facility = beneficiary.facility
+    line_id = guardian.line_user_id
+    if not line_id or not reservation_enabled(facility):
+        return None
+    same = Customer.objects.filter(facility=facility, line_user_id=line_id).first()
+    if same is not None:
+        same.children.add(beneficiary)
+        return same
+    candidates = list(Customer.objects.filter(facility=facility, children=beneficiary, line_user_id=''))
+    target = next((c for c in candidates if c.name.replace(' ', '').replace('　', '')
+                   == guardian.full_name.replace(' ', '')), None) or (candidates[0] if candidates else None)
+    if target is None:
+        target = Customer.objects.create(facility=facility, name=guardian.full_name[:100], phone=guardian.phone[:20],
+                                         note='LINE の登録コードで作成')
+        target.children.add(beneficiary)
+    target.line_user_id = line_id
+    target.save(update_fields=['line_user_id', 'updated_at'])
+    return target

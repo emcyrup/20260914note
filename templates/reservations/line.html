@@ -89,6 +89,16 @@
         <div class="small">{{ row.entry.text|default:'（本文なし）'|linebreaksbr }}</div>
         <div class="small text-muted mt-1">{{ row.entry.received_at|date:'n/j H:i' }}
           {% if row.customer %}・{{ row.customer.name }}{% else %}・<span class="text-warning">顧客台帳にありません</span>{% endif %}</div>
+        {% if not row.customer and row.entry.line_user_id and unlinked_customers %}
+        <form method="post" class="d-flex gap-1 mt-1">
+          {% csrf_token %}<input type="hidden" name="action" value="link"><input type="hidden" name="entry" value="{{ row.entry.pk }}">
+          <select name="customer" class="form-select form-select-sm" required aria-label="つなぐ顧客">
+            <option value="">顧客台帳の人につなぐ…</option>
+            {% for c in unlinked_customers %}<option value="{{ c.pk }}">{{ c.name }}{% if c.child_names %}（{{ c.child_names }}）{% endif %}</option>{% endfor %}
+          </select>
+          <button class="btn btn-sm btn-outline-success text-nowrap">つなぐ</button>
+        </form>
+        {% endif %}
       </div>
       <div class="small">
         <span class="row-list-label">読み取り</span>

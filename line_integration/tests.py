@@ -159,8 +159,12 @@ class WebhookInboxTests(TestCase):
         self.guardian.refresh_from_db()
         self.assertTrue(self.guardian.line_linked)
         self.assertEqual(LineInbox.objects.count(), 0)
+        # つないだ保護者は顧客台帳にも入るので、予約の文は事業所の決まりどおりに扱う
+        # （自動で確定する設定なら予約になり、そうでなければ受信箱に積む）
+        from reservations.models import Customer, Reservation
+        self.assertTrue(Customer.objects.filter(facility=self.f, line_user_id='U1').exists())
         res, reply = self._post('10/2 予約', message_id='m2')
-        self.assertEqual(LineInbox.objects.count(), 1)
+        self.assertEqual(LineInbox.objects.count() + Reservation.objects.count(), 1)
 
     def test_group_message_is_inboxed_with_group_id(self):
         from reservations.models import LineInbox
@@ -176,6 +180,79 @@ class WebhookInboxTests(TestCase):
         self.assertEqual(LineInbox.objects.count(), 0)
         self.assertIn('見つからない', reply.call_args[0][0].messages[0].text)
 
+
+
+class CustomerLineLinkTests(TestCase):
+    """登録コードで LINE をつなぐと、予約の顧客台帳にも同じ LINE が付く（お知らせが LINE で届くように）"""
+
+    def setUp(self):
+        cache.clear()
+        self.f = Facility.objects.create(name='ゆあーず', line_channel_secret='secret-a',
+                                         line_channel_access_token='tok-a', use_reservation=True)
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='はると',
+                                              date_of_birth=date(2016, 4, 1))
+        self.sister = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='ゆい',
+                                                 date_of_birth=date(2018, 4, 1))
+        self.g1 = Guardian.objects.create(beneficiary=self.kid, last_name='青木', first_name='花子', phone='090-1')
+        self.g2 = Guardian.objects.create(beneficiary=self.sister, last_name='青木', first_name='花子')
+
+    def _post(self, text, message_id='m1'):
+        body = _body(text, user_id='U-aoki', message_id=message_id)
+        url = reverse('line_integration:webhook_facility', args=[self.f.pk])
+        with mock.patch('linebot.v3.messaging.MessagingApi.reply_message') as reply:
+            self.client.post(url, data=body, content_type='application/json', HTTP_X_LINE_SIGNATURE=_sig('secret-a', body))
+        return reply.call_args[0][0].messages[0].text
+
+    def test_code_links_existing_customer_and_sibling(self):
+        from reservations.models import Customer
+        # 利用希望のお願いのときに作った、LINE の無い顧客
+        other = Customer.objects.create(facility=self.f, name='青木 父')
+        other.children.add(self.kid)
+        mom = Customer.objects.create(facility=self.f, name='青木　花子')
+        mom.children.add(self.kid)
+        self._post(self.g1.line_registration_code)
+        mom.refresh_from_db(); other.refresh_from_db()
+        self.assertEqual((mom.line_user_id, other.line_user_id), ('U-aoki', ''))     # 名前が同じ人に付ける
+        # きょうだいのコードを、つないだあとで送る → その子の保護者にもなり、同じ顧客の担当に足す
+        text = self._post(self.g2.line_registration_code, message_id='m2')
+        self.assertIn('青木 ゆい様の保護者としても登録しました', text)
+        self.g2.refresh_from_db()
+        self.assertTrue(self.g2.line_linked)
+        self.assertEqual(set(mom.children.all()), {self.kid, self.sister})
+        self.assertEqual(Customer.objects.filter(line_user_id='U-aoki').count(), 1)
+
+    def test_code_creates_customer_when_none(self):
+        from reservations.models import Customer
+        self._post(self.g1.line_registration_code)
+        c = Customer.objects.get(line_user_id='U-aoki')
+        self.assertEqual((c.name, c.phone, list(c.children.all())), ('青木 花子', '090-1', [self.kid]))
+
+    def test_without_reservation_feature_no_customer(self):
+        from reservations.models import Customer
+        self.f.use_reservation = False
+        self.f.save()
+        self._post(self.g1.line_registration_code)
+        self.assertFalse(Customer.objects.exists())
+
+    def test_inbox_sender_can_be_linked_to_existing_customer(self):
+        from accounts.models import StaffAccount
+        from reservations.models import Customer, LineInbox
+        staff = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(staff)
+        c = Customer.objects.create(facility=self.f, name='青木 花子')
+        c.children.add(self.kid)
+        entry = LineInbox.objects.create(facility=self.f, message_id='x1', text='こんにちは', line_user_id='U-new')
+        page = self.client.get(reverse('reservations:line'))
+        self.assertContains(page, '顧客台帳の人につなぐ')
+        self.client.post(reverse('reservations:line'), {'action': 'link', 'entry': entry.pk, 'customer': c.pk})
+        c.refresh_from_db()
+        self.assertEqual(c.line_user_id, 'U-new')
+        # 同じ LINE をほかの人にはつながない
+        c2 = Customer.objects.create(facility=self.f, name='別の人')
+        res = self.client.post(reverse('reservations:line'), {'action': 'link', 'entry': entry.pk, 'customer': c2.pk}, follow=True)
+        self.assertContains(res, 'すでに「青木 花子」さんにつながっています')
+        c2.refresh_from_db()
+        self.assertEqual(c2.line_user_id, '')
 
 class WebhookAutoApplyTests(TestCase):
     """LINE の投稿から直接、予約を入れる・取り消す（顧客は公式LINE、職員はグループ）"""
