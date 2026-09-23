@@ -44,12 +44,17 @@
   var HINT_MS = 10000;                               // iPhone：2回目以降、これだけ何も聞き取れないと案内を出す
 
   // うまく動かないときに調べるための記録（話した言葉そのものは残さず、文字数だけ）
-  var LOG = [], T0 = Date.now(), seq = 0;
+  // 保存・読み込み直しをしても消えないよう、このタブのあいだは sessionStorage にも残す
+  var VERSION = 'v6';
+  var LOG_KEY = 'voice-input-log', LOG = [], T0 = Date.now(), seq = 0;
+  try { LOG = JSON.parse(sessionStorage.getItem(LOG_KEY) || '[]') || []; } catch (e) { LOG = []; }
   function log(msg) {
     LOG.push(((Date.now() - T0) / 1000).toFixed(2) + 's ' + msg);
     if (LOG.length > 300) LOG.splice(0, LOG.length - 300);
+    try { sessionStorage.setItem(LOG_KEY, JSON.stringify(LOG)); } catch (e) { /* 使えない */ }
   }
-  log('ready ' + (SR ? (window.SpeechRecognition ? 'SpeechRecognition' : 'webkitSpeechRecognition') : 'no-SR') +
+  log('ready ' + VERSION + ' page=' + location.pathname + ' ' +
+      (SR ? (window.SpeechRecognition ? 'SpeechRecognition' : 'webkitSpeechRecognition') : 'no-SR') +
       ' oneShot=' + ONE_SHOT + ' secure=' + window.isSecureContext + ' ua=' + UA);
 
   function note(btn, text) {

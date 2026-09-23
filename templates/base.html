@@ -393,7 +393,7 @@
 <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 
 {% if user.is_authenticated %}<script src="{% static 'js/concurrency.js' %}?v=1"></script>
-<script src="{% static 'js/voice-input.js' %}?v=6"></script>{% endif %}
+<script src="{% static 'js/voice-input.js' %}?v=7"></script>{% endif %}
 {% block extra_js %}{% endblock %}
 
 {% if user.is_authenticated and user.ui_theme != 'simple' and not reservation_only %}
