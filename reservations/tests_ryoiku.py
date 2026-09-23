@@ -2,7 +2,7 @@
 import datetime
 from unittest import mock
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from accounts.models import StaffAccount
@@ -11,7 +11,7 @@ from config.jp_holidays import holidays, is_weekend_or_holiday
 from facilities.models import Facility
 
 from . import monthly, services
-from .models import Customer, MonthlyRequest, Reservation, ReservationNotice
+from .models import Customer, MonthlyRequest, RequestScan, Reservation, ReservationNotice
 
 
 def child(facility, last, first='子'):
@@ -515,6 +515,165 @@ class WishAskTests(TestCase):
                                           'desired_count': '1', f'all_{day.isoformat()}': '1'}, follow=True)
         self.assertContains(res, 'すでに組んでいる')
         self.assertTrue(ReservationNotice.objects.filter(kind='group', body__contains='直されました').exists())
+
+
+_SCAN_TMP = __import__('tempfile').mkdtemp()
+
+
+def _photo(name='form.png'):
+    import io
+    from PIL import Image
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    buf = io.BytesIO()
+    Image.new('RGB', (60, 80), (255, 255, 255)).save(buf, format='PNG')
+    return SimpleUploadedFile(name, buf.getvalue(), content_type='image/png')
+
+
+def _ai_reply(payload):
+    from types import SimpleNamespace
+    import json
+    return SimpleNamespace(stop_reason='end_turn', content=[
+        SimpleNamespace(type='thinking', thinking=''),
+        SimpleNamespace(type='text', text=json.dumps(payload, ensure_ascii=False))])
+
+
+READ = {'name': '青木 子', 'year': 2026, 'month': 10, 'desired_count': 4,
+        'days': [{'day': 2, 'all_day': False, 'hours': [10, 11, 9]},
+                 {'day': 3, 'all_day': True, 'hours': []},
+                 {'day': 5, 'all_day': True, 'hours': []}],
+        'note': '午前がよい', 'unreadable': '12日の行はかすれている'}
+
+
+@override_settings(MEDIA_ROOT=_SCAN_TMP, ANTHROPIC_API_KEY='test-key')
+class RequestScanTests(TestCase):
+    """紙の利用希望の写真を読み取って反映する"""
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        import shutil
+        shutil.rmtree(_SCAN_TMP, ignore_errors=True)
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f,
+                                                     role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = child(self.f, '青木')
+        self.other = child(self.f, '井上')
+
+    def test_to_wishes_drops_closed_days_and_missing_hours(self):
+        from . import scan
+        out = scan.normalize(READ, self.f, 2026, 10, self.s)
+        self.assertEqual(out['wishes'], {'2026-10-02': [10, 11], '2026-10-03': 'all'})
+        self.assertEqual(out['ignored'], ['2日 9時（枠の無い時刻）', '5日（お休みの日）'])
+        self.assertEqual((out['desired_count'], out['note'], out['month_mismatch']), (4, '午前がよい', False))
+        self.assertEqual(out['slot_count'], 2 + len(self.s.slot_hours(datetime.date(2026, 10, 3))))
+        unknown = scan.normalize(dict(READ, desired_count=-1, month=11, days=[]), self.f, 2026, 10, self.s)
+        self.assertIsNone(unknown['desired_count'])
+        self.assertTrue(unknown['month_mismatch'])
+        cal = scan.calendar_text(self.f, 2026, 10, self.s).splitlines()
+        self.assertEqual((cal[0], cal[2]), ('1日(木) お休み', '3日(土) 9時、10時、11時、13時、14時、15時、16時、17時'))
+
+    @mock.patch('reservations.scan.anthropic.Anthropic')
+    def test_upload_read_review_and_save(self, client_cls):
+        client_cls.return_value.messages.create.return_value = _ai_reply(READ)
+        lst = reverse('reservations:monthly_requests', args=[2026, 10])
+        res = self.client.post(reverse('reservations:request_scan_upload', args=[2026, 10]),
+                               {'images': [_photo('a.png'), _photo('b.png')]})
+        self.assertRedirects(res, lst + '#scans', fetch_redirect_response=False)
+        scans = list(RequestScan.objects.order_by('pk'))
+        self.assertEqual(len(scans), 2)
+        page = self.client.get(lst)
+        self.assertContains(page, '紙の用紙を写真で取り込む')
+        self.assertContains(page, 'AIで読み取る')
+        # 写真はこの事業所の職員だけが見られる
+        self.assertEqual(self.client.get(scans[0].image.url).status_code, 200)
+
+        res = self.client.post(reverse('reservations:request_scan_extract', args=[2026, 10, scans[0].pk]))
+        data = res.json()
+        self.assertEqual(res.status_code, 200, data)
+        self.assertEqual((data['beneficiary_id'], data['desired_count'], data['days']), (self.kid.pk, 4, 2))
+        edit = reverse('reservations:monthly_request_edit', args=[2026, 10, self.kid.pk])
+        self.assertEqual(data['review_url'], f'{edit}?scan={scans[0].pk}')
+        # 画像と、どの月の用紙かを AI に渡している
+        kwargs = client_cls.return_value.messages.create.call_args.kwargs
+        content = kwargs['messages'][0]['content']
+        self.assertEqual(content[0]['type'], 'image')
+        self.assertIn('2026年10月', content[1]['text'])
+        self.assertIn('5日(月) お休み', content[1]['text'])
+        self.assertEqual(kwargs['output_config']['format']['type'], 'json_schema')
+
+        # 確認画面：写真と、読み取った○が入った表（まだ保存しない）
+        page = self.client.get(data['review_url'])
+        self.assertContains(page, '写真から読み取りました')
+        self.assertContains(page, '5日（お休みの日）')
+        self.assertContains(page, 'name="all_2026-10-03" value="1" class="allday" checked')
+        self.assertContains(page, 'value="4"')
+        self.assertFalse(MonthlyRequest.objects.exists())
+
+        # 保存すると利用希望に入り、写真は反映ずみ。次の写真（氏名が読めた）があればそこへ進む
+        scans[1].beneficiary, scans[1].status, scans[1].extracted = self.other, RequestScan.STATUS_EXTRACTED, {'wishes': {}}
+        scans[1].save()
+        res = self.client.post(edit, {'scan': scans[0].pk, 'desired_count': '4', 'note': '午前がよい',
+                                      'all_2026-10-03': '1', 'h_2026-10-02': ['10', '11']})
+        self.assertRedirects(res, reverse('reservations:monthly_request_edit', args=[2026, 10, self.other.pk])
+                             + f'?scan={scans[1].pk}', fetch_redirect_response=False)
+        req = MonthlyRequest.objects.get(beneficiary=self.kid, year=2026, month=10)
+        self.assertEqual((req.source, req.desired_count, req.wishes),
+                         ('photo', 4, {'2026-10-02': [10, 11], '2026-10-03': 'all'}))
+        scans[0].refresh_from_db()
+        self.assertEqual((scans[0].status, scans[0].request), ('imported', req))
+        self.assertContains(self.client.get(lst), '用紙の写真から')
+
+    @mock.patch('reservations.scan.anthropic.Anthropic')
+    def test_unknown_name_then_assign(self, client_cls):
+        client_cls.return_value.messages.create.return_value = _ai_reply(dict(READ, name=''))
+        self.client.post(reverse('reservations:request_scan_upload', args=[2026, 10]), {'images': [_photo()]})
+        sc = RequestScan.objects.get()
+        data = self.client.post(reverse('reservations:request_scan_extract', args=[2026, 10, sc.pk])).json()
+        self.assertEqual((data['beneficiary_id'], data['review_url']), (None, ''))
+        res = self.client.post(reverse('reservations:request_scan_action', args=[2026, 10, sc.pk]),
+                               {'action': 'assign', 'beneficiary': self.other.pk})
+        self.assertRedirects(res, reverse('reservations:monthly_request_edit', args=[2026, 10, self.other.pk])
+                             + f'?scan={sc.pk}', fetch_redirect_response=False)
+        sc.refresh_from_db()
+        self.assertEqual(sc.beneficiary, self.other)
+        # 氏名が別の子なら確認画面で知らせる
+        sc.extracted = dict(sc.extracted, name='青木 子')
+        sc.save()
+        page = self.client.get(reverse('reservations:monthly_request_edit', args=[2026, 10, self.other.pk]) + f'?scan={sc.pk}')
+        self.assertContains(page, '「青木 子」さんの用紙かもしれません')
+        # 消す
+        self.client.post(reverse('reservations:request_scan_action', args=[2026, 10, sc.pk]), {'action': 'delete'})
+        self.assertFalse(RequestScan.objects.exists())
+
+    def test_single_upload_from_edit_page_and_errors(self):
+        edit = reverse('reservations:monthly_request_edit', args=[2026, 10, self.kid.pk])
+        self.assertContains(self.client.get(edit), '用紙の写真から読み取る')
+        res = self.client.post(reverse('reservations:request_scan_upload', args=[2026, 10]),
+                               {'images': [_photo()], 'beneficiary': self.kid.pk, 'next': 'edit'})
+        sc = RequestScan.objects.get()
+        self.assertRedirects(res, f'{edit}?scan={sc.pk}', fetch_redirect_response=False)
+        self.assertContains(self.client.get(f'{edit}?scan={sc.pk}'), 'AI が用紙を読み取っています')
+        with mock.patch('reservations.scan.anthropic.Anthropic', side_effect=RuntimeError('boom')):
+            res = self.client.post(reverse('reservations:request_scan_extract', args=[2026, 10, sc.pk]))
+        self.assertEqual(res.status_code, 500)
+        self.assertIn('読み取りに失敗', res.json()['error'])
+        with override_settings(ANTHROPIC_API_KEY=''):
+            res = self.client.post(reverse('reservations:request_scan_extract', args=[2026, 10, sc.pk]))
+        self.assertIn('ANTHROPIC_API_KEY', res.json()['error'])
+        # 画像でないファイルは受けない
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        res = self.client.post(reverse('reservations:request_scan_upload', args=[2026, 10]),
+                               {'images': [SimpleUploadedFile('a.txt', b'x', content_type='text/plain')]}, follow=True)
+        self.assertContains(res, '写真（JPEG')
+        # ほかの事業所の写真は触れない・見られない
+        f2 = Facility.objects.create(name='ほか', use_reservation=True)
+        other = RequestScan.objects.create(facility=f2, year=2026, month=10, image=_photo('x.png'))
+        self.assertEqual(self.client.post(reverse('reservations:request_scan_extract', args=[2026, 10, other.pk])).status_code, 404)
+        self.assertEqual(self.client.get(f'{edit}?scan={other.pk}').status_code, 404)
+        self.assertEqual(self.client.get(other.image.url).status_code, 404)
 
 class PresetAndSeedTests(TestCase):
     def test_create_facility_preset(self):

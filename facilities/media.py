@@ -1,5 +1,5 @@
 """
-アップロードファイル（写真・紙の日誌・署名・受給者証・資料・ロゴ）の配信。
+アップロードファイル（写真・紙の日誌・利用希望の用紙・署名・受給者証・資料・ロゴ）の配信。
 
 /media/ をそのまま公開せず、ログイン中の職員の事業所が持つファイルだけを返す。
 LINE に写真を送るときのように外部から取りに来る場合は、有効期限つきの署名 URL を使う。
@@ -23,6 +23,7 @@ OWNERS = [
     ('signatures/',             'esignatures.EsignatureRecord',    'signature_image', 'facility'),
     ('recipient_certificates/', 'beneficiaries.RecipientCertificate', 'scanned_image', 'beneficiary__facility'),
     ('reference_docs/',         'ai_assist.ReferenceDocument',     'file',            'facility'),
+    ('request_scans/',          'reservations.RequestScan',        'image',           'facility'),
 ]
 SALT = 'protected-media'
 DEFAULT_MAX_AGE = 30 * 60  # 署名 URL の有効期限（秒）

@@ -41,3 +41,7 @@ def certificate_upload_to(instance, filename):
 
 def reference_doc_upload_to(instance, filename):
     return _name('reference_docs', filename)
+
+
+def request_scan_upload_to(instance, filename):
+    return _name('request_scans', filename)

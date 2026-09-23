@@ -2,11 +2,13 @@
 import calendar
 import csv
 import datetime
+import logging
 from io import StringIO
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse
+from django.conf import settings
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -18,8 +20,11 @@ from facilities.context_processors import get_terms
 from config.utils import date_or_404, home_url, month_or_404, reservation_enabled, to_int
 
 from . import monthly, services
-from .models import (BookingRequest, ClosedDate, Customer, LineInbox, MonthlyRequest, Reservation,
+from . import scan as scan_mod
+from .models import (BookingRequest, ClosedDate, Customer, LineInbox, MonthlyRequest, RequestScan, Reservation,
                      ReservationNotice, ReservationSetting)
+
+logger = logging.getLogger(__name__)
 
 
 class ReservationEnabledMixin(LoginRequiredMixin):
@@ -699,6 +704,12 @@ class MonthlyRequestListView(SlotModeMixin, View):
             'from_web': sum(1 for r in rows if r['request'] and r['request'].source == MonthlyRequest.SOURCE_WEB),
             'short': sum(1 for r in rows if r['request'] and r['remaining']),
             'targets': targets, 'no_contact': no_contact,
+            'scans': (RequestScan.objects.filter(facility=facility, year=year, month=month)
+                      .exclude(status=RequestScan.STATUS_IMPORTED).select_related('beneficiary')),
+            'scans_done': RequestScan.objects.filter(facility=facility, year=year, month=month,
+                                                     status=RequestScan.STATUS_IMPORTED).count(),
+            'beneficiaries': Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE),
+            'ai_enabled': bool(settings.ANTHROPIC_API_KEY),
             'targets_missing': sum(1 for t in targets if t['missing']),
             'default_deadline': max(datetime.date(*monthly.prev_month(year, month), 20), datetime.date.today()),
             **_month_ctx(year, month),
@@ -789,15 +800,36 @@ class MonthlyRequestEditView(SlotModeMixin, View):
     """利用者1人の月予約利用希望（紙の用紙を転記する画面）"""
     template_name = 'reservations/monthly_request_edit.html'
 
+    @staticmethod
+    def _scan(request, facility, year, month):
+        """?scan=<ID>（または送信された scan）の、この月の用紙の写真"""
+        pk = to_int(request.GET.get('scan') or request.POST.get('scan'), 0)
+        if not pk:
+            return None
+        return get_object_or_404(RequestScan, pk=pk, facility=facility, year=year, month=month)
+
     def get(self, request, year, month, pk):
         year, month = month_or_404(year, month)
         facility = request.user.facility
         beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=facility)
         setting = services.get_setting(facility)
         req = MonthlyRequest.objects.filter(beneficiary=beneficiary, year=year, month=month).first()
-        grid = monthly.request_grid(facility, year, month, setting, request=req)
+        scan = self._scan(request, facility, year, month)
+        shown = req
+        if scan is not None and scan.status == RequestScan.STATUS_EXTRACTED:
+            shown = scan_mod.as_request(scan)
+            if shown.desired_count == 0 and req is not None and not (scan.extracted or {}).get('desired_count'):
+                shown.desired_count = req.desired_count     # 回数が読めなければ、いまの値を残す
+        grid = monthly.request_grid(facility, year, month, setting, request=shown)
+        other_name = ''
+        if scan is not None and scan.read_name:
+            found, _ = scan_mod.match_beneficiary(facility, scan.read_name)
+            if found is not None and found.pk != beneficiary.pk:
+                other_name = found.full_name
         return render(request, self.template_name, {
-            'beneficiary': beneficiary, 'req': req, 'setting': setting, 'grid': grid,
+            'beneficiary': beneficiary, 'req': req, 'shown': shown, 'setting': setting, 'grid': grid,
+            'scan': scan, 'scan_other_name': other_name,
+            'ai_enabled': bool(settings.ANTHROPIC_API_KEY),
             'confirmed': [r for r in monthly.month_reservations(facility, year, month) if r.beneficiary_id == pk],
             **_month_ctx(year, month),
         })
@@ -814,16 +846,103 @@ class MonthlyRequestEditView(SlotModeMixin, View):
             return back
         wishes = monthly.wishes_from_post(request.POST, facility, year, month, setting)
         desired = to_int(request.POST.get('desired_count'), 0)
+        scan = self._scan(request, facility, year, month)
         req = monthly.save_request(facility, beneficiary, year, month, desired, wishes,
-                                   note=request.POST.get('note', '').strip(), user=request.user)
+                                   note=request.POST.get('note', '').strip(), user=request.user,
+                                   source=MonthlyRequest.SOURCE_PHOTO if scan else MonthlyRequest.SOURCE_STAFF)
+        if scan is not None:
+            scan.status, scan.request, scan.beneficiary = RequestScan.STATUS_IMPORTED, req, beneficiary
+            scan.save(update_fields=['status', 'request', 'beneficiary'])
         messages.success(request, f'{beneficiary.full_name} さんの {month}月の利用希望を保存しました'
                                   f'（希望 {req.desired_count} 回・○ {req.slot_count(setting)} 枠）。')
+        if scan is not None and request.POST.get('action') != 'assign':
+            nxt = (RequestScan.objects.filter(facility=facility, year=year, month=month)
+                   .exclude(status=RequestScan.STATUS_IMPORTED).exclude(pk=scan.pk).first())
+            if nxt is not None and nxt.beneficiary_id and nxt.status == RequestScan.STATUS_EXTRACTED:
+                messages.info(request, '次の用紙の写真です。')
+                return redirect(reverse('reservations:monthly_request_edit', args=[year, month, nxt.beneficiary_id])
+                                + f'?scan={nxt.pk}')
+            return redirect(reverse('reservations:monthly_requests', args=[year, month]) + '#scans')
         if request.POST.get('action') == 'assign':
             result = monthly.assign_month(facility, year, month, setting, only=[req],
                                           base=request.build_absolute_uri('/'))
             messages.success(request, result.summary)
             return redirect('reservations:monthly_schedule', year=year, month=month)
         return back
+
+
+MAX_SCAN_UPLOAD = 20
+
+
+class RequestScanUploadView(SlotModeMixin, View):
+    """紙の利用希望の写真を取り込む（1回に20枚まで）。利用者を選べば、その子の用紙として扱う"""
+
+    def post(self, request, year, month):
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        back = redirect(reverse('reservations:monthly_requests', args=[year, month]) + '#scans')
+        files = [f for f in request.FILES.getlist('images')[:MAX_SCAN_UPLOAD]
+                 if (f.content_type or '').startswith('image/')]
+        if not files:
+            messages.error(request, '用紙の写真（JPEG・PNG・HEIC など）を選んでください。')
+            return back
+        beneficiary = None
+        if request.POST.get('beneficiary'):
+            beneficiary = get_object_or_404(Beneficiary, pk=to_int(request.POST.get('beneficiary'), -1), facility=facility)
+        made = [RequestScan.objects.create(facility=facility, year=year, month=month, beneficiary=beneficiary,
+                                           image=f, uploaded_by=request.user) for f in files]
+        if beneficiary is not None and len(made) == 1 and request.POST.get('next') == 'edit':
+            return redirect(reverse('reservations:monthly_request_edit', args=[year, month, beneficiary.pk])
+                            + f'?scan={made[0].pk}')
+        messages.success(request, f'{len(made)} 枚を取り込みました。「AIで読み取る」を押すと、○の位置を読み取ります。')
+        return back
+
+
+class RequestScanExtractView(SlotModeMixin, View):
+    """用紙の写真1枚を AI で読み取る（画面から fetch で呼ぶ）"""
+
+    def post(self, request, year, month, pk):
+        year, month = month_or_404(year, month)
+        scan = get_object_or_404(RequestScan, pk=pk, facility=request.user.facility, year=year, month=month)
+        if not settings.ANTHROPIC_API_KEY:
+            return JsonResponse({'error': 'AIを使う設定（ANTHROPIC_API_KEY）がサーバーにありません。'}, status=500)
+        try:
+            data = scan_mod.extract(scan)
+        except Exception as e:  # noqa: BLE001
+            logger.exception('利用希望の用紙の読み取りに失敗（scan %s）', scan.pk)
+            scan.error = f'{type(e).__name__}: {e}'[:500]
+            scan.save(update_fields=['error'])
+            return JsonResponse({'error': f'読み取りに失敗しました（{type(e).__name__}）。写真を撮り直すか、もう一度お試しください。'},
+                                status=500)
+        return JsonResponse({
+            'ok': True, 'status': scan.get_status_display(), 'name': data.get('name', ''),
+            'beneficiary_id': scan.beneficiary_id,
+            'beneficiary_name': scan.beneficiary.full_name if scan.beneficiary else '',
+            'desired_count': data.get('desired_count'), 'days': len(data.get('wishes') or {}),
+            'slots': data.get('slot_count', 0), 'unreadable': data.get('unreadable', ''),
+            'month_mismatch': data.get('month_mismatch', False),
+            'review_url': (reverse('reservations:monthly_request_edit', args=[year, month, scan.beneficiary_id])
+                           + f'?scan={scan.pk}') if scan.beneficiary_id else '',
+        })
+
+
+class RequestScanActionView(SlotModeMixin, View):
+    """用紙の写真の利用者を選ぶ（action=assign → 確認画面へ）・消す（action=delete）"""
+
+    def post(self, request, year, month, pk):
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        scan = get_object_or_404(RequestScan, pk=pk, facility=facility, year=year, month=month)
+        back = redirect(reverse('reservations:monthly_requests', args=[year, month]) + '#scans')
+        if request.POST.get('action') == 'delete':
+            scan.image.delete(save=False)
+            scan.delete()
+            messages.success(request, '用紙の写真を消しました。')
+            return back
+        beneficiary = get_object_or_404(Beneficiary, pk=to_int(request.POST.get('beneficiary'), -1), facility=facility)
+        scan.beneficiary = beneficiary
+        scan.save(update_fields=['beneficiary'])
+        return redirect(reverse('reservations:monthly_request_edit', args=[year, month, beneficiary.pk]) + f'?scan={scan.pk}')
 
 
 class MonthlyRequestFormView(SlotModeMixin, View):

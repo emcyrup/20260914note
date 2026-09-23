@@ -11,6 +11,7 @@ from django.db import models
 
 from beneficiaries.models import Beneficiary
 from facilities.models import Facility
+from facilities.uploads import request_scan_upload_to
 
 from .tokens import MAX_LENGTH as TOKEN_MAX_LENGTH, new_calendar_token, new_customer_token
 
@@ -461,7 +462,8 @@ class MonthlyRequest(models.Model):
 
     SOURCE_STAFF = 'staff'
     SOURCE_WEB = 'web'
-    SOURCE_CHOICES = [(SOURCE_STAFF, '職員が転記'), (SOURCE_WEB, '顧客ページ')]
+    SOURCE_PHOTO = 'photo'
+    SOURCE_CHOICES = [(SOURCE_STAFF, '職員が転記'), (SOURCE_WEB, '顧客ページ'), (SOURCE_PHOTO, '用紙の写真から')]
 
     facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='monthly_requests')
     beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='monthly_requests',
@@ -524,3 +526,41 @@ class MonthlyRequest(models.Model):
 
     def slot_count(self, setting):
         return sum(len(self.wish_hours(d, setting)) for d in self.wished_days())
+
+
+class RequestScan(models.Model):
+    """
+    紙の「月予約利用希望」を撮った写真。AI が○の位置を読み取り、職員が確かめてから利用希望にする。
+    """
+    STATUS_PENDING = 'pending'
+    STATUS_EXTRACTED = 'extracted'
+    STATUS_IMPORTED = 'imported'
+    STATUS_CHOICES = [(STATUS_PENDING, '未読み取り'), (STATUS_EXTRACTED, '確認待ち'), (STATUS_IMPORTED, '反映ずみ')]
+
+    facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='request_scans')
+    year = models.PositiveSmallIntegerField(verbose_name='年')
+    month = models.PositiveSmallIntegerField(verbose_name='月')
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='request_scans', verbose_name='利用者')
+    image = models.ImageField(upload_to=request_scan_upload_to, verbose_name='用紙の写真')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_PENDING, verbose_name='状態')
+    extracted = models.JSONField(default=dict, blank=True, verbose_name='読み取り結果')
+    error = models.TextField(blank=True, verbose_name='エラー')
+    request = models.ForeignKey(MonthlyRequest, on_delete=models.SET_NULL, null=True, blank=True,
+                                related_name='scans', verbose_name='反映した利用希望')
+    uploaded_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    extracted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = '利用希望の用紙（写真）'
+        verbose_name_plural = '利用希望の用紙（写真）'
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'{self.year}年{self.month}月 用紙の写真 #{self.pk}（{self.get_status_display()}）'
+
+    @property
+    def read_name(self):
+        return (self.extracted or {}).get('name') or ''

@@ -12,6 +12,12 @@
   .mr-none { color: #999; }
   .ask-item { grid-template-columns: 1.1fr 1.6fr 0.7fr 1fr auto; }
   .ask-kid { display: inline-block; margin-right: 8px; white-space: nowrap; }
+  .scan-drop { border: 2px dashed var(--line-dark, #8e8779); border-radius: 14px; padding: 16px; text-align: center; background: var(--paper); cursor: pointer; display: block; margin: 0; }
+  .scan-drop input[type=file] { display: none; }
+  .scan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+  .scan-card { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff; display: flex; flex-direction: column; }
+  .scan-card img { width: 100%; aspect-ratio: 3 / 4; object-fit: contain; background: #f6f4ef; display: block; }
+  .scan-card .scan-body { padding: 8px 10px; font-size: 0.82rem; flex: 1; display: flex; flex-direction: column; gap: 6px; }
 </style>
 {% endblock %}
 
@@ -60,6 +66,90 @@
     {% empty %}
     <div class="text-center text-muted py-4">在籍中の{{ terms.beneficiary }}がいません。</div>
     {% endfor %}
+  </div>
+
+  <div class="card mt-4" id="scans">
+    <div class="card-body">
+      <div class="fw-bold mb-1"><i class="bi bi-camera me-1"></i>紙の用紙を写真で取り込む</div>
+      <div class="small text-muted mb-2">
+        保護者から届いた紙の「予約利用希望」を撮ると、AI が氏名・希望回数・○の付いた日時を読み取ります。
+        「確かめて反映」で写真と見比べながら直して保存すると、上の一覧に「用紙の写真から」として入ります。
+      </div>
+      {% if not ai_enabled %}<div class="alert alert-warning small py-2">AIを使う設定（ANTHROPIC_API_KEY）が無いため読み取りは動きません。写真を見ながら手で転記はできます。</div>{% endif %}
+      <form method="post" action="{% url 'reservations:request_scan_upload' year month %}" enctype="multipart/form-data" id="scanUploadForm">
+        {% csrf_token %}
+        <div class="row g-2 align-items-end">
+          <div class="col-md-7">
+            <label class="scan-drop" for="scanImages">
+              <i class="bi bi-camera" style="font-size:1.8rem;color:var(--lake-text);"></i>
+              <div class="fw-bold mt-1">写真を撮る／画像を選ぶ</div>
+              <div class="small text-muted">1回に20枚まで。1枚に1人分の用紙全体が入るよう、明るい所で真上から。</div>
+              <div class="small mt-1" id="scanFileNames"></div>
+              <input type="file" id="scanImages" name="images" accept="image/*" multiple>
+            </label>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label small fw-semibold" for="scanChild">{{ terms.beneficiary }}（1人分だけのとき）</label>
+            <select name="beneficiary" id="scanChild" class="form-select form-select-sm">
+              <option value="">用紙の氏名から探す</option>
+              {% for b in beneficiaries %}<option value="{{ b.pk }}">{{ b.full_name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-2 d-grid">
+            <button class="btn btn-primary btn-sm" id="scanUploadBtn" disabled><i class="bi bi-upload me-1"></i>取り込む</button>
+          </div>
+        </div>
+      </form>
+    </div>
+    {% if scans %}
+    <div class="card-body border-top">
+      <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+        <div class="fw-bold small">取り込んだ写真（{{ scans|length }} 枚）{% if scans_done %}<span class="text-muted fw-normal ms-1">反映ずみ {{ scans_done }} 枚</span>{% endif %}</div>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="scanReadAll" {% if not ai_enabled %}disabled{% endif %}><i class="bi bi-stars me-1"></i>まだの写真をまとめて読み取る</button>
+      </div>
+      <div class="scan-grid">
+        {% for sc in scans %}
+        <div class="scan-card" data-status="{{ sc.status }}" data-read-url="{% url 'reservations:request_scan_extract' year month sc.pk %}">
+          <a href="{{ sc.image.url }}" target="_blank"><img src="{{ sc.image.url }}" alt="用紙の写真 {{ forloop.counter }}" loading="lazy"></a>
+          <div class="scan-body">
+            <div class="js-summary">
+              {% if sc.status == 'extracted' %}
+                <div><span class="badge text-bg-success">確認待ち</span> <strong>{% if sc.beneficiary %}{{ sc.beneficiary.full_name }}{% else %}{{ sc.read_name|default:'（氏名不明）' }}{% endif %}</strong></div>
+                <div class="text-muted">希望 {% if sc.extracted.desired_count is not None %}{{ sc.extracted.desired_count }} 回{% else %}（読めず）{% endif %}・{{ sc.extracted.wishes|length }} 日・{{ sc.extracted.slot_count }} 枠</div>
+                {% if sc.extracted.month_mismatch %}<div class="text-danger">用紙は {{ sc.extracted.read_month }}月 のようです</div>{% endif %}
+                {% if sc.extracted.unreadable %}<div class="text-danger">読めない箇所：{{ sc.extracted.unreadable }}</div>{% endif %}
+              {% elif sc.error %}
+                <div><span class="badge text-bg-danger">失敗</span> <span class="text-muted">もう一度読み取ってください</span></div>
+              {% else %}
+                <div><span class="badge text-bg-secondary">未読み取り</span>{% if sc.beneficiary %} <strong>{{ sc.beneficiary.full_name }}</strong>{% endif %}</div>
+              {% endif %}
+            </div>
+            <div class="d-flex flex-wrap gap-1 mt-auto">
+              <button type="button" class="btn btn-sm btn-outline-primary js-read" {% if not ai_enabled %}disabled{% endif %}><i class="bi bi-stars me-1"></i>{% if sc.status == 'extracted' %}読み直す{% else %}AIで読み取る{% endif %}</button>
+              {% if sc.beneficiary %}
+              <a href="{% url 'reservations:monthly_request_edit' year month sc.beneficiary.pk %}?scan={{ sc.pk }}" class="btn btn-sm btn-primary js-review">確かめて反映</a>
+              {% endif %}
+            </div>
+            {% if not sc.beneficiary %}
+            <form method="post" action="{% url 'reservations:request_scan_action' year month sc.pk %}" class="d-flex gap-1">
+              {% csrf_token %}<input type="hidden" name="action" value="assign">
+              <select name="beneficiary" class="form-select form-select-sm" required aria-label="{{ terms.beneficiary }}を選ぶ">
+                <option value="">{{ terms.beneficiary }}を選ぶ</option>
+                {% for b in beneficiaries %}<option value="{{ b.pk }}" {% if b.pk in sc.extracted.candidate_ids %}class="fw-bold"{% endif %}>{{ b.full_name }}</option>{% endfor %}
+              </select>
+              <button class="btn btn-sm btn-primary text-nowrap">反映へ</button>
+            </form>
+            {% endif %}
+            <form method="post" action="{% url 'reservations:request_scan_action' year month sc.pk %}" onsubmit="return confirm('この写真を消します。よろしいですか？');">
+              {% csrf_token %}<input type="hidden" name="action" value="delete">
+              <button class="btn btn-link btn-sm text-danger p-0">写真を消す</button>
+            </form>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
   </div>
 
   <div class="card mt-4" id="ask">
@@ -131,6 +221,55 @@
 {% endblock %}
 
 {% block extra_js %}
+<script>
+(function () {
+  var input = document.getElementById('scanImages'), btn = document.getElementById('scanUploadBtn'), names = document.getElementById('scanFileNames');
+  if (input) {
+    input.addEventListener('change', function () {
+      var n = input.files.length; btn.disabled = !n;
+      names.textContent = n ? n + ' 枚を選びました' : '';
+    });
+    document.getElementById('scanUploadForm').addEventListener('submit', function () { btn.disabled = true; btn.textContent = '取り込み中…'; });
+  }
+  var csrf = document.querySelector('input[name=csrfmiddlewaretoken]').value;
+  function esc(t) { var d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }
+  function read(card) {
+    var b = card.querySelector('.js-read'), sum = card.querySelector('.js-summary');
+    b.disabled = true; b.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>読み取り中…';
+    return fetch(card.dataset.readUrl, {method: 'POST', headers: {'X-CSRFToken': csrf}, credentials: 'same-origin'})
+      .then(function (r) { return r.json().catch(function () { return {error: '読み取れませんでした（' + r.status + '）'}; }); })
+      .then(function (d) {
+        if (d.error) throw new Error(d.error);
+        card.dataset.status = 'extracted';
+        sum.innerHTML = '<div><span class="badge text-bg-success">確認待ち</span> <strong>' + esc(d.beneficiary_name || d.name || '（氏名不明）') + '</strong></div>' +
+          '<div class="text-muted">希望 ' + (d.desired_count === null ? '（読めず）' : esc(d.desired_count) + ' 回') + '・' + esc(d.days) + ' 日・' + esc(d.slots) + ' 枠</div>' +
+          (d.month_mismatch ? '<div class="text-danger">用紙の月が違うようです</div>' : '') +
+          (d.unreadable ? '<div class="text-danger">読めない箇所：' + esc(d.unreadable) + '</div>' : '') +
+          (d.review_url ? '' : '<div class="text-danger">氏名から{{ terms.beneficiary }}を決められませんでした。下で選んでください。</div>');
+        if (d.review_url) {
+          var a = card.querySelector('.js-review');
+          if (!a) { a = document.createElement('a'); a.className = 'btn btn-sm btn-primary js-review'; a.textContent = '確かめて反映'; b.parentNode.appendChild(a); }
+          a.href = d.review_url;
+        }
+        b.innerHTML = '<i class="bi bi-stars me-1"></i>読み直す';
+      })
+      .catch(function (e) {
+        sum.innerHTML = '<div><span class="badge text-bg-danger">失敗</span></div><div class="text-danger">' + esc(e.message) + '</div>';
+        b.innerHTML = '<i class="bi bi-stars me-1"></i>もう一度';
+      })
+      .finally(function () { b.disabled = false; });
+  }
+  document.querySelectorAll('.scan-card .js-read').forEach(function (b) {
+    b.addEventListener('click', function () { read(b.closest('.scan-card')); });
+  });
+  var all = document.getElementById('scanReadAll');
+  if (all) all.addEventListener('click', async function () {
+    all.disabled = true;
+    for (var card of document.querySelectorAll('.scan-card[data-status=pending]')) { await read(card); }
+    all.disabled = false;
+  });
+})();
+</script>
 <script>
 document.addEventListener('click', function (e) {
   var btn = e.target.closest('[data-copy]');

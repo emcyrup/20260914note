@@ -47,7 +47,7 @@ TEXT_KEYS = ('activity_name', 'activity_aim', 'activity_reflection', 'observatio
              'reaction_text', 'parent_message', 'other_notes', 'unreadable', 'health_note', 'beneficiary_name')
 
 
-def image_payload(image_field):
+def image_payload(image_field, max_side=MAX_SIDE):
     """アップロード画像を縮小して JPEG の base64 にする（トークン節約・向きの補正）"""
     from PIL import Image, ImageOps
     image_field.open('rb')
@@ -55,7 +55,7 @@ def image_payload(image_field):
         img = Image.open(image_field)
         img = ImageOps.exif_transpose(img)
         img = img.convert('RGB')
-        img.thumbnail((MAX_SIDE, MAX_SIDE))
+        img.thumbnail((max_side, max_side))
         buf = io.BytesIO()
         img.save(buf, format='JPEG', quality=85)
     finally:

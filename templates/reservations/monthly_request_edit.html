@@ -17,6 +17,11 @@
   .wish label { display: block; width: 100%; height: 100%; cursor: pointer; margin: 0; }
   .wish input[type=checkbox] { width: 20px; height: 20px; }
   .wish tr.allday td.slot input { opacity: 0.35; }
+  .scan-photo { position: sticky; top: 80px; }
+  .scan-photo img { width: 100%; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
+  .scan-photo .zoom { max-height: 78vh; overflow: auto; border-radius: 10px; }
+  .scan-photo .zoom.big img { width: 200%; max-width: none; }
+  @media (max-width: 991px) { .scan-photo { position: static; } .scan-photo .zoom { max-height: 60vh; } }
   @media (max-width: 768px) { .wish { font-size: 0.72rem; } .wish input[type=checkbox] { width: 16px; height: 16px; } }
 </style>
 {% endblock %}
@@ -25,26 +30,73 @@
 <div class="px-2" style="max-width: 1100px;">
   <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <a href="{% url 'reservations:monthly_requests' year month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left me-1"></i>{{ month }}月の一覧へ</a>
-    <div class="d-flex gap-2">
+    <div class="d-flex gap-2 flex-wrap">
+      {% if not scan %}
+      <form method="post" action="{% url 'reservations:request_scan_upload' year month %}" enctype="multipart/form-data" id="scanOneForm">
+        {% csrf_token %}<input type="hidden" name="beneficiary" value="{{ beneficiary.pk }}"><input type="hidden" name="next" value="edit">
+        <label class="btn btn-outline-primary btn-sm mb-0" title="この{{ terms.beneficiary }}の用紙を撮ると、AI が○を読み取って下の表に入れます">
+          <i class="bi bi-camera me-1"></i>用紙の写真から読み取る
+          <input type="file" name="images" accept="image/*" class="d-none" onchange="this.form.submit()">
+        </label>
+      </form>
+      {% endif %}
       <a href="{% url 'reservations:monthly_request_form' year month %}?b={{ beneficiary.pk }}&fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-printer me-1"></i>用紙</a>
     </div>
   </div>
 
+  {% if scan %}
+  <div class="row g-3">
+  <div class="col-lg-5 order-lg-2">
+    <div class="scan-photo card"><div class="card-body p-2">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <span class="small fw-bold"><i class="bi bi-image me-1"></i>用紙の写真</span>
+        <span class="d-flex gap-1">
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0" onclick="document.getElementById('scanZoom').classList.toggle('big')" title="拡大・縮小"><i class="bi bi-zoom-in"></i></button>
+          <a href="{{ scan.image.url }}" target="_blank" class="btn btn-sm btn-outline-secondary py-0" title="別のタブで開く"><i class="bi bi-box-arrow-up-right"></i></a>
+        </span>
+      </div>
+      <div class="zoom" id="scanZoom"><img src="{{ scan.image.url }}" alt="用紙の写真"></div>
+    </div></div>
+  </div>
+  <div class="col-lg-7 order-lg-1">
+    {% if scan.status == 'pending' %}
+    <div class="alert alert-info small d-flex align-items-center gap-2" id="scanReading" data-read-url="{% url 'reservations:request_scan_extract' year month scan.pk %}">
+      {% if ai_enabled %}<span class="spinner-border spinner-border-sm"></span><span>AI が用紙を読み取っています（30秒ほど）。終わると下の表に○が入ります。</span>
+      {% else %}AIを使う設定が無いため、写真を見ながら下の表に転記してください。{% endif %}
+    </div>
+    {% elif scan.status == 'extracted' %}
+    <div class="alert alert-warning small mb-2">
+      <div class="fw-bold mb-1"><i class="bi bi-stars me-1"></i>写真から読み取りました。写真と見比べて、違うところを直してから保存してください（まだ保存されていません）。</div>
+      <ul class="mb-0 ps-3">
+        <li>用紙の氏名：{{ scan.read_name|default:'（読めず）' }}{% if scan_other_name %} — <span class="text-danger fw-bold">「{{ scan_other_name }}」さんの用紙かもしれません</span>{% endif %}</li>
+        <li>希望利用回数：{% if scan.extracted.desired_count is not None %}{{ scan.extracted.desired_count }} 回{% else %}<span class="text-danger">読めませんでした</span>{% endif %}・○の付いた日 {{ scan.extracted.wishes|length }} 日</li>
+        {% if scan.extracted.month_mismatch %}<li class="text-danger">用紙は {{ scan.extracted.read_month }}月 の用紙のようです。月を確かめてください。</li>{% endif %}
+        {% if scan.extracted.ignored %}<li>入れなかった印：{{ scan.extracted.ignored|join:'、' }}</li>{% endif %}
+        {% if scan.extracted.unreadable %}<li class="text-danger">読めない箇所：{{ scan.extracted.unreadable }}</li>{% endif %}
+        {% if req %}<li>この月の利用希望はすでにあります（{{ req.get_source_display }}・希望 {{ req.desired_count }} 回）。保存すると写真の内容に置き換わります。</li>{% endif %}
+      </ul>
+    </div>
+    {% elif scan.status == 'imported' %}
+    <div class="alert alert-secondary small">この写真はすでに反映ずみです。</div>
+    {% endif %}
+  {% endif %}
+
   <form method="post" id="wishForm">
     {% csrf_token %}
+    {% if scan %}<input type="hidden" name="scan" value="{{ scan.pk }}">{% endif %}
     <div class="card mb-3"><div class="card-body">
       <div class="row g-2 align-items-end">
         <div class="col-6 col-md-3">
           <label class="form-label small fw-semibold" for="desired_count">希望利用回数</label>
           <input type="number" class="form-control form-control-sm" id="desired_count" name="desired_count" min="0" max="99"
-                 value="{{ req.desired_count|default:0 }}">
+                 value="{{ shown.desired_count|default:0 }}">
         </div>
         <div class="col-6 col-md-6">
           <label class="form-label small fw-semibold" for="note">備考</label>
-          <input type="text" class="form-control form-control-sm" id="note" name="note" value="{{ req.note|default:'' }}" placeholder="任意">
+          <input type="text" class="form-control form-control-sm" id="note" name="note" value="{{ shown.note|default:'' }}" placeholder="任意">
         </div>
         <div class="col-12 col-md-3 d-grid">
-          <button class="btn btn-primary btn-sm">保存する</button>
+          <button class="btn btn-primary btn-sm text-nowrap">保存する</button>
         </div>
         <div class="col-12"><div class="form-text">
           用紙の「可能な日時の枠」の○をそのまま写します。終日に○なら「終日」だけを入れてください。
@@ -94,6 +146,8 @@
     </div>
   </form>
 
+  {% if scan %}</div></div>{% endif %}
+
   {% if confirmed %}
   <div class="card"><div class="card-body">
     <div class="fw-bold mb-2">{{ month }}月に確定している予約（{{ confirmed|length }} 回）</div>
@@ -108,6 +162,21 @@
 </div>
 
 <script>
+  (function () {
+    var box = document.getElementById('scanReading');
+    if (!box || !box.dataset.readUrl || !{{ ai_enabled|yesno:'true,false' }}) return;
+    fetch(box.dataset.readUrl, {method: 'POST', credentials: 'same-origin',
+                                headers: {'X-CSRFToken': document.querySelector('input[name=csrfmiddlewaretoken]').value}})
+      .then(function (r) { return r.json().catch(function () { return {error: '読み取れませんでした（' + r.status + '）'}; }); })
+      .then(function (d) {
+        if (d.error) throw new Error(d.error);
+        location.reload();
+      })
+      .catch(function (e) {
+        box.className = 'alert alert-danger small';
+        box.textContent = e.message + ' 写真を見ながら下の表に転記することもできます。';
+      });
+  })();
   // 「終日」を入れたら、その行の時刻のチェックを薄くする（送るときは終日だけを見る）
   document.querySelectorAll('#wishForm input.allday').forEach(function (box) {
     box.addEventListener('change', function () {
