@@ -55,7 +55,13 @@
       <div id="mn-voice-note" class="alert alert-warning small py-1 px-2 mb-1 d-none"></div>
       <textarea class="form-control" id="transcript" name="transcript" rows="10" maxlength="{{ text_max }}"
                 placeholder="「録音」を押して話すと、ここに文字で入っていきます。ほかの録音アプリの文字起こしを貼り付けても構いません。">{% if current %}{{ current.transcript }}{% endif %}</textarea>
-      <div class="form-text">止まらずに聞き続けます（黙っている間も待ちます）。録音中は画面を閉じたり、ほかのアプリに切り替えたりしないでください（止まります）。</div>
+      <div class="form-text">止まらずに聞き続けます（黙っている間も待ちます）。録音中は画面を閉じたり、ほかのアプリに切り替えたりしないでください（止まります）。
+        <a href="#" id="voice-log-toggle" class="ms-1">うまく文字にならないとき</a></div>
+      <div id="voice-log-box" class="d-none mt-2 p-2 rounded" style="background:#f6f3ee;border:1px solid var(--line);">
+        <div class="small mb-1">音声入力の動きの記録です（話した言葉そのものは入っていません。文字数だけです）。うまく文字にならなかったあとで「記録を写す」を押し、担当者に貼り付けて送ってください。</div>
+        <pre id="voice-log" class="small mb-2" style="max-height:220px;overflow:auto;white-space:pre-wrap;font-size:0.72rem;"></pre>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="voice-log-copy"><i class="bi bi-clipboard"></i> 記録を写す</button>
+      </div>
 
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1 mt-3">
         <label class="mn-title mb-0" for="summary"><i class="bi bi-card-list"></i>議事録</label>
@@ -177,6 +183,24 @@
     sm.value = before; before = null;
     show('整理する前に戻しました。', 'secondary', false);
   });
+  // 音声入力の動きの記録（うまく文字にならないときに調べる）
+  (function () {
+    var box = document.getElementById('voice-log-box'), pre = document.getElementById('voice-log'), timer = null;
+    function refresh() { pre.textContent = window.VoiceInput ? window.VoiceInput.log() : '（音声入力の部品が読み込まれていません）'; pre.scrollTop = pre.scrollHeight; }
+    document.getElementById('voice-log-toggle').addEventListener('click', function (e) {
+      e.preventDefault();
+      var open = box.classList.toggle('d-none') === false;
+      clearInterval(timer);
+      if (open) { refresh(); timer = setInterval(refresh, 1000); }
+    });
+    document.getElementById('voice-log-copy').addEventListener('click', function () {
+      refresh();
+      var text = pre.textContent, b = this;
+      var done = function () { b.innerHTML = '<i class="bi bi-check2"></i> 写しました'; setTimeout(function () { b.innerHTML = '<i class="bi bi-clipboard"></i> 記録を写す'; }, 2000); };
+      if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, function () { alert(text); });
+      else alert(text);
+    });
+  })();
   document.getElementById('mn-copy').addEventListener('click', function () {
     var text = sm.value.trim() || tx.value.trim();
     if (!text) return;

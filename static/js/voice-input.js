@@ -14,6 +14,8 @@
  *   → 何番目まで欄に入れたかを自分で数える。確定しないまま終わった言葉も欄に入れる
  * - 通信が一瞬切れた（network）：何回かはつなぎ直す
  * - 聞き取りを始め直せない（InvalidStateError）：少し待ってやり直す
+ * - 押して始めるときは、前の聞き取りが終わってから少し間をあける。始めてもマイクが動き出さないときはやり直す
+ * - VoiceInput.log() で、うまく動かないときの記録（出来事と文字数。話した言葉は残さない）を取り出せる
  * マイクは https のページ（または localhost）でしか使えないので、http のときは理由を出す。
  */
 (function () {
@@ -30,8 +32,21 @@
   var MAX_QUICK_END = 8;                             // すぐ終わってしまうのが続いたら止める（マイクが使えない状態）
   var MAX_ERR_RUN = 8;                               // 聞き取れないままエラーで終わるのが続いたら止める
   var CLOSE_WAIT_MS = 1500;                          // 止めた聞き取りが終わりきるのを待つ長さ（過ぎたら打ち切る）
+  var START_GAP_MS = 500;                            // 前の聞き取りが終わってから、押して始めるまでにあける間
+  var WATCH_MS = 4000;                               // 始めてもマイクが動き出さないときは、打ち切ってやり直す
   var active = null;
   var closing = [];                                  // 止めるように言ったが、まだ終わっていない聞き取り
+  var lastEndAt = 0;                                 // 最後に聞き取りが終わった時刻
+  var lastRec = null;
+
+  // うまく動かないときに調べるための記録（話した言葉そのものは残さず、文字数だけ）
+  var LOG = [], T0 = Date.now(), seq = 0;
+  function log(msg) {
+    LOG.push(((Date.now() - T0) / 1000).toFixed(2) + 's ' + msg);
+    if (LOG.length > 300) LOG.splice(0, LOG.length - 300);
+  }
+  log('ready ' + (SR ? (window.SpeechRecognition ? 'SpeechRecognition' : 'webkitSpeechRecognition') : 'no-SR') +
+      ' oneShot=' + ONE_SHOT + ' secure=' + window.isSecureContext + ' ua=' + UA);
 
   function note(btn, text) {
     var id = btn.getAttribute('data-voice-note');
@@ -118,6 +133,7 @@
   function stop(message) {
     if (!active) return;
     var a = active;
+    log('stop' + (message ? ' (' + message.slice(0, 20) + '…)' : '') + ' pending=' + (a.pending || '').length);
     active = null;
     clearInterval(a.timer);
     clearTimeout(a.retryTimer);
@@ -127,12 +143,12 @@
       append(a, p);
       a.committed = p;                      // あとから同じ言葉が確定しても重ねない
     }
-    if (a.rec && a.rec._open) {
+    if (a.rec && a.rec._viOpen) {
       // 止めきるまで少しかかる（最後の言葉が届く）。終わる前に次を始めるとぶつかるので、覚えておく
       var r = a.rec;
       closing.push(r);
       try { r.stop(); } catch (e) { forget(r); }
-      setTimeout(function () { if (r._open) { try { r.abort(); } catch (e) { /* もう止まっている */ } forget(r); } }, CLOSE_WAIT_MS);
+      setTimeout(function () { if (r._viOpen) { try { r.abort(); } catch (e) { /* もう止まっている */ } forget(r); } }, CLOSE_WAIT_MS);
     }
     a.btn.classList.remove('recording');
     a.btn.innerHTML = a.label;
@@ -141,13 +157,23 @@
   }
 
   function forget(rec) {
-    rec._open = false;
+    rec._viOpen = false;
     var i = closing.indexOf(rec);
     if (i >= 0) closing.splice(i, 1);
   }
 
   function listen(a) {
+    if (lastRec && !lastRec._viOpen) { try { lastRec.abort(); } catch (e) { /* もう止まっている */ } }
     var rec = new SR();
+    var id = ++seq;
+    lastRec = rec;
+    rec._viHeardAudio = false;
+    ['start', 'audiostart', 'soundstart', 'speechstart', 'speechend', 'soundend', 'audioend', 'nomatch'].forEach(function (ev) {
+      rec.addEventListener && rec.addEventListener(ev, function () {
+        log('#' + id + ' ' + ev);
+        if (ev === 'audiostart' || ev === 'start') { rec._viHeardAudio = true; clearTimeout(rec._viWatch); }
+      });
+    });
     rec.lang = 'ja-JP';
     rec.continuous = !ONE_SHOT;
     rec.interimResults = true;
@@ -156,6 +182,9 @@
     a.sessionStart = Date.now();
     a.pending = '';
     rec.onresult = function (e) {
+      rec._viHeardAudio = true; clearTimeout(rec._viWatch);
+      log('#' + id + ' result idx=' + e.resultIndex + ' n=' + e.results.length + ' ' +
+          Array.prototype.map.call(e.results, function (r) { return (r.isFinal ? 'F' : 'i') + (r[0] ? r[0].transcript.length : 0); }).join(','));
       var interim = '';
       for (var i = done; i < e.results.length; i++) {
         var r = e.results[i];
@@ -176,6 +205,7 @@
       liveBox(a.target).textContent = a.pending ? '聞き取り中：' + a.pending : '';
     };
     rec.onerror = function (e) {
+      log('#' + id + ' error ' + e.error + (active !== a ? ' (stopped)' : ''));
       if (active !== a) return;
       a.lastError = e.error;
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
@@ -193,6 +223,11 @@
       // no-speech・aborted などは onend でつなぎ直す
     };
     rec.onend = function () {
+      if (rec._viEnded) return;               // 見張りで終わらせたあとに、本物の終わりが届いたとき
+      rec._viEnded = true;
+      log('#' + id + ' end' + (active !== a ? ' (stopped)' : ''));
+      clearTimeout(rec._viWatch);
+      lastEndAt = Date.now();
       forget(rec);
       if (a.pending) {                      // 確定しないまま終わった言葉（iPhone など）も入れる
         var p = a.pending; a.pending = '';
@@ -221,8 +256,18 @@
       if (a.errRun) a.retryTimer = setTimeout(function () { begin(a, 0); }, Math.min(250 * a.errRun, 2000));
       else begin(a, 0);                     // 自動でつなぎ直す
     };
-    rec._open = true;
+    rec._viOpen = true;
+    log('#' + id + ' start() continuous=' + rec.continuous + (a.restarts ? ' restart' : ''));
     rec.start();
+    // 始めたのにマイクが動き出さない（何の知らせも来ない）ときは、打ち切ってやり直す
+    rec._viWatch = setTimeout(function () {
+      if (rec._viOpen && !rec._viHeardAudio && active === a) {
+        log('#' + id + ' watchdog: no audiostart → abort');
+        a.lastError = 'watchdog';
+        try { rec.abort(); } catch (e) { /* もう止まっている */ }
+        setTimeout(function () { if (rec._viOpen) { rec.onend && rec.onend(); } }, 500);
+      }
+    }, WATCH_MS);
   }
 
   // 聞き取りを始める。始め直せないとき（前の聞き取りがまだ終わりきっていない）は少し待ってやり直す
@@ -236,13 +281,22 @@
       return;
     }
     if (closing.length) {                   // 待っても終わらないときは打ち切る
+      log('closing did not end → abort');
       closing.slice().forEach(function (r) { try { r.abort(); } catch (e) { /* もう止まっている */ } forget(r); });
+    }
+    if (!a.restarts && Date.now() - lastEndAt < START_GAP_MS && tries < 20) {
+      // 押して始めるときは、前の聞き取りが終わってから少し間をあける（すぐだとマイクが動かない端末がある）
+      a.waiting = true;
+      paint(a);
+      a.retryTimer = setTimeout(function () { begin(a, tries + 1); }, 100);
+      return;
     }
     a.waiting = false;
     paint(a);
     try {
       listen(a);
     } catch (err) {
+      log('start() threw ' + (err && err.name ? err.name : err));
       if (tries < 4) {
         a.retryTimer = setTimeout(function () { begin(a, tries + 1); }, 300);
       } else {
@@ -278,11 +332,15 @@
   function toggle(btn, target) {
     if (typeof target === 'string') target = document.getElementById(target);
     var same = active && active.btn === btn;
+    log('button ' + (same ? 'stop' : 'start') + ' target=' + (target && target.id));
     stop();
     if (!same) start(btn, target);
   }
 
-  window.VoiceInput = {toggle: toggle, stop: function () { stop(); }, isActive: function () { return !!active; }};
+  window.VoiceInput = {
+    toggle: toggle, stop: function () { stop(); }, isActive: function () { return !!active; },
+    log: function () { return LOG.join('\n'); },
+  };
 
   document.addEventListener('click', function (e) {
     var btn = e.target.closest && e.target.closest('[data-voice-target]');
@@ -291,7 +349,7 @@
     toggle(btn, btn.getAttribute('data-voice-target'));
   });
   // 画面を離れたら止める（戻ったときに勝手に録音が続かないように）。入りかけの言葉は欄に入れる
-  document.addEventListener('visibilitychange', function () { if (document.hidden) stop(); });
+  document.addEventListener('visibilitychange', function () { log('visibility ' + document.visibilityState); if (document.hidden) stop(); });
   // フォームを送る前に止める（最後の言葉を欄に入れてから送る）
   document.addEventListener('submit', function () { stop(); }, true);
   // 開いていたダイアログ（メモなど）を閉じたら止める

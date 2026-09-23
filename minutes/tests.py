@@ -24,6 +24,7 @@ class MinutesTests(TestCase):
         res = self.client.get(self.url)
         self.assertContains(res, 'data-voice-target="transcript"')
         self.assertContains(res, 'id="mn-organize"')
+        self.assertContains(res, 'id="voice-log-toggle"')        # うまく文字にならないときの記録
         self.assertContains(res, f'href="{self.url}" target="_blank"')
 
     def test_create_edit_delete(self):
