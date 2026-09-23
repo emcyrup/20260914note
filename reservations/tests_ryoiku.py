@@ -1,4 +1,4 @@
-"""時間枠の予約・月予約利用希望・月間予定表（りょういく）のテスト"""
+"""時間枠の予約・月予約利用希望・月間予定表（発達支援ルーム　ゆあーず）のテスト"""
 import datetime
 from unittest import mock
 
@@ -20,7 +20,7 @@ def child(facility, last, first='子'):
 
 
 def ryoiku():
-    f = Facility.objects.create(name='りょういく', use_reservation=True, use_therapy_record=True)
+    f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_reservation=True, use_therapy_record=True)
     s = services.get_setting(f)
     s.slot_mode, s.slot_capacity = True, 3
     s.weekday_first_hour, s.weekday_last_hour = 10, 18
@@ -676,13 +676,29 @@ class RequestScanTests(TestCase):
         self.assertEqual(self.client.get(other.image.url).status_code, 404)
 
 class PresetAndSeedTests(TestCase):
+    def test_rename_migration(self):
+        """「りょういく」→「発達支援ルーム　ゆあーず」の書き換え（ほかの事業所・独自の署名は触らない）"""
+        import importlib
+        from django.apps import apps as django_apps
+        mig = importlib.import_module('reservations.migrations.0009_rename_ryoiku_facility')
+        old = Facility.objects.create(name='りょういく')
+        services.get_setting(old).__class__.objects.filter(facility=old).update(signature='りょういく')
+        custom = Facility.objects.create(name='りょういく2')
+        mig.rename(django_apps, None)
+        old.refresh_from_db(); custom.refresh_from_db()
+        self.assertEqual((old.name, custom.name), ('発達支援ルーム　ゆあーず', 'りょういく2'))
+        self.assertEqual(services.get_setting(old).signature, '発達支援ルーム　ゆあーず')
+        mig.rename_back(django_apps, None)
+        old.refresh_from_db()
+        self.assertEqual(old.name, 'りょういく')
+
     def test_create_facility_preset(self):
         from io import StringIO
         from django.core.management import call_command
         out = StringIO()
-        call_command('create_facility', 'りょういく', '--admin', 'ryoiku', '--password', 'pw12345678',
+        call_command('create_facility', '発達支援ルーム　ゆあーず', '--admin', 'ryoiku', '--password', 'pw12345678',
                      '--preset', 'ryoiku', stdout=out)
-        f = Facility.objects.get(name='りょういく')
+        f = Facility.objects.get(name='発達支援ルーム　ゆあーず')
         self.assertTrue(f.use_reservation and f.use_therapy_record)
         s = services.get_setting(f)
         self.assertTrue(s.slot_mode)

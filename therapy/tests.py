@@ -15,7 +15,7 @@ from .models import TherapyProfile, TherapyRecord
 
 class TherapyTests(TestCase):
     def setUp(self):
-        self.f = Facility.objects.create(name='りょういく', use_therapy_record=True)
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_therapy_record=True)
         self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f,
                                                      role=StaffAccount.ROLE_ADMIN, display_name='永山')
         self.client.login(username='ryo', password='pw12345678')
@@ -108,7 +108,7 @@ class TherapyTests(TestCase):
 @override_settings(ANTHROPIC_API_KEY='test-key')
 class CautionsSummaryTests(TestCase):
     def setUp(self):
-        self.f = Facility.objects.create(name='りょういく', use_therapy_record=True)
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_therapy_record=True)
         StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
         self.client.login(username='ryo', password='pw12345678')
         self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子',

@@ -1,6 +1,6 @@
-# 「りょういく」を GCP の別サーバーで動かす
+# 「発達支援ルーム　ゆあーず」（旧名 りょういく）を GCP の別サーバーで動かす
 
-療育の事業所「りょういく」（時間枠の予約・月予約利用希望・月間予定表・療育記録）を、開発環境やシンプルのサーバーとは**別のサーバー・別のデータベース**で動かすための手引きです。
+療育の事業所「発達支援ルーム　ゆあーず」（時間枠の予約・月予約利用希望・月間予定表・療育記録）を、開発環境やシンプルのサーバーとは**別のサーバー・別のデータベース**で動かすための手引きです。
 配備先は **GCP Compute Engine の VM 1台**（Docker Compose：Caddy → Django/Gunicorn → PostgreSQL）で、コードは同じリポジトリのブランチ `ryoiku` を配備します。
 
 Cloud Console（ブラウザ）と GitHub の画面だけで構築できます。サーバー内の作業は Console の「ブラウザで SSH」を使います。
@@ -10,7 +10,7 @@ Cloud Console（ブラウザ）と GitHub の画面だけで構築できます�
 
 ## 0. シンプルのサーバーとの違い
 
-| 項目 | シンプル | りょういく |
+| 項目 | シンプル | ゆあーず |
 |---|---|---|
 | ブランチ | `simple` | **`ryoiku`** |
 | ワークフロー | Deploy (simple) | **Deploy (ryoiku)** |
@@ -25,8 +25,8 @@ Cloud Console（ブラウザ）と GitHub の画面だけで構築できます�
 
 ## 1. いまある状態
 
-- 「りょういく」の機能（時間枠の予約・月予約利用希望・月間予定表・療育記録）は `develop`・`simple`・`ryoiku` に入っています（README「療育の事業所向け」）。コードは `reservations/`（`monthly.py` と時間枠の設定）と `therapy/` アプリ、祝日判定は `config/jp_holidays.py`。
-- 事業所は `create_facility "りょういく" --preset ryoiku` で作ります（予約管理＋療育記録を ON にし、1枠45分・1枠3人・平日10〜18時・土日祝9〜17時・月木休を入れます）。開発環境（AWS）にも事業所「りょういく」を作ってあります。
+- 「ゆあーず」の機能（時間枠の予約・月予約利用希望・月間予定表・療育記録）は `develop`・`simple`・`ryoiku` に入っています（README「療育の事業所向け」）。コードは `reservations/`（`monthly.py` と時間枠の設定）と `therapy/` アプリ、祝日判定は `config/jp_holidays.py`。
+- 事業所は `create_facility "発達支援ルーム　ゆあーず" --preset ryoiku` で作ります（予約管理＋療育記録を ON にし、1枠45分・1枠3人・平日10〜18時・土日祝9〜17時・月木休を入れます）。開発環境（AWS）にも作ってあります。2026-09-23 に事業所名を「りょういく」から「発達支援ルーム　ゆあーず」に変えました（名前が「りょういく」の事業所は、配備のときの migration `reservations/0009` で自動で書き換わります）。ファイル名・ブランチ・置き場所・Secrets・VM などの英字の名前は `ryoiku` のままです。
 - 配備用のワークフロー **Deploy (ryoiku)**（`.github/workflows/deploy-ryoiku.yml`）：ブランチ `ryoiku` への push で、テスト → イメージを GHCR に push → SSH で `docker compose pull / up / migrate` → ヘルスチェック。**Secrets が未登録のうちはテストだけ通して配備をスキップ**します。
 
 構成と月額の目安：東京（asia-northeast1）の **e2-small で約 21 ドル/月**。シンプルのサーバーは e2-micro（1GB）で始めてページ遷移が数秒かかり、e2-small（2GB）に上げて解消しました。**最初から e2-small を選んでください。**
@@ -37,7 +37,7 @@ Cloud Console（ブラウザ）と GitHub の画面だけで構築できます�
 
 シンプルと同じプロジェクトに相乗りしても、別プロジェクトにしても構いません（事業所ごとに請求を分けたいなら別プロジェクト）。
 
-1. [console.cloud.google.com](https://console.cloud.google.com/) → プロジェクトを選択、または **新しいプロジェクト** → 名前「りょういく」など → 作成。**プロジェクト ID** を控える。
+1. [console.cloud.google.com](https://console.cloud.google.com/) → プロジェクトを選択、または **新しいプロジェクト** → 名前「yours」など → 作成。**プロジェクト ID** を控える。
 2. **お支払い** → 請求先アカウントをこのプロジェクトに**リンク**。**予算とアラート** で月額の上限（例 3,000 円）も決めておく。
 3. **Compute Engine → VM インスタンス → 有効にする**（1〜2 分。同じプロジェクトなら済んでいます）。
 
@@ -174,7 +174,7 @@ Secrets を入れたら **Actions → Deploy (ryoiku) → Run workflow**（ブ�
 ```bash
 sudo -u deploy -i
 cd /opt/ryoiku
-docker compose exec app python manage.py create_facility "りょういく" --admin ryoiku --password '初期パスワード' --preset ryoiku --demo
+docker compose exec app python manage.py create_facility "発達支援ルーム　ゆあーず" --admin ryoiku --password '初期パスワード' --preset ryoiku --demo
 exit
 ```
 
@@ -193,7 +193,7 @@ exit
 3. GitHub Secrets の `RYOIKU_HEALTH_URL` を `https://<ドメイン>/healthz/` にする。
 4. LINE Developers の Webhook URL に `https://<ドメイン>/line/webhook/<施設ID>/` を登録し、施設設定でチャネルアクセストークン・シークレットを入れる。詳しくは `docs/HTTPS.md`。
 
-**りょういくで LINE を使う場面**：保護者の顧客ページ（月予約利用希望の送信・予約の確認）のアドレスを LINE で配るとき、月間予定表を作ったあとの「ご利用日が決まりました」を送るときです。ドメインが無くても、顧客ページのアドレスは `http://<固定IP>/yoyaku/mypage/<アドレス>/` として画面からコピーして渡せます。
+**ゆあーずで LINE を使う場面**：保護者の顧客ページ（月予約利用希望の送信・予約の確認）のアドレスを LINE で配るとき、月間予定表を作ったあとの「ご利用日が決まりました」を送るときです。ドメインが無くても、顧客ページのアドレスは `http://<固定IP>/yoyaku/mypage/<アドレス>/` として画面からコピーして渡せます。
 
 ### 3-8. 運用
 
@@ -231,12 +231,12 @@ gunzip -c backups/db-YYYYMMDD-HHMMSS.sql.gz | docker compose exec -T db psql -U 
 
 | ブランチ | 用途 | 配備先 |
 |---|---|---|
-| `develop` | 開発環境（AWS：ウィズユー藤森・はぴねす・なゆた・シンプル・りょういく） | Deploy (dev) |
+| `develop` | 開発環境（AWS：ウィズユー藤森・はぴねす・なゆた・シンプル・ゆあーず） | Deploy (dev) |
 | `simple` | シンプル用の GCP サーバー | Deploy (simple) |
-| `ryoiku` | **りょういく用の GCP サーバー** | Deploy (ryoiku) |
+| `ryoiku` | **ゆあーず用の GCP サーバー** | Deploy (ryoiku) |
 | `main` | 本番（許可制） | — |
 
-`ryoiku` は `develop` から切ってあります。共通の修正は `develop` に入れてから各ブランチに取り込みます（`git merge develop`）。事業所ごとの違いは施設の設定（使う機能・画面の型・予約の決まりごと）で出し分けているので、りょういくだけに必要な機能も `develop` に入れて構いません。
+`ryoiku` は `develop` から切ってあります。共通の修正は `develop` に入れてから各ブランチに取り込みます（`git merge develop`）。事業所ごとの違いは施設の設定（使う機能・画面の型・予約の決まりごと）で出し分けているので、ゆあーずだけに必要な機能も `develop` に入れて構いません。
 
 事業所をもう1つ別サーバーに出すときは、このファイルと `.github/workflows/deploy-ryoiku.yml`・`deploy/.env.ryoiku.example` を同じ形でコピーし、`RYOIKU_` と `/opt/ryoiku` を新しい名前に置き換えます。
 

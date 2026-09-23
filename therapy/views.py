@@ -1,4 +1,4 @@
-"""療育記録の画面（りょういく）"""
+"""療育記録の画面（発達支援ルーム　ゆあーず）"""
 import datetime
 import logging
 

@@ -65,7 +65,7 @@ class ReservationSetting(models.Model):
                                     verbose_name='予約の受け方')
     group_auto_apply = models.BooleanField(default=True, verbose_name='スタッフのグループの投稿を反映する')
 
-    # ---- 時間枠で予約する（りょういく：1枠45分・1枠3人・月予約利用希望から月間予定表を作る）----
+    # ---- 時間枠で予約する（ゆあーず：1枠45分・1枠3人・月予約利用希望から月間予定表を作る）----
     slot_mode = models.BooleanField(default=False, verbose_name='時間枠で予約する',
                                     help_text='1日の枠ではなく、1時間ごとの枠（1枠45分）に人数の上限を置きます。'
                                               '月予約利用希望から月間予定表を作れます。')

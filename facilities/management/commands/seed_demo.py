@@ -518,7 +518,7 @@ class Command(BaseCommand):
         setting = services.get_setting(facility)
         counts = {}
 
-        # 時間枠で予約する施設（りょういく）は、月予約利用希望→月間予定表の流れで入れる
+        # 時間枠で予約する施設（ゆあーず）は、月予約利用希望→月間予定表の流れで入れる
         if setting.slot_mode:
             return self._create_slot_reservations(facility, beneficiaries, today, rng, setting)
 

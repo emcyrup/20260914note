@@ -3,7 +3,7 @@
 
   python manage.py create_facility "あおば教室" --admin aoba_admin --password '（初期パスワード）'
   python manage.py create_facility "あおば教室" --admin aoba_admin --password '…' --copy-settings-from 1 --demo
-  python manage.py create_facility "りょういく" --admin ryoiku --password '…' --copy-settings-from <なゆたのID> --preset ryoiku
+  python manage.py create_facility "発達支援ルーム　ゆあーず" --admin ryoiku --password '…' --copy-settings-from <なゆたのID> --preset ryoiku
 
 - 施設を作成し、標準の活動タグ・支援内容タグを入れる
 - --admin を付けると、その施設の管理者アカウント（権限区分＝管理者）を作る
@@ -23,7 +23,7 @@ from facilities.services import COPY_FIELDS, create_facility  # noqa: F401  (COP
 
 
 def apply_ryoiku_preset(facility):
-    """療育の事業所（りょういく）の設定：時間枠の予約と療育記録"""
+    """療育の事業所（発達支援ルーム　ゆあーず）の設定：時間枠の予約と療育記録"""
     from reservations.services import get_setting
     facility.use_reservation = True
     facility.use_therapy_record = True

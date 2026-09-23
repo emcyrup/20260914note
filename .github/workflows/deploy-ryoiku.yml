@@ -1,5 +1,5 @@
 # =============================================
-# 「りょういく」用の別サーバー（GCP Compute Engine・Docker Compose・Caddy）へのデプロイ
+# 「発達支援ルーム　ゆあーず」（旧名 りょういく）用の別サーバー（GCP Compute Engine・Docker Compose・Caddy）へのデプロイ
 #   ブランチ ryoiku への push、または Actions から手動実行（任意のブランチを選べる）
 #   テスト → イメージを GHCR に push → SSH で compose を同期して pull / up / migrate → ヘルスチェック
 #   サーバーの準備手順は docs/RYOIKU_SERVER.md

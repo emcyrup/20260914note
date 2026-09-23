@@ -133,7 +133,7 @@ class SettingView(ReservationEnabledMixin, View):
             setting.booking_mode = mode
         setting.group_auto_apply = 'group_auto_apply' in request.POST
 
-        # 時間枠で予約する（りょういく）
+        # 時間枠で予約する（ゆあーず）
         setting.slot_mode = 'slot_mode' in request.POST
         slot_capacity = to_int(request.POST.get('slot_capacity'), setting.slot_capacity)
         slot_minutes = to_int(request.POST.get('slot_minutes'), setting.slot_minutes)
