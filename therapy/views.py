@@ -201,6 +201,23 @@ class PdfView(TherapyEnabledMixin, View):
         return pdf_or_html(request, 'therapy/pdf/record.html', ctx, name)
 
 
+def _ask_ai(system, content, max_tokens):
+    """AI に1回たずねて (返答の文, None) を返す。使えないときは (None, エラーの JsonResponse)"""
+    if not settings.ANTHROPIC_API_KEY:
+        return None, JsonResponse({'error': 'AIを使う設定（ANTHROPIC_API_KEY）がサーバーにありません。管理者に設定を依頼してください。'},
+                                  status=500)
+    try:
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        response = client.messages.create(
+            model=settings.AI_TEXT_MODEL, max_tokens=max_tokens, **effort_kwargs(settings.AI_TEXT_MODEL),
+            system=system, messages=[{'role': 'user', 'content': content}],
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception('療育記録の AI でエラー')
+        return None, JsonResponse({'error': f'AIでの作成中にエラーが発生しました: {type(e).__name__}'}, status=500)
+    return ''.join(b.text for b in response.content if b.type == 'text'), None
+
+
 class CautionsSummaryView(TherapyEnabledMixin, View):
     """
     留意点の要約。音声入力などで話し言葉のまま入った文を、用紙に載せる短い箇条書きに整えて返す。
@@ -225,20 +242,9 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
         text = request.POST.get('text', '').strip()
         if not text:
             return JsonResponse({'error': '留意点が空です。先に音声入力か文字で入れてください。'}, status=400)
-        if not settings.ANTHROPIC_API_KEY:
-            return JsonResponse({'error': 'AIを使う設定（ANTHROPIC_API_KEY）がサーバーにありません。管理者に設定を依頼してください。'},
-                                status=500)
-        try:
-            client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-            response = client.messages.create(
-                model=settings.AI_TEXT_MODEL, max_tokens=1024, **effort_kwargs(settings.AI_TEXT_MODEL),
-                system=self.SYSTEM_PROMPT,
-                messages=[{'role': 'user', 'content': f'【{beneficiary.full_name}さんについてのメモ】\n{text[:6000]}'}],
-            )
-            raw = ''.join(b.text for b in response.content if b.type == 'text')
-        except Exception as e:  # noqa: BLE001
-            logger.exception('留意点の要約でエラー')
-            return JsonResponse({'error': f'AIでの要約中にエラーが発生しました: {type(e).__name__}'}, status=500)
+        raw, error = _ask_ai(self.SYSTEM_PROMPT, f'【{beneficiary.full_name}さんについてのメモ】\n{text[:6000]}', 1024)
+        if error:
+            return error
         result = self.tidy(raw)
         if not result:
             return JsonResponse({'error': 'AIの返答が空でした。もう一度お試しください。'}, status=500)
@@ -253,3 +259,76 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
             if line:
                 lines.append(f'・{line}')
         return '\n'.join(lines)
+
+
+RECORD_SUMMARY_MIN = 100   # 「記録」に足す文の長さ（文字）
+RECORD_SUMMARY_MAX = 500
+
+
+class RecordSummaryView(TherapyEnabledMixin, View):
+    """
+    「記録を追加する」の補助。留意点を、その日のやったこと（①〜⑤）に照らして 100〜500 字の文にまとめて返す。
+    画面では「記録」の欄の末尾に足すだけで、保存は職員が「追加する」を押して行う。
+    """
+
+    SYSTEM_PROMPT = f"""あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
+その子の「留意点」（療育のときに職員が気をつけること）を、今日の「やったこと（活動）」に照らしてまとめ、
+療育記録の「記録」の欄に書く文を作ります。
+
+【内容】
+- 留意点のうち、今日の活動に関係するものを選び、どの活動でどう気をつけるかが分かるように書く
+- 活動の名前は入力の表記のまま使う（①②などの番号は付けない）
+- 今日の活動に関係しない留意点は、大事なもの（安全・体調にかかわること）だけ短く添える
+- 「記録（書きかけ）」があれば読んで、そこに書いてあることは繰り返さない
+
+【書き方（必ず守る）】
+- {RECORD_SUMMARY_MIN}字以上{RECORD_SUMMARY_MAX}字以内の、です・ます を使わない文（「〜に留意して取り組む。」「〜のため、〜する。」のような常体）
+- 箇条書き・見出し・前置き・あいさつは書かない。段落は1〜3つ
+- 入力にある事実だけを使う。子どものようす・反応・できたこと・結果は入力に無いので書かない（推測しない）
+- 入力に無い対応方法や一般論を足さない。留意点が短いときは、無理に長くせず{RECORD_SUMMARY_MIN}字に近い長さでよい
+- 常用漢字とひらがな・カタカナで書く。英語・絵文字・記号（★ ※ → など）・マークダウンは使わない
+- 返すのは記録に書く文だけ"""
+
+    def post(self, request, pk):
+        beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
+        p = request.POST
+        cautions = p.get('cautions', '').strip()
+        if not cautions:
+            profile = TherapyProfile.objects.filter(beneficiary=beneficiary).first()
+            cautions = profile.cautions.strip() if profile else ''
+        if not cautions:
+            return JsonResponse({'error': '留意点が空です。先に上の「留意点」を入れてください。'}, status=400)
+        activities = [a for a in _activities_from_post(p) if a]
+        if not activities:
+            return JsonResponse({'error': '「やったこと（①〜⑤）」を1つ以上入れてから押してください。'}, status=400)
+        day = _parse_date(p.get('date'))
+        body = p.get('body', '').strip()
+        content = (
+            f'【{beneficiary.full_name}さんの留意点】\n{cautions[:CAUTIONS_MAX]}\n\n'
+            + (f'【日付】{day.year}年{day.month}月{day.day}日\n' if day else '')
+            + '【今日のやったこと】\n' + '\n'.join(f'・{a}' for a in activities)
+            + (f'\n\n【記録（書きかけ）】\n{body[:2000]}' if body else '')
+        )
+        raw, error = _ask_ai(self.SYSTEM_PROMPT, content, 2048)
+        if error:
+            return error
+        result = self.tidy(raw)
+        if not result:
+            return JsonResponse({'error': 'AIの返答が空でした。もう一度お試しください。'}, status=500)
+        return JsonResponse({'result': result, 'length': len(result.replace('\n', ''))})
+
+    @staticmethod
+    def tidy(raw):
+        """空行を1つにそろえ、500字を超えたら文の区切り（。）で切る"""
+        paras = [''.join(x.strip() for x in block.splitlines() if x.strip())
+                 for block in clean_ai_text(raw).split('\n\n')]
+        text = '\n'.join(x for x in paras if x)
+        if len(text.replace('\n', '')) <= RECORD_SUMMARY_MAX:
+            return text
+        cut, count = '', 0
+        for sentence in text.replace('。', '。\x00').split('\x00'):
+            n = len(sentence.replace('\n', ''))
+            if count + n > RECORD_SUMMARY_MAX:
+                break
+            cut, count = cut + sentence, count + n
+        return (cut or text[:RECORD_SUMMARY_MAX]).strip()

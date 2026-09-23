@@ -34,6 +34,21 @@
   </div>
 </div>
 <div class="col-12">
+  {% if rec %}
   <label class="form-label small fw-semibold">記録</label>
-  <textarea name="body" class="form-control form-control-sm" rows="4" placeholder="ようすや声かけ、次回に向けて">{% if rec %}{{ rec.body }}{% endif %}</textarea>
+  <textarea name="body" class="form-control form-control-sm" rows="4" placeholder="ようすや声かけ、次回に向けて">{{ rec.body }}</textarea>
+  {% else %}
+  <div class="d-flex justify-content-between align-items-end flex-wrap gap-2 mb-1">
+    <label class="form-label small fw-semibold mb-0" for="record-body">記録</label>
+    <button type="button" class="btn btn-sm btn-outline-primary" id="record-summary"
+            data-url="{% url 'therapy:record_summary' beneficiary.pk %}"
+            title="留意点を、やったこと（①〜⑤）に照らして100〜500字にまとめ、記録の最後に足します"><i class="bi bi-magic"></i> 留意点から記録に追記</button>
+  </div>
+  <div id="record-summary-note" class="alert alert-info small py-1 px-2 mb-1 d-none">
+    <span class="msg"></span>
+    <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline d-none" id="record-undo">追記を取り消す</button>
+  </div>
+  <textarea name="body" id="record-body" class="form-control form-control-sm" rows="4" placeholder="ようすや声かけ、次回に向けて"></textarea>
+  <div class="form-text">「やったこと」を入れてから「留意点から記録に追記」を押すと、留意点を今日の活動に照らしてまとめた文（100〜500字）を最後に足します。確かめてから「追加する」を押してください。</div>
+  {% endif %}
 </div>

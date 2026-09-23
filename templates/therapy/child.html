@@ -168,4 +168,47 @@
   });
 })();
 </script>
+<script>
+(function () {
+  // 記録を追加する：留意点をやったこと（①〜⑤）に照らしてまとめ、「記録」の最後に足す
+  var btn = document.getElementById('record-summary');
+  if (!btn) return;
+  var form = btn.closest('form');
+  var area = document.getElementById('record-body');
+  var box = document.getElementById('record-summary-note');
+  var undo = document.getElementById('record-undo');
+  var before = null;
+  function show(text, cls, canUndo) {
+    box.className = 'alert small py-1 px-2 mb-1 alert-' + cls;
+    box.querySelector('.msg').textContent = text;
+    undo.classList.toggle('d-none', !canUndo);
+  }
+  btn.addEventListener('click', function () {
+    var cautions = document.getElementById('cautions').value.trim();
+    if (!cautions) { show('留意点が空です。先に上の「留意点」を入れてください。', 'warning', false); return; }
+    var body = new FormData(form);          // 日付・やったこと・書きかけの記録
+    body.delete('action');
+    body.append('cautions', cautions);      // 保存前の留意点も使う
+    var label = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 作成中';
+    fetch(btn.dataset.url, {method: 'POST', body: body, credentials: 'same-origin'})
+      .then(function (r) { return r.json().catch(function () { return {error: '作成できませんでした（' + r.status + '）。'}; }); })
+      .then(function (data) {
+        if (data.error) { show(data.error, 'danger', false); return; }
+        before = area.value;
+        area.value = before.trim() ? before.replace(/\s+$/, '') + '\n' + data.result : data.result;
+        area.rows = Math.max(4, Math.min(14, Math.ceil(area.value.length / 45) + area.value.split('\n').length));
+        show('留意点をまとめて記録の最後に足しました（' + data.length + '字）。内容を確かめて「追加する」を押してください。', 'info', true);
+      })
+      .catch(function () { show('通信できませんでした。もう一度お試しください。', 'danger', false); })
+      .finally(function () { btn.disabled = false; btn.innerHTML = label; });
+  });
+  undo.addEventListener('click', function () {
+    if (before === null) return;
+    area.value = before; before = null;
+    show('追記を取り消しました。', 'secondary', false);
+  });
+})();
+</script>
 {% endblock %}

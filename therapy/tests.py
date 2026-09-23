@@ -157,3 +157,87 @@ class CautionsSummaryTests(TestCase):
         res = self.client.get(reverse('therapy:child', args=[self.kid.pk]))
         self.assertContains(res, 'id="cautions-summary"')
         self.assertContains(res, self.url)
+
+
+@override_settings(ANTHROPIC_API_KEY='test-key')
+class RecordSummaryTests(TestCase):
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_therapy_record=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子',
+                                              last_name_kana='あおき', date_of_birth=datetime.date(2019, 4, 1))
+        self.url = reverse('therapy:record_summary', args=[self.kid.pk])
+        self.post = {'date': '2026-09-24', 'activity_1': 'ウレタン棒', 'activity_2': 'ブロック',
+                     'cautions': '・大きな音が苦手\n・疲れると手が出る。休憩を先に入れる'}
+
+    def reply(self, client_cls, text):
+        client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[
+            SimpleNamespace(type='thinking', thinking='...'), SimpleNamespace(type='text', text=text)])
+
+    @mock.patch('therapy.views.anthropic.Anthropic')
+    def test_summary_uses_cautions_and_activities(self, client_cls):
+        self.reply(client_cls, 'ウレタン棒では、疲れると手が出ることがあるため、\n休憩を先に入れて取り組む。\n\n'
+                               'ブロックでは、崩れる音が大きくならないよう机の上で行う。')
+        res = self.client.post(self.url, {**self.post, 'body': '今日は笑顔が多かった。'})
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        # 段落の中の改行はつなぎ、段落は1行ずつ
+        self.assertEqual(data['result'], 'ウレタン棒では、疲れると手が出ることがあるため、休憩を先に入れて取り組む。\n'
+                                         'ブロックでは、崩れる音が大きくならないよう机の上で行う。')
+        self.assertEqual(data['length'], len(data['result']) - 1)
+        kwargs = client_cls.return_value.messages.create.call_args.kwargs
+        self.assertIn('100字以上500字以内', kwargs['system'])
+        content = kwargs['messages'][0]['content']
+        for word in ('青木 子さん', '大きな音が苦手', '・ウレタン棒', '・ブロック', '2026年9月24日', '今日は笑顔が多かった'):
+            self.assertIn(word, content)
+        self.assertFalse(TherapyRecord.objects.exists())   # 返すだけで保存しない
+
+    @mock.patch('therapy.views.anthropic.Anthropic')
+    def test_saved_cautions_used_when_page_has_none(self, client_cls):
+        TherapyProfile.objects.create(beneficiary=self.kid, cautions='・水が苦手')
+        self.reply(client_cls, '水遊びは避ける。')
+        res = self.client.post(self.url, {**self.post, 'cautions': ''})
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('水が苦手', client_cls.return_value.messages.create.call_args.kwargs['messages'][0]['content'])
+
+    @mock.patch('therapy.views.anthropic.Anthropic')
+    def test_long_reply_is_cut_at_sentence(self, client_cls):
+        sentence = 'あ' * 99 + '。'           # 100字の文を6つ → 500字で切る
+        self.reply(client_cls, sentence * 6)
+        res = self.client.post(self.url, self.post)
+        self.assertEqual(res.json()['result'], sentence * 5)
+        self.assertEqual(res.json()['length'], 500)
+
+    def test_needs_cautions_and_activities(self):
+        res = self.client.post(self.url, {**self.post, 'cautions': ''})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('留意点', res.json()['error'])
+        res = self.client.post(self.url, {'cautions': '・音が苦手', 'activity_1': ' '})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('やったこと', res.json()['error'])
+
+    @override_settings(ANTHROPIC_API_KEY='')
+    def test_missing_api_key(self):
+        res = self.client.post(self.url, self.post)
+        self.assertEqual(res.status_code, 500)
+        self.assertIn('ANTHROPIC_API_KEY', res.json()['error'])
+
+    @mock.patch('therapy.views.anthropic.Anthropic', side_effect=RuntimeError('boom'))
+    def test_api_error(self, _):
+        res = self.client.post(self.url, self.post)
+        self.assertEqual(res.status_code, 500)
+        self.assertIn('エラー', res.json()['error'])
+
+    def test_other_facility_child_is_404(self):
+        other = Facility.objects.create(name='ほか', use_therapy_record=True)
+        kid = Beneficiary.objects.create(facility=other, last_name='他', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        res = self.client.post(reverse('therapy:record_summary', args=[kid.pk]), self.post)
+        self.assertEqual(res.status_code, 404)
+
+    def test_button_only_on_add_form(self):
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date(2026, 9, 1), body='前回')
+        res = self.client.get(reverse('therapy:child', args=[self.kid.pk]))
+        self.assertContains(res, 'id="record-summary"', count=1)
+        self.assertContains(res, self.url)
+        self.assertContains(res, 'id="record-body"', count=1)
