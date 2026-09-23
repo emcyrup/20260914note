@@ -292,11 +292,13 @@ def cancel_reservation(res, notify=True, base=''):
 
 
 @transaction.atomic
-def move_reservation(res, new_day, note=None, base='', start_time=None):
+def move_reservation(res, new_day, note=None, base='', start_time=None, notify=True):
     """
     予約の日にち（時間枠のときは時刻も）を変える（職員の操作）。
     もとの日はキャンセル待ちを繰り上げ、新しい日は空きがなければキャンセル待ちにする。
     `start_time` を渡さなければ、時刻はそのまま。
+    `notify=False` なら、顧客への変更のお知らせ・グループへの増減・空きのお知らせを積まない
+    （月間予定表を組んでいる途中の手直しで、確定前の予定を保護者に流さないため）。
     """
     facility = res.facility
     setting = get_setting(facility)
@@ -343,9 +345,14 @@ def move_reservation(res, new_day, note=None, base='', start_time=None):
         # 同じ日の別の枠へ。空いた枠のキャンセル待ちを繰り上げる
         if was_confirmed:
             promote_waitlist(facility, old_day, setting)
-        queue_notice(facility, ReservationNotice.KIND_MOVED, setting, customer=res.customer, reservation=res)
+        if notify:
+            queue_notice(facility, ReservationNotice.KIND_MOVED, setting, customer=res.customer, reservation=res)
         return res
 
+    if not notify:
+        if was_confirmed:
+            promote_waitlist(facility, old_day, setting)
+        return res
     queue_notice(facility, ReservationNotice.KIND_MOVED, setting, customer=res.customer, reservation=res)
     queue_group_notice(facility, setting, old_day, res.display_name, f'{jp_date(new_day)} へ変更')
     queue_group_notice(facility, setting, new_day, res.display_name,

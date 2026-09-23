@@ -22,6 +22,12 @@
   .ms-box.wait { color: #8a6d1f; background: #fff7df; }
   .ms-box.over { color: var(--color-danger); }
   .ms-count { font-weight: 400; font-size: 0.68rem; color: #6b6257; }
+  body.ms-swap .ms-box[data-res], body.ms-swap .ms-box.empty[data-date] { cursor: pointer; }
+  body.ms-swap .ms-box[data-res]:hover { background: #fff2cc; }
+  body.ms-swap .ms-box.empty[data-date] { color: #8fb8a3; }
+  .ms-box.picked { background: var(--color-primary) !important; color: #fff !important; font-weight: 600; }
+  #ms-swap-bar { display: none; }
+  body.ms-swap #ms-swap-bar { display: block; }
   .ms-users { grid-template-columns: 1.4fr 0.6fr 0.6fr 0.6fr 0.6fr; }
   @media (max-width: 768px) { .ms-week { font-size: 0.62rem; } .ms-box { height: 17px; line-height: 17px; padding: 0 2px; } }
 </style>
@@ -37,6 +43,7 @@
     </div>
     <div class="d-flex gap-2 flex-wrap">
       <a href="{% url 'reservations:monthly_requests' year month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-list-check me-1"></i>利用希望</a>
+      <button type="button" class="btn btn-outline-primary btn-sm" id="ms-swap-toggle"><i class="bi bi-arrow-left-right me-1"></i>入れ替え・移動</button>
       <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-printer me-1"></i>印刷（PDF）</a>
       <form method="post" action="{% url 'reservations:monthly_requests' year month %}"
             onsubmit="return confirm('{{ month }}月の利用希望から予約を割り当てます。\nすでに確定している予約は残し、希望回数に足りないぶんだけ足します。よろしいですか？');">
@@ -45,6 +52,19 @@
       </form>
     </div>
   </div>
+
+  <div id="ms-swap-bar" class="alert alert-warning py-2 small mb-3">
+    <i class="bi bi-arrow-left-right me-1"></i><strong>入れ替え・移動モード</strong>：
+    <span id="ms-swap-msg">動かしたい{{ terms.beneficiary }}の名前を押してください。</span>
+    <span class="text-muted">続けて別の名前を押すと2人の枠を入れ替え、「＋」を押すとその空き枠へ移します。
+    保護者へのお知らせは積みません（送信待ちの「ご利用日が決まりました」は書き直します）。</span>
+    <button type="button" class="btn btn-sm btn-outline-secondary ms-2 py-0" id="ms-swap-cancel">やめる</button>
+  </div>
+  <form method="post" action="{% url 'reservations:monthly_schedule_swap' year month %}" id="ms-swap-form" class="d-none">
+    {% csrf_token %}
+    <input type="hidden" name="action"><input type="hidden" name="a"><input type="hidden" name="b">
+    <input type="hidden" name="date"><input type="hidden" name="hour">
+  </form>
 
   <div class="row g-3">
     <div class="col-lg-9">
@@ -71,10 +91,10 @@
                 {% else %}
                 <td>
                   {% for r in s.boxes %}
-                    {% if r %}<a class="ms-box" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}" title="{{ r.display_name }} {{ r.time_label }}">{{ r.display_name }}</a>
-                    {% else %}<a class="ms-box empty" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}?hour={{ s.hour }}" title="{{ d.date|date:'n/j' }} {{ s.label }} に追加">＋</a>{% endif %}
+                    {% if r %}<a class="ms-box" data-res="{{ r.pk }}" data-name="{{ r.display_name }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}" title="{{ r.display_name }} {{ r.time_label }}">{{ r.display_name }}</a>
+                    {% else %}<a class="ms-box empty" data-date="{{ d.date|date:'Y-m-d' }}" data-hour="{{ s.hour }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}?hour={{ s.hour }}" title="{{ d.date|date:'n/j' }} {{ s.label }} に追加">＋</a>{% endif %}
                   {% endfor %}
-                  {% for r in s.over %}<a class="ms-box over" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">{{ r.display_name }}（超過）</a>{% endfor %}
+                  {% for r in s.over %}<a class="ms-box over" data-res="{{ r.pk }}" data-name="{{ r.display_name }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">{{ r.display_name }}（超過）</a>{% endfor %}
                   {% for r in s.waiting %}<a class="ms-box wait" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">待 {{ r.display_name }}</a>{% endfor %}
                 </td>
                 {% endif %}
@@ -89,6 +109,8 @@
       <div class="small text-muted">
         網掛けはお休み（{{ schedule.closed_text|default:'なし' }}）とその日に無い時刻。1枠 {{ schedule.capacity }} 人。
         「＋」を押すと、その日の画面でその枠に追加できます。名前を押すと、その日の画面で変更・取消ができます。
+        「入れ替え・移動」で、2人の枠の入れ替えや空き枠への移動ができます。<br>
+        割り当ては、時刻を指定した希望を先に、「終日」の希望はあとから<strong>その日の空いている早い時刻（午前）から詰めて</strong>入れます。○の付いていない日・時刻には入れません。
       </div>
     </div>
     <div class="col-lg-3">
@@ -111,4 +133,48 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var body = document.body, form = document.getElementById('ms-swap-form');
+  var msg = document.getElementById('ms-swap-msg'), picked = null;
+  var first = msg.textContent;
+  function reset() {
+    if (picked) picked.classList.remove('picked');
+    picked = null; msg.textContent = first;
+  }
+  function submit(fields) {
+    Object.keys(fields).forEach(function (k) { form.elements[k].value = fields[k]; });
+    form.submit();
+  }
+  document.getElementById('ms-swap-toggle').addEventListener('click', function () {
+    body.classList.toggle('ms-swap'); reset();
+  });
+  document.getElementById('ms-swap-cancel').addEventListener('click', function () {
+    body.classList.remove('ms-swap'); reset();
+  });
+  document.addEventListener('click', function (e) {
+    if (!body.classList.contains('ms-swap')) return;
+    var box = e.target.closest('.ms-box');
+    if (!box) return;
+    e.preventDefault();
+    if (box.dataset.res) {
+      if (!picked) {
+        picked = box; box.classList.add('picked');
+        msg.textContent = box.dataset.name + '（' + box.dataset.when + '）を選びました。入れ替える相手の名前か、移す先の「＋」を押してください。';
+      } else if (picked === box) {
+        reset();
+      } else if (confirm(picked.dataset.name + '（' + picked.dataset.when + '）と ' + box.dataset.name + '（' + box.dataset.when + '）を入れ替えます。よろしいですか？')) {
+        submit({action: 'swap', a: picked.dataset.res, b: box.dataset.res});
+      }
+    } else if (box.dataset.date && picked) {
+      if (confirm(picked.dataset.name + ' を ' + picked.dataset.when + ' から ' + box.dataset.when + ' へ移します。よろしいですか？')) {
+        submit({action: 'move', a: picked.dataset.res, date: box.dataset.date, hour: box.dataset.hour});
+      }
+    }
+  });
+})();
+</script>
 {% endblock %}

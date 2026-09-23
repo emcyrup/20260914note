@@ -183,6 +183,98 @@ class MonthlyRequestTests(TestCase):
         self.assertEqual((aoki['desired'], aoki['confirmed'], aoki['remaining']), (1, 1, 0))
 
 
+    def test_all_day_wishes_fill_from_morning(self):
+        # 4人が 10/3（土）を「終日」で1回 → 9時に3人、あふれた1人は次に早い10時
+        for k in self.kids[:4]:
+            monthly.save_request(self.f, k, 2026, 10, 1, {'2026-10-03': 'all'})
+        monthly.assign_month(self.f, 2026, 10, self.s)
+        hours = sorted(r.start_time.hour for r in Reservation.objects.filter(status='confirmed'))
+        self.assertEqual(hours, [9, 9, 9, 10])
+
+    def test_time_specified_wishes_go_before_all_day(self):
+        # 井上・上田・江口は 9時だけ希望（ほかの日に1回確定ずみ）、青木は終日。
+        # 回数の少ない青木が先に回っても、9時の枠を先に取らない
+        sat, sun = datetime.date(2026, 10, 3), datetime.date(2026, 10, 18)
+        for k in self.kids[1:4]:
+            services.create_reservation(self.f, k, sun, start_time=datetime.time(9, 0), notify=False)
+            monthly.save_request(self.f, k, 2026, 10, 2, {'2026-10-03': [9], '2026-10-18': [9]})
+        monthly.save_request(self.f, self.kids[0], 2026, 10, 1, {'2026-10-03': 'all'})
+        result = monthly.assign_month(self.f, 2026, 10, self.s)
+        self.assertEqual(result.short, [])
+        at9 = set(Reservation.objects.filter(date=sat, start_time=datetime.time(9, 0)).values_list('beneficiary', flat=True))
+        self.assertEqual(at9, {k.pk for k in self.kids[1:4]})
+        self.assertEqual(Reservation.objects.get(beneficiary=self.kids[0]).start_time, datetime.time(10, 0))
+
+    def test_time_specified_wish_never_placed_outside_marked_hours(self):
+        monthly.save_request(self.f, self.kids[0], 2026, 10, 1, {'2026-10-03': [14]})
+        monthly.assign_month(self.f, 2026, 10, self.s)
+        self.assertEqual(Reservation.objects.get(beneficiary=self.kids[0]).start_time, datetime.time(14, 0))
+
+    def _res(self, kid, day, hour):
+        res, _ = services.create_reservation(self.f, kid, day, start_time=datetime.time(hour, 0), notify=False)
+        return res
+
+    def test_swap_two_children(self):
+        d1, d2 = datetime.date(2026, 10, 3), datetime.date(2026, 10, 10)
+        a, b = self._res(self.kids[0], d1, 9), self._res(self.kids[1], d2, 14)
+        before = ReservationNotice.objects.count()
+        monthly.swap_reservations(a, b)
+        a.refresh_from_db(), b.refresh_from_db()
+        self.assertEqual((a.date, a.start_time.hour), (d2, 14))
+        self.assertEqual((b.date, b.start_time.hour), (d1, 9))
+        self.assertEqual(ReservationNotice.objects.count(), before)      # お知らせは積まない
+        # 同じ日の中での入れ替え（時刻だけ交換）
+        c = self._res(self.kids[2], d1, 10)
+        monthly.swap_reservations(b, c)
+        b.refresh_from_db(), c.refresh_from_db()
+        self.assertEqual((b.start_time.hour, c.start_time.hour), (10, 9))
+
+    def test_swap_refuses_double_booking_and_waitlist(self):
+        d1, d2 = datetime.date(2026, 10, 3), datetime.date(2026, 10, 10)
+        a, b = self._res(self.kids[0], d1, 9), self._res(self.kids[1], d2, 9)
+        self._res(self.kids[0], d2, 14)                     # 青木は 10/10 にも予約がある
+        with self.assertRaises(services.ReservationError):
+            monthly.swap_reservations(a, b)
+        a.refresh_from_db()
+        self.assertEqual(a.date, d1)
+        b.status = Reservation.STATUS_WAITLIST
+        b.save()
+        with self.assertRaises(services.ReservationError):
+            monthly.swap_reservations(a, b)
+
+    def test_move_on_schedule(self):
+        d1, d2 = datetime.date(2026, 10, 3), datetime.date(2026, 10, 10)
+        a = self._res(self.kids[0], d1, 9)
+        for k in self.kids[1:4]:
+            self._res(k, d2, 9)
+        with self.assertRaises(services.ReservationError):   # 満員の枠へは移さない
+            monthly.move_on_schedule(a, d2, 9)
+        with self.assertRaises(services.ReservationError):   # 枠の無い時刻（休憩）
+            monthly.move_on_schedule(a, d2, 12)
+        before = ReservationNotice.objects.count()
+        a = monthly.move_on_schedule(a, d2, 10)
+        self.assertEqual((a.date, a.start_time.hour, a.status), (d2, 10, 'confirmed'))
+        self.assertEqual(ReservationNotice.objects.count(), before)
+
+    def test_swap_rewrites_pending_month_notice(self):
+        monthly.save_request(self.f, self.kids[0], 2026, 10, 1, {'2026-10-03': [9]})
+        monthly.assign_month(self.f, 2026, 10, self.s)
+        notice = ReservationNotice.objects.get(customer=self.customer)
+        self.assertIn('10月3日(土) 9:00', notice.body)
+        a = Reservation.objects.get(beneficiary=self.kids[0])
+        b = self._res(self.kids[1], datetime.date(2026, 10, 10), 14)
+        monthly.swap_reservations(a, b)
+        monthly.refresh_month_notice(self.f, self.kids[0], 2026, 10, self.s)
+        notice.refresh_from_db()
+        self.assertIn('10月10日(土) 14:00', notice.body)
+        self.assertNotIn('10月3日', notice.body)
+        # 送信ずみなら書き直さない
+        notice.status = ReservationNotice.STATUS_SENT
+        notice.save()
+        monthly.swap_reservations(a, b)
+        self.assertIsNone(monthly.refresh_month_notice(self.f, self.kids[0], 2026, 10, self.s))
+
+
 class RyoikuScreenTests(TestCase):
     def setUp(self):
         self.f, self.s = ryoiku()
@@ -247,6 +339,30 @@ class RyoikuScreenTests(TestCase):
         self.assertEqual((self.s.slot_capacity, self.s.weekday_first_hour, self.s.break_hours, self.s.closed_weekdays),
                          (2, 9, [12, 13], [0]))
 
+
+    def test_schedule_swap_and_move_screen(self):
+        other = child(self.f, '井上')
+        d1, d2 = datetime.date(2026, 10, 3), datetime.date(2026, 10, 10)
+        a, _ = services.create_reservation(self.f, self.kid, d1, start_time=datetime.time(9, 0), notify=False)
+        b, _ = services.create_reservation(self.f, other, d2, start_time=datetime.time(10, 0), notify=False)
+        page = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))
+        self.assertContains(page, '入れ替え・移動')
+        self.assertContains(page, f'data-res="{a.pk}"')
+        url = reverse('reservations:monthly_schedule_swap', args=[2026, 10])
+        res = self.client.post(url, {'action': 'swap', 'a': a.pk, 'b': b.pk}, follow=True)
+        self.assertContains(res, '入れ替えました')
+        a.refresh_from_db()
+        self.assertEqual((a.date, a.start_time.hour), (d2, 10))
+        res = self.client.post(url, {'action': 'move', 'a': a.pk, 'date': '2026-10-17', 'hour': '11'}, follow=True)
+        self.assertContains(res, '移しました')
+        a.refresh_from_db()
+        self.assertEqual((a.date, a.start_time.hour), (datetime.date(2026, 10, 17), 11))
+        res = self.client.post(url, {'action': 'move', 'a': a.pk, 'date': '2026-10-19', 'hour': '11'}, follow=True)
+        self.assertContains(res, '休業日')                              # 月曜はお休み
+        # ほかの事業所の予約は触れない
+        f2 = Facility.objects.create(name='ほか', use_reservation=True)
+        x, _ = services.create_reservation(f2, child(f2, '他'), d1, notify=False)
+        self.assertEqual(self.client.post(url, {'action': 'swap', 'a': x.pk, 'b': a.pk}).status_code, 404)
 
 class CustomerWishPageTests(TestCase):
     def setUp(self):

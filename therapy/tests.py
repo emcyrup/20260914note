@@ -34,6 +34,11 @@ class TherapyTests(TestCase):
         self.assertContains(res, '療育記録')
         self.assertContains(res, '青木 子')
 
+    def test_cautions_voice_input_button(self):
+        res = self.client.get(self.url)
+        self.assertContains(res, 'data-voice-target="cautions"')
+        self.assertContains(res, 'js/voice-input.js')
+
     def test_cautions_add_edit_delete(self):
         res = self.client.post(self.url, {'action': 'cautions', 'cautions': '大きな音が苦手。'})
         self.assertRedirects(res, self.url)

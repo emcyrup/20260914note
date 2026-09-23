@@ -165,8 +165,12 @@ def assign_month(facility, year, month, setting=None, base='', notify=True, only
 
     - すでに確定している予約は残し、希望回数に足りないぶんだけ足す
     - 同じ日に同じ利用者を2回入れない。休業日・枠のない時刻は使わない
-    - 回りながら1回ずつ入れる（回数の少ない人から）。枠は「その人のほかの利用日から遠い日」→
-      「空きの多い枠」→「早い日」の順で選ぶので、月の中でなるべく間があき、枠も偏りにくい
+    - **時刻を指定した希望を先に、「終日」（時刻の指定なし）の希望をあとに**割り当てる。
+      時刻の決まっている子の枠を、どの時刻でもよい子が先に埋めてしまわないように
+    - 日にちは「その人のほかの利用日から遠い日」→「早い日」の順で選ぶ（月の中でなるべく間があく）
+    - 時刻は**その日の空いている一番早い枠**（午前から詰める）。終日の希望はその日の全部の枠から、
+      時刻を指定した希望は○の付いた枠の中から選ぶ
+    - 回りながら1回ずつ入れる（回数の少ない人から、同じなら選べる枠の少ない人から）
     - 通知は利用者（の連絡先）ごとに1通にまとめて積む（`notify=False` なら積まない）
     - `only` に利用希望の一覧を渡すと、その人たちだけを割り当てる
     """
@@ -195,51 +199,56 @@ def assign_month(facility, year, month, setting=None, base='', notify=True, only
                 confirmed_count[res.beneficiary_id] = confirmed_count.get(res.beneficiary_id, 0) + 1
         if res.beneficiary_id:
             taken.setdefault(res.beneficiary_id, set()).add(res.date)
+
     need = {}
-    candidates = {}
+    fixed = {}      # 時刻を指定した希望の枠
+    flexible = {}   # 終日（時刻の指定なし）の希望の枠
     for req in requests:
         need[req.pk] = max(req.desired_count - confirmed_count.get(req.beneficiary_id, 0), 0)
-        cands = []
+        fixed[req.pk], flexible[req.pk] = [], []
         for day in req.wished_days():
             if not (first <= day <= last) or services.is_closed(facility, day, setting, closed):
                 continue
-            for h in req.wish_hours(day, setting):
-                cands.append((day, h))
-        candidates[req.pk] = cands
+            target = flexible if req.wish_of(day) == 'all' else fixed
+            target[req.pk].extend((day, h) for h in req.wish_hours(day, setting))
 
     made_for = {}
-    progress = True
-    while progress:
-        progress = False
-        # 入っている回数が少ない人から（同じなら希望の枠が少ない人から：選べる余地の少ない人を先に）
-        order = sorted((r for r in requests if need[r.pk] > 0),
-                       key=lambda r: (len(taken.get(r.beneficiary_id, ())), len(candidates[r.pk]), r.pk))
-        for req in order:
-            days_taken = taken.setdefault(req.beneficiary_id, set())
-            options = [(d, h) for d, h in candidates[req.pk]
-                       if d not in days_taken and used.get((d, h), 0) < setting.slot_capacity]
-            if not options:
-                continue
-            options.sort(key=lambda dh: (-_spread_score(dh[0], days_taken),
-                                         used.get(dh, 0), dh[0], dh[1]))
-            day, hour = options[0]
-            try:
-                res, _ = services.create_reservation(
-                    facility, req.beneficiary, day, source=Reservation.SOURCE_REQUEST,
-                    customer=req.customer, start_time=datetime.time(hour, 0), notify=False)
-            except services.ReservationError:
-                candidates[req.pk] = [c for c in candidates[req.pk] if c != (day, hour)]
-                continue
-            if res.status != Reservation.STATUS_CONFIRMED:
-                res.delete()           # 数え違い（同時操作）。この枠はあきらめる
-                used[(day, hour)] = setting.slot_capacity
-                continue
-            used[(day, hour)] = used.get((day, hour), 0) + 1
-            days_taken.add(day)
-            need[req.pk] -= 1
-            result.made.append(res)
-            made_for.setdefault(req.pk, []).append(res)
-            progress = True
+
+    def run(candidates):
+        progress = True
+        while progress:
+            progress = False
+            order = sorted((r for r in requests if need[r.pk] > 0),
+                           key=lambda r: (len(taken.get(r.beneficiary_id, ())), len(candidates[r.pk]), r.pk))
+            for req in order:
+                days_taken = taken.setdefault(req.beneficiary_id, set())
+                options = [(d, h) for d, h in candidates[req.pk]
+                           if d not in days_taken and used.get((d, h), 0) < setting.slot_capacity]
+                if not options:
+                    continue
+                # 日にちは間があく順、同じ日の中では早い時刻から（午前から詰める）
+                options.sort(key=lambda dh: (-_spread_score(dh[0], days_taken), dh[0], dh[1]))
+                day, hour = options[0]
+                try:
+                    res, _ = services.create_reservation(
+                        facility, req.beneficiary, day, source=Reservation.SOURCE_REQUEST,
+                        customer=req.customer, start_time=datetime.time(hour, 0), notify=False)
+                except services.ReservationError:
+                    candidates[req.pk] = [c for c in candidates[req.pk] if c != (day, hour)]
+                    continue
+                if res.status != Reservation.STATUS_CONFIRMED:
+                    res.delete()           # 数え違い（同時操作）。この枠はあきらめる
+                    used[(day, hour)] = setting.slot_capacity
+                    continue
+                used[(day, hour)] = used.get((day, hour), 0) + 1
+                days_taken.add(day)
+                need[req.pk] -= 1
+                result.made.append(res)
+                made_for.setdefault(req.pk, []).append(res)
+                progress = True
+
+    run(fixed)       # 1. 時刻を指定した希望
+    run(flexible)    # 2. 終日の希望（空いている早い枠から）
 
     for req in requests:
         if need[req.pk] > 0:
@@ -249,18 +258,113 @@ def assign_month(facility, year, month, setting=None, base='', notify=True, only
     return result
 
 
-def _queue_month_notice(facility, setting, req, reservations):
-    """割り当ての結果を1通にまとめる（例：10月のご利用日が決まりました）"""
-    lines = [f'{req.month}月の {req.beneficiary.full_name}さんのご利用日が決まりました。']
+MONTH_NOTICE_HEAD = '{month}月の {name}さんのご利用日が決まりました。'
+
+
+def _month_notice_body(setting, month, beneficiary, reservations, desired_count=0):
+    lines = [MONTH_NOTICE_HEAD.format(month=month, name=beneficiary.full_name)]
     for res in sorted(reservations, key=lambda r: (r.date, r.start_time or datetime.time())):
         lines.append(f'{services.jp_date(res.date)} {res.time_label}')
-    if req.desired_count > len(reservations):
-        lines.append(f'（ご希望 {req.desired_count} 回のうち {len(reservations)} 回です。'
+    if desired_count > len(reservations):
+        lines.append(f'（ご希望 {desired_count} 回のうち {len(reservations)} 回です。'
                      'ほかの日はあらためてご相談させてください）')
     lines.append(setting.sign_text)
+    return '\n'.join(lines)
+
+
+def _queue_month_notice(facility, setting, req, reservations):
+    """割り当ての結果を1通にまとめる（例：10月のご利用日が決まりました）"""
+    body = _month_notice_body(setting, req.month, req.beneficiary, reservations, req.desired_count)
     customer = req.customer or services.customer_for(facility, req.beneficiary)
     return services.queue_notice(facility, ReservationNotice.KIND_ACCEPTED, setting, customer=customer,
-                                 day=datetime.date(req.year, req.month, 1), body='\n'.join(lines))
+                                 day=datetime.date(req.year, req.month, 1), body=body)
+
+
+def refresh_month_notice(facility, beneficiary, year, month, setting=None):
+    """
+    まだ送っていない「ご利用日が決まりました」を、いまの予約に合わせて書き直す。
+    予定表で入れ替え・移動をしたあとに呼ぶ（古い日時のまま保護者に届かないように）。
+    予約が無くなっていれば、そのお知らせは消す。送信ずみのものは触らない。
+    """
+    if beneficiary is None:
+        return None
+    setting = setting or services.get_setting(facility)
+    head = MONTH_NOTICE_HEAD.format(month=month, name=beneficiary.full_name)
+    notice = (ReservationNotice.objects
+              .filter(facility=facility, kind=ReservationNotice.KIND_ACCEPTED, reservation__isnull=True,
+                      date=datetime.date(year, month, 1), body__startswith=head,
+                      status__in=(ReservationNotice.STATUS_PENDING, ReservationNotice.STATUS_MANUAL))
+              .order_by('-created_at').first())
+    if notice is None:
+        return None
+    mine = [r for r in month_reservations(facility, year, month) if r.beneficiary_id == beneficiary.pk]
+    if not mine:
+        notice.delete()
+        return None
+    req = MonthlyRequest.objects.filter(beneficiary=beneficiary, year=year, month=month).first()
+    notice.body = _month_notice_body(setting, month, beneficiary, mine, req.desired_count if req else 0)
+    notice.save(update_fields=['body'])
+    return notice
+
+
+# ---------------------------------------------------------------- 予定表の手直し（入れ替え・移動）
+def _other_on_day(res, day):
+    """その人の、同じ日のほかの有効な予約があるか"""
+    qs = Reservation.objects.filter(facility=res.facility, date=day,
+                                    status__in=Reservation.ACTIVE_STATUSES).exclude(pk=res.pk)
+    if res.beneficiary_id:
+        return qs.filter(beneficiary_id=res.beneficiary_id).exists()
+    return qs.filter(beneficiary__isnull=True, guest_name=res.guest_name).exists()
+
+
+@transaction.atomic
+def swap_reservations(res_a, res_b):
+    """
+    月間予定表で2人の枠を入れ替える（日にちと時刻を交換する）。
+    1人ずつ入れ替えるので、どの枠の人数も変わらない。保護者へのお知らせは積まない。
+    """
+    if res_a.pk == res_b.pk:
+        raise services.ReservationError('同じ予約を選んでいます。')
+    if res_a.facility_id != res_b.facility_id:
+        raise services.ReservationError('別の事業所の予約とは入れ替えられません。')
+    if res_a.status != Reservation.STATUS_CONFIRMED or res_b.status != Reservation.STATUS_CONFIRMED:
+        raise services.ReservationError('確定している予約どうしだけ入れ替えられます（キャンセル待ちは除く）。')
+    if res_a.beneficiary_id and res_a.beneficiary_id == res_b.beneficiary_id:
+        raise services.ReservationError('同じ利用者どうしは入れ替えられません。')
+    list(Reservation.objects.select_for_update().filter(facility=res_a.facility, date__in={res_a.date, res_b.date}))
+    a_slot, b_slot = (res_a.date, res_a.start_time), (res_b.date, res_b.start_time)
+    if a_slot == b_slot:
+        return res_a, res_b
+    if res_a.date != res_b.date:
+        if _other_on_day(res_a, res_b.date):
+            raise services.ReservationError(
+                f'{services.jp_date(res_b.date)} には {res_a.display_name} さんのほかの予約があります。')
+        if _other_on_day(res_b, res_a.date):
+            raise services.ReservationError(
+                f'{services.jp_date(res_a.date)} には {res_b.display_name} さんのほかの予約があります。')
+    res_a.date, res_a.start_time = b_slot
+    res_b.date, res_b.start_time = a_slot
+    res_a.save(update_fields=['date', 'start_time', 'updated_at'])
+    res_b.save(update_fields=['date', 'start_time', 'updated_at'])
+    return res_a, res_b
+
+
+def move_on_schedule(res, day, hour):
+    """月間予定表の空いている枠へ移す。保護者へのお知らせは積まない（キャンセル待ちの繰り上げはする）"""
+    if res.status != Reservation.STATUS_CONFIRMED:
+        raise services.ReservationError('確定している予約だけ移せます（キャンセル待ちは除く）。')
+    with transaction.atomic():
+        list(Reservation.objects.select_for_update().filter(facility=res.facility, date__in={res.date, day}))
+        if services.is_closed(res.facility, day):
+            raise services.ReservationError(f'{services.jp_date(day)} は休業日のため移せません。')
+        st = services.day_state(res.facility, day)
+        slot = next((x for x in st.get('slots', ()) if x['hour'] == hour), None)
+        if slot is None:
+            raise services.ReservationError(f'{services.jp_date(day)} {hour}時 の枠はありません。')
+        mine = 1 if (res.date == day and res.hour == hour) else 0
+        if slot['confirmed'] - mine >= slot['capacity']:
+            raise services.ReservationError(f'{services.jp_date(day)} {hour}時 の枠は満員です。入れ替えを使ってください。')
+        return services.move_reservation(res, day, start_time=datetime.time(hour, 0), notify=False)
 
 
 # ---------------------------------------------------------------- 月間予定表

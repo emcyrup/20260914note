@@ -786,6 +786,52 @@ class MonthlyScheduleView(SlotModeMixin, View):
         })
 
 
+class MonthlyScheduleSwapView(SlotModeMixin, View):
+    """
+    月間予定表の手直し。action=swap は2人の枠を入れ替え、action=move は空いている枠へ移す。
+    保護者へのお知らせは積まず、送信待ちの「ご利用日が決まりました」はいまの予約に合わせて書き直す。
+    """
+
+    def post(self, request, year, month):
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        setting = services.get_setting(facility)
+        back = redirect('reservations:monthly_schedule', year=year, month=month)
+        res_a = get_object_or_404(Reservation, pk=to_int(request.POST.get('a'), -1), facility=facility)
+        action = request.POST.get('action')
+        try:
+            if action == 'swap':
+                res_b = get_object_or_404(Reservation, pk=to_int(request.POST.get('b'), -1), facility=facility)
+                touched = [(res_a.beneficiary, res_a.date), (res_b.beneficiary, res_b.date)]
+                monthly.swap_reservations(res_a, res_b)
+                msg = (f'{res_a.display_name} さんと {res_b.display_name} さんを入れ替えました'
+                       f'（{services.jp_date(res_a.date)} {res_a.time_label} ⇄ '
+                       f'{services.jp_date(res_b.date)} {res_b.time_label}）。')
+            elif action == 'move':
+                try:
+                    day = datetime.date.fromisoformat(request.POST.get('date', ''))
+                except ValueError:
+                    messages.error(request, '移す先の日にちが正しくありません。')
+                    return back
+                touched = [(res_a.beneficiary, res_a.date)]
+                res_a = monthly.move_on_schedule(res_a, day, to_int(request.POST.get('hour'), -1))
+                msg = f'{res_a.display_name} さんを {services.jp_date(res_a.date)} {res_a.time_label} へ移しました。'
+            else:
+                messages.error(request, '操作を選んでください。')
+                return back
+        except services.ReservationError as e:
+            messages.error(request, str(e))
+            return back
+        refreshed = 0
+        for beneficiary, day in touched + [(res_a.beneficiary, res_a.date)]:
+            if beneficiary is not None and monthly.refresh_month_notice(facility, beneficiary, day.year, day.month, setting):
+                refreshed += 1
+        if refreshed:
+            msg += ' 送信待ちの「ご利用日が決まりました」も書き直しました。'
+        messages.success(request, msg)
+        return back
+
+
 class MonthlySchedulePdfView(SlotModeMixin, View):
     """月間予定表の PDF（A4 横）"""
 

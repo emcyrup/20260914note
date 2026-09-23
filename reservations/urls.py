@@ -22,5 +22,6 @@ urlpatterns = [
     path('<int:year>/<int:month>/kibou/form/', views.MonthlyRequestFormView.as_view(), name='monthly_request_form'),
     path('<int:year>/<int:month>/kibou/<int:pk>/', views.MonthlyRequestEditView.as_view(), name='monthly_request_edit'),
     path('<int:year>/<int:month>/yotei/', views.MonthlyScheduleView.as_view(), name='monthly_schedule'),
+    path('<int:year>/<int:month>/yotei/swap/', views.MonthlyScheduleSwapView.as_view(), name='monthly_schedule_swap'),
     path('<int:year>/<int:month>/yotei/pdf/', views.MonthlySchedulePdfView.as_view(), name='monthly_schedule_pdf'),
 ]
