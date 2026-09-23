@@ -392,7 +392,8 @@
 <!-- HTMX（ページ遷移なしの部分更新用） -->
 <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 
-{% if user.is_authenticated %}<script src="{% static 'js/concurrency.js' %}?v=1"></script>{% endif %}
+{% if user.is_authenticated %}<script src="{% static 'js/concurrency.js' %}?v=1"></script>
+<script src="{% static 'js/voice-input.js' %}?v=3"></script>{% endif %}
 {% block extra_js %}{% endblock %}
 
 {% if user.is_authenticated and user.ui_theme != 'simple' and not reservation_only %}
@@ -441,11 +442,11 @@
                     class="form-control" style="font-size:0.95rem;resize:none;"
                     placeholder="業務中の気づきをメモ…&#10;（音声入力ボタンを使うと話すだけで入力できます）"></textarea>
           <div class="mt-2">
-            <button type="button" class="global-voice-btn"
-                    onclick="toggleGlobalMemoVoice(this, document.getElementById('globalMemoTextarea'))">
+            <button type="button" class="global-voice-btn" data-voice-target="globalMemoTextarea" data-voice-note="globalMemoVoiceNote">
               <i class="bi bi-mic me-1"></i>音声入力
             </button>
           </div>
+          <div id="globalMemoVoiceNote" class="alert alert-warning small py-1 px-2 mt-2 mb-0 d-none"></div>
           <p class="text-muted mt-3 mb-0" style="font-size:0.75rem;">
             <i class="bi bi-info-circle me-1"></i>入力したメモの一覧は
             <a href="{% url 'records:dashboard' %}" style="color:var(--color-primary);">記録ページ</a>
@@ -463,46 +464,7 @@
   </div>
 </div>
 {% endif %}
-<script>
-/* ===== グローバル メモ音声入力 ===== */
-(function () {
-  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return;
-  var activeRec = null, activeBtn = null;
-  function stopRec() {
-    if (activeRec) { activeRec.stop(); activeRec = null; }
-    if (activeBtn) {
-      activeBtn.classList.remove('recording');
-      activeBtn.innerHTML = '<i class="bi bi-mic me-1"></i>音声入力';
-      activeBtn = null;
-    }
-  }
-  window.toggleGlobalMemoVoice = function(btn, textarea) {
-    if (activeBtn === btn) { stopRec(); return; }
-    stopRec();
-    var rec = new SR();
-    rec.lang = 'ja-JP'; rec.interimResults = false; rec.continuous = true;
-    activeRec = rec; activeBtn = btn;
-    btn.classList.add('recording');
-    btn.innerHTML = '<i class="bi bi-stop-fill me-1"></i>停止';
-    rec.onresult = function(e) {
-      var text = '';
-      for (var i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) text += e.results[i][0].transcript;
-      }
-      if (!text) return;
-      textarea.value = textarea.value ? textarea.value + ' ' + text : text;
-      textarea.dispatchEvent(new Event('input'));
-    };
-    rec.onend = stopRec; rec.onerror = stopRec;
-    rec.start();
-  };
-  /* モーダルを閉じたとき録音を止める */
-  document.addEventListener('hidden.bs.modal', function(e) {
-    if (e.target.id === 'globalMemoModal') stopRec();
-  });
-})();
-</script>
+{# メモの音声入力は static/js/voice-input.js（アプリ共通）を使う #}
 {% endif %}
 
 <script>

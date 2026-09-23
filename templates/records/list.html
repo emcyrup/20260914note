@@ -1940,74 +1940,8 @@ function journalEditForm(generateUrl, initialResult, initSupportTags = [], initD
   }
 </style>
 <script>
-(function () {
-  'use strict';
-
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-  // ブラウザが音声入力に対応していない場合はボタンを非表示にする
-  if (!SR) {
-    document.querySelectorAll('.voice-btn').forEach(function (el) {
-      el.style.display = 'none';
-    });
-    return;
-  }
-
-  let activeRecognition = null;
-  let activeBtn = null;
-
-  function stopRecognition() {
-    if (activeRecognition) {
-      activeRecognition.stop();
-      activeRecognition = null;
-    }
-    if (activeBtn) {
-      activeBtn.classList.remove('recording');
-      activeBtn.innerHTML = '<i class="bi bi-mic"></i>';
-      activeBtn = null;
-    }
-  }
-
-  // マイクボタン押下時の処理（グローバルに公開してonclick属性から呼べるようにする）
-  window.toggleVoice = function (btn, textarea) {
-    // すでに録音中なら停止
-    if (activeBtn === btn) {
-      stopRecognition();
-      return;
-    }
-    // 別のボタンが録音中なら先に停止
-    stopRecognition();
-
-    const recognition = new SR();
-    recognition.lang = 'ja-JP';
-    recognition.continuous = true;      // 自動停止せず話し続けられる
-    recognition.interimResults = false; // 確定した認識結果のみ使用
-
-    activeRecognition = recognition;
-    activeBtn = btn;
-    btn.classList.add('recording');
-    btn.innerHTML = '<i class="bi bi-stop-fill"></i>';
-
-    recognition.onresult = function (e) {
-      // 新たに認識されたテキストを取り出して末尾に追記する
-      let newText = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) {
-          newText += e.results[i][0].transcript;
-        }
-      }
-      if (!newText) return;
-      textarea.value = textarea.value ? textarea.value + ' ' + newText : newText;
-      // Alpine.js の x-model に変更を反映させるため input イベントを発火する
-      textarea.dispatchEvent(new Event('input'));
-    };
-
-    recognition.onend = function () { stopRecognition(); };
-    recognition.onerror = function () { stopRecognition(); };
-
-    recognition.start();
-  };
-})();
+// 音声入力は static/js/voice-input.js（アプリ共通）を使う
+window.toggleVoice = function (btn, textarea) { window.VoiceInput.toggle(btn, textarea); };
 </script>
 
 <script>

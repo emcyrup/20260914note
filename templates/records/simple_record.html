@@ -173,24 +173,7 @@ function simpleRecord(generateUrl, planUrl, init) {
     },
   };
 }
-(function () {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const btn = document.getElementById('simpleVoiceBtn');
-  if (!SR) { if (btn) btn.style.display = 'none'; return; }
-  let rec = null;
-  window.simpleToggleVoice = function (b) {
-    if (rec) { rec.stop(); rec = null; b.classList.remove('recording'); b.innerHTML = '<i class="bi bi-mic me-1"></i>こえで いれる'; return; }
-    rec = new SR(); rec.lang = 'ja-JP'; rec.continuous = true; rec.interimResults = false;
-    b.classList.add('recording'); b.innerHTML = '<i class="bi bi-stop-fill me-1"></i>とめる';
-    const ta = document.getElementById('simpleMemo');
-    rec.onresult = function (e) {
-      let t = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) t += e.results[i][0].transcript;
-      if (t) { ta.value = (ta.value ? ta.value + ' ' : '') + t; ta.dispatchEvent(new Event('input')); }
-    };
-    rec.onend = function () { rec = null; b.classList.remove('recording'); b.innerHTML = '<i class="bi bi-mic me-1"></i>こえで いれる'; };
-    rec.start();
-  };
-})();
+// 音声入力は static/js/voice-input.js（アプリ共通）を使う
+window.simpleToggleVoice = function (b) { window.VoiceInput.toggle(b, document.getElementById('simpleMemo')); };
 </script>
 {% endblock %}

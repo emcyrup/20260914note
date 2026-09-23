@@ -337,3 +337,25 @@ class RecordSummaryTests(TestCase):
         self.assertContains(res, 'id="record-summary"', count=1)
         self.assertContains(res, self.url)
         self.assertContains(res, 'id="record-body"', count=1)
+
+
+class VoiceInputWiringTests(TestCase):
+    """音声入力はアプリ共通の static/js/voice-input.js だけを使う（古い書き方が残っていない）"""
+
+    def test_base_loads_shared_script_once_and_memo_uses_it(self):
+        f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_therapy_record=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        kid = Beneficiary.objects.create(facility=f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        for url in (reverse('therapy:child', args=[kid.pk]), reverse('minutes:index'), reverse('beneficiaries:detail', args=[kid.pk])):
+            res = self.client.get(url)
+            self.assertContains(res, 'js/voice-input.js?v=', count=1)
+            self.assertContains(res, 'data-voice-target="globalMemoTextarea"')
+            self.assertNotContains(res, 'new SR()')
+
+    def test_no_other_speech_recognition_code_in_templates(self):
+        from pathlib import Path
+        from django.conf import settings
+        hits = [str(p) for p in Path(settings.BASE_DIR, 'templates').rglob('*.html')
+                if 'SpeechRecognition' in p.read_text(encoding='utf-8')]
+        self.assertEqual(hits, [])

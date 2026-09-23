@@ -429,55 +429,7 @@ function hideMemoEdit(pk) {
   document.getElementById('memo-edit-' + pk).style.display = 'none';
 }
 
-// ===== メモボックス用 音声入力（Web Speech API） =====
-(function () {
-  'use strict';
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) {
-    document.querySelectorAll('.voice-btn-memo').forEach(function(el) {
-      el.style.display = 'none';
-    });
-    return;
-  }
-
-  let activeRec = null;
-  let activeBtn = null;
-
-  function stopRec() {
-    if (activeRec) { activeRec.stop(); activeRec = null; }
-    if (activeBtn) {
-      activeBtn.classList.remove('recording');
-      activeBtn.innerHTML = '<i class="bi bi-mic"></i>';
-      activeBtn = null;
-    }
-  }
-
-  window.toggleMemoVoice = function(btn, textarea) {
-    if (activeBtn === btn) { stopRec(); return; }
-    stopRec();
-    const rec = new SR();
-    rec.lang = 'ja-JP';
-    rec.interimResults = false;
-    rec.continuous = true;
-    activeRec = rec;
-    activeBtn = btn;
-    btn.classList.add('recording');
-    btn.innerHTML = '<i class="bi bi-stop-fill"></i>';
-
-    rec.onresult = function(e) {
-      let text = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) text += e.results[i][0].transcript;
-      }
-      if (!text) return;
-      textarea.value = textarea.value ? textarea.value + ' ' + text : text;
-      // Alpine.js の x-model に反映
-      textarea.dispatchEvent(new Event('input'));
-    };
-    rec.onend = stopRec;
-    rec.onerror = stopRec;
-    rec.start();
-  };
-})();
+// ===== メモボックス用 音声入力（static/js/voice-input.js を使う） =====
+window.toggleMemoVoice = function (btn, textarea) { window.VoiceInput.toggle(btn, textarea); };
 </script>
 {% endblock %}
