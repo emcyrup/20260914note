@@ -14,4 +14,7 @@ urlpatterns = [
     path('staff/invitations/<int:pk>/revoke/', views.InvitationRevokeView.as_view(), name='invitation_revoke'),
     path('join/<str:token>/', views.JoinView.as_view(), name='join'),
     path('signup/', views.SignupView.as_view(), name='signup'),
+    path('register/', views.StaffRegisterView.as_view(), name='register'),
+    path('staff/signup-code/', views.SignupCodeView.as_view(), name='signup_code'),
+    path('staff/<int:pk>/approve/', views.StaffApproveView.as_view(), name='staff_approve'),
 ]

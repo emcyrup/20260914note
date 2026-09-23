@@ -25,6 +25,7 @@ urlpatterns = [
     path('planbook/', include('planbook.urls')),
     path('reservations/', include('reservations.urls')),
     path('therapy/', include('therapy.urls')),
+    path('minutes/', include('minutes.urls')),
     # 顧客向けの予定表（ログインなし。アドレスそのものが合い言葉）
     path('yoyaku/', include('reservations.public_urls')),
     path('esignatures/', include('esignatures.urls')),

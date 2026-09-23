@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'reservations',
     'planbook',
     'therapy',
+    'minutes',
 ]
 
 MIDDLEWARE = [

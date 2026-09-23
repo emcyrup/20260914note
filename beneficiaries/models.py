@@ -4,7 +4,7 @@ import secrets
 from django.db import models
 from django.utils import timezone
 from facilities.models import Facility
-from facilities.uploads import certificate_upload_to
+from facilities.uploads import assessment_upload_to, certificate_upload_to
 
 
 LINE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'  # 見間違えやすい 0/O/1/I を除く
@@ -315,3 +315,48 @@ class RecipientCertificate(models.Model):
 
     def __str__(self):
         return f'{self.beneficiary.full_name} — {self.valid_from}〜{self.valid_until}'
+
+
+class BeneficiaryAssessment(models.Model):
+    """
+    利用者台帳に付けるアセスメント・面談の記録・発達検査や医療の情報など。
+    文章だけでも、書類（PDF・写真）だけでも残せる。個別支援計画のアセスメント（support_plans）とは別に、
+    計画を作る前の聞き取りや、ほかの機関から受け取った書類をためておく場所。
+    """
+    KIND_ASSESSMENT = 'assessment'
+    KIND_INTERVIEW = 'interview'
+    KIND_TEST = 'test'
+    KIND_MEDICAL = 'medical'
+    KIND_OTHER = 'other'
+    KIND_CHOICES = [
+        (KIND_ASSESSMENT, 'アセスメント'),
+        (KIND_INTERVIEW, '面談・聞き取り'),
+        (KIND_TEST, '発達検査・評価'),
+        (KIND_MEDICAL, '医療・関係機関の情報'),
+        (KIND_OTHER, 'その他'),
+    ]
+
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='assessments',
+                                    verbose_name='利用者')
+    date = models.DateField(verbose_name='日付')
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES, default=KIND_ASSESSMENT, verbose_name='種類')
+    title = models.CharField(max_length=100, verbose_name='件名')
+    content = models.TextField(blank=True, verbose_name='内容')
+    file = models.FileField(upload_to=assessment_upload_to, blank=True, verbose_name='書類（PDF・写真）')
+    file_name = models.CharField(max_length=200, blank=True, verbose_name='書類の元の名前')
+    created_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='+', verbose_name='登録者')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'アセスメント・資料'
+        verbose_name_plural = 'アセスメント・資料'
+        ordering = ['-date', '-pk']
+
+    def __str__(self):
+        return f'{self.beneficiary.full_name} {self.date} {self.title}'
+
+    @property
+    def is_image(self):
+        return bool(self.file) and self.file.name.lower().rsplit('.', 1)[-1] in ('jpg', 'jpeg', 'png', 'webp', 'gif', 'heic')

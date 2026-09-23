@@ -24,6 +24,7 @@ OWNERS = [
     ('recipient_certificates/', 'beneficiaries.RecipientCertificate', 'scanned_image', 'beneficiary__facility'),
     ('reference_docs/',         'ai_assist.ReferenceDocument',     'file',            'facility'),
     ('request_scans/',          'reservations.RequestScan',        'image',           'facility'),
+    ('beneficiary_assessments/', 'beneficiaries.BeneficiaryAssessment', 'file',       'beneficiary__facility'),
 ]
 SALT = 'protected-media'
 DEFAULT_MAX_AGE = 30 * 60  # 署名 URL の有効期限（秒）

@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+
+{% block title %}職員の新規登録 — 放課後等デイサービス業務支援{% endblock %}
+
+{% block content %}
+  <div class="card" style="width: 100%; max-width: 480px;">
+    <div class="card-body p-4 p-md-5">
+      <div class="text-center mb-4">
+        <div class="mb-2" style="color: var(--lake); font-size: 2.5rem;"><i class="bi bi-person-plus-fill"></i></div>
+        <h1 class="h4 fw-bold" style="font-family: var(--font-display); color: var(--ink);">職員の新規登録</h1>
+        {% if not done %}<p class="text-muted small mb-0">管理者から聞いた「職員登録コード」で申し込みます。管理者が承認するとログインできます。</p>{% endif %}
+      </div>
+
+      {% if done %}
+      <div class="alert alert-success small">
+        <i class="bi bi-check-circle me-1"></i><b>{{ facility.name }}</b> への登録を受け付けました（{{ new_user.display_name }} さん・ログインID「{{ new_user.username }}」）。
+      </div>
+      <p class="small">管理者が「{{ facility.term_staff|default:'職員' }}・運用管理」で承認すると、このログインIDとパスワードでログインできます。承認されたか分からないときは、管理者に声をかけてください。</p>
+      <div class="text-center"><a href="{% url 'accounts:login' %}" class="btn btn-outline-secondary">ログイン画面へ</a></div>
+      {% else %}
+      {% if blocked %}<div class="alert alert-danger py-2 small">申し込みが続いたため、しばらく受け付けを止めています。1時間ほどしてからもう一度お試しください。</div>{% endif %}
+      {% if form.non_field_errors %}<div class="alert alert-danger py-2 small">{{ form.non_field_errors|join:' ' }}</div>{% endif %}
+      <form method="post">
+        {% csrf_token %}
+        {% for field in form %}
+        <div class="mb-3">
+          <label for="{{ field.id_for_label }}" class="form-label fw-semibold">{{ field.label }}</label>
+          {{ field }}
+          {% for e in field.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+        </div>
+        {% endfor %}
+        <div class="form-text mb-3">パスワードは8文字以上で、ログインIDや名前と似ていないものにしてください。</div>
+        <div class="d-grid">
+          <button type="submit" class="btn btn-primary btn-lg"><i class="bi bi-send me-1"></i>登録を申し込む</button>
+        </div>
+      </form>
+      <div class="text-center mt-3"><a href="{% url 'accounts:login' %}" class="small">ログイン画面へ戻る</a></div>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}

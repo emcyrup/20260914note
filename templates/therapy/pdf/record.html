@@ -8,6 +8,7 @@
   .tr-name { font-size: 12px; }
   .tr-cau { border: 1px solid #333; min-height: 46px; padding: 3px 6px; font-size: 10px; white-space: pre-wrap; margin-bottom: 6px; }
   .tr-cau .lbl { font-weight: 700; margin-right: 6px; }
+  .tr-cau.long { font-size: 9px; line-height: 1.45; }
   .tr-entry { border: 1px solid #333; margin-bottom: 4px; page-break-inside: avoid; }
   .tr-entry .h { border-bottom: 1px solid #333; padding: 2px 6px; font-size: 10.5px; background: #f2f2f2; }
   .tr-entry .h .staff { float: right; }
@@ -24,7 +25,7 @@
   <div class="tr-title">療育記録</div>
   <div class="tr-name">氏名（ <u>&nbsp;{% if not blank %}{{ beneficiary.full_name }}{% else %}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{% endif %}&nbsp;</u> ）{% if ym %}　{{ ym }}{% endif %}{% if pages|length > 1 %}　{{ forloop.counter }}/{{ pages|length }}{% endif %}</div>
 </div>
-<div class="tr-cau"><span class="lbl">留意点</span>{% if not blank %}{{ profile.cautions|default:'' }}{% endif %}</div>
+<div class="tr-cau{% if long_cautions %} long{% endif %}"><span class="lbl">留意点</span>{% if not blank %}{% if forloop.first or not long_cautions %}{{ profile.cautions|default:'' }}{% else %}（1枚目のとおり）{% endif %}{% endif %}</div>
 {% for rec in page %}
 <div class="tr-entry">
   {% if rec %}

@@ -45,3 +45,7 @@ def reference_doc_upload_to(instance, filename):
 
 def request_scan_upload_to(instance, filename):
     return _name('request_scans', filename)
+
+
+def assessment_upload_to(instance, filename):
+    return _name('beneficiary_assessments', filename)

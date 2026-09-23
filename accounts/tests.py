@@ -435,3 +435,89 @@ class SelfRegistrationTests(TestCase):
             res = self.client.post(reverse('accounts:signup'), {**data, 'signup_code': 'abc123'})
             self.assertRedirects(res, reverse('facilities:settings'), fetch_redirect_response=False)
             self.assertTrue(Facility.objects.filter(name='こもれび').exists())
+
+
+class StaffRegisterTests(TestCase):
+    """ログイン画面からの職員登録（職員登録コード＋管理者の承認）"""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', staff_signup_code='ABCD2345')
+        self.admin = StaffAccount.objects.create_user('boss', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.url = reverse('accounts:register')
+        self.data = {'code': 'abcd 2345', 'display_name': '山田 花子', 'username': 'hanako',
+                     'password1': 'Kodomo-2026-yu', 'password2': 'Kodomo-2026-yu'}
+
+    def test_login_page_links_to_register(self):
+        self.assertContains(self.client.get(reverse('accounts:login')), self.url)
+
+    def test_register_waits_for_approval(self):
+        res = self.client.post(self.url, self.data)
+        self.assertContains(res, '登録を受け付けました')
+        u = StaffAccount.objects.get(username='hanako')
+        self.assertEqual((u.facility, u.is_active, u.signup_pending, u.role), (self.f, False, True, StaffAccount.ROLE_STAFF))
+        # 承認前はログインできない（承認待ちと分かる）
+        res = self.client.post(reverse('accounts:login'), {'username': 'hanako', 'password': 'Kodomo-2026-yu'})
+        self.assertContains(res, '管理者の承認を待っています')
+        self.assertNotIn('_auth_user_id', self.client.session)
+        # パスワードが違えば、ふつうの失敗のまま
+        res = self.client.post(reverse('accounts:login'), {'username': 'hanako', 'password': 'wrong-pass-1'})
+        self.assertNotContains(res, '承認を待っています')
+        # 管理者に知らせが出る → 承認（権限区分を決める）
+        self.client.login(username='boss', password='pw12345678')
+        res = self.client.get(reverse('accounts:staff'))
+        self.assertContains(res, '承認を待っています')
+        self.assertContains(res, '山田 花子')
+        self.client.post(reverse('accounts:staff_approve', args=[u.pk]), {'role': StaffAccount.ROLE_OFFICE})
+        u.refresh_from_db()
+        self.assertEqual((u.is_active, u.signup_pending, u.role), (True, False, StaffAccount.ROLE_OFFICE))
+        self.assertNotContains(self.client.get(reverse('accounts:staff')), '承認を待っています')
+        self.client.logout()
+        self.assertTrue(self.client.login(username='hanako', password='Kodomo-2026-yu'))
+
+    def test_wrong_code_and_no_code(self):
+        res = self.client.post(self.url, {**self.data, 'code': 'ZZZZ9999'})
+        self.assertContains(res, '職員登録コードが違います')
+        self.f.staff_signup_code = ''
+        self.f.save()
+        res = self.client.post(self.url, {**self.data, 'code': ''})
+        self.assertFalse(StaffAccount.objects.filter(username='hanako').exists())
+
+    def test_too_many_tries_are_blocked(self):
+        for _ in range(10):
+            self.client.post(self.url, {**self.data, 'code': 'ZZZZ9999'})
+        res = self.client.post(self.url, self.data)
+        self.assertContains(res, 'しばらく受け付けを止めています')
+        self.assertFalse(StaffAccount.objects.filter(username='hanako').exists())
+
+    def test_reject_deletes_and_only_admin_of_same_facility(self):
+        self.client.post(self.url, self.data)
+        u = StaffAccount.objects.get(username='hanako')
+        other = Facility.objects.create(name='ほか')
+        StaffAccount.objects.create_user('ob', password='pw12345678', facility=other, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ob', password='pw12345678')
+        self.assertEqual(self.client.post(reverse('accounts:staff_approve', args=[u.pk])).status_code, 404)
+        StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.login(username='st', password='pw12345678')
+        self.client.post(reverse('accounts:staff_approve', args=[u.pk]))
+        u.refresh_from_db()
+        self.assertFalse(u.is_active)                  # 職員は承認できない
+        self.client.login(username='boss', password='pw12345678')
+        self.client.post(reverse('accounts:staff_approve', args=[u.pk]), {'action': 'reject'})
+        self.assertFalse(StaffAccount.objects.filter(username='hanako').exists())
+
+    def test_admin_issues_and_stops_code(self):
+        self.client.login(username='boss', password='pw12345678')
+        self.client.post(reverse('accounts:signup_code'))
+        self.f.refresh_from_db()
+        self.assertEqual(len(self.f.staff_signup_code), 8)
+        self.assertNotEqual(self.f.staff_signup_code, 'ABCD2345')
+        self.assertContains(self.client.get(reverse('accounts:staff')), self.f.staff_signup_code)
+        self.client.post(reverse('accounts:signup_code'), {'action': 'off'})
+        self.f.refresh_from_db()
+        self.assertEqual(self.f.staff_signup_code, '')
+
+    def test_logged_in_user_is_sent_home(self):
+        self.client.login(username='boss', password='pw12345678')
+        self.assertEqual(self.client.get(self.url).status_code, 302)

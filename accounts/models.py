@@ -63,6 +63,8 @@ class StaffAccount(AbstractUser):
                                 verbose_name='画面の見た目')
     # 細かい表示設定（フォント・ライト/ダーク・背景色・文字の大きさ）。テーマとは独立に効く
     ui_prefs = models.JSONField(default=dict, blank=True, verbose_name='表示の細かい設定')
+    # ログイン画面から自分で登録し、管理者の承認を待っている（承認するまで is_active=False）
+    signup_pending = models.BooleanField(default=False, verbose_name='承認待ち')
 
     FONT_CHOICES = [
         ('biz',     'BIZ UDPゴシック（標準・読みやすいユニバーサルデザイン）'),

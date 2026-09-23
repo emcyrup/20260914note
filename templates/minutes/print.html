@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8">
+<title>議事録 {{ m.title }}</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm; }
+  body { font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "IPAPGothic", sans-serif; font-size: 10.5pt; line-height: 1.75; color: #222; margin: 0 auto; max-width: 180mm; padding: 12px; }
+  h1 { font-size: 16pt; margin: 0 0 2px; }
+  .meta { color: #555; font-size: 9.5pt; border-bottom: 2px solid #333; padding-bottom: 6px; margin-bottom: 10px; }
+  .body { white-space: pre-wrap; }
+  h2 { font-size: 11pt; margin: 16px 0 4px; border-left: 4px solid #999; padding-left: 6px; }
+  .raw { white-space: pre-wrap; font-size: 9pt; color: #444; }
+  .no-print { margin-bottom: 12px; }
+  @media print { .no-print { display: none; } body { padding: 0; } }
+</style></head><body>
+<div class="no-print"><button onclick="window.print()">印刷する</button></div>
+<h1>{{ m.title }}</h1>
+<div class="meta">{{ m.held_on|date:'Y年n月j日' }}　{{ facility.name }}{% if m.created_by %}　記録：{{ m.created_by }}{% endif %}</div>
+{% if m.summary %}<div class="body">{{ m.summary }}</div>{% endif %}
+{% if m.transcript and not m.summary %}<div class="body">{{ m.transcript }}</div>{% endif %}
+{% if m.transcript and m.summary %}<h2>話した内容（文字起こし）</h2><div class="raw">{{ m.transcript }}</div>{% endif %}
+</body></html>

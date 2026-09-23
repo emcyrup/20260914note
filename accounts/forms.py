@@ -68,6 +68,23 @@ class JoinForm(_PasswordPairMixin, forms.Form):
         return username
 
 
+class StaffRegisterForm(JoinForm):
+    """ログイン画面から、事業所の職員登録コードで自分のアカウントを申し込む（管理者の承認待ちになる）"""
+    code = forms.CharField(label='職員登録コード', max_length=20,
+                           widget=forms.TextInput(attrs={'class': 'form-control form-control-lg', 'autocomplete': 'off',
+                                                         'autocapitalize': 'characters', 'placeholder': '管理者から聞いた8文字'}))
+    field_order = ['code', 'display_name', 'username', 'password1', 'password2']
+
+    def clean_code(self):
+        from facilities.models import Facility
+        code = ''.join(self.cleaned_data['code'].split()).upper()
+        facility = Facility.objects.filter(staff_signup_code=code).first() if len(code) >= 6 else None
+        if facility is None:
+            raise forms.ValidationError('職員登録コードが違います。管理者に確かめてください。')
+        self.facility = facility
+        return code
+
+
 class InvitationForm(forms.ModelForm):
     expires_days = forms.TypedChoiceField(label='有効期限', coerce=int, initial=7,
                                           choices=[(1, '1日'), (3, '3日'), (7, '7日'), (30, '30日')],

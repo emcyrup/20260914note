@@ -85,6 +85,8 @@ class Facility(models.Model):
                                           help_text='1日の枠・キャンセル待ち・公式LINEからの申し込みを扱います。')
     use_therapy_record = models.BooleanField(default=False, verbose_name='療育記録を使う',
                                              help_text='利用者ごとの留意点と、1回ごとの療育の記録（やったこと①〜⑤・担当・本文）。用紙と同じ形で印刷できます。')
+    # ログイン画面の「職員として新しく登録」で使うコード（空なら受け付けない）。登録した人は管理者が承認するまでログインできない
+    staff_signup_code = models.CharField(max_length=12, blank=True, db_index=True, verbose_name='職員登録コード')
     # 日誌で AI が作る項目と、その順番（空なら標準の順番で全部）
     journal_sections = models.JSONField(default=list, blank=True, verbose_name='日誌の項目と順番')
     # 事業所固有の帳票様式（標準以外を選ぶと「事業所様式」メニューが出る）

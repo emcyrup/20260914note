@@ -26,6 +26,15 @@
   .th-edit { background: rgba(243,239,231,0.55); border-radius: 8px; padding: 12px; margin-top: 10px; }
   .th-list-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
   .th-list-head select { width: auto; }
+  .th-filter { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .th-filter input[type=date] { width: auto; }
+  .th-filter .sep { color: #8a8378; font-size: 0.85rem; }
+  .th-suggest { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 0 0 6px; }
+  .th-suggest-lbl { font-size: 0.75rem; color: #8a8378; margin-right: 2px; }
+  .th-suggest-btn { font-size: 0.8rem; padding: 1px 9px; border-radius: 999px; border: 1px dashed var(--color-primary-light, #d9a37d);
+                    background: #fff; color: var(--lake-text, #5a3a22); cursor: pointer; }
+  .th-suggest-btn:hover { background: var(--color-primary-bg); }
+  .th-suggest-btn.used { opacity: 0.45; }
   @media (max-width: 576px) {
     .th-save-row { flex-direction: column; align-items: stretch; }
     .th-save-row .btn { width: 100%; }
@@ -40,7 +49,7 @@
     <a href="{% url 'therapy:index' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left me-1"></i>療育記録へ</a>
     <div class="d-flex gap-2 flex-wrap">
       <a href="{% url 'beneficiaries:detail' beneficiary.pk %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-person me-1"></i>{{ terms.beneficiary }}台帳</a>
-      <a href="{% url 'therapy:pdf' beneficiary.pk %}?fmt=html{% if ym %}&ym={{ ym }}{% endif %}" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-printer me-1"></i>用紙で印刷{% if ym %}（{{ ym }}）{% endif %}</a>
+      <a href="{% url 'therapy:pdf' beneficiary.pk %}?fmt=html{% if filter_query %}&{{ filter_query }}{% endif %}" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-printer me-1"></i>用紙で印刷{% if filtered %}（絞った記録）{% endif %}</a>
       <a href="{% url 'therapy:pdf' beneficiary.pk %}?fmt=html&blank=1" class="btn btn-outline-secondary btn-sm" target="_blank">空の用紙</a>
     </div>
   </div>
@@ -53,9 +62,12 @@
         <div class="th-tools">
           <button type="button" class="th-voice btn btn-sm btn-outline-secondary" data-voice-target="cautions" data-voice-note="cautions-voice-note"
                   title="音声で入力（もう一度押すと止まる）"><i class="bi bi-mic"></i> 音声入力</button>
-          <button type="button" class="btn btn-sm btn-outline-primary" id="cautions-summary"
+          <button type="button" class="btn btn-sm btn-outline-primary cautions-ai" id="cautions-detail" data-mode="detail"
                   data-url="{% url 'therapy:cautions_summary' beneficiary.pk %}"
-                  title="入っている文をAIが短い箇条書きに整えます"><i class="bi bi-magic"></i> 要約</button>
+                  title="話した内容を、場面ごとの見出し・箇条書き・まとめに詳しく整理します"><i class="bi bi-card-list"></i> 詳しくまとめる</button>
+          <button type="button" class="btn btn-sm btn-outline-primary cautions-ai" id="cautions-summary" data-mode="short"
+                  data-url="{% url 'therapy:cautions_summary' beneficiary.pk %}"
+                  title="入っている文をAIが短い箇条書きに整えます"><i class="bi bi-magic"></i> 短く要約</button>
         </div>
       </div>
       <div id="cautions-voice-note" class="alert alert-warning small py-1 px-2 mb-2 d-none"></div>
@@ -65,7 +77,7 @@
       </div>
       <textarea class="form-control" id="cautions" name="cautions" rows="{{ cautions_rows }}" placeholder="用紙の上の枠に書いてある、この{{ terms.beneficiary }}のときに気をつけること">{{ profile.cautions|default:'' }}</textarea>
       <div class="th-save-row">
-        <div class="form-text mb-0">用紙の1枚目の上に印刷されます。話して入れたあと「要約」を押すと、短い箇条書きに整えます。</div>
+        <div class="form-text mb-0">用紙の上に印刷されます。話して入れたあと「詳しくまとめる」で場面ごとの見出しと箇条書きに、「短く要約」で短い箇条書きに整えます。</div>
         <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>留意点を保存</button>
       </div>
     </form>
@@ -82,12 +94,17 @@
 
   <div class="card">
     <div class="card-body pb-2 th-list-head">
-      <div class="th-card-title"><i class="bi bi-journal-text"></i>これまでの記録{% if ym %}（{{ ym }}）{% endif %}<span class="th-rec-meta">{{ records|length }} 件</span></div>
-      <form method="get">
+      <div class="th-card-title"><i class="bi bi-journal-text"></i>これまでの記録{% if ym %}（{{ ym }}）{% endif %}{% if date_from or date_to %}（{{ date_from|date:'n/j'|default:'' }}〜{{ date_to|date:'n/j'|default:'' }}）{% endif %}<span class="th-rec-meta">{{ records|length }} 件</span></div>
+      <form method="get" class="th-filter" aria-label="記録を絞る">
         <select name="ym" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="月で絞る">
-          <option value="">すべて（新しい200件）</option>
+          <option value="">すべての月{% if not filtered %}（新しい200件）{% endif %}</option>
           {% for m in months %}<option value="{{ m|date:'Y-m' }}" {% if ym == m|date:'Y-m' %}selected{% endif %}>{{ m|date:'Y年n月' }}</option>{% endfor %}
         </select>
+        <input type="date" name="from" class="form-control form-control-sm" value="{{ date_from|date:'Y-m-d' }}" aria-label="この日から">
+        <span class="sep">〜</span>
+        <input type="date" name="to" class="form-control form-control-sm" value="{{ date_to|date:'Y-m-d' }}" aria-label="この日まで">
+        <button class="btn btn-sm btn-outline-primary"><i class="bi bi-funnel"></i> 絞る</button>
+        {% if filtered %}<a href="{% url 'therapy:child' beneficiary.pk %}" class="btn btn-sm btn-link">解除</a>{% endif %}
       </form>
     </div>
     {% for rec in records %}
@@ -117,17 +134,40 @@
       </div>
     </div>
     {% empty %}
-    <div class="text-center text-muted py-4 border-top">まだ記録がありません。上の「記録を追加する」から書けます。</div>
+    <div class="text-center text-muted py-4 border-top">{% if filtered %}この期間の記録はありません。{% else %}まだ記録がありません。上の「記録を追加する」から書けます。{% endif %}</div>
     {% endfor %}
   </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/voice-input.js' %}?v=1"></script>
+<datalist id="activity-options">{% for a in activity_suggestions %}<option value="{{ a }}">{% endfor %}</datalist>
 <script>
 (function () {
-  var btn = document.getElementById('cautions-summary');
+  // 「よく使う」を押すと、空いている①〜⑤の最初の欄に入れる
+  document.addEventListener('click', function (e) {
+    var chip = e.target.closest('.th-suggest-btn');
+    if (!chip) return;
+    var form = chip.closest('form');
+    var inputs = Array.prototype.slice.call(form.querySelectorAll('input[name^="activity_"]'));
+    var value = chip.getAttribute('data-activity');
+    if (inputs.some(function (el) { return el.value.trim() === value; })) return;
+    var empty = inputs.filter(function (el) { return !el.value.trim(); })[0];
+    if (!empty) { alert('①〜⑤がいっぱいです。どれかを消してから押してください。'); return; }
+    empty.value = value;
+    chip.classList.add('used');
+  });
+  document.addEventListener('input', function (e) {
+    if (!e.target.matches || !e.target.matches('input[name^="activity_"]')) return;
+    var form = e.target.closest('form');
+    var values = Array.prototype.map.call(form.querySelectorAll('input[name^="activity_"]'), function (el) { return el.value.trim(); });
+    form.querySelectorAll('.th-suggest-btn').forEach(function (c) { c.classList.toggle('used', values.indexOf(c.getAttribute('data-activity')) >= 0); });
+  });
+})();
+</script>
+<script src="{% static 'js/voice-input.js' %}?v=2"></script>
+<script>
+(function () {
   var area = document.getElementById('cautions');
   var box = document.getElementById('cautions-summary-note');
   var undo = document.getElementById('cautions-undo');
@@ -137,16 +177,18 @@
     box.querySelector('.msg').textContent = text;
     undo.classList.toggle('d-none', !canUndo);
   }
-  btn.addEventListener('click', function () {
+  document.querySelectorAll('.cautions-ai').forEach(function (btn) { btn.addEventListener('click', function () {
     var rec = document.querySelector('[data-voice-target].recording');
     if (rec) rec.click();                         // 音声入力中なら止めてから
     var text = area.value.trim();
     if (!text) { show('留意点が空です。先に音声入力か文字で入れてください。', 'warning', false); return; }
+    var detail = btn.dataset.mode === 'detail';
     var label = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 要約中';
+    document.querySelectorAll('.cautions-ai').forEach(function (b) { b.disabled = true; });
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + (detail ? 'まとめ中' : '要約中');
     var body = new FormData();
     body.append('text', text);
+    body.append('mode', btn.dataset.mode);
     body.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
     fetch(btn.dataset.url, {method: 'POST', body: body, credentials: 'same-origin'})
       .then(function (r) { return r.json().catch(function () { return {error: '要約できませんでした（' + r.status + '）。'}; }); })
@@ -154,13 +196,16 @@
         if (data.error) { show(data.error, 'danger', false); return; }
         before = area.value;
         area.value = data.result;
-        area.rows = Math.max(3, Math.min(12, data.result.split('\n').length + 1));
+        area.rows = Math.max(3, Math.min(detail ? 24 : 12, data.result.split('\n').length + 1));
         area.dispatchEvent(new Event('input', {bubbles: true}));
-        show('要約して書き換えました。内容を確かめて「留意点を保存」を押してください。', 'info', true);
+        show((detail ? '詳しくまとめて' : '要約して') + '書き換えました。内容を確かめて「留意点を保存」を押してください。', 'info', true);
       })
       .catch(function () { show('通信できませんでした。もう一度お試しください。', 'danger', false); })
-      .finally(function () { btn.disabled = false; btn.innerHTML = label; });
-  });
+      .finally(function () {
+        document.querySelectorAll('.cautions-ai').forEach(function (b) { b.disabled = false; });
+        btn.innerHTML = label;
+      });
+  }); });
   undo.addEventListener('click', function () {
     if (before === null) return;
     area.value = before; before = null;

@@ -1,9 +1,6 @@
 """療育記録の画面（発達支援ルーム　ゆあーず）"""
 import datetime
-import logging
 
-import anthropic
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count, Max
@@ -12,16 +9,16 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 
 from accounts.models import StaffAccount
-from ai_assist.text import clean_ai_text, effort_kwargs
+from ai_assist.quick import ask_ai as _ask_ai, tidy_sections
+from ai_assist.text import clean_ai_text
 from beneficiaries.models import Beneficiary
 from config.utils import to_int
 
 from .models import ACTIVITY_MAX, TherapyProfile, TherapyRecord
 
 PAGE_ENTRIES = 5     # 用紙1枚に入る回数
-CAUTIONS_MAX = 2000  # 留意点の長さ
-
-logger = logging.getLogger(__name__)
+LONG_CAUTIONS = 300  # これより長い留意点は、用紙の2枚目からは「1枚目のとおり」にする
+CAUTIONS_MAX = 6000  # 留意点の長さ（「詳しくまとめる」で場面ごとに書くので長め）
 
 
 class TherapyEnabledMixin(LoginRequiredMixin):
@@ -55,6 +52,50 @@ def _parse_time(value):
 
 def _activities_from_post(post):
     return [post.get(f'activity_{i}', '').strip()[:100] for i in range(1, ACTIVITY_MAX + 1)]
+
+
+ACTIVITY_SUGGEST_MAX = 200   # 候補（datalist）に出す数
+ACTIVITY_CHIP_MAX = 12       # 「よく使う」のボタンに出す数
+
+
+def activity_suggestions(facility):
+    """
+    この事業所でこれまでに入れた「やったこと」。よく使う順（同じ回数なら最近の順）。
+    だれの記録で入れたものでも、ほかの利用者の記録で候補に出す。
+    """
+    count, last = {}, {}
+    rows = (TherapyRecord.objects.filter(facility=facility).order_by('-date', '-pk')
+            .values_list('activities', flat=True)[:3000])
+    for n, acts in enumerate(rows):
+        for a in acts or []:
+            a = a.strip() if isinstance(a, str) else ''
+            if not a:
+                continue
+            count[a] = count.get(a, 0) + 1
+            last.setdefault(a, n)
+    return sorted(count, key=lambda a: (-count[a], last[a]))[:ACTIVITY_SUGGEST_MAX]
+
+
+def filter_records(records, params):
+    """
+    療育記録の絞り込み。?ym=YYYY-MM（その月）と ?from=YYYY-MM-DD・?to=YYYY-MM-DD（日付の範囲）。
+    戻り値は (絞った QuerySet, ym, 開始日, 終了日)。正しくない値は無視する
+    """
+    ym = params.get('ym', '')
+    if ym:
+        try:
+            y, m = (int(x) for x in ym.split('-'))
+            records = records.filter(date__year=y, date__month=m)
+        except ValueError:
+            ym = ''
+    start, end = _parse_date(params.get('from')), _parse_date(params.get('to'))
+    if start and end and start > end:
+        start, end = end, start
+    if start:
+        records = records.filter(date__gte=start)
+    if end:
+        records = records.filter(date__lte=end)
+    return records, ym, start, end
 
 
 def _todays_reservations(facility, day):
@@ -103,23 +144,23 @@ class ChildView(TherapyEnabledMixin, View):
         beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=facility)
         profile = TherapyProfile.objects.filter(beneficiary=beneficiary).first()
         records = TherapyRecord.objects.filter(beneficiary=beneficiary).select_related('staff')
-        ym = request.GET.get('ym', '')
         months = [d for d in records.dates('date', 'month', order='DESC')]
-        if ym:
-            try:
-                y, m = (int(x) for x in ym.split('-'))
-                records = records.filter(date__year=y, date__month=m)
-            except ValueError:
-                ym = ''
-        records = list(records[:200] if not ym else records)
+        records, ym, date_from, date_to = filter_records(records, request.GET)
+        filtered = bool(ym or date_from or date_to)
+        records = list(records if filtered else records[:200])
+        suggestions = activity_suggestions(facility)
+        filter_query = '&'.join(f'{k}={v}' for k, v in (('ym', ym), ('from', date_from and date_from.isoformat()),
+                                                           ('to', date_to and date_to.isoformat())) if v)
         default_date = _parse_date(request.GET.get('date'), datetime.date.today())
         default_time = request.GET.get('time', '')
         return render(request, self.template_name, {
             'beneficiary': beneficiary, 'profile': profile, 'records': records, 'ym': ym, 'months': months,
+            'date_from': date_from, 'date_to': date_to, 'filtered': filtered, 'filter_query': filter_query,
+            'activity_suggestions': suggestions, 'activity_chips': suggestions[:ACTIVITY_CHIP_MAX],
             'staff_list': StaffAccount.objects.filter(facility=facility, is_active=True).order_by('display_name', 'username'),
             'default_date': default_date, 'default_time': default_time,
             'activity_range': range(1, ACTIVITY_MAX + 1), 'edit_pk': to_int(request.GET.get('edit')),
-            'cautions_rows': min(max(len((profile.cautions if profile else '').splitlines()) + 1, 4), 12),
+            'cautions_rows': min(max(len((profile.cautions if profile else '').splitlines()) + 1, 4), 24),
         })
 
     def post(self, request, pk):
@@ -180,42 +221,22 @@ class PdfView(TherapyEnabledMixin, View):
         beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=facility)
         profile = TherapyProfile.objects.filter(beneficiary=beneficiary).first()
         blank = request.GET.get('blank') == '1'
-        ym = request.GET.get('ym', '')
-        records = []
+        records, ym, date_from, date_to = [], '', None, None
         if not blank:
             qs = TherapyRecord.objects.filter(beneficiary=beneficiary).select_related('staff').order_by('date', 'time', 'pk')
-            if ym:
-                try:
-                    y, m = (int(x) for x in ym.split('-'))
-                    qs = qs.filter(date__year=y, date__month=m)
-                except ValueError:
-                    pass
+            qs, ym, date_from, date_to = filter_records(qs, request.GET)
             records = list(qs)
         pages = []
         for i in range(0, max(len(records), 1), PAGE_ENTRIES):
             chunk = records[i:i + PAGE_ENTRIES]
             pages.append(chunk + [None] * (PAGE_ENTRIES - len(chunk)))
         ctx = {'beneficiary': beneficiary, 'profile': profile, 'pages': pages, 'facility': facility,
+               'long_cautions': len(profile.cautions if profile else '') > LONG_CAUTIONS,
                'blank': blank, 'ym': ym, 'line_range': range(6)}
         name = f'療育記録_{beneficiary.full_name}' + (f'_{ym}' if ym else '')
+        if date_from or date_to:
+            name += f'_{date_from or ""}〜{date_to or ""}'
         return pdf_or_html(request, 'therapy/pdf/record.html', ctx, name)
-
-
-def _ask_ai(system, content, max_tokens):
-    """AI に1回たずねて (返答の文, None) を返す。使えないときは (None, エラーの JsonResponse)"""
-    if not settings.ANTHROPIC_API_KEY:
-        return None, JsonResponse({'error': 'AIを使う設定（ANTHROPIC_API_KEY）がサーバーにありません。管理者に設定を依頼してください。'},
-                                  status=500)
-    try:
-        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-        response = client.messages.create(
-            model=settings.AI_TEXT_MODEL, max_tokens=max_tokens, **effort_kwargs(settings.AI_TEXT_MODEL),
-            system=system, messages=[{'role': 'user', 'content': content}],
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.exception('療育記録の AI でエラー')
-        return None, JsonResponse({'error': f'AIでの作成中にエラーが発生しました: {type(e).__name__}'}, status=500)
-    return ''.join(b.text for b in response.content if b.type == 'text'), None
 
 
 class CautionsSummaryView(TherapyEnabledMixin, View):
@@ -237,15 +258,47 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
 - 人名・物の名前は入力の表記のまま
 - 返すのは箇条書きだけ"""
 
+    DETAIL_PROMPT = """あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
+職員が話した言葉（療育の場面のようす・気づき・その子について気をつけること）を、
+あとから読んだ職員が場面を思い浮かべられるように、**詳しく**整理して書き直します。
+
+【形（必ず守る）】
+【概要】
+（全体を1〜2文で）
+
+【場面や活動の名前】
+・小見出し：内容を1〜3文で
+・小見出し：内容
+（場面・活動・部屋ごとに【】の見出しを分ける。話に出てきた順に並べる）
+
+【全体のまとめ】
+（全体の経過・変化を1〜3文で）
+
+【気をつけること】
+・（話の中で職員が「気をつける」「〜するとよい」「苦手」などと言ったことだけ。無ければこの見出しごと書かない）
+
+【書き方】
+- 子どもの言葉・職員の声かけは「」で、話したとおりに残す（例：「出して」と模倣した）
+- 何をしたら・どうなったか（促し → 反応）が分かるように書く。回数や順番も話にあれば残す
+- 常体（〜した。〜する。）で書く。敬語・あいさつ・前置きは書かない
+- 話に無いことは足さない。推測や評価のことば（「成長が見られた」など）は、話した人が言ったときだけ書く
+- 「えー」「あの」などの言いよどみ、言い直し、同じ話のくり返しは除く
+- 常用漢字とひらがな・カタカナで書く。英語・絵文字・マークダウン（# や ** ）は使わない。見出しは【】、項目は「・」だけを使う
+- 返すのは整理した文だけ"""
+
     def post(self, request, pk):
         beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
         text = request.POST.get('text', '').strip()
+        detail = request.POST.get('mode') == 'detail'
         if not text:
             return JsonResponse({'error': '留意点が空です。先に音声入力か文字で入れてください。'}, status=400)
-        raw, error = _ask_ai(self.SYSTEM_PROMPT, f'【{beneficiary.full_name}さんについてのメモ】\n{text[:6000]}', 1024)
+        if detail:
+            raw, error = _ask_ai(self.DETAIL_PROMPT, f'【{beneficiary.full_name}さんについて職員が話したこと】\n{text[:CAUTIONS_MAX]}', 4096)
+        else:
+            raw, error = _ask_ai(self.SYSTEM_PROMPT, f'【{beneficiary.full_name}さんについてのメモ】\n{text[:CAUTIONS_MAX]}', 1024)
         if error:
             return error
-        result = self.tidy(raw)
+        result = tidy_sections(raw) if detail else self.tidy(raw)
         if not result:
             return JsonResponse({'error': 'AIの返答が空でした。もう一度お試しください。'}, status=500)
         return JsonResponse({'result': result[:CAUTIONS_MAX]})

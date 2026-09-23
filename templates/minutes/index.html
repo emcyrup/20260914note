@@ -1,0 +1,190 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}議事録 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}議事録{% endblock %}
+{% block nav_minutes %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .mn-wrap { max-width: 1100px; }
+  .mn-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 16px; align-items: start; }
+  .mn-title { font-weight: 700; display: flex; align-items: center; gap: 6px; }
+  .mn-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+  .mn-tools .btn { white-space: nowrap; }
+  .th-voice.recording { color: #fff; background: var(--color-danger); border-color: var(--color-danger); animation: mn-rec 1s infinite; }
+  @keyframes mn-rec { 0%, 100% { opacity: 1; } 50% { opacity: 0.65; } }
+  #transcript, #summary { line-height: 1.7; }
+  .mn-hist a { display: block; padding: 8px 10px; border-top: 1px solid var(--line); color: inherit; text-decoration: none; }
+  .mn-hist a:hover { background: var(--color-primary-bg); }
+  .mn-hist a.on { background: var(--color-primary-bg); border-left: 3px solid var(--color-primary); }
+  .mn-hist .d { font-size: 0.78rem; color: #8a8378; }
+  .mn-hist .t { font-weight: 600; font-size: 0.92rem; }
+  .mn-save { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+  @media (max-width: 900px) { .mn-grid { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2 mn-wrap">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="text-muted small">会議・打ち合わせ・面談などで話したことを残します。{{ terms.beneficiary }}には結びつきません。このページは別のタブで開いたまま使えます。</div>
+    <a href="{% url 'minutes:index' %}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>新しく書く</a>
+  </div>
+
+  <div class="mn-grid">
+    <form method="post" id="mn-form" class="card"><div class="card-body">
+      {% csrf_token %}
+      {% if current %}<input type="hidden" name="id" value="{{ current.pk }}">{% endif %}
+      <div class="row g-2 mb-2">
+        <div class="col-12 col-md-8"><label class="form-label small fw-semibold" for="mn-title">件名</label>
+          <input type="text" name="title" id="mn-title" class="form-control form-control-sm" maxlength="100"
+                 value="{% if current %}{{ current.title }}{% endif %}" placeholder="{{ default_title }}（例：職員会議・〇〇さん面談）"></div>
+        <div class="col-7 col-md-4"><label class="form-label small fw-semibold" for="mn-date">日付</label>
+          <input type="date" name="held_on" id="mn-date" class="form-control form-control-sm"
+                 value="{% if current %}{{ current.held_on|date:'Y-m-d' }}{% else %}{{ today|date:'Y-m-d' }}{% endif %}"></div>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1 mt-3">
+        <label class="mn-title mb-0" for="transcript"><i class="bi bi-mic"></i>話した内容</label>
+        <div class="mn-tools">
+          <button type="button" class="th-voice btn btn-sm btn-outline-danger" data-voice-target="transcript" data-voice-note="mn-voice-note"
+                  title="押している間、話した言葉を下の欄に足していきます。もう一度押すと止まります"><i class="bi bi-mic"></i> 録音（音声入力）</button>
+        </div>
+      </div>
+      <div id="mn-voice-note" class="alert alert-warning small py-1 px-2 mb-1 d-none"></div>
+      <textarea class="form-control" id="transcript" name="transcript" rows="10" maxlength="{{ text_max }}"
+                placeholder="「録音」を押して話すと、ここに文字で入っていきます。ほかの録音アプリの文字起こしを貼り付けても構いません。">{% if current %}{{ current.transcript }}{% endif %}</textarea>
+      <div class="form-text">止まらずに聞き続けます（黙っている間も待ちます）。録音中は画面を閉じたり、ほかのアプリに切り替えたりしないでください（止まります）。</div>
+
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1 mt-3">
+        <label class="mn-title mb-0" for="summary"><i class="bi bi-card-list"></i>議事録</label>
+        <div class="mn-tools">
+          <button type="button" class="btn btn-sm btn-outline-primary" id="mn-organize" data-url="{% url 'minutes:organize' %}"
+                  title="話した内容を、話題ごとの見出し・箇条書き・決まったこと・次にやることに整理します"><i class="bi bi-magic"></i> AIで議事録に整理</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="mn-copy" title="議事録を写す（LINE やメールに貼るとき）"><i class="bi bi-clipboard"></i> 写す</button>
+        </div>
+      </div>
+      <div id="mn-note" class="alert alert-info small py-1 px-2 mb-1 d-none"><span class="msg"></span>
+        <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline d-none" id="mn-undo">元に戻す</button></div>
+      <textarea class="form-control" id="summary" name="summary" rows="14" maxlength="{{ summary_max }}"
+                placeholder="「AIで議事録に整理」を押すと、【概要】【話題ごとの見出し】【決まったこと】【次にやること】の形でここに入ります。手で書いても構いません。">{% if current %}{{ current.summary }}{% endif %}</textarea>
+
+      <div class="mn-save mt-3">
+        <div class="form-text mb-0">{% if full and not current %}<span class="text-danger">保存すると、一番古い議事録（履歴の一番下）が消えます。</span>{% else %}議事録は新しい{{ keep }}件まで残ります。{% endif %}</div>
+        <div class="d-flex gap-2">
+          {% if current %}<a href="{% url 'minutes:print' current.pk %}" target="_blank" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i>印刷</a>{% endif %}
+          <button class="btn btn-primary" id="mn-save"><i class="bi bi-check2 me-1"></i>保存する</button>
+        </div>
+      </div>
+    </div></form>
+
+    <div class="card mn-hist">
+      <div class="card-body pb-2"><div class="mn-title"><i class="bi bi-clock-history"></i>履歴<span class="small text-muted fw-normal ms-1">新しい{{ keep }}件</span></div></div>
+      {% for m in history %}
+      <a href="{% url 'minutes:index' %}?id={{ m.pk }}" class="{% if current and current.pk == m.pk %}on{% endif %}">
+        <div class="t">{{ m.title }}</div>
+        <div class="d">{{ m.held_on|date:'Y/n/j' }}{% if m.created_by %}　{{ m.created_by }}{% endif %}</div>
+      </a>
+      {% empty %}
+      <div class="text-muted small px-3 pb-3">まだありません。</div>
+      {% endfor %}
+      {% if current %}
+      <form method="post" class="px-3 py-2 border-top" onsubmit="return confirm('「{{ current.title|escapejs }}」を削除します。よろしいですか？');">
+        {% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{ current.pk }}">
+        <button class="btn btn-sm btn-outline-danger w-100"><i class="bi bi-trash me-1"></i>開いている議事録を削除</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/voice-input.js' %}?v=2"></script>
+<script>
+(function () {
+  var form = document.getElementById('mn-form');
+  var ttl = document.getElementById('mn-title');
+  var day = document.getElementById('mn-date');
+  var tx = document.getElementById('transcript');
+  var sm = document.getElementById('summary');
+  var btn = document.getElementById('mn-organize');
+  var box = document.getElementById('mn-note');
+  var undo = document.getElementById('mn-undo');
+  var isNew = !form.querySelector('[name=id]');
+  var KEY = 'minutes-draft';
+  var dirty = false, before = null;
+
+  function show(text, cls, canUndo) {
+    box.className = 'alert small py-1 px-2 mb-1 alert-' + cls;
+    box.querySelector('.msg').textContent = text;
+    undo.classList.toggle('d-none', !canUndo);
+  }
+  // 新しく書いている途中は、この端末に下書きを残す（タブを閉じてしまったときのため）
+  function saveDraft() {
+    if (!isNew) return;
+    try {
+      localStorage.setItem(KEY, JSON.stringify({title: ttl.value, held_on: day.value, transcript: tx.value, summary: sm.value}));
+    } catch (e) { /* 使えない */ }
+  }
+  if (isNew) {
+    try {
+      var d = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (d && (d.transcript || d.summary) && !tx.value && !sm.value) {
+        ttl.value = d.title || ''; if (d.held_on) day.value = d.held_on;
+        tx.value = d.transcript || ''; sm.value = d.summary || '';
+        show('保存していない書きかけを戻しました。要らないときは欄を消してください。', 'secondary', false);
+      }
+    } catch (e) { /* 使えない */ }
+  }
+  form.addEventListener('input', function () { dirty = true; saveDraft(); });
+  form.addEventListener('submit', function () {
+    dirty = false;
+    var rec = document.querySelector('[data-voice-target].recording');
+    if (rec) rec.click();
+    try { localStorage.removeItem(KEY); } catch (e) { /* 使えない */ }
+  });
+  window.addEventListener('beforeunload', function (e) {
+    if (dirty || document.querySelector('[data-voice-target].recording')) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  btn.addEventListener('click', function () {
+    var rec = document.querySelector('[data-voice-target].recording');
+    if (rec) rec.click();                          // 録音中なら止めてから
+    var text = tx.value.trim();
+    if (!text) { show('話した内容が空です。先に録音するか文字で入れてください。', 'warning', false); return; }
+    var label = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 整理中（長いと1分ほど）';
+    var body = new FormData();
+    body.append('text', text);
+    body.append('title', ttl.value);
+    body.append('csrfmiddlewaretoken', form.csrfmiddlewaretoken.value);
+    fetch(btn.dataset.url, {method: 'POST', body: body, credentials: 'same-origin'})
+      .then(function (r) { return r.json().catch(function () { return {error: '整理できませんでした（' + r.status + '）。'}; }); })
+      .then(function (data) {
+        if (data.error) { show(data.error, 'danger', false); return; }
+        before = sm.value;
+        sm.value = data.result;
+        dirty = true; saveDraft();
+        show('議事録に整理しました。内容を確かめて「保存する」を押してください。', 'info', true);
+      })
+      .catch(function () { show('通信できませんでした。もう一度お試しください。', 'danger', false); })
+      .finally(function () { btn.disabled = false; btn.innerHTML = label; });
+  });
+  undo.addEventListener('click', function () {
+    if (before === null) return;
+    sm.value = before; before = null;
+    show('整理する前に戻しました。', 'secondary', false);
+  });
+  document.getElementById('mn-copy').addEventListener('click', function () {
+    var text = sm.value.trim() || tx.value.trim();
+    if (!text) return;
+    var done = function () { show('写しました。LINE やメールに貼り付けられます。', 'secondary', false); };
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, function () { sm.select(); });
+    else { sm.select(); document.execCommand('copy'); done(); }
+  });
+})();
+</script>
+{% endblock %}

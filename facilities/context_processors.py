@@ -47,6 +47,7 @@ def branding(request):
                      'reservation': facility.use_reservation, 'form_set': facility.form_set,
                      'planbook': facility.is_planbook, 'therapy': facility.use_therapy_record},
         'planbook_unread': _planbook_unread(facility) if facility.is_planbook else 0,
+        'pending_staff_count': _pending_staff(user, facility),
         'journal_sections': facility.journal_section_keys(),
         **standalone_context(),
         **developer_context(user),
@@ -60,3 +61,11 @@ def _planbook_unread(facility):
         return unread_note_count(facility)
     except Exception:  # noqa: BLE001
         return 0
+
+
+def _pending_staff(user, facility):
+    """管理者向け：ログイン画面から登録して承認を待っている職員の数"""
+    if not (getattr(user, 'is_admin', False) or getattr(user, 'is_superuser', False)):
+        return 0
+    from accounts.models import StaffAccount
+    return StaffAccount.objects.filter(facility=facility, signup_pending=True).count()

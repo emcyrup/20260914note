@@ -105,6 +105,72 @@ class TherapyTests(TestCase):
         self.assertContains(res, f'time={s.slot_hours(day)[0]:02d}:00')
 
 
+class TherapySuggestAndFilterTests(TestCase):
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_therapy_record=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        dob = datetime.date(2019, 4, 1)
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=dob)
+        self.other = Beneficiary.objects.create(facility=self.f, last_name='井上', first_name='子', date_of_birth=dob)
+        self.url = reverse('therapy:child', args=[self.kid.pk])
+
+    def rec(self, kid, day, acts):
+        return TherapyRecord.objects.create(facility=self.f, beneficiary=kid, date=day, activities=acts)
+
+    def test_suggestions_are_shared_across_children_by_frequency(self):
+        from .views import activity_suggestions
+        self.rec(self.other, datetime.date(2026, 9, 1), ['ウレタン棒', 'ブロック', ''])
+        self.rec(self.other, datetime.date(2026, 9, 2), ['ブロック', ' 太鼓 '])
+        self.rec(self.kid, datetime.date(2026, 9, 3), ['ブロック', 'ウレタン棒'])
+        ghost = Facility.objects.create(name='ほか', use_therapy_record=True)
+        g = Beneficiary.objects.create(facility=ghost, last_name='他', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        TherapyRecord.objects.create(facility=ghost, beneficiary=g, date=datetime.date(2026, 9, 3), activities=['秘密の活動'])
+        # ブロック 3回 → ウレタン棒 2回 → 太鼓 1回（前後の空白は除く・空欄は数えない・ほかの事業所は出さない）
+        self.assertEqual(activity_suggestions(self.f), ['ブロック', 'ウレタン棒', '太鼓'])
+        res = self.client.get(reverse('therapy:child', args=[self.kid.pk]))
+        self.assertContains(res, '<datalist id="activity-options">')
+        self.assertContains(res, '<option value="太鼓">')
+        self.assertContains(res, 'list="activity-options"')
+        self.assertContains(res, 'data-activity="ブロック"')
+        self.assertNotContains(res, '秘密の活動')
+
+    def test_no_chips_without_history(self):
+        res = self.client.get(self.url)
+        self.assertNotContains(res, 'class="th-suggest"')
+
+    def test_filter_by_date_range(self):
+        for d in (1, 10, 20, 30):
+            self.rec(self.kid, datetime.date(2026, 9, d), [f'活動{d}'])
+        self.rec(self.kid, datetime.date(2026, 10, 5), ['十月'])
+        res = self.client.get(self.url + '?from=2026-09-10&to=2026-09-20')
+        self.assertEqual([r.date.day for r in res.context['records']], [20, 10])
+        self.assertContains(res, '（9/10〜9/20）')
+        self.assertContains(res, 'from=2026-09-10&amp;to=2026-09-20')   # 印刷にも同じ絞り込み
+        # 逆に入れても入れ替えて絞る・片側だけでもよい
+        res = self.client.get(self.url + '?from=2026-09-20&to=2026-09-10')
+        self.assertEqual(len(res.context['records']), 2)
+        res = self.client.get(self.url + '?from=2026-09-25')
+        self.assertEqual([r.date for r in res.context['records']], [datetime.date(2026, 10, 5), datetime.date(2026, 9, 30)])
+        # 月と組み合わせる
+        res = self.client.get(self.url + '?ym=2026-09&from=2026-09-15')
+        self.assertEqual([r.date.day for r in res.context['records']], [30, 20])
+        # 正しくない日付は無視
+        res = self.client.get(self.url + '?from=abc')
+        self.assertEqual(len(res.context['records']), 5)
+        # 当てはまらないとき
+        res = self.client.get(self.url + '?from=2027-01-01')
+        self.assertContains(res, 'この期間の記録はありません')
+
+    def test_pdf_uses_date_range(self):
+        for d in (1, 10, 20):
+            self.rec(self.kid, datetime.date(2026, 9, d), [f'活動{d}'])
+        res = self.client.get(reverse('therapy:pdf', args=[self.kid.pk]) + '?fmt=html&from=2026-09-05&to=2026-09-15')
+        self.assertContains(res, '活動10')
+        self.assertNotContains(res, '活動20')
+        self.assertNotContains(res, '活動1<')
+
+
 @override_settings(ANTHROPIC_API_KEY='test-key')
 class CautionsSummaryTests(TestCase):
     def setUp(self):
@@ -115,7 +181,7 @@ class CautionsSummaryTests(TestCase):
                                               last_name_kana='あおき', date_of_birth=datetime.date(2019, 4, 1))
         self.url = reverse('therapy:cautions_summary', args=[self.kid.pk])
 
-    @mock.patch('therapy.views.anthropic.Anthropic')
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
     def test_summarizes_to_bullets(self, client_cls):
         client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[
             SimpleNamespace(type='thinking', thinking='...'),
@@ -131,6 +197,23 @@ class CautionsSummaryTests(TestCase):
         # 要約は返すだけで、保存はしない
         self.assertFalse(TherapyProfile.objects.filter(beneficiary=self.kid).exists())
 
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_detail_mode_keeps_sections(self, client_cls):
+        client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(type='text', text=(
+            '## 概要\nグーの部屋とパンの部屋で遊んだ。\n'
+            '【グーの部屋でのエアホッケー】\n- ルール設定：「シュートしたら勝ち」に「勝ち」と復唱した。\n'
+            '* **片付け**：「片付けは」の声かけで全部片付けた。\n\n\n【全体のまとめ】\n着席して過ごせた。'))])
+        res = self.client.post(self.url, {'text': 'グーの部屋でエアホッケー…', 'mode': 'detail'})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['result'], (
+            '【概要】\nグーの部屋とパンの部屋で遊んだ。\n\n'
+            '【グーの部屋でのエアホッケー】\n・ルール設定：「シュートしたら勝ち」に「勝ち」と復唱した。\n'
+            '・片付け：「片付けは」の声かけで全部片付けた。\n\n【全体のまとめ】\n着席して過ごせた。'))
+        kwargs = client_cls.return_value.messages.create.call_args.kwargs
+        self.assertIn('【全体のまとめ】', kwargs['system'])
+        self.assertIn('「」で、話したとおりに残す', kwargs['system'])
+        self.assertEqual(kwargs['max_tokens'], 4096)
+
     def test_empty_text(self):
         res = self.client.post(self.url, {'text': '  '})
         self.assertEqual(res.status_code, 400)
@@ -141,7 +224,7 @@ class CautionsSummaryTests(TestCase):
         self.assertEqual(res.status_code, 500)
         self.assertIn('ANTHROPIC_API_KEY', res.json()['error'])
 
-    @mock.patch('therapy.views.anthropic.Anthropic', side_effect=RuntimeError('boom'))
+    @mock.patch('ai_assist.quick.anthropic.Anthropic', side_effect=RuntimeError('boom'))
     def test_api_error(self, _):
         res = self.client.post(self.url, {'text': 'メモ'})
         self.assertEqual(res.status_code, 500)
@@ -153,8 +236,21 @@ class CautionsSummaryTests(TestCase):
         res = self.client.post(reverse('therapy:cautions_summary', args=[kid.pk]), {'text': 'メモ'})
         self.assertEqual(res.status_code, 404)
 
+    def test_long_cautions_saved_and_shortened_on_later_pages(self):
+        long_text = '【概要】\n' + 'あ' * 3000
+        self.client.post(reverse('therapy:child', args=[self.kid.pk]), {'action': 'cautions', 'cautions': long_text})
+        self.assertEqual(TherapyProfile.objects.get(beneficiary=self.kid).cautions, long_text)
+        f = self.kid.facility
+        for d in range(1, 8):   # 7回ぶん → 2枚
+            TherapyRecord.objects.create(facility=f, beneficiary=self.kid, date=datetime.date(2026, 9, d))
+        res = self.client.get(reverse('therapy:pdf', args=[self.kid.pk]) + '?fmt=html')
+        self.assertContains(res, 'あ' * 3000, count=1)
+        self.assertContains(res, '（1枚目のとおり）', count=1)
+        self.assertContains(res, 'tr-cau long')
+
     def test_button_on_page(self):
         res = self.client.get(reverse('therapy:child', args=[self.kid.pk]))
+        self.assertContains(res, 'id="cautions-detail"')
         self.assertContains(res, 'id="cautions-summary"')
         self.assertContains(res, self.url)
 
@@ -175,7 +271,7 @@ class RecordSummaryTests(TestCase):
         client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[
             SimpleNamespace(type='thinking', thinking='...'), SimpleNamespace(type='text', text=text)])
 
-    @mock.patch('therapy.views.anthropic.Anthropic')
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
     def test_summary_uses_cautions_and_activities(self, client_cls):
         self.reply(client_cls, 'ウレタン棒では、疲れると手が出ることがあるため、\n休憩を先に入れて取り組む。\n\n'
                                'ブロックでは、崩れる音が大きくならないよう机の上で行う。')
@@ -193,7 +289,7 @@ class RecordSummaryTests(TestCase):
             self.assertIn(word, content)
         self.assertFalse(TherapyRecord.objects.exists())   # 返すだけで保存しない
 
-    @mock.patch('therapy.views.anthropic.Anthropic')
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
     def test_saved_cautions_used_when_page_has_none(self, client_cls):
         TherapyProfile.objects.create(beneficiary=self.kid, cautions='・水が苦手')
         self.reply(client_cls, '水遊びは避ける。')
@@ -201,7 +297,7 @@ class RecordSummaryTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertIn('水が苦手', client_cls.return_value.messages.create.call_args.kwargs['messages'][0]['content'])
 
-    @mock.patch('therapy.views.anthropic.Anthropic')
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
     def test_long_reply_is_cut_at_sentence(self, client_cls):
         sentence = 'あ' * 99 + '。'           # 100字の文を6つ → 500字で切る
         self.reply(client_cls, sentence * 6)
@@ -223,7 +319,7 @@ class RecordSummaryTests(TestCase):
         self.assertEqual(res.status_code, 500)
         self.assertIn('ANTHROPIC_API_KEY', res.json()['error'])
 
-    @mock.patch('therapy.views.anthropic.Anthropic', side_effect=RuntimeError('boom'))
+    @mock.patch('ai_assist.quick.anthropic.Anthropic', side_effect=RuntimeError('boom'))
     def test_api_error(self, _):
         res = self.client.post(self.url, self.post)
         self.assertEqual(res.status_code, 500)

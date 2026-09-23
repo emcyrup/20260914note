@@ -193,6 +193,13 @@
         </a>
       </li>
       <li>
+        <a class="sidebar-nav-item {% block nav_minutes %}{% endblock %}"
+           href="{% url 'minutes:index' %}" target="_blank" rel="noopener" title="別のタブで開きます">
+          <i class="bi bi-mic"></i>
+          <span>議事録 <i class="bi bi-box-arrow-up-right" style="font-size:0.7em;opacity:0.7;"></i></span>
+        </a>
+      </li>
+      <li>
         <a class="sidebar-nav-item {% block nav_plans %}{% endblock %}"
            href="{% url 'support_plans:list' %}">
           <i class="bi bi-diagram-3"></i>
@@ -325,6 +332,12 @@
       </div>
     </div>
 
+    {% if pending_staff_count %}
+    <div class="flash-messages">
+      <div class="alert alert-warning py-2 mb-0"><i class="bi bi-hourglass-split me-1"></i>ログイン画面から登録した{{ terms.staff }}が {{ pending_staff_count }} 人、承認を待っています。
+        <a href="{% url 'accounts:staff' %}#signup" class="alert-link">{{ terms.staff }}・運用管理で承認する</a></div>
+    </div>
+    {% endif %}
     <!-- フラッシュメッセージ -->
     {% if messages %}
     <div class="flash-messages">

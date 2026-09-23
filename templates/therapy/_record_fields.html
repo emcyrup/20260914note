@@ -20,12 +20,18 @@
 </div>
 <div class="col-12">
   <label class="form-label small fw-semibold">やったこと（①〜⑤）</label>
+  {% if not rec and activity_chips %}
+  <div class="th-suggest" aria-label="よく使うやったこと">
+    <span class="th-suggest-lbl">よく使う</span>
+    {% for a in activity_chips %}<button type="button" class="th-suggest-btn" data-activity="{{ a }}">{{ a }}</button>{% endfor %}
+  </div>
+  {% endif %}
   <div class="row g-1">
     {% for i in activity_range %}
     <div class="col-12 col-sm-6 col-lg">
       <div class="input-group input-group-sm">
         <span class="input-group-text">{% if i == 1 %}①{% elif i == 2 %}②{% elif i == 3 %}③{% elif i == 4 %}④{% else %}⑤{% endif %}</span>
-        <input type="text" name="activity_{{ i }}" class="form-control" maxlength="100"
+        <input type="text" name="activity_{{ i }}" class="form-control" maxlength="100" list="activity-options" autocomplete="off"
                value="{% if rec %}{% for a in rec.activities %}{% if forloop.counter == i %}{{ a }}{% endif %}{% endfor %}{% endif %}"
                placeholder="{% if i == 1 %}例：ウレタン棒{% elif i == 2 %}例：ブロック{% endif %}">
       </div>

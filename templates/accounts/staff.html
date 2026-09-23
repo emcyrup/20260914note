@@ -38,6 +38,52 @@
   </div>
   <p class="small text-muted mt-2">スーパーユーザー（初期の管理アカウント）は /admin/ からも管理できます。退職した{{ terms.staff }}は削除せず「無効」にすると記録の記録者名が残ります。</p>
 
+  <!-- ログイン画面からの職員登録 -->
+  <div id="signup" class="mt-4 mb-2">
+    <div class="fw-bold"><i class="bi bi-person-plus me-1"></i>ログイン画面からの職員登録</div>
+    <div class="small text-muted">ログイン画面の「職員として新しく登録する」から、下の<b>職員登録コード</b>を入れて本人が申し込みます。申し込んだ人は、ここで<b>承認するまでログインできません</b>。</div>
+  </div>
+  <div class="card mb-2"><div class="card-body d-flex flex-wrap align-items-center gap-3">
+    {% if user.facility.staff_signup_code %}
+    <div>職員登録コード <code class="fs-4 fw-bold ms-1" style="letter-spacing:0.12em;">{{ user.facility.staff_signup_code }}</code></div>
+    <div class="small text-muted flex-grow-1">登録の画面：{{ register_url }}</div>
+    <form method="post" action="{% url 'accounts:signup_code' %}" onsubmit="return confirm('新しいコードにします。前のコードは使えなくなります。よろしいですか？');">{% csrf_token %}<button class="btn btn-sm btn-outline-primary">コードを作り直す</button></form>
+    <form method="post" action="{% url 'accounts:signup_code' %}">{% csrf_token %}<input type="hidden" name="action" value="off"><button class="btn btn-sm btn-outline-secondary">受け付けを止める</button></form>
+    {% else %}
+    <div class="small text-muted flex-grow-1">いまはログイン画面からの登録を受け付けていません。</div>
+    <form method="post" action="{% url 'accounts:signup_code' %}">{% csrf_token %}<button class="btn btn-sm btn-primary"><i class="bi bi-key me-1"></i>職員登録コードを発行</button></form>
+    {% endif %}
+  </div></div>
+  {% if pending %}
+  <div class="card border-warning mb-2">
+    <div class="card-body pb-1"><div class="fw-bold text-warning-emphasis"><i class="bi bi-hourglass-split me-1"></i>承認待ち（{{ pending|length }}人）</div></div>
+    <div class="table-responsive">
+      <table class="table mb-0 align-middle">
+        <thead><tr><th>表示名</th><th>ログインID</th><th>申し込み</th><th>権限区分を決めて承認</th><th></th></tr></thead>
+        <tbody>
+        {% for p in pending %}
+          <tr>
+            <td class="fw-bold">{{ p.display_name }}</td><td>{{ p.username }}</td><td class="small">{{ p.date_joined|date:'n/j H:i' }}</td>
+            <td>
+              <form method="post" action="{% url 'accounts:staff_approve' p.pk %}" class="d-flex gap-1">
+                {% csrf_token %}
+                <select name="role" class="form-select form-select-sm" style="width:auto;">{% for value, label in roles %}<option value="{{ value }}" {% if value == 'staff' %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+                <button class="btn btn-sm btn-success text-nowrap"><i class="bi bi-check-lg"></i> 承認</button>
+              </form>
+            </td>
+            <td class="text-end">
+              <form method="post" action="{% url 'accounts:staff_approve' p.pk %}" onsubmit="return confirm('{{ p.display_name|escapejs }} さんの登録を断ります（アカウントを消します）。よろしいですか？');">
+                {% csrf_token %}<input type="hidden" name="action" value="reject"><button class="btn btn-sm btn-outline-danger text-nowrap">断る</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- 招待リンク -->
   <div class="d-flex justify-content-between align-items-center mt-4 mb-2 flex-wrap gap-2">
     <div>

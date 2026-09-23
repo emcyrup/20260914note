@@ -1,7 +1,9 @@
 import datetime
+import secrets
 
 from django.conf import settings
 from django.conf import settings as django_settings
+from django.core.cache import cache
 from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -34,6 +36,12 @@ class StaffLoginView(LoginView):
         ctx = super().get_context_data(**kwargs)
         ctx['signup_enabled'] = settings.ALLOW_FACILITY_SIGNUP
         return ctx
+
+    def form_invalid(self, form):
+        # 承認待ちの人には、パスワード違いではなく承認待ちであることを伝える
+        u = StaffAccount.objects.filter(username__iexact=(form.data.get('username') or '').strip(), signup_pending=True).first()
+        pending = u is not None and u.check_password(form.data.get('password') or '')
+        return self.render_to_response(self.get_context_data(form=form, signup_pending=pending))
 
 
 class StaffLogoutView(LogoutView):
@@ -151,12 +159,15 @@ class StaffListView(AdminOnlyMixin, View):
 
     def get(self, request):
         from .forms import InvitationForm, StaffCreateForm
-        staff = StaffAccount.objects.filter(facility=request.user.facility).order_by('-is_active', 'role', 'username')
+        staff = (StaffAccount.objects.filter(facility=request.user.facility, signup_pending=False)
+                 .order_by('-is_active', 'role', 'username'))
         invitations = StaffInvitation.objects.filter(facility=request.user.facility).select_related('created_by')[:30]
         return render(request, self.template_name, {
             'staff': staff, 'form': StaffCreateForm(), 'roles': StaffAccount.ROLE_CHOICES,
             'themes': StaffAccount.THEME_CHOICES,
             'invitations': invitations, 'invitation_form': InvitationForm(),
+            'pending': StaffAccount.objects.filter(facility=request.user.facility, signup_pending=True).order_by('date_joined'),
+            'register_url': request.build_absolute_uri(reverse('accounts:register')),
         })
 
     def post(self, request):
@@ -311,3 +322,89 @@ class SignupView(View):
         messages.success(request, f'事業所「{facility.name}」を登録し、管理者アカウントを作りました。'
                                   '施設設定で呼び方や使う機能を確認し、「職員・運用管理」の招待リンクで職員を招待してください。')
         return redirect(home_url() if django_settings.RESERVATION_ONLY else 'facilities:settings')
+
+
+# =============================================
+# ログイン画面からの職員登録（職員登録コード＋管理者の承認）
+# =============================================
+CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'   # 見間違えやすい 0/O・1/I は使わない
+CODE_LENGTH = 8
+REGISTER_TRIES = 10                          # 同じ端末から1時間に申し込める回数（コードの当てずっぽうを防ぐ）
+
+
+def new_signup_code():
+    while True:
+        code = ''.join(secrets.choice(CODE_CHARS) for _ in range(CODE_LENGTH))
+        if not Facility.objects.filter(staff_signup_code=code).exists():
+            return code
+
+
+def _client_ip(request):
+    return (request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip()
+            or request.META.get('REMOTE_ADDR', '') or 'unknown')
+
+
+class StaffRegisterView(View):
+    """ログイン画面の「職員として新しく登録」。作ったアカウントは管理者が承認するまで使えない"""
+    template_name = 'accounts/register.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            messages.info(request, 'ログイン中です。新しい職員の登録は、いったんログアウトしてから行ってください。')
+            return redirect(home_url())
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request):
+        from .forms import StaffRegisterForm
+        return render(request, self.template_name, {'form': StaffRegisterForm()})
+
+    def post(self, request):
+        from .forms import StaffRegisterForm
+        key = f'staff-register:{_client_ip(request)}'
+        tries = cache.get(key, 0)
+        if tries >= REGISTER_TRIES:
+            return render(request, self.template_name, {'form': StaffRegisterForm(), 'blocked': True})
+        cache.set(key, tries + 1, 3600)
+        form = StaffRegisterForm(request.POST)
+        if not form.is_valid():
+            return render(request, self.template_name, {'form': form})
+        d = form.cleaned_data
+        user = StaffAccount.objects.create_user(
+            username=d['username'], password=d['password1'], facility=form.facility,
+            role=StaffAccount.ROLE_STAFF, display_name=d['display_name'], is_active=False, signup_pending=True,
+        )
+        return render(request, self.template_name, {'done': True, 'new_user': user, 'facility': form.facility})
+
+
+class SignupCodeView(AdminOnlyMixin, View):
+    """職員登録コードを発行し直す／止める（管理者）"""
+
+    def post(self, request):
+        facility = request.user.facility
+        if request.POST.get('action') == 'off':
+            facility.staff_signup_code = ''
+            messages.success(request, 'ログイン画面からの職員登録を止めました（職員登録コードを無効にしました）。')
+        else:
+            facility.staff_signup_code = new_signup_code()
+            messages.success(request, f'職員登録コードを発行しました：{facility.staff_signup_code}（前のコードは使えなくなりました）。')
+        facility.save(update_fields=['staff_signup_code'])
+        return redirect(f"{reverse('accounts:staff')}#signup")
+
+
+class StaffApproveView(AdminOnlyMixin, View):
+    """ログイン画面から登録した人を承認する（権限区分を決めて有効にする）／断る（アカウントを消す）"""
+
+    def post(self, request, pk):
+        u = get_object_or_404(StaffAccount, pk=pk, facility=request.user.facility, signup_pending=True)
+        name = u.display_name or u.username
+        if request.POST.get('action') == 'reject':
+            u.delete()
+            messages.success(request, f'{name} さんの登録を断りました（アカウントを消しました）。')
+            return redirect(f"{reverse('accounts:staff')}#signup")
+        role = request.POST.get('role')
+        if role not in dict(StaffAccount.ROLE_CHOICES):
+            role = StaffAccount.ROLE_STAFF
+        u.role, u.is_active, u.signup_pending = role, True, False
+        u.save(update_fields=['role', 'is_active', 'signup_pending'])
+        messages.success(request, f'{name} さんを{u.get_role_display()}として承認しました。ログインID「{u.username}」でログインできます。')
+        return redirect('accounts:staff')

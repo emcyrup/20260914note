@@ -12,7 +12,7 @@ from django.db import models as db_models
 from django.conf import settings
 import anthropic
 
-from .models import Beneficiary, BeneficiaryOffice, Guardian, RecipientCertificate
+from .models import Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guardian, RecipientCertificate
 from .forms import BeneficiaryForm, BeneficiaryOfficeForm, GuardianForm, RecipientCertificateForm
 from facilities.context_processors import get_terms
 from config.concurrency import check_conflict
@@ -75,6 +75,8 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
         ctx['guardians'] = b.guardians.all()
         ctx['certificates'] = b.recipient_certificates.all()
         ctx['offices'] = b.offices.all()
+        ctx['assessments'] = b.assessments.select_related('created_by')
+        ctx['assessment_kinds'] = BeneficiaryAssessment.KIND_CHOICES
         ctx['office_form'] = BeneficiaryOfficeForm()
         ctx['guardian_form'] = GuardianForm()
         ctx['certificate_form'] = RecipientCertificateForm()
@@ -398,3 +400,82 @@ class RegenerateLineCodeView(LoginRequiredMixin, View):
         messages.success(request, f'{guardian}のLINE登録コードを再発行しました（72時間有効）。')
         return redirect('beneficiaries:detail', pk=guardian.beneficiary_id)
 
+
+
+# =============================================
+# アセスメント・資料（台帳に付ける記録と書類）
+# =============================================
+ASSESSMENT_EXTS = ('pdf', 'jpg', 'jpeg', 'png', 'webp', 'heic', 'gif')
+ASSESSMENT_MAX_SIZE = 20 * 1024 * 1024
+
+
+def _assessment_fields(request):
+    """フォームの値を読む。(値の dict, エラーの文 or None)"""
+    p = request.POST
+    try:
+        date = datetime.date.fromisoformat(p.get('date') or '')
+    except ValueError:
+        return None, '日付を入れてください。'
+    title = (p.get('title') or '').strip()[:100]
+    kinds = dict(BeneficiaryAssessment.KIND_CHOICES)
+    kind = p.get('kind') if p.get('kind') in kinds else BeneficiaryAssessment.KIND_ASSESSMENT
+    fields = {'date': date, 'kind': kind, 'title': title or kinds[kind], 'content': (p.get('content') or '').strip()[:20000]}
+    f = request.FILES.get('file')
+    if f:
+        ext = f.name.rsplit('.', 1)[-1].lower() if '.' in f.name else ''
+        if ext not in ASSESSMENT_EXTS:
+            return None, '書類は PDF か写真（JPEG・PNG など）にしてください。'
+        if f.size > ASSESSMENT_MAX_SIZE:
+            return None, '書類が大きすぎます（20MB まで）。'
+        fields['file'] = f
+        fields['file_name'] = f.name[:200]
+    return fields, None
+
+
+class AssessmentCreateView(LoginRequiredMixin, View):
+    """利用者詳細画面からアセスメント・資料を追加する"""
+
+    def post(self, request, beneficiary_pk):
+        beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        fields, error = _assessment_fields(request)
+        if error is None and not fields['content'] and 'file' not in fields:
+            error = '内容を書くか、書類を付けてください。'
+        if error:
+            messages.error(request, error)
+        else:
+            BeneficiaryAssessment.objects.create(beneficiary=beneficiary, created_by=request.user, **fields)
+            messages.success(request, f'「{fields["title"]}」を登録しました。')
+        return redirect(f"{reverse('beneficiaries:detail', args=[beneficiary_pk])}#assessments")
+
+
+class AssessmentUpdateView(LoginRequiredMixin, View):
+    """アセスメント・資料を直す（書類を付け替える・外すこともできる）"""
+
+    def post(self, request, beneficiary_pk, assessment_pk):
+        beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        a = get_object_or_404(beneficiary.assessments, pk=assessment_pk)
+        fields, error = _assessment_fields(request)
+        if error:
+            messages.error(request, error)
+            return redirect(f"{reverse('beneficiaries:detail', args=[beneficiary_pk])}#assessments")
+        old_file = a.file.name if a.file else ''
+        if request.POST.get('remove_file') and 'file' not in fields:
+            fields['file'], fields['file_name'] = '', ''
+        for k, v in fields.items():
+            setattr(a, k, v)
+        a.save()
+        if old_file and old_file != (a.file.name if a.file else ''):
+            a.file.storage.delete(old_file)
+        messages.success(request, f'「{a.title}」を保存しました。')
+        return redirect(f"{reverse('beneficiaries:detail', args=[beneficiary_pk])}#assessments")
+
+
+class AssessmentDeleteView(LoginRequiredMixin, View):
+    def post(self, request, beneficiary_pk, assessment_pk):
+        beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        a = get_object_or_404(beneficiary.assessments, pk=assessment_pk)
+        if a.file:
+            a.file.delete(save=False)
+        a.delete()
+        messages.success(request, f'「{a.title}」を削除しました。')
+        return redirect(f"{reverse('beneficiaries:detail', args=[beneficiary_pk])}#assessments")
