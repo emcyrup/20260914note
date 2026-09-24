@@ -69,20 +69,58 @@ class JoinForm(_PasswordPairMixin, forms.Form):
 
 
 class StaffRegisterForm(JoinForm):
-    """ログイン画面から、事業所の職員登録コードで自分のアカウントを申し込む（管理者の承認待ちになる）"""
-    code = forms.CharField(label='職員登録コード', max_length=20,
+    """
+    ログイン画面から自分のアカウントを申し込む（管理者の承認待ちになる）。
+    事業所の職員登録コードで申し込むか、「コードなしで受け付ける」事業所ならコード無しで申し込める
+    （その事業所が2つ以上あるときは、どこに申し込むかを選ぶ）。
+    """
+    code = forms.CharField(label='職員登録コード', max_length=20, required=False,
                            widget=forms.TextInput(attrs={'class': 'form-control form-control-lg', 'autocomplete': 'off',
                                                          'autocapitalize': 'characters', 'placeholder': '管理者から聞いた8文字'}))
-    field_order = ['code', 'display_name', 'username', 'password1', 'password2']
+    facility_id = forms.ChoiceField(label='登録する事業所', required=False,
+                                    widget=forms.Select(attrs={'class': 'form-select form-select-lg'}))
+    field_order = ['code', 'facility_id', 'display_name', 'username', 'password1', 'password2']
+
+    def __init__(self, *args, **kwargs):
+        from facilities.models import Facility
+        super().__init__(*args, **kwargs)
+        self.open_facilities = list(Facility.objects.filter(staff_signup_open=True).order_by('pk'))
+        self.facility = None
+        if len(self.open_facilities) > 1:
+            self.fields['facility_id'].choices = [('', '— 選んでください —')] + [(f.pk, f.name) for f in self.open_facilities]
+        else:
+            del self.fields['facility_id']
+        if self.open_facilities:
+            self.fields['code'].label = '職員登録コード（任意）'
+            self.fields['code'].widget.attrs['placeholder'] = '管理者から聞いていれば入れる'
+        else:
+            self.fields['code'].required = True
+            self.fields['code'].error_messages['required'] = '職員登録コードを入れてください。'
 
     def clean_code(self):
         from facilities.models import Facility
-        code = ''.join(self.cleaned_data['code'].split()).upper()
+        code = ''.join((self.cleaned_data.get('code') or '').split()).upper()
+        if not code:
+            return ''
         facility = Facility.objects.filter(staff_signup_code=code).first() if len(code) >= 6 else None
         if facility is None:
             raise forms.ValidationError('職員登録コードが違います。管理者に確かめてください。')
         self.facility = facility
         return code
+
+    def clean(self):
+        cleaned = super().clean()
+        if self.facility is None and not self.errors.get('code'):
+            if 'facility_id' in self.fields:
+                chosen = cleaned.get('facility_id')
+                self.facility = next((f for f in self.open_facilities if str(f.pk) == str(chosen)), None)
+                if self.facility is None:
+                    self.add_error('facility_id', '登録する事業所を選んでください。')
+            elif len(self.open_facilities) == 1:
+                self.facility = self.open_facilities[0]
+            else:
+                self.add_error('code', '職員登録コードを入れてください。')
+        return cleaned
 
 
 class InvitationForm(forms.ModelForm):

@@ -35,6 +35,7 @@ class StaffLoginView(LoginView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['signup_enabled'] = settings.ALLOW_FACILITY_SIGNUP
+        ctx['signup_open'] = Facility.objects.filter(staff_signup_open=True).exists()
         return ctx
 
     def form_invalid(self, form):
@@ -356,7 +357,8 @@ class StaffRegisterView(View):
 
     def get(self, request):
         from .forms import StaffRegisterForm
-        return render(request, self.template_name, {'form': StaffRegisterForm()})
+        form = StaffRegisterForm()
+        return render(request, self.template_name, {'form': form, 'open_any': bool(form.open_facilities)})
 
     def post(self, request):
         from .forms import StaffRegisterForm
@@ -367,7 +369,7 @@ class StaffRegisterView(View):
         cache.set(key, tries + 1, 3600)
         form = StaffRegisterForm(request.POST)
         if not form.is_valid():
-            return render(request, self.template_name, {'form': form})
+            return render(request, self.template_name, {'form': form, 'open_any': bool(form.open_facilities)})
         d = form.cleaned_data
         user = StaffAccount.objects.create_user(
             username=d['username'], password=d['password1'], facility=form.facility,
@@ -377,17 +379,28 @@ class StaffRegisterView(View):
 
 
 class SignupCodeView(AdminOnlyMixin, View):
-    """職員登録コードを発行し直す／止める（管理者）"""
+    """ログイン画面からの職員登録の受け付け方（管理者）：コードを発行し直す／コードなしで受け付ける／止める"""
 
     def post(self, request):
         facility = request.user.facility
-        if request.POST.get('action') == 'off':
+        action = request.POST.get('action')
+        if action == 'off':
             facility.staff_signup_code = ''
-            messages.success(request, 'ログイン画面からの職員登録を止めました（職員登録コードを無効にしました）。')
+            facility.staff_signup_open = False
+            messages.success(request, 'ログイン画面からの職員登録を止めました。')
+        elif action == 'open':
+            facility.staff_signup_open = True
+            messages.success(request, 'ログイン画面からの職員登録を、職員登録コードなしで受け付けるようにしました。'
+                                      '申し込んだ人は、この画面で承認するまでログインできません。')
+        elif action == 'require_code':
+            facility.staff_signup_open = False
+            if not facility.staff_signup_code:
+                facility.staff_signup_code = new_signup_code()
+            messages.success(request, f'職員登録コードが要るようにしました：{facility.staff_signup_code}')
         else:
             facility.staff_signup_code = new_signup_code()
             messages.success(request, f'職員登録コードを発行しました：{facility.staff_signup_code}（前のコードは使えなくなりました）。')
-        facility.save(update_fields=['staff_signup_code'])
+        facility.save(update_fields=['staff_signup_code', 'staff_signup_open'])
         return redirect(f"{reverse('accounts:staff')}#signup")
 
 

@@ -521,3 +521,76 @@ class StaffRegisterTests(TestCase):
     def test_logged_in_user_is_sent_home(self):
         self.client.login(username='boss', password='pw12345678')
         self.assertEqual(self.client.get(self.url).status_code, 302)
+
+
+class StaffRegisterOpenTests(TestCase):
+    """職員登録コードなしで申し込みを受け付ける（管理者の承認はそのまま）"""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', staff_signup_open=True)
+        self.admin = StaffAccount.objects.create_user('boss', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.url = reverse('accounts:register')
+        self.data = {'code': '', 'display_name': '山田 花子', 'username': 'hanako',
+                     'password1': 'Kodomo-2026-yu', 'password2': 'Kodomo-2026-yu'}
+
+    def test_register_without_code_waits_for_approval(self):
+        res = self.client.get(self.url)
+        self.assertContains(res, '職員登録コード（任意）')
+        self.assertNotContains(res, 'name="facility_id"')          # 1事業所なら選ばせない
+        self.assertContains(self.client.get(reverse('accounts:login')), '名前・ログインID・パスワードを決めて申し込みます')
+        res = self.client.post(self.url, self.data)
+        self.assertContains(res, '登録を受け付けました')
+        u = StaffAccount.objects.get(username='hanako')
+        self.assertEqual((u.facility, u.is_active, u.signup_pending), (self.f, False, True))
+        self.client.login(username='boss', password='pw12345678')
+        self.client.post(reverse('accounts:staff_approve', args=[u.pk]), {'role': StaffAccount.ROLE_STAFF})
+        u.refresh_from_db()
+        self.assertTrue(u.is_active)
+
+    def test_code_still_works_and_wrong_code_is_refused(self):
+        other = Facility.objects.create(name='コードの事業所', staff_signup_code='ABCD2345')
+        self.client.post(self.url, {**self.data, 'code': 'abcd 2345'})
+        self.assertEqual(StaffAccount.objects.get(username='hanako').facility, other)
+        res = self.client.post(self.url, {**self.data, 'username': 'taro', 'code': 'ZZZZ9999'})
+        self.assertContains(res, '職員登録コードが違います')
+        self.assertFalse(StaffAccount.objects.filter(username='taro').exists())
+
+    def test_two_open_facilities_need_a_choice(self):
+        g = Facility.objects.create(name='ふたつめ', staff_signup_open=True)
+        res = self.client.get(self.url)
+        self.assertContains(res, 'name="facility_id"')
+        self.assertContains(res, 'ふたつめ')
+        res = self.client.post(self.url, self.data)
+        self.assertContains(res, '登録する事業所を選んでください')
+        self.client.post(self.url, {**self.data, 'facility_id': g.pk})
+        self.assertEqual(StaffAccount.objects.get(username='hanako').facility, g)
+
+    def test_closed_again_requires_code(self):
+        self.f.staff_signup_open = False
+        self.f.save()
+        res = self.client.post(self.url, self.data)
+        self.assertContains(res, '職員登録コードを入れてください')
+        self.assertFalse(StaffAccount.objects.filter(username='hanako').exists())
+
+    def test_admin_switches_modes(self):
+        self.client.login(username='boss', password='pw12345678')
+        self.assertContains(self.client.get(reverse('accounts:staff')), 'コードなし')
+        self.client.post(reverse('accounts:signup_code'), {'action': 'require_code'})
+        self.f.refresh_from_db()
+        self.assertFalse(self.f.staff_signup_open)
+        self.assertEqual(len(self.f.staff_signup_code), 8)
+        self.client.post(reverse('accounts:signup_code'), {'action': 'open'})
+        self.f.refresh_from_db()
+        self.assertTrue(self.f.staff_signup_open)
+        self.client.post(reverse('accounts:signup_code'), {'action': 'off'})
+        self.f.refresh_from_db()
+        self.assertFalse(self.f.staff_signup_open)
+        self.assertEqual(self.f.staff_signup_code, '')
+        self.client.logout()
+        StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.login(username='st', password='pw12345678')
+        self.client.post(reverse('accounts:signup_code'), {'action': 'open'})
+        self.f.refresh_from_db()
+        self.assertFalse(self.f.staff_signup_open)                     # 職員は切り替えられない

@@ -8,7 +8,7 @@
       <div class="text-center mb-4">
         <div class="mb-2" style="color: var(--lake); font-size: 2.5rem;"><i class="bi bi-person-plus-fill"></i></div>
         <h1 class="h4 fw-bold" style="font-family: var(--font-display); color: var(--ink);">職員の新規登録</h1>
-        {% if not done %}<p class="text-muted small mb-0">管理者から聞いた「職員登録コード」で申し込みます。管理者が承認するとログインできます。</p>{% endif %}
+        {% if not done %}<p class="text-muted small mb-0">{% if open_any %}名前・ログインID・パスワードを決めて申し込みます。管理者が承認するとログインできます。{% else %}管理者から聞いた「職員登録コード」で申し込みます。管理者が承認するとログインできます。{% endif %}</p>{% endif %}
       </div>
 
       {% if done %}
