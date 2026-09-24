@@ -160,6 +160,7 @@
           <span>{{ terms.beneficiary }}台帳</span>
         </a>
       </li>
+      {% if features.schedule %}
       <li>
         <a class="sidebar-nav-item {% block nav_schedules %}{% endblock %}"
            href="{% url 'schedules:calendar' %}">
@@ -167,6 +168,7 @@
           <span>予定</span>
         </a>
       </li>
+      {% endif %}
       {% if features.reservation %}
       <li>
         <a class="sidebar-nav-item {% block nav_reservations %}{% endblock %}"

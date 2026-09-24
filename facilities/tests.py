@@ -216,7 +216,46 @@ class FeatureToggleTests(TestCase):
 
     def test_new_facility_defaults_on(self):
         f = Facility.objects.create(name='新しい施設')
-        self.assertTrue(f.use_billing and f.use_line)
+        self.assertTrue(f.use_billing and f.use_line and f.use_schedule)
+
+    def test_schedule_can_be_turned_off(self):
+        """予定（来所予定・出欠）を使わない事業所：メニュー・ホーム・画面から消え、直接開いてもホームへ戻す"""
+        import datetime
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertContains(res, '今週の来所状況')
+        self.assertContains(res, reverse('schedules:calendar'))
+        self.client.post(reverse('facilities:feature_settings'), {'use_billing': 'on', 'journal_sections': ['activity']})
+        self.facility.refresh_from_db()
+        self.assertFalse(self.facility.use_schedule)
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertNotContains(res, '今週の来所状況')
+        self.assertNotContains(res, '今日の来所予定')
+        self.assertNotContains(res, reverse('schedules:calendar'))
+        self.assertNotContains(res, '<span>予定</span>')
+        today = datetime.date.today()
+        for url in (reverse('schedules:calendar'), reverse('schedules:daily', args=[today.year, today.month, today.day])):
+            self.assertRedirects(self.client.get(url), reverse('facilities:dashboard'))
+        self.assertRedirects(self.client.post(reverse('schedules:daily_save', args=[today.year, today.month, today.day])),
+                             reverse('facilities:dashboard'))
+        # 戻せる
+        self.client.post(reverse('facilities:feature_settings'), {'use_schedule': 'on', 'journal_sections': ['activity']})
+        self.facility.refresh_from_db()
+        self.assertTrue(self.facility.use_schedule)
+        self.assertEqual(self.client.get(reverse('schedules:calendar')).status_code, 200)
+
+    def test_ryoiku_migration_turns_off_billing_and_schedule(self):
+        from importlib import import_module
+        from django.apps import apps
+        mig = import_module('facilities.migrations.0016_use_schedule')
+        yours = Facility.objects.create(name='発達支援ルーム　ゆあーず')
+        other = Facility.objects.create(name='ほかの事業所')
+        mig.turn_off_for_ryoiku(apps, None)
+        yours.refresh_from_db(); other.refresh_from_db()
+        self.assertFalse(yours.use_billing or yours.use_schedule)
+        self.assertTrue(other.use_billing and other.use_schedule)
+        mig.turn_back_on(apps, None)
+        yours.refresh_from_db()
+        self.assertTrue(yours.use_billing and yours.use_schedule)
 
 
 class SeedDemoCreateFacilityTests(TestCase):

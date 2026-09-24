@@ -80,6 +80,8 @@ class Facility(models.Model):
     line_channel_secret = models.CharField(max_length=100, blank=True, verbose_name='LINEチャネルシークレット')
     # 使う機能（事業所によっては請求・LINE を使わない）
     use_billing = models.BooleanField(default=True, verbose_name='請求機能を使う')
+    use_schedule = models.BooleanField(default=True, verbose_name='予定（来所予定・出欠）を使う',
+                                       help_text='月のカレンダーに来所予定を入れて出欠を付ける画面。予約管理で枠を扱う事業所は使わなくてよい。')
     use_line = models.BooleanField(default=True, verbose_name='LINE連携を使う')
     use_reservation = models.BooleanField(default=False, verbose_name='予約管理を使う',
                                           help_text='1日の枠・キャンセル待ち・公式LINEからの申し込みを扱います。')

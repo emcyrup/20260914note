@@ -169,6 +169,10 @@
             <label class="form-check-label" for="use_billing">請求機能（請求マトリックス・上限額管理・請求書・AI加算提案）</label>
           </div>
           <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="use_schedule" id="use_schedule" {% if facility.use_schedule %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="use_schedule">予定（月のカレンダーに来所予定を入れて出欠を付ける。予約管理で枠を扱う事業所は不要）</label>
+          </div>
+          <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_line" id="use_line" {% if facility.use_line %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_line">LINE連携（保護者へのLINE送信・配信履歴）</label>
           </div>

@@ -11,7 +11,7 @@
   <a class="topbar-nav-item" href="{% url 'facilities:dashboard' %}"><i class="bi bi-house"></i>ホーム</a>
   <a class="topbar-nav-item" href="{% url 'beneficiaries:list' %}"><i class="bi bi-people"></i>{{ terms.beneficiary }}台帳</a>
   <a class="topbar-nav-item active" href="{% url 'records:dashboard' %}"><i class="bi bi-journal-text"></i>記録</a>
-  <a class="topbar-nav-item" href="{% url 'schedules:calendar' %}"><i class="bi bi-calendar3"></i>予定</a>
+  {% if features.schedule %}<a class="topbar-nav-item" href="{% url 'schedules:calendar' %}"><i class="bi bi-calendar3"></i>予定</a>{% endif %}
   <div class="topbar-nav-divider"></div>
   {% if features.billing %}<a class="topbar-nav-item" href="{% url 'billing:matrix' %}"><i class="bi bi-grid-3x3"></i>請求</a>{% endif %}
   {% if features.line %}<a class="topbar-nav-item" href="{% url 'line_integration:delivery_log' %}"><i class="bi bi-chat-dots"></i>LINE</a>{% endif %}

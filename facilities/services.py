@@ -5,7 +5,7 @@ from .models import Facility, SupportContentTag
 
 COPY_FIELDS = [
     'region_category', 'standard_close_time', 'base_unit_count', 'is_new_facility_r8',
-    'term_staff', 'term_beneficiary', 'brand_color', 'use_billing', 'use_line', 'use_reservation', 'use_therapy_record',
+    'term_staff', 'term_beneficiary', 'brand_color', 'use_billing', 'use_schedule', 'use_line', 'use_reservation', 'use_therapy_record',
     'journal_sections', 'layout',
 ]
 

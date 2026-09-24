@@ -20,7 +20,18 @@ from facilities.context_processors import get_terms
 from config.utils import month_or_404
 
 
-class CalendarView(LoginRequiredMixin, View):
+class ScheduleEnabledMixin(LoginRequiredMixin):
+    """施設設定で「予定」を使わない場合はホームへ戻す"""
+
+    def dispatch(self, request, *args, **kwargs):
+        facility = getattr(request.user, 'facility', None)
+        if request.user.is_authenticated and facility is not None and not facility.use_schedule:
+            messages.info(request, '予定の画面はこの事業所では使わない設定です（施設設定 → 使う機能 で変更できます）。')
+            return redirect('facilities:dashboard')
+        return super().dispatch(request, *args, **kwargs)
+
+
+class CalendarView(ScheduleEnabledMixin, View):
     """
     月表示カレンダー画面。
     各日付に当日の利用予定人数を表示し、クリックで日別入力画面へ遷移する。
@@ -109,7 +120,7 @@ class CalendarView(LoginRequiredMixin, View):
         })
 
 
-class DailyView(LoginRequiredMixin, View):
+class DailyView(ScheduleEnabledMixin, View):
     """
     日別出欠入力画面。
     その日の在籍中の利用者全員の出欠状態・送迎を一覧表示・編集できる。
@@ -158,7 +169,7 @@ class DailyView(LoginRequiredMixin, View):
         })
 
 
-class DailySaveView(LoginRequiredMixin, View):
+class DailySaveView(ScheduleEnabledMixin, View):
     """
     日別出欠状態の一括保存。
     フォームから送信された全利用者の状態・送迎情報を保存する。
@@ -215,7 +226,7 @@ class DailySaveView(LoginRequiredMixin, View):
         return redirect('schedules:daily', year=year, month=month, day=day)
 
 
-class BulkCreateView(LoginRequiredMixin, View):
+class BulkCreateView(ScheduleEnabledMixin, View):
     """
     指定した月の予定をまとめて作成する。
     在籍中の利用者の登録曜日をもとに1ヶ月分の予定を「予定」状態で作成する。

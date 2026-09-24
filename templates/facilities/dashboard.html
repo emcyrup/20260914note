@@ -71,6 +71,7 @@
     {% endif %}
   </div>
 
+  {% if features.schedule %}
   <!-- ===== 週間の来所状況 ===== -->
   <div class="mb-4">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -144,6 +145,7 @@
       </div>
     </div>
   </div>
+  {% endif %}
 
   <!-- ===== クイックアクセス + ログイン情報 ===== -->
   <div class="row g-3">
@@ -157,10 +159,12 @@
           <div class="d-grid gap-2">
             <a href="{% url 'records:dashboard' %}" class="btn btn-outline-primary">日誌を入力する</a>
             <a href="{% url 'beneficiaries:list' %}" class="btn btn-outline-primary">{{ terms.beneficiary }}を確認する</a>
-            <a href="{% url 'schedules:calendar' %}" class="btn btn-outline-primary">今月の予定を確認する</a>
+            {% if features.schedule %}<a href="{% url 'schedules:calendar' %}" class="btn btn-outline-primary">今月の予定を確認する</a>{% endif %}
+            {% if features.reservation %}<a href="{% url 'reservations:calendar' %}" class="btn btn-outline-primary">予約カレンダーを開く</a>{% endif %}
+            {% if features.therapy %}<a href="{% url 'therapy:index' %}" class="btn btn-outline-primary">療育記録を書く</a>{% endif %}
             {% if features.billing %}<a href="{% url 'billing:matrix' %}" class="btn btn-outline-primary">請求マトリックスを開く</a>{% endif %}
             <a href="{% url 'records:paper_list' %}" class="btn btn-outline-primary">紙の日誌を取り込む</a>
-            <a href="{% url 'schedules:daily' today.year today.month today.day %}" class="btn btn-outline-primary">今日の出欠をまとめて入力</a>
+            {% if features.schedule %}<a href="{% url 'schedules:daily' today.year today.month today.day %}" class="btn btn-outline-primary">今日の出欠をまとめて入力</a>{% endif %}
           </div>
         </div>
       </div>

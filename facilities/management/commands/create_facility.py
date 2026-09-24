@@ -27,9 +27,11 @@ def apply_ryoiku_preset(facility):
     from reservations.services import get_setting
     facility.use_reservation = True
     facility.use_therapy_record = True
+    facility.use_billing = False       # 請求と来所予定（出欠）は使わない（予約管理で枠を扱う）
+    facility.use_schedule = False
     if not facility.brand_color:
         facility.brand_color = '#c2703a'   # 療育の画面は暖色系
-    facility.save(update_fields=['use_reservation', 'use_therapy_record', 'brand_color', 'updated_at'])
+    facility.save(update_fields=['use_reservation', 'use_therapy_record', 'use_billing', 'use_schedule', 'brand_color', 'updated_at'])
     setting = get_setting(facility)
     setting.slot_mode = True
     setting.slot_capacity = 3

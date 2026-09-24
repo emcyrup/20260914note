@@ -37,13 +37,13 @@ def branding(request):
     facility = getattr(user, 'facility', None) if user is not None and user.is_authenticated else None
     if facility is None:
         return {'terms': dict(DEFAULT_TERMS), 'branding': {'logo': None, 'color': ''},
-                'features': {'billing': True, 'line': True, 'reservation': False, 'form_set': 'standard', 'planbook': False,
-                             'therapy': False}, 'journal_sections': [],
+                'features': {'billing': True, 'schedule': True, 'line': True, 'reservation': False, 'form_set': 'standard',
+                             'planbook': False, 'therapy': False}, 'journal_sections': [],
                 **standalone_context(), **developer_context(user)}
     return {
         'terms': get_terms(user),
         'branding': {'logo': facility.logo if facility.logo else None, 'color': facility.brand_color or ''},
-        'features': {'billing': facility.use_billing, 'line': facility.use_line,
+        'features': {'billing': facility.use_billing, 'schedule': facility.use_schedule, 'line': facility.use_line,
                      'reservation': facility.use_reservation, 'form_set': facility.form_set,
                      'planbook': facility.is_planbook, 'therapy': facility.use_therapy_record},
         'planbook_unread': _planbook_unread(facility) if facility.is_planbook else 0,
