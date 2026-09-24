@@ -185,6 +185,9 @@
             <label class="form-check-label" for="use_therapy_record">療育記録（留意点・やったこと①〜⑤・担当・本文。用紙と同じ形で印刷）</label>
           </div>
           <div class="form-text">使わない機能はメニューやボタンから消えます。記録は消えないので、あとから戻せます。</div>
+          {% if trial_ai.limit and not is_developer %}
+          <div class="alert alert-info small py-1 px-2 mt-2 mb-0">「お試し」の機能の AI は <b>{{ trial_ai.limit }} 回</b>まで使えます（使った回数 {{ trial_ai.used }}・あと {{ trial_ai.remaining }} 回）。</div>
+          {% endif %}
           {% if is_developer %}
           <div class="small fw-semibold mt-3 mb-1">帳票様式 <span class="badge text-bg-secondary fw-normal">開発向け</span></div>
           <select name="form_set" class="form-select form-select-sm">
@@ -195,7 +198,14 @@
           <select name="layout" class="form-select form-select-sm">
             {% for v, l in facility.LAYOUT_CHOICES %}<option value="{{ v }}" {% if facility.layout == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
           </select>
-          <div class="form-text">「計画書中心（シンプル）」にすると、メニューが利用者・完了期日一覧・スタッフ・保護者・連絡帳・施設の6つになり、ホームが利用者一覧になります。標準の画面（記録・予定・請求など）は URL から引き続き使えます。</div>
+          <div class="form-text">「計画書中心（シンプル）」にすると、メニューが利用者・完了期日一覧・スタッフ・保護者・連絡帳・施設の6つになり、ホームが利用者一覧になります。「療育（ゆあーず）」にすると、メニューが「基本機能」「お試し」「設定」の3つの見出しに分かれます。標準の画面（記録・予定・請求など）は URL から引き続き使えます。</div>
+          <div class="small fw-semibold mt-3 mb-1">お試しの AI の回数 <span class="badge text-bg-secondary fw-normal">開発向け</span></div>
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <input type="number" name="trial_ai_limit" class="form-control form-control-sm" style="width:6em;" min="0" max="9999" value="{{ facility.trial_ai_limit }}">
+            <span class="small">回まで（0＝制限なし）　使った回数：<b>{{ facility.trial_ai_used }}</b>{% if trial_ai.limit %}　あと <b>{{ trial_ai.remaining }}</b> 回{% endif %}</span>
+            <label class="form-check-label small"><input type="checkbox" class="form-check-input me-1" name="trial_ai_reset" value="1">使った回数を 0 に戻す</label>
+          </div>
+          <div class="form-text">「お試し」の機能（記録の AI：文章を整える・一括生成・活動の提案・紙の日誌の読み取り、支援計画の AI：アセスメント・原案の下書き）に効きます。上限に達すると、これらの AI ボタンは「回数を使い切りました」と返します。療育記録・議事録・予約の AI は数えません。</div>
           {% elif facility.form_set != 'standard' %}
           <div class="small fw-semibold mt-3 mb-1">帳票様式</div>
           <div class="small">この事業所専用の様式を使っています（サイドバー「事業所様式」）。変更はシステム担当にご相談ください。</div>

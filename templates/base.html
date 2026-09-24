@@ -32,6 +32,10 @@
     body, body.theme-stylish, body.mode-dark { --paper: {{ user.prefs.bg }}; background: {{ user.prefs.bg }}; }
     body::before { display: none; }
     {% endif %}
+    {% if user.prefs.fg %}
+    body, body.theme-stylish, body.mode-dark { --ink: {{ user.prefs.fg }}; --ink-soft: color-mix(in srgb, {{ user.prefs.fg }} 72%, transparent); color: {{ user.prefs.fg }}; }
+    body .form-control, body .form-select, body .card, body .table, body .modal-content { color: {{ user.prefs.fg }}; }
+    {% endif %}
   </style>
   {% if user.prefs.mode == 'auto' %}
   <script>if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.classList.add('prefers-dark');</script>
@@ -145,6 +149,73 @@
           <i class="bi bi-gear"></i><span>施設設定</span>
         </a>
       </li>
+      {% elif features.ryoiku %}
+      {% with rm=request.resolver_match %}
+      <!-- 療育の事業所（ゆあーず）：基本機能／お試し／設定 -->
+      <li class="sidebar-nav-label">基本機能</li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'facilities' and rm.url_name == 'dashboard' %}active{% endif %}" href="{% url 'facilities:dashboard' %}">
+          <i class="bi bi-house"></i><span>ホーム</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'beneficiaries' %}active{% endif %}" href="{% url 'beneficiaries:list' %}">
+          <i class="bi bi-people"></i><span>利用者情報</span>
+        </a>
+      </li>
+      {% if features.reservation %}
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'reservations' %}active{% endif %}" href="{% url 'reservations:calendar' %}">
+          <i class="bi bi-calendar-check"></i><span>予約</span>
+        </a>
+      </li>
+      {% endif %}
+      {% if features.therapy %}
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'therapy' %}active{% endif %}" href="{% url 'therapy:index' %}">
+          <i class="bi bi-clipboard2-heart"></i><span>療育記録</span>
+        </a>
+      </li>
+      {% endif %}
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'minutes' %}active{% endif %}" href="{% url 'minutes:index' %}" target="_blank" rel="noopener" title="別のタブで開きます">
+          <i class="bi bi-mic"></i><span>議事録 <i class="bi bi-box-arrow-up-right" style="font-size:0.7em;opacity:0.7;"></i></span>
+        </a>
+      </li>
+      {% if features.line %}
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'line_integration' %}active{% endif %}" href="{% url 'line_integration:delivery_log' %}">
+          <i class="bi bi-chat-dots"></i><span>LINE連携</span>
+        </a>
+      </li>
+      {% endif %}
+
+      <li class="sidebar-nav-label">お試し{% if trial_ai.limit %}<span class="fw-normal">（AI あと {{ trial_ai.remaining }} 回）</span>{% endif %}</li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'records' %}active{% endif %}" href="{% url 'records:dashboard' %}">
+          <i class="bi bi-journal-text"></i><span>記録</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'support_plans' %}active{% endif %}" href="{% url 'support_plans:list' %}">
+          <i class="bi bi-diagram-3"></i><span>支援計画</span>
+        </a>
+      </li>
+
+      <li class="sidebar-nav-label nav-secondary">設定</li>
+      {% if user.is_admin or user.is_superuser %}
+      <li class="nav-secondary">
+        <a class="sidebar-nav-item {% if rm.app_name == 'accounts' and rm.url_name == 'staff' %}active{% endif %}" href="{% url 'accounts:staff' %}">
+          <i class="bi bi-person-badge"></i><span>運用管理</span>
+        </a>
+      </li>
+      {% endif %}
+      <li class="nav-secondary">
+        <a class="sidebar-nav-item {% if rm.app_name == 'facilities' and rm.url_name == 'settings' %}active{% endif %}" href="{% url 'facilities:settings' %}">
+          <i class="bi bi-gear"></i><span>施設設定</span>
+        </a>
+      </li>
+      {% endwith %}
       {% else %}
       <li>
         <a class="sidebar-nav-item {% block nav_home %}{% endblock %}"

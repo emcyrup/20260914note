@@ -436,6 +436,10 @@ class AssessmentDraftView(PlanMixin, View):
             return JsonResponse({'error': 'アセスメントは完了済みです。'}, status=400)
         if not settings.ANTHROPIC_API_KEY:
             return JsonResponse({'error': 'ANTHROPIC_API_KEY が設定されていません。'}, status=500)
+        from ai_assist import trial
+        over = trial.check(request.user.facility)
+        if over:
+            return JsonResponse({'error': over}, status=403)
         try:
             months = max(1, min(24, int(request.POST.get('months', 6))))
         except ValueError:
@@ -448,6 +452,7 @@ class AssessmentDraftView(PlanMixin, View):
             return JsonResponse({'error': f'AIでの処理中にエラーが発生しました: {type(e).__name__}: {e}'}, status=500)
         if not data:
             return JsonResponse({'error': f'直近 {months} か月の日誌がありません。'}, status=404)
+        trial.use(request.user.facility)
         return JsonResponse({'draft': data, 'records': n, 'months': months})
 
 
@@ -466,6 +471,11 @@ class PlanDraftView(PlanMixin, View):
         if not settings.ANTHROPIC_API_KEY:
             messages.error(request, 'ANTHROPIC_API_KEY が設定されていないため AI は使えません。')
             return redirect('support_plans:step', pk=pk, n=2)
+        from ai_assist import trial
+        over = trial.check(request.user.facility)
+        if over:
+            messages.error(request, over)
+            return redirect('support_plans:step', pk=pk, n=2)
         start, end = _period_from_request(request)
         try:
             created, n = ai.plan_draft(plan, start, end)
@@ -474,6 +484,7 @@ class PlanDraftView(PlanMixin, View):
             logging.getLogger(__name__).exception('原案下書きでエラー')
             messages.error(request, f'AIでの処理中にエラーが発生しました: {type(e).__name__}: {e}')
             return redirect('support_plans:step', pk=pk, n=2)
+        trial.use(request.user.facility)
         if n == 0:
             messages.warning(request, f'{start} 〜 {end} の日誌がないため下書きを作れませんでした。期間を広げてください。')
         else:

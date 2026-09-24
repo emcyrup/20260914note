@@ -243,6 +243,65 @@ class FeatureToggleTests(TestCase):
         self.assertTrue(self.facility.use_schedule)
         self.assertEqual(self.client.get(reverse('schedules:calendar')).status_code, 200)
 
+    def test_ryoiku_layout_menu(self):
+        """療育（ゆあーず）の型：基本機能／お試し／設定の3つの見出し"""
+        f = self.facility
+        f.layout = Facility.LAYOUT_RYOIKU
+        f.use_reservation = f.use_therapy_record = True
+        f.use_billing = f.use_schedule = False
+        f.trial_ai_limit = 20
+        f.save()
+        res = self.client.get(reverse('facilities:dashboard'))
+        html = res.content.decode()
+        for text in ('基本機能', 'お試し', '（AI あと 20 回）', '利用者情報', '運用管理', '議事録', '療育記録', '支援計画'):
+            self.assertIn(text, html)
+        for text in ('利用者台帳', '職員・運用管理', '帳票出力', '<span>予定</span>', '請求マトリックス'):
+            self.assertNotIn(text, html)
+        self.assertLess(html.index('基本機能'), html.index('お試し'))
+        self.assertLess(html.index('お試し'), html.index('<span>記録</span>'))
+        # いま開いている画面に印が付く
+        res = self.client.get(reverse('therapy:index'))
+        self.assertRegex(res.content.decode(), r'sidebar-nav-item active" href="/therapy/"')
+        # 一般職員には運用管理が出ない
+        staff = StaffAccount.objects.create_user('staff2', password='pw12345678', facility=f)
+        self.client.force_login(staff)
+        self.assertNotContains(self.client.get(reverse('facilities:dashboard')), '運用管理')
+
+    def test_ryoiku_layout_migration(self):
+        from importlib import import_module
+        from django.apps import apps
+        mig = import_module('facilities.migrations.0017_ryoiku_layout_trial')
+        yours = Facility.objects.create(name='発達支援ルーム　ゆあーず')
+        other = Facility.objects.create(name='ほかの事業所')
+        mig.set_ryoiku(apps, None)
+        yours.refresh_from_db(); other.refresh_from_db()
+        self.assertEqual((yours.layout, yours.trial_ai_limit), ('ryoiku', 20))
+        self.assertEqual((other.layout, other.trial_ai_limit), ('standard', 0))
+        mig.unset_ryoiku(apps, None)
+        yours.refresh_from_db()
+        self.assertEqual((yours.layout, yours.trial_ai_limit), ('standard', 0))
+
+    def test_trial_ai_settings_developer_only(self):
+        f = self.facility
+        f.trial_ai_limit, f.trial_ai_used = 20, 5
+        f.save()
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, '20 回</b>まで使えます')
+        self.assertNotContains(res, 'name="trial_ai_limit"')
+        # 管理者が送っても変わらない
+        self.client.post(reverse('facilities:feature_settings'), {'journal_sections': ['activity'], 'trial_ai_limit': 0, 'trial_ai_reset': '1'})
+        f.refresh_from_db()
+        self.assertEqual((f.trial_ai_limit, f.trial_ai_used), (20, 5))
+        # 開発向けユーザーは変えられる・0 に戻せる
+        self.user.is_developer = True
+        self.user.save()
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, 'name="trial_ai_limit"')
+        self.client.post(reverse('facilities:feature_settings'), {'journal_sections': ['activity'], 'trial_ai_limit': 30, 'trial_ai_reset': '1',
+                                                                   'form_set': f.form_set, 'layout': f.layout})
+        f.refresh_from_db()
+        self.assertEqual((f.trial_ai_limit, f.trial_ai_used), (30, 0))
+
     def test_ryoiku_migration_turns_off_billing_and_schedule(self):
         from importlib import import_module
         from django.apps import apps

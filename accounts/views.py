@@ -72,6 +72,7 @@ class ThemeView(LoginRequiredMixin, View):
             'prefs': request.user.prefs,
             'font_choices': StaffAccount.FONT_CHOICES, 'mode_choices': StaffAccount.MODE_CHOICES,
             'scale_choices': StaffAccount.SCALE_CHOICES, 'bg_presets': StaffAccount.BG_PRESETS,
+            'fg_presets': StaffAccount.FG_PRESETS,
             'font_stacks_json': __import__('json').dumps(StaffAccount.FONT_STACKS),
         })
 
@@ -81,17 +82,19 @@ class ThemeView(LoginRequiredMixin, View):
         font = request.POST.get('font', 'biz')
         mode = request.POST.get('mode', 'light')
         bg = (request.POST.get('bg_custom') or request.POST.get('bg') or '').strip().lower()
+        fg = (request.POST.get('fg_custom') or request.POST.get('fg') or '').strip().lower()
         if request.POST.get('bg_reset'):
-            bg = ''
+            bg = fg = ''
         try:
             scale = int(request.POST.get('scale', 100))
         except ValueError:
             scale = 100
         if font not in StaffAccount.FONT_STACKS or mode not in dict(StaffAccount.MODE_CHOICES) \
-                or scale not in dict(StaffAccount.SCALE_CHOICES) or (bg and not re.fullmatch(r'#[0-9a-f]{6}', bg)):
+                or scale not in dict(StaffAccount.SCALE_CHOICES) or (bg and not re.fullmatch(r'#[0-9a-f]{6}', bg)) \
+                or (fg and not re.fullmatch(r'#[0-9a-f]{6}', fg)):
             messages.error(request, '設定の値が正しくありません。')
             return redirect('accounts:theme')
-        u.ui_prefs = {'font': font, 'mode': mode, 'scale': scale, 'bg': bg}
+        u.ui_prefs = {'font': font, 'mode': mode, 'scale': scale, 'bg': bg, 'fg': fg}
         u.save(update_fields=['ui_prefs'])
         messages.success(request, '表示の設定を保存しました。')
         return redirect('accounts:theme')

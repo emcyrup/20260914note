@@ -702,6 +702,7 @@ class PresetAndSeedTests(TestCase):
         f = Facility.objects.get(name='発達支援ルーム　ゆあーず')
         self.assertTrue(f.use_reservation and f.use_therapy_record)
         self.assertFalse(f.use_billing or f.use_schedule)      # 請求と来所予定（出欠）は使わない
+        self.assertEqual((f.layout, f.trial_ai_limit), ('ryoiku', 20))   # メニューは基本機能／お試し／設定、お試しの AI は 20 回
         s = services.get_setting(f)
         self.assertTrue(s.slot_mode)
         self.assertEqual((s.slot_capacity, s.closed_weekdays, s.weekday_first_hour, s.holiday_first_hour), (3, [0, 3], 10, 9))

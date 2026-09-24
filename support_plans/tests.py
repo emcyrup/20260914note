@@ -286,6 +286,24 @@ class PdfAndAiTests(PlanFlowTestBase):
 
     @override_settings(ANTHROPIC_API_KEY='k')
     @mock.patch('support_plans.ai.anthropic.Anthropic')
+    def test_ai_assessment_trial_limit(self, mock_cls):
+        self._records()
+        self.facility.trial_ai_limit, self.facility.trial_ai_used = 3, 3
+        self.facility.save()
+        res = self.client.post(reverse('support_plans:ai_assessment', args=[self.plan.pk]), {'months': 6})
+        self.assertEqual(res.status_code, 403)
+        self.assertIn('使い切りました', res.json()['error'])
+        mock_cls.return_value.messages.create.assert_not_called()
+        self.facility.trial_ai_used = 2
+        self.facility.save()
+        mock_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(
+            type='text', text='{"condition": "c", "environment": "e", "wishes": "w"}')])
+        self.assertEqual(self.client.post(reverse('support_plans:ai_assessment', args=[self.plan.pk]), {'months': 6}).status_code, 200)
+        self.facility.refresh_from_db()
+        self.assertEqual(self.facility.trial_ai_used, 3)
+
+    @override_settings(ANTHROPIC_API_KEY='k')
+    @mock.patch('support_plans.ai.anthropic.Anthropic')
     def test_ai_assessment_draft(self, mock_cls):
         self._records()
         mock_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(

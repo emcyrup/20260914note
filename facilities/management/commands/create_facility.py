@@ -22,6 +22,9 @@ from facilities.models import Facility
 from facilities.services import COPY_FIELDS, create_facility  # noqa: F401  (COPY_FIELDS は互換のため公開)
 
 
+TRIAL_AI_LIMIT = 20   # お試しの AI を使える回数（1回あたり数十円 → 20回で 500 円ほど）
+
+
 def apply_ryoiku_preset(facility):
     """療育の事業所（発達支援ルーム　ゆあーず）の設定：時間枠の予約と療育記録"""
     from reservations.services import get_setting
@@ -29,9 +32,12 @@ def apply_ryoiku_preset(facility):
     facility.use_therapy_record = True
     facility.use_billing = False       # 請求と来所予定（出欠）は使わない（予約管理で枠を扱う）
     facility.use_schedule = False
+    facility.layout = Facility.LAYOUT_RYOIKU          # メニュー：基本機能／お試し／設定
+    facility.trial_ai_limit = TRIAL_AI_LIMIT           # お試し（記録・支援計画）の AI は回数制限
     if not facility.brand_color:
         facility.brand_color = '#c2703a'   # 療育の画面は暖色系
-    facility.save(update_fields=['use_reservation', 'use_therapy_record', 'use_billing', 'use_schedule', 'brand_color', 'updated_at'])
+    facility.save(update_fields=['use_reservation', 'use_therapy_record', 'use_billing', 'use_schedule', 'layout',
+                                 'trial_ai_limit', 'brand_color', 'updated_at'])
     setting = get_setting(facility)
     setting.slot_mode = True
     setting.slot_capacity = 3

@@ -133,6 +133,34 @@ class AiGenerateAllViewTests(TestCase):
         self.assertIn('RuntimeError: invalid x-api-key', res.json()['error'])
 
     @mock.patch('records.views.anthropic.Anthropic')
+    def test_trial_limit(self, mock_client_cls):
+        """お試しの AI は事業所の上限まで。成功したときだけ数え、超えたら断る"""
+        text = mock.Mock(type='text', text='{"observation":"o","support":"s","reaction":"r","parent_message":"p"}')
+        mock_client_cls.return_value.messages.create.return_value = mock.Mock(content=[text])
+        self.facility.trial_ai_limit = 2
+        self.facility.save()
+        with self.settings(ANTHROPIC_API_KEY='sk-ant-test'):
+            self.assertEqual(self.client.post(self.url, {'memo': '集中できた'}).status_code, 200)
+            self.assertEqual(self.client.post(self.url, {'memo': ''}).status_code, 400)          # 入力の誤りは数えない
+            self.assertEqual(self.client.post(reverse('records:ai_polish'), {'memo': 'x'}).status_code, 200)
+            res = self.client.post(self.url, {'memo': '集中できた'})
+            self.assertEqual(res.status_code, 403)
+            self.assertIn('2 回まで', res.json()['error'])
+            self.assertEqual(self.client.post(reserve := reverse('records:ai_activity_plan'), {'activity': 'x'}).status_code, 403)
+            self.assertEqual(mock_client_cls.return_value.messages.create.call_count, 2)
+        self.facility.refresh_from_db()
+        self.assertEqual(self.facility.trial_ai_used, 2)
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, 'あと 0 回')
+        # 上限なし（0）なら数えない
+        self.facility.trial_ai_limit = 0
+        self.facility.save()
+        with self.settings(ANTHROPIC_API_KEY='sk-ant-test'):
+            self.assertEqual(self.client.post(reserve, {'activity': 'x'}).status_code, 200)
+        self.facility.refresh_from_db()
+        self.assertEqual(self.facility.trial_ai_used, 2)
+
+    @mock.patch('records.views.anthropic.Anthropic')
     def test_thinking_block_is_skipped(self, mock_client_cls):
         thinking = mock.Mock(type='thinking')
         text = mock.Mock(type='text', text='{"observation":"o","support":"s","reaction":"r","parent_message":"p"}')

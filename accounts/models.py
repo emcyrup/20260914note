@@ -93,6 +93,10 @@ class StaffAccount(AbstractUser):
         ('#eef3e8', '薄い緑'), ('#f8ecec', '薄い桃'), ('#fbf3dc', '薄い黄'),
         ('#0f1f24', '濃紺（ダーク向け）'), ('#1e1e1e', '墨（ダーク向け）'),
     ]
+    FG_PRESETS = [
+        ('', '標準（テーマの色）'), ('#000000', '黒'), ('#172d31', '濃い青緑'), ('#2b2622', '焦げ茶'),
+        ('#1a237e', '紺'), ('#4a148c', '紫'), ('#eef3f1', '白（ダーク向け）'), ('#ffe9a8', 'クリーム（ダーク向け）'),
+    ]
 
     @property
     def prefs(self):
@@ -106,13 +110,16 @@ class StaffAccount(AbstractUser):
             scale = 100
         if scale not in dict(self.SCALE_CHOICES):
             scale = 100
-        bg = str(p.get('bg', '') or '').lower()
         import re as _re
+        bg = str(p.get('bg', '') or '').lower()
         if not _re.fullmatch(r'#[0-9a-f]{6}', bg):
             bg = ''
+        fg = str(p.get('fg', '') or '').lower()
+        if not _re.fullmatch(r'#[0-9a-f]{6}', fg):
+            fg = ''
         return {
             'font': font, 'font_stack': self.FONT_STACKS[font], 'font_google': self.FONT_GOOGLE.get(font, ''),
-            'mode': mode, 'scale': scale, 'bg': bg,
+            'mode': mode, 'scale': scale, 'bg': bg, 'fg': fg,
         }
 
     class Meta:

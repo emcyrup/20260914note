@@ -38,14 +38,16 @@ def branding(request):
     if facility is None:
         return {'terms': dict(DEFAULT_TERMS), 'branding': {'logo': None, 'color': ''},
                 'features': {'billing': True, 'schedule': True, 'line': True, 'reservation': False, 'form_set': 'standard',
-                             'planbook': False, 'therapy': False}, 'journal_sections': [],
+                             'planbook': False, 'therapy': False, 'ryoiku': False}, 'journal_sections': [],
                 **standalone_context(), **developer_context(user)}
     return {
         'terms': get_terms(user),
         'branding': {'logo': facility.logo if facility.logo else None, 'color': facility.brand_color or ''},
         'features': {'billing': facility.use_billing, 'schedule': facility.use_schedule, 'line': facility.use_line,
                      'reservation': facility.use_reservation, 'form_set': facility.form_set,
-                     'planbook': facility.is_planbook, 'therapy': facility.use_therapy_record},
+                     'planbook': facility.is_planbook, 'therapy': facility.use_therapy_record,
+                     'ryoiku': facility.is_ryoiku},
+        'trial_ai': _trial_ai(facility),
         'planbook_unread': _planbook_unread(facility) if facility.is_planbook else 0,
         'pending_staff_count': _pending_staff(user, facility),
         'speech_server': bool(settings.GOOGLE_SPEECH_API_KEY),
@@ -62,6 +64,12 @@ def _planbook_unread(facility):
         return unread_note_count(facility)
     except Exception:  # noqa: BLE001
         return 0
+
+
+def _trial_ai(facility):
+    """お試しの AI（記録・支援計画）の残り回数（サイドバー・設定画面用）"""
+    from ai_assist.trial import status
+    return status(facility)
 
 
 def _pending_staff(user, facility):

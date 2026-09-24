@@ -185,7 +185,7 @@ class DisplayPrefsTests(TestCase):
         res = self.client.post(reverse('accounts:theme'), {'form': 'prefs', 'font': 'mincho', 'mode': 'dark', 'scale': 115, 'bg': '#1e1e1e'})
         self.assertRedirects(res, reverse('accounts:theme'))
         self.user.refresh_from_db()
-        self.assertEqual(self.user.ui_prefs, {'font': 'mincho', 'mode': 'dark', 'scale': 115, 'bg': '#1e1e1e'})
+        self.assertEqual(self.user.ui_prefs, {'font': 'mincho', 'mode': 'dark', 'scale': 115, 'bg': '#1e1e1e', 'fg': ''})
         res = self.client.get(reverse('facilities:dashboard'))
         self.assertContains(res, 'theme-standard mode-dark')
         self.assertContains(res, 'Noto+Serif+JP')
@@ -201,6 +201,28 @@ class DisplayPrefsTests(TestCase):
         self.client.post(reverse('accounts:theme'), {'form': 'prefs', 'font': 'biz', 'mode': 'light', 'scale': 100, 'bg': '#ffffff', 'bg_reset': '1'})
         self.user.refresh_from_db()
         self.assertEqual(self.user.prefs['bg'], '')
+
+    def test_text_color(self):
+        res = self.client.get(reverse('accounts:theme'))
+        self.assertContains(res, 'name="fg"')
+        self.assertContains(res, 'id="prefFgCustom"')
+        self.client.post(reverse('accounts:theme'), {'form': 'prefs', 'font': 'biz', 'mode': 'light', 'scale': 100, 'bg': '', 'fg': '#1a237e'})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.prefs['fg'], '#1a237e')
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertContains(res, '--ink: #1a237e')
+        self.assertContains(res, 'color: #1a237e')
+        # 好きな色はプリセットより優先。おかしな値は断る。「すべて標準に戻す」で消える
+        self.client.post(reverse('accounts:theme'), {'form': 'prefs', 'font': 'biz', 'mode': 'light', 'scale': 100, 'fg': '#000000', 'fg_custom': '#ABCDEF'})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.prefs['fg'], '#abcdef')
+        self.client.post(reverse('accounts:theme'), {'form': 'prefs', 'font': 'biz', 'mode': 'light', 'scale': 100, 'fg': 'red'})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.prefs['fg'], '#abcdef')
+        self.client.post(reverse('accounts:theme'), {'form': 'prefs', 'font': 'biz', 'mode': 'light', 'scale': 100, 'fg': '#000000', 'bg_reset': '1'})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.prefs['fg'], '')
+        self.assertNotContains(self.client.get(reverse('facilities:dashboard')), '--ink: #')
 
     def test_invalid_values_rejected(self):
         self.client.post(reverse('accounts:theme'), {'form': 'prefs', 'font': 'comic', 'mode': 'dark', 'scale': 100})

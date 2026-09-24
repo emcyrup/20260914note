@@ -201,8 +201,14 @@ class FeatureSettingsView(LoginRequiredMixin, View):
             layout = request.POST.get('layout', facility.layout)
             if layout in dict(Facility.LAYOUT_CHOICES):
                 facility.layout = layout
+            try:
+                facility.trial_ai_limit = max(0, min(9999, int(request.POST.get('trial_ai_limit', facility.trial_ai_limit))))
+            except (TypeError, ValueError):
+                pass
+            if request.POST.get('trial_ai_reset'):
+                facility.trial_ai_used = 0
         facility.save(update_fields=['use_billing', 'use_schedule', 'use_line', 'use_reservation', 'use_therapy_record',
-                                     'journal_sections', 'form_set', 'layout', 'updated_at'])
+                                     'journal_sections', 'form_set', 'layout', 'trial_ai_limit', 'trial_ai_used', 'updated_at'])
         messages.success(request, '使う機能と日誌の項目を保存しました。')
         return redirect('facilities:settings')
 

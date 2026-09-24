@@ -21,6 +21,7 @@ from facilities.models import Facility, SupportContentTag
 from schedules.models import ScheduledVisit
 from .models import DailyRecord, ActivityTag, DailyRecordPhoto, PaperScan, RecordTemplate, StaffMemo
 from facilities.context_processors import get_terms
+from ai_assist import trial
 from ai_assist.text import JAPANESE_RULES, clean_ai_dict, clean_ai_text, effort_kwargs
 from .paper import extract_paper_scan
 from config.utils import safe_next, to_int
@@ -638,6 +639,9 @@ class AiPolishView(LoginRequiredMixin, View):
 
         if not memo:
             return JsonResponse({'error': 'メモが入力されていません。'}, status=400)
+        over = trial.check(request.user.facility)
+        if over:
+            return JsonResponse({'error': over}, status=403)
 
         prompt = self.PROMPTS.get(field_key, self.PROMPTS['observation'])
 
@@ -658,6 +662,7 @@ class AiPolishView(LoginRequiredMixin, View):
                 }],
             )
             polished = clean_ai_text(''.join(b.text for b in response.content if b.type == 'text'))
+            trial.use(request.user.facility)
             return JsonResponse({'result': polished})
         except Exception as e:  # noqa: BLE001
             logger.exception('AI文章整えでエラー')
@@ -710,6 +715,9 @@ class AiGenerateAllView(LoginRequiredMixin, View):
 
         if not memo:
             return JsonResponse({'error': 'メモを入力してから生成してください。'}, status=400)
+        over = trial.check(request.user.facility)
+        if over:
+            return JsonResponse({'error': over}, status=403)
 
         user_content = f'【職員のメモ】\n{memo}'
         if tags:
@@ -724,6 +732,7 @@ class AiGenerateAllView(LoginRequiredMixin, View):
                 system=self.build_prompt(request.user.facility.journal_text_keys()),
                 messages=[{'role': 'user', 'content': user_content}],
             )
+            trial.use(request.user.facility)
             raw = ''.join(b.text for b in response.content if b.type == 'text').strip()
             # JSON部分だけ抽出（念のため）
             start = raw.find('{')
@@ -786,6 +795,9 @@ reflection は、【職員のメモ】がある場合はその事実に基づい
             return JsonResponse({'error': '活動名を入力してから生成してください。'}, status=400)
         if not settings.ANTHROPIC_API_KEY:
             return JsonResponse({'error': 'ANTHROPIC_API_KEY が設定されていません。施設設定または .env を確認してください。'}, status=500)
+        over = trial.check(request.user.facility)
+        if over:
+            return JsonResponse({'error': over}, status=403)
 
         user_content = f'【活動】\n{activity}'
         if tags:
@@ -808,6 +820,7 @@ reflection は、【職員のメモ】がある場合はその事実に基づい
                 system=self.SYSTEM_PROMPT,
                 messages=[{'role': 'user', 'content': user_content}],
             )
+            trial.use(request.user.facility)
             # 思考ブロックが先頭に来ることがあるため、テキストブロックだけを取り出す
             raw = ''.join(b.text for b in response.content if b.type == 'text').strip()
             start = raw.find('{')
@@ -1034,8 +1047,12 @@ class PaperScanExtractView(LoginRequiredMixin, View):
         scan = get_object_or_404(PaperScan, pk=pk, facility=request.user.facility)
         if not settings.ANTHROPIC_API_KEY:
             return JsonResponse({'error': 'ANTHROPIC_API_KEY が設定されていません。'}, status=500)
+        over = trial.check(request.user.facility)
+        if over:
+            return JsonResponse({'error': over}, status=403)
         try:
             data = extract_paper_scan(scan)
+            trial.use(request.user.facility)
         except Exception as e:  # noqa: BLE001
             logger.exception('紙の日誌の読み取りに失敗（scan %s）', scan.pk)
             scan.error = f'{type(e).__name__}: {e}'[:500]

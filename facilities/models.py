@@ -42,8 +42,10 @@ class Facility(models.Model):
     # 画面の型：標準（全機能）／計画書中心（利用者・完了期日・スタッフ・保護者・連絡帳・施設の6メニュー）
     LAYOUT_STANDARD = 'standard'
     LAYOUT_PLANBOOK = 'planbook'
+    LAYOUT_RYOIKU = 'ryoiku'
     LAYOUT_CHOICES = [(LAYOUT_STANDARD, '標準（記録・予定・請求まで全部）'),
-                      (LAYOUT_PLANBOOK, '計画書中心（シンプル：利用者・完了期日一覧・スタッフ・保護者・連絡帳・施設）')]
+                      (LAYOUT_PLANBOOK, '計画書中心（シンプル：利用者・完了期日一覧・スタッフ・保護者・連絡帳・施設）'),
+                      (LAYOUT_RYOIKU, '療育（ゆあーず：基本機能＝ホーム・利用者情報・予約・療育記録・議事録・LINE連携／お試し＝記録・支援計画）')]
     layout = models.CharField(max_length=20, choices=LAYOUT_CHOICES, default=LAYOUT_STANDARD, verbose_name='画面の型')
     # 地域区分（請求単価計算に使用）
     region_category = models.CharField(
@@ -89,6 +91,9 @@ class Facility(models.Model):
                                              help_text='利用者ごとの留意点と、1回ごとの療育の記録（やったこと①〜⑤・担当・本文）。用紙と同じ形で印刷できます。')
     # ログイン画面の「職員として新しく登録」で使うコード（空なら受け付けない）。登録した人は管理者が承認するまでログインできない
     staff_signup_code = models.CharField(max_length=12, blank=True, db_index=True, verbose_name='職員登録コード')
+    # 「お試し」の機能（記録の AI・支援計画の AI）を使える回数。0 なら制限なし。使った回数は trial_ai_used
+    trial_ai_limit = models.PositiveSmallIntegerField(default=0, verbose_name='お試しの AI の回数の上限（0＝制限なし）')
+    trial_ai_used = models.PositiveIntegerField(default=0, verbose_name='お試しの AI を使った回数')
     # オンにすると、ログイン画面の「職員として新しく登録」をコードなしで受け付ける（承認は管理者が行う）
     staff_signup_open = models.BooleanField(default=False, verbose_name='職員登録コードなしで申し込みを受け付ける')
     # 日誌で AI が作る項目と、その順番（空なら標準の順番で全部）
@@ -120,6 +125,10 @@ class Facility(models.Model):
     @property
     def is_planbook(self):
         return self.layout == self.LAYOUT_PLANBOOK
+
+    @property
+    def is_ryoiku(self):
+        return self.layout == self.LAYOUT_RYOIKU
 
     @property
     def unit_price(self):
