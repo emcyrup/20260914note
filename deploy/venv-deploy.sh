@@ -1,7 +1,8 @@
 #!/bin/bash
 # =============================================
 # 共用サーバー（sudo なし・Docker なし・venv＋Gunicorn）へのデプロイ／起動スクリプト
-#   例: AWS 開発環境 https://st-michinotedemo.ai-labo.cloud/ → Gunicorn 0.0.0.0:8029
+#   例: AWS 開発環境 https://st-michinotedemo.ai-labo.cloud/ → Gunicorn 0.0.0.0:8029（~/michinotedemo）
+#       ゆあーず       https://michinote.yours.ai-labo.cloud/  → Gunicorn 0.0.0.0:8030（~/michinoteyours）
 #
 # 使い方（サーバー上で）
 #   bash ~/michinotedemo/deploy/venv-deploy.sh            # 現在のブランチの最新に更新して再起動
@@ -10,12 +11,14 @@
 #   bash ~/michinotedemo/deploy/venv-deploy.sh --stop      # 停止
 #
 # 前提
-#   ~/env にプロバイダ作成の venv、~/michinotedemo に git clone、~/michinotedemo/.env に設定
-#   環境変数で変更可: APP_DIR（既定 ~/michinotedemo）、VENV（既定 ~/env）、PORT（既定 .env の PORT か 8029）
+#   ~/env にプロバイダ作成の venv、~/michinotedemo（または ~/michinoteyours）に git clone、その中の .env に設定
+#   環境変数で変更可: APP_DIR（既定 このスクリプトがある clone）、VENV（既定 ~/env）、PORT（既定 .env の PORT か 8029）
+#   同じサーバーで開発環境とゆあーずを両方動かすときは、clone・.env・PORT が別で、venv（~/env）は共用でよい
 # =============================================
 set -euo pipefail
 
-APP_DIR=${APP_DIR:-$HOME/michinotedemo}
+# 既定の APP_DIR はこのスクリプトが入っている clone（~/michinotedemo/deploy/venv-deploy.sh なら ~/michinotedemo）
+APP_DIR=${APP_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
 VENV=${VENV:-$HOME/env}
 cd "$APP_DIR"
 
@@ -92,7 +95,7 @@ case "${1:-}" in
   --restart) restart; exit 0 ;;
 esac
 
-test -f .env || { echo "ERROR: $APP_DIR/.env がありません。deploy/.env.dev-aws.example を元に作成してください"; exit 1; }
+test -f .env || { echo "ERROR: $APP_DIR/.env がありません。deploy/.env.dev-aws.example（ゆあーずは deploy/.env.yours-aws.example）を元に作成してください"; exit 1; }
 
 # 1) コード更新
 git fetch --quiet origin

@@ -1,0 +1,117 @@
+# =============================================
+# 「発達支援ルーム　ゆあーず」を AWS 共用サーバー（sudo なし・Docker なし・venv＋Gunicorn）へデプロイ
+#   https://michinote.yours.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 0.0.0.0:8030
+#   ブランチ ryoiku への push、または Actions から手動実行（任意のブランチを選べる）
+#   サーバー側は deploy/venv-deploy.sh が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行う
+#   （開発環境の Deploy (dev) と同じ仕組み。置き場所・ポート・DB が違うだけ）
+#   サーバーの準備手順は docs/DEPLOY_AWS_YOURS.md
+#
+# 必要な GitHub Secrets（開発環境の DEV_*・GCP の RYOIKU_* とは別に登録する）
+#   YOURS_DEPLOY_HOST     : サーバーの IP（開発環境と同じサーバーなら同じ値）
+#   YOURS_DEPLOY_USER     : SSH ユーザー（プロバイダ配布のアカウント）
+#   YOURS_DEPLOY_SSH_KEY  : 配布された秘密鍵（.pem）の中身
+#   YOURS_DEPLOY_SSH_PORT : SSH ポート（任意。既定 22）
+#   YOURS_APP_DIR         : サーバー上の clone 先（任意。既定 ~/michinoteyours）
+#   YOURS_VENV            : サーバー上の venv（任意。既定 ~/env。開発環境と同じ venv を共用する）
+#   YOURS_HEALTH_URL      : 配備後の確認 URL（任意。既定 https://michinote.yours.ai-labo.cloud/healthz/）
+# Secrets が未登録のうちは、テストだけ実行して配備はスキップする（失敗にしない）
+# =============================================
+name: Deploy (yours)
+
+on:
+  push:
+    branches: [ryoiku]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: ${{ secrets.YOURS_APP_DIR || '~/michinoteyours' }}
+  VENV: ${{ secrets.YOURS_VENV || '~/env' }}
+  SSH_PORT: ${{ secrets.YOURS_DEPLOY_SSH_PORT || '22' }}
+  HEALTH_URL: ${{ secrets.YOURS_HEALTH_URL || 'https://michinote.yours.ai-labo.cloud/healthz/' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
+      - run: pip install -r requirements.txt
+      - name: Django check & tests
+        env:
+          SECRET_KEY: ci-only-secret-key
+          DEBUG: "True"
+          DJANGO_ALLOWED_HOSTS: localhost
+        run: |
+          python manage.py check
+          python manage.py test --noinput
+      - name: Check deploy secrets
+        id: check
+        env:
+          HOST: ${{ secrets.YOURS_DEPLOY_HOST }}
+          USER: ${{ secrets.YOURS_DEPLOY_USER }}
+          KEY: ${{ secrets.YOURS_DEPLOY_SSH_KEY }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ]; then
+            echo "YOURS_DEPLOY_HOST / YOURS_DEPLOY_USER / YOURS_DEPLOY_SSH_KEY が未登録のため、配備はスキップします（docs/DEPLOY_AWS_YOURS.md 参照）"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    needs: test
+    if: needs.test.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-yours
+      cancel-in-progress: false
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.YOURS_DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ env.SSH_PORT }}" -H "${{ secrets.YOURS_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Checkout, migrate, restart gunicorn
+        env:
+          SHA: ${{ github.sha }}
+          REPO_URL: https://github.com/${{ github.repository }}.git
+          REMOTE_APP_DIR: ${{ env.APP_DIR }}
+          REMOTE_VENV: ${{ env.VENV }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${{ env.SSH_PORT }}" "${{ secrets.YOURS_DEPLOY_USER }}@${{ secrets.YOURS_DEPLOY_HOST }}" \
+            "SHA='$SHA' REPO_URL='$REPO_URL' APP_DIR_IN='$REMOTE_APP_DIR' VENV_IN='$REMOTE_VENV' bash -s" <<'REMOTE'
+            set -euo pipefail
+            APP_DIR=$(eval echo "$APP_DIR_IN")
+            VENV=$(eval echo "$VENV_IN")
+            if [ ! -d "$APP_DIR/.git" ]; then
+              git clone --quiet "$REPO_URL" "$APP_DIR"
+            fi
+            cd "$APP_DIR"
+            git fetch --quiet origin
+            # 配備先コミットのスクリプトを先に取り出してから実行する
+            git checkout --quiet "$SHA" -- deploy/venv-deploy.sh
+            APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh "$SHA"
+          REMOTE
+
+      - name: Health check (public URL)
+        run: |
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${{ env.HEALTH_URL }}" || true)
+            case "$code" in 200) echo "healthy ($code)"; exit 0;; esac
+            echo "waiting... ($code)"; sleep 5
+          done
+          echo "health check failed"; exit 1

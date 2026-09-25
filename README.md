@@ -277,13 +277,14 @@ python manage.py set_developer <ログインID> --off    # 解除
 
 「シンプル」だけを GCP の別サーバー（Compute Engine・Docker Compose・Caddy）で動かす手順と、次に作る療育日記・シフトの案は [docs/SIMPLE_SERVER.md](docs/SIMPLE_SERVER.md) にまとめています（配備はブランチ `simple` → ワークフロー **Deploy (simple)**。VM の起動スクリプトは `deploy/setup-server.sh`）。
 
-「発達支援ルーム　ゆあーず」（旧名 りょういく）も同じ作りで別サーバーに出せます。ドメインを決めたら `./enable-https.sh <ドメイン>` の1行で HTTPS に切り替えられます（前の `http://<IP>/…` はドメインへ転送。docs/RYOIKU_SERVER.md 3-7）。公式 LINE のつなぎ方は同 3-7b（保護者が登録コードを送ると、保護者台帳と予約の顧客台帳の両方に LINE がつながる。受信箱から既存の顧客につなぐこともできる）。手順は [docs/RYOIKU_SERVER.md](docs/RYOIKU_SERVER.md)（配備はブランチ `ryoiku` → ワークフロー **Deploy (ryoiku)**、置き場所は `/opt/ryoiku`、Secrets は `RYOIKU_*`）。
+「発達支援ルーム　ゆあーず」（旧名 りょういく）も同じ作りで別サーバーに出せます。ドメインを決めたら `./enable-https.sh <ドメイン>` の1行で HTTPS に切り替えられます（前の `http://<IP>/…` はドメインへ転送。docs/RYOIKU_SERVER.md 3-7）。公式 LINE のつなぎ方は同 3-7b（保護者が登録コードを送ると、保護者台帳と予約の顧客台帳の両方に LINE がつながる。受信箱から既存の顧客につなぐこともできる）。手順は [docs/RYOIKU_SERVER.md](docs/RYOIKU_SERVER.md)（配備はブランチ `ryoiku` → ワークフロー **Deploy (ryoiku)**、置き場所は `/opt/ryoiku`、Secrets は `RYOIKU_*`）。AWS 共用サーバー（`https://michinote.yours.ai-labo.cloud/`、ポート 8030、開発環境と同じ venv＋Gunicorn の仕組み）へ出す手順は [docs/DEPLOY_AWS_YOURS.md](docs/DEPLOY_AWS_YOURS.md)（同じブランチ `ryoiku` → ワークフロー **Deploy (yours)**、置き場所は `~/michinoteyours`、Secrets は `YOURS_*`。`.env` の雛形は `deploy/.env.yours-aws.example`）。
 
 | ブランチ | 配備先 | ワークフロー | 事業所 |
 |---|---|---|---|
 | `develop` | AWS 開発環境 | Deploy (dev) | 全部（ウィズユー藤森・はぴねす・なゆた・シンプル・ゆあーず） |
 | `simple` | GCP のシンプル用サーバー | Deploy (simple) | シンプル |
-| `ryoiku` | GCP のゆあーず用サーバー | Deploy (ryoiku) | 発達支援ルーム　ゆあーず |
+| `ryoiku` | GCP のゆあーず用サーバー（お試し） | Deploy (ryoiku) | 発達支援ルーム　ゆあーず |
+| `ryoiku` | AWS 共用サーバーのゆあーず（`https://michinote.yours.ai-labo.cloud/`、ポート 8030） | Deploy (yours) | 発達支援ルーム　ゆあーず |
 | `main` | 配備先なし（許可制） | — | — |
 
 サーバーの部品（`deploy/setup-server.sh`・`docker-compose.yml`・`Caddyfile`・`backup.sh`）は共通です。置き場所は VM のカスタムメタデータ `app-dir`（例 `/opt/ryoiku`）で変えられます（未設定なら `/opt/simple`）。
@@ -436,7 +437,7 @@ python manage.py collectstatic --noinput
 
 ## AWS 開発環境（共用サーバー：sudo なし・Docker なし・venv＋Gunicorn）へのデプロイ
 
-`https://st-michinotedemo.ai-labo.cloud/` のように、プロバイダ管理の nginx が HTTPS を終端して割り当てポート（8029）の Gunicorn に中継し、DB もプロバイダ管理の PostgreSQL を使う構成向けです。サーバー上では `deploy/venv-deploy.sh` が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行い、ワークフロー **Deploy (dev)**（`develop` への push または手動実行）がそれを SSH で呼びます。`.env` の雛形は `deploy/.env.dev-aws.example`。手順は [docs/DEPLOY_AWS_DEV.md](docs/DEPLOY_AWS_DEV.md) を参照してください（Docker が使えるサーバー向けの `deploy/docker-compose.external.yml` も同じ文書に載せています）。
+`https://st-michinotedemo.ai-labo.cloud/` のように、プロバイダ管理の nginx が HTTPS を終端して割り当てポート（8029）の Gunicorn に中継し、DB もプロバイダ管理の PostgreSQL を使う構成向けです。サーバー上では `deploy/venv-deploy.sh` が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行い、ワークフロー **Deploy (dev)**（`develop` への push または手動実行）がそれを SSH で呼びます。`.env` の雛形は `deploy/.env.dev-aws.example`。手順は [docs/DEPLOY_AWS_DEV.md](docs/DEPLOY_AWS_DEV.md) を参照してください。同じサーバーに「発達支援ルーム　ゆあーず」を別の clone（`~/michinoteyours`・ポート 8030・DB `michinoteyours`）で並べて動かす手順は [docs/DEPLOY_AWS_YOURS.md](docs/DEPLOY_AWS_YOURS.md)（ワークフロー **Deploy (yours)**）です（Docker が使えるサーバー向けの `deploy/docker-compose.external.yml` も同じ文書に載せています）。
 
 ## Docker で動かす（任意の VM）
 

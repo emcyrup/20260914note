@@ -3,6 +3,8 @@
 療育の事業所「発達支援ルーム　ゆあーず」（時間枠の予約・月予約利用希望・月間予定表・療育記録）を、開発環境やシンプルのサーバーとは**別のサーバー・別のデータベース**で動かすための手引きです。
 配備先は **GCP Compute Engine の VM 1台**（Docker Compose：Caddy → Django/Gunicorn → PostgreSQL）で、コードは同じリポジトリのブランチ `ryoiku` を配備します。
 
+> **AWS の共用サーバー（`https://michinote.yours.ai-labo.cloud/`、ポート 8030、Docker なし）に出す手順は [docs/DEPLOY_AWS_YOURS.md](DEPLOY_AWS_YOURS.md) です。** 同じブランチ `ryoiku` から、ワークフロー Deploy (yours) で配備します。GCP からのデータの移し方も同文書 5-b にあります。
+
 Cloud Console（ブラウザ）と GitHub の画面だけで構築できます。サーバー内の作業は Console の「ブラウザで SSH」を使います。
 シンプルのサーバー（`docs/SIMPLE_SERVER.md`）と同じ作りなので、一度やったことがあれば同じ手順です。
 
