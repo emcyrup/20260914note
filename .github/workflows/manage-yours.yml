@@ -1,0 +1,131 @@
+# =============================================
+# 「発達支援ルーム　ゆあーず」AWS 共用サーバーでの管理コマンド（Actions の画面から実行する）
+#   Deploy (yours) と同じ Secrets（YOURS_*）で SSH し、~/michinoteyours の manage.py を実行する
+#   - create_facility : 事業所「発達支援ルーム　ゆあーず」と管理者を作る（--preset ryoiku。サンプルデータも入れられる）
+#   - set_password    : 管理者（職員）のパスワードを設定する
+#   - seed_demo       : サンプルデータを入れる／入れ直す（--reset）
+#   - seed_demo_reset : サンプルデータを消す（実データを入れる前に）
+#   - list            : 事業所の一覧を表示する
+#
+# パスワードは入力欄（admin_password）に入れる。ログには出ない（マスクし、サーバーへは環境変数で渡す）。
+# このリポジトリは公開なので、ログに秘密の値を出さないこと。
+# =============================================
+name: Manage (yours)
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "実行する作業"
+        type: choice
+        required: true
+        default: list
+        options: [create_facility, set_password, seed_demo, seed_demo_reset, list]
+      facility_name:
+        description: "事業所名（create_facility）"
+        type: string
+        default: "発達支援ルーム　ゆあーず"
+      admin_username:
+        description: "管理者のユーザー名（create_facility・set_password）"
+        type: string
+        default: ryoiku
+      admin_password:
+        description: "パスワード（create_facility・set_password。空なら create_facility はランダムな仮のパスワードにし、あとで set_password で設定する）"
+        type: string
+        default: ""
+      with_demo:
+        description: "サンプルデータも入れる（create_facility）"
+        type: boolean
+        default: true
+      facility_id:
+        description: "施設 ID（seed_demo・seed_demo_reset。空なら事業所が1つのときだけ自動）"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: ${{ secrets.YOURS_APP_DIR || '~/michinoteyours' }}
+  VENV: ${{ secrets.YOURS_VENV || '~/env' }}
+  SSH_PORT: ${{ secrets.YOURS_DEPLOY_SSH_PORT || '22' }}
+
+jobs:
+  manage:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-yours
+      cancel-in-progress: false
+    steps:
+      - name: Check secrets
+        env:
+          HOST: ${{ secrets.YOURS_DEPLOY_HOST }}
+          USER: ${{ secrets.YOURS_DEPLOY_USER }}
+          KEY: ${{ secrets.YOURS_DEPLOY_SSH_KEY }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ]; then
+            echo "YOURS_DEPLOY_HOST / YOURS_DEPLOY_USER / YOURS_DEPLOY_SSH_KEY が未登録です（docs/DEPLOY_AWS_YOURS.md 6）"; exit 1
+          fi
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.YOURS_DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ env.SSH_PORT }}" -H "${{ secrets.YOURS_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Run manage.py on the server
+        env:
+          TASK: ${{ inputs.task }}
+          FACILITY_NAME: ${{ inputs.facility_name }}
+          ADMIN_USERNAME: ${{ inputs.admin_username }}
+          ADMIN_PASSWORD: ${{ inputs.admin_password }}
+          WITH_DEMO: ${{ inputs.with_demo }}
+          FACILITY_ID: ${{ inputs.facility_id }}
+          REMOTE_APP_DIR: ${{ env.APP_DIR }}
+          REMOTE_VENV: ${{ env.VENV }}
+        run: |
+          # パスワードはログに出さない（入力があればマスク。無ければランダムな仮の値。ログには出ない）
+          if [ -n "$ADMIN_PASSWORD" ]; then
+            echo "::add-mask::$ADMIN_PASSWORD"
+          else
+            ADMIN_PASSWORD=$(openssl rand -base64 24)
+            echo "::add-mask::$ADMIN_PASSWORD"
+          fi
+          # 秘密の値はコマンド行に出さず、ssh の標準入力（スクリプトの先頭）で渡す
+          {
+            printf 'TASK=%q\nFACILITY_NAME=%q\nADMIN_USERNAME=%q\nADMIN_PASSWORD=%q\nWITH_DEMO=%q\nFACILITY_ID=%q\nAPP_DIR_IN=%q\nVENV_IN=%q\n' \
+              "$TASK" "$FACILITY_NAME" "$ADMIN_USERNAME" "$ADMIN_PASSWORD" "$WITH_DEMO" "$FACILITY_ID" "$REMOTE_APP_DIR" "$REMOTE_VENV"
+            cat <<'REMOTE'
+            set -euo pipefail
+            export ADMIN_USERNAME ADMIN_PASSWORD
+            APP_DIR=$(eval echo "$APP_DIR_IN"); VENV=$(eval echo "$VENV_IN")
+            # shellcheck disable=SC1091
+            source "$VENV/bin/activate"
+            cd "$APP_DIR"
+            test -f .env || { echo "ERROR: $APP_DIR/.env がありません"; exit 1; }
+            set_password() {
+              # パスワードは引数に出さず、環境変数から読む
+              python manage.py shell -c "import os; from accounts.models import StaffAccount; u = StaffAccount.objects.get(username=os.environ['ADMIN_USERNAME']); u.set_password(os.environ['ADMIN_PASSWORD']); u.save(update_fields=['password']); print('パスワードを設定しました:', u.username)"
+            }
+            case "$TASK" in
+              create_facility)
+                args=(create_facility "$FACILITY_NAME" --admin "$ADMIN_USERNAME" --password "$(openssl rand -base64 18)" --preset ryoiku)
+                [ "$WITH_DEMO" = "true" ] && args+=(--demo)
+                python manage.py "${args[@]}"
+                set_password
+                ;;
+              set_password)
+                set_password ;;
+              seed_demo)
+                args=(seed_demo --reset); [ -n "$FACILITY_ID" ] && args+=(--facility "$FACILITY_ID")
+                python manage.py "${args[@]}" ;;
+              seed_demo_reset)
+                FACILITY_ID="$FACILITY_ID" python manage.py shell -c "import os, sys; from facilities.models import Facility; from facilities.management.commands.seed_demo import Command; fid = os.environ.get('FACILITY_ID') or ''; qs = Facility.objects.filter(pk=fid) if fid else Facility.objects.all(); qs.count() == 1 or sys.exit('施設を1つに絞ってください（facility_id）: ' + ', '.join(f'{f.pk}:{f.name}' for f in Facility.objects.all())); f = qs.get(); print('サンプルデータを消します:', f.pk, f.name); Command()._reset(f)" ;;
+              list)
+                python manage.py shell -c "from facilities.models import Facility; [print(f.pk, f.name, '| 型:', f.layout, '| 予約:', f.use_reservation, '| 療育記録:', f.use_therapy_record, '| お試しAI:', f.trial_ai_used, '/', f.trial_ai_limit) for f in Facility.objects.order_by('pk')] or print('事業所はまだありません')"
+                python manage.py shell -c "from accounts.models import StaffAccount; [print(' 職員:', u.username, '|', u.facility_id, '|', u.get_role_display()) for u in StaffAccount.objects.order_by('pk')]" ;;
+              *) echo "unknown task: $TASK"; exit 1 ;;
+            esac
+          REMOTE
+          } | ssh -i ~/.ssh/deploy_key -p "${{ env.SSH_PORT }}" "${{ secrets.YOURS_DEPLOY_USER }}@${{ secrets.YOURS_DEPLOY_HOST }}" bash -s

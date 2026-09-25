@@ -90,6 +90,18 @@ tail -f logs/error.log                 # アプリのエラー
 
 ## 5. 事業所と管理者を作る（どちらか）
 
+サーバーに入らずに GitHub の画面から行うこともできます：Actions → **Manage (yours)** → Run workflow（`.github/workflows/manage-yours.yml`。手順 6 の Secrets が登録ずみであること）。
+
+| task | すること |
+|---|---|
+| `create_facility` | 事業所（既定「発達支援ルーム　ゆあーず」）と管理者（既定 `ryoiku`）を `--preset ryoiku` で作る。「サンプルデータも入れる」がオンなら 5-a の `--demo` と同じ |
+| `set_password` | 管理者（職員）のパスワードを「パスワード」欄の値にする。`create_facility` でパスワード欄を空にしたときは、このあと必ず実行する |
+| `seed_demo` | サンプルデータを入れ直す（`seed_demo --reset`） |
+| `seed_demo_reset` | サンプルデータを消す（実データを入れる前に） |
+| `list` | 事業所と職員の一覧を表示する |
+
+パスワード欄の値はログに出ません（マスクし、サーバーへは環境変数で渡します）。このリポジトリは公開なので、ログに秘密の値が出る形の作業は足さないでください。
+
 ### 5-a. 新しく作る（GCP のデータを移さない場合）
 
 ```bash
