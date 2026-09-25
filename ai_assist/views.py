@@ -156,7 +156,7 @@ class TranscribeView(LoginRequiredMixin, View):
         if f.size > speech.MAX_BYTES + 4096:
             return JsonResponse({'error': '音声が長すぎます（1回に送れるのは1分まで）。'}, status=400)
         try:
-            text = speech.transcribe(f.read())
+            text = speech.transcribe(f.read(), speakers=request.POST.get('speakers') == '1')
         except speech.SpeechError as e:
             return JsonResponse({'error': str(e)}, status=400 if '形式' in str(e) or '長すぎ' in str(e) else 502)
         return JsonResponse({'text': text})

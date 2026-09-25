@@ -6,6 +6,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count, Max, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.views import View
 
 from accounts.models import StaffAccount
@@ -14,6 +15,7 @@ from ai_assist.text import clean_ai_text
 from beneficiaries.models import Beneficiary
 from config.utils import to_int
 
+from . import figure
 from .models import ACTIVITY_MAX, TherapyProfile, TherapyRecord
 
 PAGE_ENTRIES = 5     # 用紙1枚に入る回数
@@ -215,6 +217,7 @@ class ChildView(TherapyEnabledMixin, View):
             'default_body': (copy_rec.body if copy_rec else ''), 'copy_rec': copy_rec,
             'activity_range': range(1, ACTIVITY_MAX + 1), 'edit_pk': to_int(request.GET.get('edit')),
             'cautions_rows': min(max(len((profile.cautions if profile else '').splitlines()) + 1, 4), 24),
+            'fig': figure.build(profile.cautions if profile else '', beneficiary.full_name),
         })
 
     def post(self, request, pk):
@@ -366,6 +369,28 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
             if line:
                 lines.append(f'・{line}')
         return '\n'.join(lines)
+
+
+class CautionsFigureView(TherapyEnabledMixin, View):
+    """留意点の文（画面の欄の内容）から見取り図と表を作って返す。保存はしない（AI も使わない）"""
+
+    def post(self, request, pk):
+        beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
+        text = request.POST.get('text', '')[:CAUTIONS_MAX]
+        fig = figure.build(text, beneficiary.full_name)
+        html_ = render_to_string('therapy/_cautions_figure.html', {'fig': fig}, request=request)
+        return JsonResponse({'html': html_, 'empty': fig['empty']})
+
+
+class CautionsFigurePrintView(TherapyEnabledMixin, View):
+    """保存されている留意点の見取り図と表を、A4 で印刷できる画面にする"""
+
+    def get(self, request, pk):
+        beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
+        profile = TherapyProfile.objects.filter(beneficiary=beneficiary).first()
+        fig = figure.build(profile.cautions if profile else '', beneficiary.full_name)
+        return render(request, 'therapy/cautions_print.html',
+                      {'beneficiary': beneficiary, 'profile': profile, 'fig': fig, 'facility': request.user.facility})
 
 
 RECORD_SUMMARY_MIN = 100   # 「記録」に足す文の長さ（文字）

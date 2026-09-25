@@ -292,6 +292,44 @@ class SpeechTranscribeTests(TestCase):
         self.assertEqual(second['model'], 'default')
         self.assertNotIn('enableAutomaticPunctuation', second)
 
+    @override_settings(GOOGLE_SPEECH_API_KEY='k', GOOGLE_SPEECH_MODEL='latest_long')
+    def test_speakers_are_split_into_lines(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        words = [{'word': 'きょう', 'speakerTag': 1}, {'word': 'は', 'speakerTag': 1}, {'word': '晴れ', 'speakerTag': 1},
+                 {'word': 'そう', 'speakerTag': 2}, {'word': 'だね', 'speakerTag': 2}, {'word': '公園', 'speakerTag': 1}]
+        payload = {'results': [{'alternatives': [{'transcript': 'きょうは晴れ'}]},
+                               {'alternatives': [{'transcript': 'そうだね公園', 'words': words}]}]}
+        with mock.patch('ai_assist.speech.requests.post', return_value=self.reply(200, payload)) as post:
+            res = self.client.post(self.url, {'audio': SimpleUploadedFile('voice.wav', self.wav(), content_type='audio/wav'),
+                                              'speakers': '1'})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['text'], '話者1：きょうは晴れ\n話者2：そうだね\n話者1：公園')
+        cfg = post.call_args.kwargs['json']['config']
+        self.assertEqual(cfg['diarizationConfig'], {'enableSpeakerDiarization': True, 'minSpeakerCount': 1, 'maxSpeakerCount': 6})
+        # 話者を分けないときは diarization を付けない
+        with mock.patch('ai_assist.speech.requests.post', return_value=self.reply(200, payload)) as post:
+            res = self.post(self.wav())
+        self.assertNotIn('diarizationConfig', post.call_args.kwargs['json']['config'])
+        self.assertEqual(res.json()['text'], 'きょうは晴れそうだね公園')
+
+    @override_settings(GOOGLE_SPEECH_API_KEY='k')
+    def test_speakers_fall_back_to_plain_text(self):
+        """話者分けが使えない（400 が続く）ときは、話者なしで文字にする。speakerTag が無い返答もふつうの文にする"""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        with mock.patch('ai_assist.speech.requests.post') as post:
+            post.side_effect = [self.reply(400, {'error': {'message': 'diarization not supported'}}),
+                                self.reply(400, {'error': {'message': 'diarization not supported'}}),
+                                self.reply(200, {'results': [{'alternatives': [{'transcript': 'はい'}]}]})]
+            res = self.client.post(self.url, {'audio': SimpleUploadedFile('voice.wav', self.wav(), content_type='audio/wav'),
+                                              'speakers': '1'})
+        self.assertEqual(res.json()['text'], 'はい')
+        third = post.call_args_list[2].kwargs['json']['config']
+        self.assertNotIn('diarizationConfig', third)
+        with mock.patch('ai_assist.speech.requests.post', return_value=self.reply(200, {'results': [{'alternatives': [{'transcript': 'はい', 'words': [{'word': 'はい'}]}]}]})):
+            res = self.client.post(self.url, {'audio': SimpleUploadedFile('voice.wav', self.wav(), content_type='audio/wav'),
+                                              'speakers': '1'})
+        self.assertEqual(res.json()['text'], 'はい')
+
     @override_settings(GOOGLE_SPEECH_API_KEY='k')
     def test_silence_returns_empty_text(self):
         with mock.patch('ai_assist.speech.requests.post', return_value=self.reply(200, {})):
@@ -332,6 +370,10 @@ class SpeechTranscribeTests(TestCase):
     def test_page_tells_script_whether_server_is_on(self):
         from django.urls import reverse
         with override_settings(GOOGLE_SPEECH_API_KEY='k'):
-            self.assertContains(self.client.get(reverse('minutes:index')), "window.VOICE_INPUT_SERVER = {url: '/ai/transcribe/'}")
+            res = self.client.get(reverse('minutes:index'))
+            self.assertContains(res, "window.VOICE_INPUT_SERVER = {url: '/ai/transcribe/'}")
+            self.assertContains(res, 'data-voice-speakers="mn-speakers"')      # 話者を分けるスイッチ
         with override_settings(GOOGLE_SPEECH_API_KEY=''):
-            self.assertContains(self.client.get(reverse('minutes:index')), 'window.VOICE_INPUT_SERVER = null')
+            res = self.client.get(reverse('minutes:index'))
+            self.assertContains(res, 'window.VOICE_INPUT_SERVER = null')
+            self.assertNotContains(res, 'id="mn-speakers"')                     # キーが無ければスイッチも出ない

@@ -1,0 +1,19 @@
+{% comment %}留意点の見取り図と表（therapy/figure.py の build の結果 fig を使う）。画面と印刷で共通{% endcomment %}
+{% if fig.empty %}
+<div class="text-muted small">留意点を入れて「詳しくまとめる」をすると、場面ごとの見取り図と表がここに出ます（【場面】の見出しと「・小見出し：内容」の形から作ります）。</div>
+{% else %}
+{% if fig.parsed.overview %}<div class="thf-overview">{{ fig.parsed.overview }}</div>{% endif %}
+<div class="thf-map">{{ fig.svg|safe }}</div>
+<table class="thf-table">
+  <thead><tr><th class="thf-scene">場面</th><th>ようす・できたこと</th><th class="thf-care">気をつけること・対応</th></tr></thead>
+  <tbody>
+  {% for row in fig.rows %}
+  <tr>
+    <td class="thf-scene">{{ row.title }}</td>
+    <td>{% for i in row.rest %}<div class="thf-item">{% if i.label %}<b>{{ i.label }}</b>：{% endif %}{{ i.text }}</div>{% endfor %}{% for n in row.notes %}<div class="thf-item">{{ n }}</div>{% endfor %}</td>
+    <td class="thf-care">{% for i in row.care %}<div class="thf-item">{% if i.label %}<b>{{ i.label }}</b>：{% endif %}{{ i.text }}</div>{% endfor %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}

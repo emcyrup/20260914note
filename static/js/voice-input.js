@@ -45,7 +45,7 @@
 
   // うまく動かないときに調べるための記録（話した言葉そのものは残さず、文字数だけ）
   // 保存・読み込み直しをしても消えないよう、このタブのあいだは sessionStorage にも残す
-  var VERSION = 'v8';
+  var VERSION = 'v9';
   var LOG_KEY = 'voice-input-log', LOG = [], T0 = Date.now(), seq = 0;
   try { LOG = JSON.parse(sessionStorage.getItem(LOG_KEY) || '[]') || []; } catch (e) { LOG = []; }
   function log(msg) {
@@ -90,7 +90,7 @@
     var t = a.target;
     var cur = t.value.replace(/\s+$/, '');
     if (!cur) t.value = text;
-    else if (a.first) t.value = cur + '\n' + text;                            // 押し直したら改行
+    else if (a.first || a.speakers) t.value = cur + '\n' + text;              // 押し直したら改行（話者ごとの行も改行）
     else t.value = cur + (/[。．.!！?？、」』）)]$/.test(cur) ? '' : '。') + text;   // 同じ録音の続きは「。」でつなぐ
     a.first = false;
     a.lastText = text;
@@ -364,10 +364,20 @@
   var LOUD = 0.015, QUIET = 0.008, QUIET_RUN = 4;       // 音の大きさ（RMS）のめやす
   var uploads = 0, chain = Promise.resolve(), waitingSubmit = null;
 
-  function useServer() {
+  function useServer(a) {
     if (cfg.engine === 'server') return !!SERVER;
     if (cfg.engine === 'browser') return false;
-    return IOS && !!SERVER && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    var mic = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    // 話者を分けるときは、どの端末でもサーバー（Google）で文字にする（ブラウザの音声認識は話者を分けられない）
+    if (a && a.speakers) return !!SERVER && mic;
+    return IOS && !!SERVER && mic;
+  }
+
+  // ボタンの data-voice-speakers に書かれたチェックボックスがオンなら「話者を分ける」
+  function speakersOn(btn) {
+    var id = btn.getAttribute('data-voice-speakers');
+    var el = id && document.getElementById(id);
+    return !!(el && el.checked && SERVER);
   }
 
   function csrf() {
@@ -413,12 +423,13 @@
     if (!chunks.length) return;
     if (!loud || secs < 0.5) { log('segment ' + secs.toFixed(1) + 's ' + (loud ? 'too short' : 'silent') + ' → skip'); return; }
     var blob = toWav(chunks, a.rate), n = ++seq;
-    log('segment #' + n + ' ' + secs.toFixed(1) + 's ' + Math.round(blob.size / 1024) + 'KB → upload');
+    log('segment #' + n + ' ' + secs.toFixed(1) + 's ' + Math.round(blob.size / 1024) + 'KB → upload' + (a.speakers ? ' speakers' : ''));
     uploads++;
     showBusy(a);
     chain = chain.then(function () {
       var body = new FormData();
       body.append('audio', blob, 'voice.wav');
+      if (a.speakers) body.append('speakers', '1');
       return fetch(SERVER.url, {method: 'POST', body: body, credentials: 'same-origin', headers: {'X-CSRFToken': csrf()}})
         .then(function (r) { return r.json().catch(function () { return {error: '文字にできませんでした（' + r.status + '）。'}; }); })
         .then(function (d) {
@@ -470,7 +481,8 @@
           if (rms > LOUD) { a.loud = true; a.lastHeard = Date.now(); }
           a.quietRun = rms < QUIET ? a.quietRun + 1 : 0;
           var secs = a.samples / a.rate;
-          if (secs >= SEG_MAX || (secs >= SEG_MIN && a.quietRun >= QUIET_RUN)) cut(a);
+          // 話者を分けるときは区切りを長めにする（区切りの中でしか同じ人と分からないため）
+          if (secs >= SEG_MAX || (secs >= (a.speakers ? SEG_MAX / 2 : SEG_MIN) && a.quietRun >= QUIET_RUN)) cut(a);
           if (Date.now() - a.lastHeard > SILENCE_MS) stop('しばらく声が聞こえなかったので止めました。続けるときはもう一度押してください。');
         };
         src.connect(proc);
@@ -503,22 +515,22 @@
       note(btn, '音声入力は https のページでだけ使えます（いまは http のため、ブラウザがマイクを使わせません）。');
       return;
     }
-    if (!SR && !useServer()) {
-      note(btn, 'このブラウザは音声入力に対応していません。Chrome・Edge・Safari をお使いください。');
-      return;
-    }
     var a = {
       btn: btn, target: target, label: btn.innerHTML, compact: !btn.textContent.trim(),
       first: true, started: Date.now(), lastHeard: Date.now(), restarts: 0, lock: null,
-      pending: '', committed: '', lastText: '',
+      pending: '', committed: '', lastText: '', speakers: speakersOn(btn),
     };
+    if (!SR && !useServer(a)) {
+      note(btn, 'このブラウザは音声入力に対応していません。Chrome・Edge・Safari をお使いください。');
+      return;
+    }
     active = a;
     btn.classList.add('recording');
     paint(a);
     a.timer = setInterval(function () { paint(a); }, 1000);
     note(btn, '');
     keepAwake(a, true);
-    if (useServer()) startServer(a);
+    if (useServer(a)) startServer(a);
     else begin(a, 0);
   }
 

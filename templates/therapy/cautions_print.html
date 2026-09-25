@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8">
+<title>留意点の見取り図 {{ beneficiary.full_name }}</title>
+<style>
+  @page { size: A4; margin: 14mm 14mm; }
+  body { font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "IPAPGothic", sans-serif; font-size: 10.5pt; line-height: 1.6; color: #222; margin: 0 auto; max-width: 182mm; padding: 12px; }
+  h1 { font-size: 15pt; margin: 0 0 2px; }
+  .meta { color: #555; font-size: 9.5pt; border-bottom: 2px solid #333; padding-bottom: 6px; margin-bottom: 10px; }
+  .thf-overview { margin: 0 0 8px; padding: 6px 8px; background: #f4f1ec; border-radius: 6px; }
+  .thf-map { margin-bottom: 10px; }
+  .thf-map svg { width: 100%; height: auto; }
+  .thf-table { width: 100%; border-collapse: collapse; font-size: 9.5pt; page-break-inside: auto; }
+  .thf-table th, .thf-table td { border: 1px solid #555; padding: 4px 6px; vertical-align: top; }
+  .thf-table th { background: #eee; }
+  .thf-scene { width: 22%; font-weight: 700; white-space: pre-wrap; }
+  .thf-care { width: 40%; }
+  .thf-item { margin-bottom: 2px; }
+  .no-print { margin-bottom: 12px; }
+  @media print { .no-print { display: none; } body { padding: 0; } }
+</style></head><body>
+<div class="no-print"><button onclick="window.print()">印刷する</button> <a href="{% url 'therapy:child' beneficiary.pk %}">療育記録へ戻る</a></div>
+<h1>留意点の見取り図・表　{{ beneficiary.full_name }}</h1>
+<div class="meta">{{ facility.name }}{% if profile %}　留意点の更新：{{ profile.updated_at|date:'Y年n月j日' }}{% endif %}</div>
+{% include 'therapy/_cautions_figure.html' %}
+</body></html>

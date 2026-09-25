@@ -171,6 +171,74 @@ class TherapySuggestAndFilterTests(TestCase):
         self.assertNotContains(res, '活動1<')
 
 
+class CautionsFigureTests(TestCase):
+    """留意点の見取り図と表（AI を使わず、文の形から作る）"""
+
+    DETAIL = ('【概要】\nはじめは母から離れにくいが、好きな遊びに誘うと入れる。\n\n【ボールプール】\n・入り方：はじめは母と一緒。「一緒に入ろう」と誘うと笑顔で入った\n'
+              '・注意：飛び込むと危ないので、そばで見守る\n\n【ひも通し】\n・できたこと：3つまで自分で通せた\n\n【全体のまとめ】\n母から離れて遊べる時間が長くなっている。\n\n'
+              '【気をつけること】\n・大きな音が苦手。太鼓の前に「音が鳴るよ」と伝える\n')
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_therapy_record=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+
+    def test_parse_sections_and_table(self):
+        from .figure import build, parse_cautions
+        p = parse_cautions(self.DETAIL)
+        self.assertEqual([sc['title'] for sc in p['scenes']], ['ボールプール', 'ひも通し'])
+        self.assertEqual(p['scenes'][0]['items'][0], {'label': '入り方', 'text': 'はじめは母と一緒。「一緒に入ろう」と誘うと笑顔で入った'})
+        self.assertEqual(p['overview'], 'はじめは母から離れにくいが、好きな遊びに誘うと入れる。')
+        self.assertEqual(len(p['cautions']), 1)
+        b = build(self.DETAIL, '青木 子')
+        self.assertFalse(b['empty'])
+        rows = b['rows']
+        self.assertEqual([r['title'] for r in rows], ['ボールプール', 'ひも通し', '全体'])
+        self.assertEqual([i['label'] for i in rows[0]['care']], ['注意'])       # 「危ない」「見守る」は気をつけること
+        self.assertEqual([i['label'] for i in rows[0]['rest']], ['入り方'])
+        self.assertEqual(rows[2]['rest'][0]['text'], '母から離れて遊べる時間が長くなっている。')
+        self.assertIn('<svg', b['svg'])
+        self.assertIn('ボールプール', b['svg'])
+        self.assertIn('気をつけること', b['svg'])
+        self.assertIn('青木 子', b['svg'])
+        # 見出しの無い箇条書きは1つの枝
+        b2 = build('・大きな音が苦手\n・電車が好き', '青木 子')
+        self.assertEqual([r['title'] for r in b2['rows']], ['留意点'])
+        self.assertEqual(b2['rows'][0]['care'], [{'label': '', 'text': '大きな音が苦手'}])
+        self.assertIn('>大きな音が苦手<', b2['svg'])
+        self.assertTrue(build('', '青木 子')['empty'])
+        # 「<」などは SVG の中でエスケープされる
+        self.assertIn('&lt;b&gt;', build('【場面】\n・<b>：x', 'A')['svg'])
+
+    def test_child_page_shows_figure_and_print(self):
+        url = reverse('therapy:child', args=[self.kid.pk])
+        res = self.client.get(url)
+        self.assertContains(res, '見取り図と表')
+        self.assertTrue(res.context['fig']['empty'])
+        TherapyProfile.objects.create(beneficiary=self.kid, cautions=self.DETAIL)
+        res = self.client.get(url)
+        self.assertFalse(res.context['fig']['empty'])
+        self.assertContains(res, 'aria-label="留意点の見取り図"')
+        self.assertContains(res, '気をつけること・対応')
+        res = self.client.get(reverse('therapy:cautions_figure_print', args=[self.kid.pk]))
+        self.assertContains(res, '留意点の見取り図・表　青木 子')
+        self.assertContains(res, '<svg')
+
+    def test_figure_endpoint_renders_unsaved_text(self):
+        res = self.client.post(reverse('therapy:cautions_figure', args=[self.kid.pk]), {'text': self.DETAIL})
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(res.json()['empty'])
+        self.assertIn('ひも通し', res.json()['html'])
+        res = self.client.post(reverse('therapy:cautions_figure', args=[self.kid.pk]), {'text': ''})
+        self.assertTrue(res.json()['empty'])
+        # ほかの事業所の利用者は 404
+        g = Facility.objects.create(name='ほか', use_therapy_record=True)
+        kid = Beneficiary.objects.create(facility=g, last_name='井上', first_name='花', date_of_birth=datetime.date(2019, 4, 1))
+        self.assertEqual(self.client.post(reverse('therapy:cautions_figure', args=[kid.pk]), {'text': 'x'}).status_code, 404)
+        self.assertEqual(self.client.get(reverse('therapy:cautions_figure_print', args=[kid.pk])).status_code, 404)
+
+
 class TherapySearchTests(TestCase):
     """履歴は上限なし・事業所内の記録を横断して探す・ほかの利用者の記録を写して書く"""
 

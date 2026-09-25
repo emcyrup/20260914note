@@ -26,6 +26,18 @@
   .th-edit { background: rgba(243,239,231,0.55); border-radius: 8px; padding: 12px; margin-top: 10px; }
   .th-list-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
   .th-list-head select { width: auto; }
+  .thf-hint { font-size: 0.78rem; color: #8a8378; font-weight: 400; }
+  .thf-toggle[aria-expanded="false"] .thf-chev { transform: rotate(-90deg); }
+  .thf-overview { margin: 0 0 8px; padding: 6px 10px; background: var(--lake-soft, #eef3f1); border-radius: 8px; font-size: 0.9rem; }
+  .thf-map { overflow-x: auto; margin-bottom: 8px; }
+  .thf-map svg { min-width: 560px; }
+  .thf-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+  .thf-table th, .thf-table td { border: 1px solid var(--line); padding: 5px 8px; vertical-align: top; }
+  .thf-table th { background: var(--lake-soft, #eef3f1); font-weight: 700; }
+  .thf-scene { width: 20%; font-weight: 700; }
+  .thf-care { width: 40%; }
+  .thf-care .thf-item { color: #a3521f; }
+  .thf-item { margin-bottom: 3px; }
   .th-filter { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .th-filter input[type=date] { width: auto; }
   .th-filter .sep { color: #8a8378; font-size: 0.85rem; }
@@ -82,6 +94,14 @@
         <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>留意点を保存</button>
       </div>
     </form>
+    <div class="thf mt-3" id="cautions-figure" data-url="{% url 'therapy:cautions_figure' beneficiary.pk %}">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+        <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none thf-toggle" aria-expanded="{% if fig.empty %}false{% else %}true{% endif %}" aria-controls="cautions-figure-body">
+          <i class="bi bi-diagram-3"></i> 見取り図と表<span class="thf-hint">（上の留意点から自動で作ります。欄を直すと図も変わります）</span> <i class="bi bi-chevron-down thf-chev"></i></button>
+        <a href="{% url 'therapy:cautions_figure_print' beneficiary.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary" title="保存してある留意点の見取り図と表を A4 で印刷"><i class="bi bi-printer me-1"></i>見取り図を印刷</a>
+      </div>
+      <div id="cautions-figure-body" class="thf-body {% if fig.empty %}d-none{% endif %}">{% include 'therapy/_cautions_figure.html' %}</div>
+    </div>
   </div></div>
 
   <div class="card mb-3" id="add"><div class="card-body">
@@ -168,6 +188,31 @@
 })();
 </script>
 <script>
+(function () {
+  // 留意点の見取り図と表：欄の内容が変わったら（AI の要約・手直し）少し待ってから作り直す。保存は不要
+  var wrap = document.getElementById('cautions-figure'), body = document.getElementById('cautions-figure-body');
+  var ta = document.getElementById('cautions'), toggle = wrap && wrap.querySelector('.thf-toggle'), timer = null, last = ta ? ta.value : '';
+  if (!wrap || !ta) return;
+  toggle.addEventListener('click', function () {
+    var hidden = body.classList.toggle('d-none');
+    toggle.setAttribute('aria-expanded', hidden ? 'false' : 'true');
+  });
+  function refresh() {
+    if (ta.value === last) return;
+    last = ta.value;
+    var fd = new FormData(); fd.append('text', ta.value);
+    fd.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+    fetch(wrap.dataset.url, {method: 'POST', body: fd, credentials: 'same-origin'})
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || typeof d.html !== 'string') return;
+        body.innerHTML = d.html;
+        if (!d.empty && body.classList.contains('d-none')) { body.classList.remove('d-none'); toggle.setAttribute('aria-expanded', 'true'); }
+      })
+      .catch(function () { /* 図はおまけなので、失敗しても何もしない */ });
+  }
+  ta.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(refresh, 1500); });
+})();
 (function () {
   var area = document.getElementById('cautions');
   var box = document.getElementById('cautions-summary-note');
