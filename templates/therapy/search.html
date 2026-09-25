@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+
+{% block title %}療育記録の検索 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}療育記録の検索{% endblock %}
+{% block nav_therapy %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .th-search .form-label { font-size: 0.85rem; font-weight: 600; margin-bottom: 2px; }
+  .th-hit { padding: 12px 16px; border-top: 1px solid var(--line); }
+  .th-hit-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+  .th-hit-name { font-weight: 700; text-decoration: none; color: inherit; }
+  a.th-hit-name:hover { text-decoration: underline; }
+  .th-hit-meta { font-size: 0.82rem; color: #8a8378; }
+  .th-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .th-chip { font-size: 0.82rem; padding: 1px 8px; border-radius: 999px; background: var(--lake-soft, #eef3f1); color: var(--lake-text, #2f5d50); }
+  .th-hit-body { white-space: pre-wrap; font-size: 0.92rem; margin-top: 6px; }
+  .th-use { display: flex; align-items: center; gap: 6px; }
+  .th-use select { width: auto; }
+  @media (max-width: 576px) { .th-hit { padding: 10px 12px; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <a href="{% url 'therapy:index' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left me-1"></i>療育記録へ</a>
+    <div class="small text-muted">日付・{{ terms.beneficiary }}名・職員名・言葉で、この事業所の記録を横断して探せます。見つけた記録は「この内容で書く」でほかの{{ terms.beneficiary }}の記録に写せます。</div>
+  </div>
+
+  <div class="card mb-3"><div class="card-body">
+    <form method="get" class="row g-2 th-search" aria-label="記録を探す">
+      <div class="col-12 col-md-4">
+        <label class="form-label" for="s-child">{{ terms.beneficiary }}名</label>
+        <input type="text" id="s-child" name="child" class="form-control form-control-sm" value="{{ cond.child }}" list="child-options" placeholder="姓・名・かなの一部" autocomplete="off">
+        <datalist id="child-options">{% for c in children %}<option value="{{ c.full_name }}">{% endfor %}</datalist>
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label" for="s-staff">職員名（担当）</label>
+        <input type="text" id="s-staff" name="staff" class="form-control form-control-sm" value="{{ cond.staff }}" list="staff-options" placeholder="表示名・名前の一部" autocomplete="off">
+        <datalist id="staff-options">{% for s in staff_list %}<option value="{{ s }}">{% endfor %}</datalist>
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label" for="s-q">言葉（やったこと・記録）</label>
+        <input type="text" id="s-q" name="q" class="form-control form-control-sm" value="{{ cond.q }}" placeholder="例：ブロック　声かけ">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label" for="s-ym">月</label>
+        <select id="s-ym" name="ym" class="form-select form-select-sm">
+          <option value="">すべての月</option>
+          {% for m in months %}<option value="{{ m|date:'Y-m' }}" {% if cond.ym == m|date:'Y-m' %}selected{% endif %}>{{ m|date:'Y年n月' }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label" for="s-from">この日から</label>
+        <input type="date" id="s-from" name="from" class="form-control form-control-sm" value="{{ cond.from|date:'Y-m-d' }}">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label" for="s-to">この日まで</label>
+        <input type="date" id="s-to" name="to" class="form-control form-control-sm" value="{{ cond.to|date:'Y-m-d' }}">
+      </div>
+      <div class="col-6 col-md-3 d-flex align-items-end gap-2">
+        <button class="btn btn-sm btn-primary flex-grow-1"><i class="bi bi-search me-1"></i>探す</button>
+        {% if searched %}<a href="{% url 'therapy:search' %}" class="btn btn-sm btn-link">解除</a>{% endif %}
+      </div>
+    </form>
+  </div></div>
+
+  <div class="card">
+    <div class="card-body pb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div class="fw-bold"><i class="bi bi-journal-text me-1"></i>見つかった記録
+        {% if searched %}<span class="th-hit-meta ms-1">{% if total > search_max %}{{ search_max }} 件より多くあります（新しい {{ search_max }} 件まで表示。条件を足して絞ってください）{% else %}{{ total }} 件{% endif %}</span>{% endif %}</div>
+      {% if searched %}<div class="th-hit-meta">新しい順</div>{% endif %}
+    </div>
+    {% if not searched %}
+    <div class="text-center text-muted py-4 border-top">上の欄に条件を入れて「探す」を押してください。空の欄は条件にしません。</div>
+    {% else %}
+    {% for rec in records %}
+    <div class="th-hit" id="rec{{ rec.pk }}">
+      <div class="th-hit-head">
+        <div>
+          <a href="{% url 'therapy:child' rec.beneficiary.pk %}?ym={{ rec.date|date:'Y-m' }}#rec{{ rec.pk }}" class="th-hit-name">{{ rec.beneficiary.full_name }}</a>
+          <span class="th-hit-meta ms-2">{{ rec.date|date:'Y年n月j日' }}（{{ rec.date|date:'D' }}）{% if rec.time %} {{ rec.time|time:'G:i' }}{% endif %}{% if rec.staff_label %}　担当 {{ rec.staff_label }}{% endif %}</span>
+        </div>
+        <form class="th-use" method="get" data-child-url="{% url 'therapy:child' 0 %}" onsubmit="return thUse(this);">
+          <input type="hidden" name="copy" value="{{ rec.pk }}">
+          <select name="to" class="form-select form-select-sm" aria-label="どの{{ terms.beneficiary }}に書くか">
+            <option value="">— {{ terms.beneficiary }}を選ぶ —</option>
+            {% for c in children %}<option value="{{ c.pk }}">{{ c.full_name }}</option>{% endfor %}
+          </select>
+          <button class="btn btn-sm btn-outline-primary text-nowrap" title="選んだ{{ terms.beneficiary }}の「記録を追加する」に、この記録の内容を写して開きます"><i class="bi bi-files me-1"></i>この内容で書く</button>
+        </form>
+      </div>
+      {% if rec.activity_list %}<div class="th-chips">{% for a in rec.activity_list %}<span class="th-chip">{{ a }}</span>{% endfor %}</div>{% endif %}
+      {% if rec.body %}<div class="th-hit-body">{{ rec.body }}</div>{% endif %}
+    </div>
+    {% empty %}
+    <div class="text-center text-muted py-4 border-top">当てはまる記録はありません。条件を減らしてみてください。</div>
+    {% endfor %}
+    {% endif %}
+  </div>
+</div>
+<script>
+  // 「この内容で書く」：選んだ利用者の画面を、この記録の内容を写した状態で開く
+  function thUse(form) {
+    var to = form.querySelector('select[name=to]').value;
+    if (!to) { form.querySelector('select[name=to]').focus(); return false; }
+    var url = form.getAttribute('data-child-url').replace(/\/0\/$/, '/' + to + '/');
+    window.location.href = url + '?copy=' + form.querySelector('input[name=copy]').value + '#add';
+    return false;
+  }
+</script>
+{% endblock %}

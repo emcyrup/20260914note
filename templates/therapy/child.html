@@ -49,6 +49,7 @@
     <a href="{% url 'therapy:index' %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left me-1"></i>療育記録へ</a>
     <div class="d-flex gap-2 flex-wrap">
       <a href="{% url 'beneficiaries:detail' beneficiary.pk %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-person me-1"></i>{{ terms.beneficiary }}台帳</a>
+      <a href="{% url 'therapy:search' %}" class="btn btn-outline-secondary btn-sm" title="日付・名前・職員名・言葉で、ほかの{{ terms.beneficiary }}の記録も探せます"><i class="bi bi-search me-1"></i>記録を検索</a>
       <a href="{% url 'therapy:pdf' beneficiary.pk %}?fmt=html{% if filter_query %}&{{ filter_query }}{% endif %}" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-printer me-1"></i>用紙で印刷{% if filtered %}（絞った記録）{% endif %}</a>
       <a href="{% url 'therapy:pdf' beneficiary.pk %}?fmt=html&blank=1" class="btn btn-outline-secondary btn-sm" target="_blank">空の用紙</a>
     </div>
@@ -85,6 +86,7 @@
 
   <div class="card mb-3" id="add"><div class="card-body">
     <div class="th-card-title mb-2"><i class="bi bi-plus-circle"></i>記録を追加する</div>
+    {% if copy_rec %}<div class="alert alert-info small py-1 px-2 mb-2"><i class="bi bi-files me-1"></i>{{ copy_rec.beneficiary.full_name }}さんの {{ copy_rec.date|date:'n/j' }} の記録の「やったこと」と「記録」を写しています。この{{ terms.beneficiary }}に合わせて直してから「追加する」を押してください。</div>{% endif %}
     <form method="post" class="row g-2">
       {% csrf_token %}<input type="hidden" name="action" value="add">
       {% include 'therapy/_record_fields.html' with rec=None %}
@@ -97,7 +99,7 @@
       <div class="th-card-title"><i class="bi bi-journal-text"></i>これまでの記録{% if ym %}（{{ ym }}）{% endif %}{% if date_from or date_to %}（{{ date_from|date:'n/j'|default:'' }}〜{{ date_to|date:'n/j'|default:'' }}）{% endif %}<span class="th-rec-meta">{{ records|length }} 件</span></div>
       <form method="get" class="th-filter" aria-label="記録を絞る">
         <select name="ym" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="月で絞る">
-          <option value="">すべての月{% if not filtered %}（新しい200件）{% endif %}</option>
+          <option value="">すべての月</option>
           {% for m in months %}<option value="{{ m|date:'Y-m' }}" {% if ym == m|date:'Y-m' %}selected{% endif %}>{{ m|date:'Y年n月' }}</option>{% endfor %}
         </select>
         <input type="date" name="from" class="form-control form-control-sm" value="{{ date_from|date:'Y-m-d' }}" aria-label="この日から">

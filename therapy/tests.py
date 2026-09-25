@@ -171,6 +171,84 @@ class TherapySuggestAndFilterTests(TestCase):
         self.assertNotContains(res, '活動1<')
 
 
+class TherapySearchTests(TestCase):
+    """履歴は上限なし・事業所内の記録を横断して探す・ほかの利用者の記録を写して書く"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_therapy_record=True)
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f,
+                                                     role=StaffAccount.ROLE_ADMIN, display_name='永山')
+        self.suzuki = StaffAccount.objects.create_user('suzuki', password='pw12345678', facility=self.f, display_name='鈴木')
+        self.client.login(username='ryo', password='pw12345678')
+        dob = datetime.date(2019, 4, 1)
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', last_name_kana='あおき', date_of_birth=dob)
+        self.other = Beneficiary.objects.create(facility=self.f, last_name='井上', first_name='太郎', last_name_kana='いのうえ', date_of_birth=dob)
+        self.url = reverse('therapy:search')
+
+    def rec(self, kid, day, acts, **kw):
+        return TherapyRecord.objects.create(facility=self.f, beneficiary=kid, date=day, activities=acts, **kw)
+
+    def test_history_has_no_cap(self):
+        start = datetime.date(2025, 1, 1)
+        for i in range(230):
+            self.rec(self.kid, start + datetime.timedelta(days=i), [f'活動{i}'])
+        res = self.client.get(reverse('therapy:child', args=[self.kid.pk]))
+        self.assertEqual(len(res.context['records']), 230)
+        self.assertNotContains(res, '新しい200件')
+
+    def test_search_by_child_staff_date_and_keyword(self):
+        a = self.rec(self.kid, datetime.date(2026, 9, 1), ['ウレタン棒', 'ブロック'], staff=self.suzuki, body='声かけで落ち着いた')
+        b = self.rec(self.other, datetime.date(2026, 9, 2), ['ブロック'], staff_name='山田', body='最後まで集中')
+        c = self.rec(self.other, datetime.date(2026, 10, 3), ['太鼓'], staff=self.user)
+        res = self.client.get(self.url)
+        self.assertFalse(res.context['searched'])
+        self.assertContains(res, '条件を入れて')
+        # 利用者名（姓・かな）
+        self.assertEqual([r.pk for r in self.client.get(self.url + '?child=井上').context['records']], [c.pk, b.pk])
+        self.assertEqual([r.pk for r in self.client.get(self.url + '?child=あおき').context['records']], [a.pk])
+        # 職員名（表示名・名前欄）
+        self.assertEqual([r.pk for r in self.client.get(self.url + '?staff=鈴木').context['records']], [a.pk])
+        self.assertEqual([r.pk for r in self.client.get(self.url + '?staff=山田').context['records']], [b.pk])
+        # 言葉（やったこと・記録）と日付
+        self.assertEqual([r.pk for r in self.client.get(self.url + '?q=ブロック').context['records']], [b.pk, a.pk])
+        self.assertEqual([r.pk for r in self.client.get(self.url + '?q=集中').context['records']], [b.pk])
+        self.assertEqual([r.pk for r in self.client.get(self.url + '?ym=2026-10').context['records']], [c.pk])
+        self.assertEqual([r.pk for r in self.client.get(self.url + '?from=2026-09-02&to=2026-09-30').context['records']], [b.pk])
+        # 組み合わせ
+        res = self.client.get(self.url + '?child=井上&q=ブロック')
+        self.assertEqual([r.pk for r in res.context['records']], [b.pk])
+        self.assertContains(res, '1 件')
+        self.assertContains(res, 'この内容で書く')
+        res = self.client.get(self.url + '?child=青木&staff=山田')
+        self.assertContains(res, '当てはまる記録はありません')
+
+    def test_search_excludes_other_facility(self):
+        g = Facility.objects.create(name='ほか', use_therapy_record=True)
+        kid = Beneficiary.objects.create(facility=g, last_name='井上', first_name='花', date_of_birth=datetime.date(2019, 4, 1))
+        TherapyRecord.objects.create(facility=g, beneficiary=kid, date=datetime.date(2026, 9, 1), activities=['ブロック'])
+        self.assertEqual(self.client.get(self.url + '?q=ブロック').context['records'], [])
+        self.assertEqual(self.client.get(self.url + '?child=井上').context['records'], [])
+
+    def test_copy_prefills_add_form_for_another_child(self):
+        src = self.rec(self.other, datetime.date(2026, 9, 2), ['ブロック', '太鼓'], body='最後まで集中できた')
+        res = self.client.get(reverse('therapy:child', args=[self.kid.pk]) + f'?copy={src.pk}')
+        self.assertEqual(res.context['copy_rec'], src)
+        self.assertContains(res, '井上 太郎さんの 9/2 の記録')
+        self.assertContains(res, 'name="activity_1" class="form-control" maxlength="100" list="activity-options" autocomplete="off"\n               value="ブロック"')
+        self.assertContains(res, '>最後まで集中できた</textarea>')
+        # ほかの事業所の記録は写さない
+        g = Facility.objects.create(name='ほか', use_therapy_record=True)
+        kid = Beneficiary.objects.create(facility=g, last_name='井上', first_name='花', date_of_birth=datetime.date(2019, 4, 1))
+        foreign = TherapyRecord.objects.create(facility=g, beneficiary=kid, date=datetime.date(2026, 9, 1), activities=['秘密'], body='秘密')
+        res = self.client.get(reverse('therapy:child', args=[self.kid.pk]) + f'?copy={foreign.pk}')
+        self.assertIsNone(res.context['copy_rec'])
+        self.assertNotContains(res, '秘密')
+
+    def test_links_on_index_and_child(self):
+        self.assertContains(self.client.get(reverse('therapy:index')), '記録を検索')
+        self.assertContains(self.client.get(reverse('therapy:child', args=[self.kid.pk])), '記録を検索')
+
+
 @override_settings(ANTHROPIC_API_KEY='test-key')
 class CautionsSummaryTests(TestCase):
     def setUp(self):

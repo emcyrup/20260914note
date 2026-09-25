@@ -3,7 +3,7 @@ import datetime
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
@@ -19,6 +19,7 @@ from .models import ACTIVITY_MAX, TherapyProfile, TherapyRecord
 PAGE_ENTRIES = 5     # 用紙1枚に入る回数
 LONG_CAUTIONS = 300  # これより長い留意点は、用紙の2枚目からは「1枚目のとおり」にする
 CAUTIONS_MAX = 6000  # 留意点の長さ（「詳しくまとめる」で場面ごとに書くので長め）
+SEARCH_MAX = 500     # 記録の検索で一度に出す件数
 
 
 class TherapyEnabledMixin(LoginRequiredMixin):
@@ -98,6 +99,34 @@ def filter_records(records, params):
     return records, ym, start, end
 
 
+def search_records(facility, params):
+    """
+    事業所内の療育記録を横断して探す（ほかの利用者の記録を参考にするため）。
+    child=名前（姓・名・かなの一部）、staff=担当の名前の一部（アカウントの表示名・ユーザー名・名前欄）、
+    q=やったこと・記録の本文の言葉、ym / from / to=日付。空の条件は無視する
+    """
+    records = TherapyRecord.objects.filter(facility=facility).select_related('beneficiary', 'staff')
+    child = params.get('child', '').strip()[:50]
+    if child:
+        for word in child.replace('　', ' ').split():
+            records = records.filter(Q(beneficiary__last_name__icontains=word) | Q(beneficiary__first_name__icontains=word)
+                                     | Q(beneficiary__last_name_kana__icontains=word)
+                                     | Q(beneficiary__first_name_kana__icontains=word))
+    staff = params.get('staff', '').strip()[:50]
+    if staff:
+        records = records.filter(Q(staff__display_name__icontains=staff) | Q(staff__username__icontains=staff)
+                                 | Q(staff_name__icontains=staff))
+    q = params.get('q', '').strip()[:100]
+    records, ym, start, end = filter_records(records, params)
+    if q:
+        # 「やったこと」は JSON で保存されている（SQLite では日本語が \uXXXX になる）ので、DB ではなく Python で照らす
+        words = [w.lower() for w in q.replace('　', ' ').split()]
+        records = [r for r in records
+                   if all(w in (r.body + ' ' + ' '.join(a for a in (r.activities or []) if isinstance(a, str))).lower()
+                          for w in words)]
+    return records, {'child': child, 'staff': staff, 'q': q, 'ym': ym, 'from': start, 'to': end}
+
+
 def _todays_reservations(facility, day):
     """その日の予約（予約管理を使う事業所）。療育記録をすぐ書けるように並べる"""
     if not facility.use_reservation:
@@ -135,6 +164,26 @@ class IndexView(TherapyEnabledMixin, View):
         })
 
 
+class SearchView(TherapyEnabledMixin, View):
+    """療育記録の検索：日付・利用者名・職員名・言葉で事業所内の記録を横断して探し、ほかの利用者の記録に使う"""
+    template_name = 'therapy/search.html'
+
+    def get(self, request):
+        facility = request.user.facility
+        records, cond = search_records(facility, request.GET)
+        searched = any(cond.values())
+        records = list(records[:SEARCH_MAX + 1]) if searched else []
+        total = len(records)      # 上限を超えたぶんは「もっとある」印だけ出す
+        records = records[:SEARCH_MAX]
+        months = TherapyRecord.objects.filter(facility=facility).dates('date', 'month', order='DESC')
+        return render(request, self.template_name, {
+            'records': records, 'cond': cond, 'searched': searched, 'total': total, 'search_max': SEARCH_MAX,
+            'months': months,
+            'children': Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE),
+            'staff_list': StaffAccount.objects.filter(facility=facility, is_active=True).order_by('display_name', 'username'),
+        })
+
+
 class ChildView(TherapyEnabledMixin, View):
     """利用者1人の療育記録：留意点・記録の一覧・追加・修正・削除"""
     template_name = 'therapy/child.html'
@@ -147,8 +196,11 @@ class ChildView(TherapyEnabledMixin, View):
         months = [d for d in records.dates('date', 'month', order='DESC')]
         records, ym, date_from, date_to = filter_records(records, request.GET)
         filtered = bool(ym or date_from or date_to)
-        records = list(records if filtered else records[:200])
+        records = list(records)      # 履歴は残したぶんすべて出す（件数の上限なし）
         suggestions = activity_suggestions(facility)
+        copy_rec = None              # ほかの利用者の記録を「この内容で書く」で開いたとき
+        if request.GET.get('copy'):
+            copy_rec = TherapyRecord.objects.filter(facility=facility, pk=to_int(request.GET.get('copy'), -1)).first()
         filter_query = '&'.join(f'{k}={v}' for k, v in (('ym', ym), ('from', date_from and date_from.isoformat()),
                                                            ('to', date_to and date_to.isoformat())) if v)
         default_date = _parse_date(request.GET.get('date'), datetime.date.today())
@@ -159,6 +211,8 @@ class ChildView(TherapyEnabledMixin, View):
             'activity_suggestions': suggestions, 'activity_chips': suggestions[:ACTIVITY_CHIP_MAX],
             'staff_list': StaffAccount.objects.filter(facility=facility, is_active=True).order_by('display_name', 'username'),
             'default_date': default_date, 'default_time': default_time,
+            'default_activities': list(copy_rec.activities or []) if copy_rec else [],
+            'default_body': (copy_rec.body if copy_rec else ''), 'copy_rec': copy_rec,
             'activity_range': range(1, ACTIVITY_MAX + 1), 'edit_pk': to_int(request.GET.get('edit')),
             'cautions_rows': min(max(len((profile.cautions if profile else '').splitlines()) + 1, 4), 24),
         })
