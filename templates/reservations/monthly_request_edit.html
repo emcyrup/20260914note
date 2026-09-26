@@ -99,6 +99,7 @@
         <div class="col-12 col-md-3 d-grid">
           <button class="btn btn-primary btn-sm text-nowrap">保存する</button>
         </div>
+        {% if user.facility.is_ryoiku %}
         <div class="col-12">
           <div class="btn-group btn-group-sm flex-wrap" role="group" aria-label="用紙の書き方">
             <input type="radio" class="btn-check" name="wish_mode" id="wishModeOk" value="ok" autocomplete="off" {% if not shown.is_ng_mode %}checked{% endif %}>
@@ -113,9 +114,16 @@
         </div><div class="form-text" id="wishHelpNg">
           用紙に「ダメな日」「来られない日」と日付だけが書いてあるときはこちら。来られない日に印を付けると、<b>それ以外の日はどの枠でも可能</b>として予定を組みます。
         </div></div>
+        {% else %}
+        <div class="col-12"><div class="form-text">
+          用紙の「可能な日時の枠」の○をそのまま写します。終日に○なら「終日」だけを入れてください。
+          お休み（{{ setting.closed_weekdays_text|default:'なし' }}）と、その日に無い時刻は網掛けです。{{ setting.hours_text }}。
+        </div></div>
+        {% endif %}
       </div>
     </div></div>
 
+    {% if user.facility.is_ryoiku %}
     <div class="card mb-3" id="ngBlock"><div class="card-body">
       <div class="small fw-semibold mb-2"><i class="bi bi-x-circle me-1"></i>来られない日（印を付ける）</div>
       <div class="d-flex flex-wrap gap-1" id="ngDays">
@@ -129,6 +137,7 @@
       </div>
       <div class="form-text">赤くなった日が「来られない日」です。お休みの日は選べません。</div>
     </div></div>
+    {% endif %}
 
     <div class="card mb-3" id="wishGrid"><div class="card-body p-2">
       <table class="wish">
@@ -173,8 +182,9 @@
 
   {% if scan %}</div></div>{% endif %}
 <script>
-  // 書き方の切り替え：○の表（ok）か、来られない日（ng）か
+  // 書き方の切り替え：○の表（ok）か、来られない日（ng）か（ゆあーずだけ）
   (function () {
+    if (!document.getElementById('wishModeNg')) return;
     function apply() {
       var ng = document.getElementById('wishModeNg').checked;
       document.getElementById('wishGrid').classList.toggle('d-none', ng);

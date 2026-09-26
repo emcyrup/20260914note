@@ -344,7 +344,8 @@ class CustomerPageView(PublicPageMixin):
                                        to_int(request.POST.get('desired_count'), 0), wishes,
                                        note=request.POST.get('note', '').strip(),
                                        source=MonthlyRequest.SOURCE_WEB, customer=customer,
-                                       wish_mode=monthly.wish_mode_from_post(request.POST),
+                                       wish_mode=(monthly.wish_mode_from_post(request.POST) if facility.is_ryoiku
+                                                  else MonthlyRequest.WISH_OK),
                                        ng_dates=monthly.ng_from_post(request.POST, year, month))
             first, last = monthly.month_range(year, month)
             decided = Reservation.objects.filter(beneficiary=beneficiary, date__gte=first, date__lte=last,

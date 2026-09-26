@@ -137,7 +137,7 @@ def to_ng_dates(data, year, month):
 
 
 def normalize(data, facility, year, month, setting):
-    ng_mode = data.get('mode') == 'ng'
+    ng_mode = data.get('mode') == 'ng' and facility.is_ryoiku      # 「来られない日」の書き方はゆあーずだけ
     wishes, ignored = to_wishes(data, facility, year, month, setting)
     ng_dates = to_ng_dates(data, year, month) if ng_mode else []
     if ng_mode:

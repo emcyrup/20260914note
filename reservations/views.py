@@ -694,6 +694,17 @@ def _month_ctx(year, month):
     return {'year': year, 'month': month, 'prev_year': py, 'prev_month': pm, 'next_year': ny, 'next_month': nm}
 
 
+class RyoikuOnlyMixin(SlotModeMixin):
+    """画面の型「療育（ゆあーず）」の事業所だけの機能（業務日誌・その日の担当）。ほかの事業所では 404"""
+
+    def dispatch(self, request, *args, **kwargs):
+        facility = getattr(request.user, 'facility', None)
+        if request.user.is_authenticated and facility is not None and not facility.is_ryoiku:
+            from django.http import Http404
+            raise Http404
+        return super().dispatch(request, *args, **kwargs)
+
+
 class MonthlyRequestListView(SlotModeMixin, View):
     """月予約利用希望の一覧（利用者ごとの希望回数・○の枠数・確定数）"""
     template_name = 'reservations/monthly_requests.html'
@@ -856,7 +867,7 @@ class MonthlyRequestEditView(SlotModeMixin, View):
             MonthlyRequest.objects.filter(beneficiary=beneficiary, year=year, month=month).delete()
             messages.success(request, f'{beneficiary.full_name} さんの {month}月の利用希望を消しました。')
             return back
-        mode = monthly.wish_mode_from_post(request.POST)
+        mode = monthly.wish_mode_from_post(request.POST) if facility.is_ryoiku else MonthlyRequest.WISH_OK
         wishes = monthly.wishes_from_post(request.POST, facility, year, month, setting)
         ng_dates = monthly.ng_from_post(request.POST, year, month)
         desired = to_int(request.POST.get('desired_count'), 0)
@@ -1000,7 +1011,7 @@ class MonthlyScheduleView(SlotModeMixin, View):
         })
 
 
-class MonthlyDayStaffView(SlotModeMixin, View):
+class MonthlyDayStaffView(RyoikuOnlyMixin, View):
     """月間予定表の「その日の担当」（業務日誌の右上に印字）をまとめて保存する"""
 
     def post(self, request, year, month):
@@ -1011,7 +1022,7 @@ class MonthlyDayStaffView(SlotModeMixin, View):
         return redirect(reverse('reservations:monthly_schedule', args=[year, month]) + '#dayStaff')
 
 
-class DailyLogPdfView(SlotModeMixin, View):
+class DailyLogPdfView(RyoikuOnlyMixin, View):
     """業務日誌（1日ごとの予定表）：月間予定表から、A4 1枚に4日ぶん。?from=YYYY-MM-DD&to=YYYY-MM-DD で範囲を絞れる"""
 
     def get(self, request, year, month):

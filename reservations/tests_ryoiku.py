@@ -20,7 +20,8 @@ def child(facility, last, first='子'):
 
 
 def ryoiku():
-    f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_reservation=True, use_therapy_record=True)
+    f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_reservation=True, use_therapy_record=True,
+                                layout=Facility.LAYOUT_RYOIKU)
     s = services.get_setting(f)
     s.slot_mode, s.slot_capacity = True, 3
     s.weekday_first_hour, s.weekday_last_hour = 10, 18
@@ -425,6 +426,31 @@ class DailyLogTests(TestCase):
         self.assertEqual(res.content.decode().count('class="pb"'), 0)
         # 候補：入れた担当と職員の表示名
         self.assertEqual(monthly.staff_suggestions(self.f), ['pm大坂', '大坂'])
+
+    def test_only_for_ryoiku_layout(self):
+        """ゆあーず以外（標準の画面の事業所）には、担当の欄・業務日誌・来られない日の書き方を出さない"""
+        self.f.layout = Facility.LAYOUT_STANDARD
+        self.f.save(update_fields=['layout'])
+        res = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))
+        self.assertNotContains(res, '業務日誌')
+        self.assertNotContains(res, 'name="staff_2026-10-02"')
+        self.assertEqual(self.client.get(reverse('reservations:daily_log_pdf', args=[2026, 10]) + '?fmt=html').status_code, 404)
+        self.assertEqual(self.client.post(reverse('reservations:monthly_day_staff', args=[2026, 10]), {'staff_2026-10-02': 'x'}).status_code, 404)
+        url = reverse('reservations:monthly_request_edit', args=[2026, 10, self.kids[0].pk])
+        res = self.client.get(url)
+        self.assertNotContains(res, '来られない日を書く')
+        res = self.client.post(url, {'desired_count': '1', 'wish_mode': 'ng', 'ng_2026-10-04': '1', 'h_2026-10-02': ['10']})
+        req = MonthlyRequest.objects.get(beneficiary=self.kids[0])
+        self.assertEqual((req.wish_mode, req.wishes), ('ok', {'2026-10-02': [10]}))   # ng は受け付けない
+        res = self.client.get(reverse('reservations:monthly_request_form', args=[2026, 10]) + '?fmt=html')
+        self.assertNotContains(res, 'ダメな日')
+        from . import scan
+        out = scan.normalize({'name': '', 'year': 2026, 'month': 10, 'desired_count': 1, 'days': [], 'mode': 'ng',
+                              'ng_days': [4], 'note': '', 'unreadable': ''}, self.f, 2026, 10, self.s)
+        self.assertEqual((out['wish_mode'], out['ng_dates']), ('ok', []))
+        customer = Customer.objects.create(facility=self.f, name='青木 母')
+        customer.children.add(self.kids[0])
+        self.assertNotContains(self.client.get(reverse('reservations_public:customer', args=[customer.token])), '来られない日だけ選ぶ')
 
     def test_other_facility_data_not_shown(self):
         g = Facility.objects.create(name='ほか', use_reservation=True)

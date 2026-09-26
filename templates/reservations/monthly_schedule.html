@@ -49,7 +49,7 @@
       <a href="{% url 'reservations:monthly_requests' year month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-list-check me-1"></i>利用希望</a>
       <button type="button" class="btn btn-outline-primary btn-sm" id="ms-swap-toggle"><i class="bi bi-arrow-left-right me-1"></i>入れ替え・移動</button>
       <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-printer me-1"></i>印刷（PDF）</a>
-      <a href="{% url 'reservations:daily_log_pdf' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank" title="1日ごとの予定表（時間・氏名・提供形態・実績・備考）。A4 1枚に4日ぶん。右上に「その日の担当」"><i class="bi bi-journal-text me-1"></i>業務日誌（4日/枚）</a>
+      {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_log_pdf' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank" title="1日ごとの予定表（時間・氏名・提供形態・実績・備考）。A4 1枚に4日ぶん。右上に「その日の担当」"><i class="bi bi-journal-text me-1"></i>業務日誌（4日/枚）</a>{% endif %}
       <form method="post" action="{% url 'reservations:monthly_requests' year month %}"
             onsubmit="return confirm('{{ month }}月の利用希望から予約を割り当てます。\nすでに確定している予約は残し、希望回数に足りないぶんだけ足します。よろしいですか？');">
         {% csrf_token %}
@@ -136,6 +136,7 @@
         {% endfor %}
       </div>
 
+      {% if facility.is_ryoiku %}
       <div class="card mt-3" id="dayStaff">
         <form method="post" action="{% url 'reservations:monthly_day_staff' year month %}">
           {% csrf_token %}
@@ -155,6 +156,7 @@
           <div class="card-body pt-2"><button class="btn btn-sm btn-primary w-100"><i class="bi bi-check2 me-1"></i>担当を保存</button></div>
         </form>
       </div>
+      {% endif %}
     </div>
   </div>
 </div>

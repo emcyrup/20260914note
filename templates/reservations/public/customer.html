@@ -109,6 +109,7 @@
              value="{{ wish_req.desired_count|default:0 }}">
       <span class="small">回</span>
     </div>
+    {% if facility.is_ryoiku %}
     <div class="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="書き方">
       <input type="radio" class="btn-check" name="wish_mode" id="pubModeOk" value="ok" autocomplete="off" {% if not wish_req.is_ng_mode %}checked{% endif %}>
       <label class="btn btn-outline-secondary" for="pubModeOk">来られる日時に印</label>
@@ -127,6 +128,7 @@
         {% endfor %}
       </div>
     </div>
+    {% endif %}
     <div style="overflow-x: auto;" id="pubGrid">
       <table class="wish">
         <thead><tr><th style="min-width: 62px;">日付</th><th>終日</th>{% for h in wish_grid.hours %}<th>{{ h }}</th>{% endfor %}</tr></thead>
@@ -150,6 +152,7 @@
   </form>
   <script>
     (function () {
+      if (!document.getElementById('pubModeNg')) return;
       function apply() {
         var ng = document.getElementById('pubModeNg').checked;
         document.getElementById('pubGrid').classList.toggle('d-none', ng);
