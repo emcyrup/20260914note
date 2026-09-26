@@ -484,6 +484,98 @@ class DailyLogTests(TestCase):
         self.assertNotContains(res, 'よそ')
 
 
+class SheetImportTests(TestCase):
+    """月予約利用希望を Excel・CSV から取り込む（ゆあーず）"""
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.aoki = child(self.f, '青木')
+        self.inoue = child(self.f, '井上', '太郎')
+
+    def xlsx(self, rows):
+        import io
+        from openpyxl import Workbook
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        wb = Workbook(); ws = wb.active
+        for r in rows:
+            ws.append(r)
+        buf = io.BytesIO(); wb.save(buf)
+        return SimpleUploadedFile('kibou.xlsx', buf.getvalue(),
+                                  content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    def test_template_has_names_and_days(self):
+        from openpyxl import load_workbook
+        import io
+        res = self.client.get(reverse('reservations:monthly_request_sheet_template', args=[2026, 10]))
+        self.assertEqual(res['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        ws = load_workbook(io.BytesIO(res.content)).active
+        rows = list(ws.iter_rows(values_only=True))
+        self.assertEqual(rows[0][:4], ('氏名', '希望回数', '書き方', 1))
+        self.assertEqual(rows[0][3 + 30], 31)
+        self.assertEqual(rows[1][3], '木')                                  # 2026-10-01 は木曜
+        self.assertEqual({rows[2][0], rows[3][0]}, {'青木 子', '井上 太郎'})
+        # 標準の型では出ない
+        self.f.layout = Facility.LAYOUT_STANDARD
+        self.f.save(update_fields=['layout'])
+        self.assertEqual(self.client.get(reverse('reservations:monthly_request_sheet_template', args=[2026, 10])).status_code, 404)
+
+    def test_parse_ok_and_ng_modes(self):
+        from . import sheet
+        head = ['氏名', '希望回数', '書き方'] + list(range(1, 32))
+        row_aoki = ['青木', '3', '○'] + [''] * 31
+        row_aoki[3 + 1] = '○'          # 2日：終日
+        row_aoki[3 + 2] = '10,11'      # 3日：10時・11時
+        row_aoki[3 + 4] = '○'          # 5日：月曜はお休み → 入れない
+        row_aoki[3 + 5] = '9'          # 6日（火）：9時は枠なし → 印だけなので終日
+        row_inoue = ['井上 太郎', '2回', 'ダメな日'] + [''] * 31
+        row_inoue[3 + 3] = '×'; row_inoue[3 + 10] = '×'
+        row_none = ['山田', '1', '○'] + ['○'] * 31
+        out = sheet.parse_rows([head, ['', '', '', '木'], row_aoki, row_inoue, row_none, [], ['書き方の説明']], self.f, 2026, 10, self.s)
+        self.assertEqual(out['errors'], [])
+        self.assertEqual(out['unmatched'], ['山田'])
+        a, i = out['items']
+        self.assertEqual((a['beneficiary'], a['desired'], a['mode']), (self.aoki, 3, 'ok'))
+        self.assertEqual(a['wishes'], {'2026-10-02': 'all', '2026-10-03': [10, 11], '2026-10-06': 'all'})
+        self.assertEqual(a['notes'], ['5日はお休みの日'])
+        self.assertEqual((i['beneficiary'], i['desired'], i['mode'], i['ng_dates'], i['wishes']),
+                         (self.inoue, 2, 'ng', ['2026-10-04', '2026-10-11'], {}))
+        bad = sheet.parse_rows([['名前', '1']], self.f, 2026, 10, self.s)
+        self.assertIn('「氏名」の見出し', bad['errors'][0])
+
+    def test_upload_xlsx_and_csv_saves_requests(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        head = ['氏名', '希望回数', '書き方'] + list(range(1, 32))
+        row = ['青木 子', 4, '○'] + [None] * 31
+        row[3 + 1] = '○'
+        url = reverse('reservations:request_scan_upload', args=[2026, 10])
+        res = self.client.post(url, {'images': [self.xlsx([head, row])]}, follow=True)
+        self.assertContains(res, '1 人の利用希望を保存しました：青木 子')
+        req = MonthlyRequest.objects.get(beneficiary=self.aoki, year=2026, month=10)
+        self.assertEqual((req.source, req.desired_count, req.wishes), ('file', 4, {'2026-10-02': 'all'}))
+        self.assertContains(res, 'Excel・CSV から')
+        self.assertFalse(RequestScan.objects.exists())                       # 写真ではないので読み取り待ちには入らない
+        csv_text = '氏名,希望回数,書き方,' + ','.join(str(d) for d in range(1, 32)) + '\n井上,2,ダメな日,' + ','.join('×' if d in (4, 11) else '' for d in range(1, 32)) + '\n山本,1,○,' + ','.join('○' for _ in range(31)) + '\n'
+        res = self.client.post(url, {'images': [SimpleUploadedFile('kibou.csv', csv_text.encode('cp932'), content_type='text/csv')]}, follow=True)
+        self.assertContains(res, '1 人の利用希望を保存しました：井上 太郎')
+        self.assertContains(res, '台帳に見つからない名前があり、入れていません：山本')
+        req = MonthlyRequest.objects.get(beneficiary=self.inoue, year=2026, month=10)
+        self.assertEqual((req.wish_mode, req.ng_dates), ('ng', ['2026-10-04', '2026-10-11']))
+        # 読めないファイル
+        res = self.client.post(url, {'images': [SimpleUploadedFile('kibou.xlsx', b'not a zip', content_type='application/octet-stream')]}, follow=True)
+        self.assertContains(res, 'を読めませんでした')
+
+    def test_non_ryoiku_ignores_sheets(self):
+        self.f.layout = Facility.LAYOUT_STANDARD
+        self.f.save(update_fields=['layout'])
+        head = ['氏名', '希望回数', '書き方'] + list(range(1, 32))
+        res = self.client.post(reverse('reservations:request_scan_upload', args=[2026, 10]),
+                               {'images': [self.xlsx([head, ['青木 子', 1, '○', '○']])]}, follow=True)
+        self.assertContains(res, '用紙の写真（JPEG・PNG・HEIC など）を選んでください')
+        self.assertFalse(MonthlyRequest.objects.exists())
+
+
 class RyoikuScreenTests(TestCase):
     def setUp(self):
         self.f, self.s = ryoiku()

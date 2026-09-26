@@ -82,10 +82,10 @@
           <div class="col-md-7">
             <label class="scan-drop" for="scanImages">
               <i class="bi bi-camera" style="font-size:1.8rem;color:var(--lake-text);"></i>
-              <div class="fw-bold mt-1">写真を撮る／画像を選ぶ</div>
-              <div class="small text-muted">1回に20枚まで。1枚に1人分の用紙全体が入るよう、明るい所で真上から。</div>
+              <div class="fw-bold mt-1">写真を撮る／画像を選ぶ{% if facility.is_ryoiku %}／Excel・CSV を選ぶ{% endif %}</div>
+              <div class="small text-muted">ここにファイルを置いても入ります。1回に20枚まで。写真は1枚に1人分の用紙全体が入るよう、明るい所で真上から。{% if facility.is_ryoiku %}Excel・CSV は <a href="{% url 'reservations:monthly_request_sheet_template' year month %}" onclick="event.stopPropagation()">雛形をダウンロード</a> して入れると、AI を使わずにそのまま利用希望になります。{% endif %}</div>
               <div class="small mt-1" id="scanFileNames"></div>
-              <input type="file" id="scanImages" name="images" accept="image/*" multiple>
+              <input type="file" id="scanImages" name="images" accept="image/*{% if facility.is_ryoiku %},.xlsx,.csv{% endif %}" multiple>
             </label>
           </div>
           <div class="col-md-3">
@@ -227,7 +227,7 @@
   if (input) {
     input.addEventListener('change', function () {
       var n = input.files.length; btn.disabled = !n;
-      names.textContent = n ? n + ' 枚を選びました' : '';
+      names.textContent = n ? n + ' 個を選びました' : '';
     });
     document.getElementById('scanUploadForm').addEventListener('submit', function () { btn.disabled = true; btn.textContent = '取り込み中…'; });
   }

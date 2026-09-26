@@ -488,7 +488,9 @@ class MonthlyRequest(models.Model):
     SOURCE_STAFF = 'staff'
     SOURCE_WEB = 'web'
     SOURCE_PHOTO = 'photo'
-    SOURCE_CHOICES = [(SOURCE_STAFF, '職員が転記'), (SOURCE_WEB, '顧客ページ'), (SOURCE_PHOTO, '用紙の写真から')]
+    SOURCE_FILE = 'file'
+    SOURCE_CHOICES = [(SOURCE_STAFF, '職員が転記'), (SOURCE_WEB, '顧客ページ'), (SOURCE_PHOTO, '用紙の写真から'),
+                      (SOURCE_FILE, 'Excel・CSV から')]
 
     facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='monthly_requests')
     beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='monthly_requests',

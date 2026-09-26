@@ -4,7 +4,7 @@ import secrets
 from django.db import models
 from django.utils import timezone
 from facilities.models import Facility
-from facilities.uploads import assessment_upload_to, certificate_upload_to
+from facilities.uploads import assessment_upload_to, certificate_upload_to, document_upload_to
 
 
 LINE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'  # 見間違えやすい 0/O/1/I を除く
@@ -360,3 +360,53 @@ class BeneficiaryAssessment(models.Model):
     @property
     def is_image(self):
         return bool(self.file) and self.file.name.lower().rsplit('.', 1)[-1] in ('jpg', 'jpeg', 'png', 'webp', 'gif', 'heic')
+
+
+DOCUMENT_EXTENSIONS = ('jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'pdf', 'xlsx', 'xls', 'csv')
+DOCUMENT_MAX_BYTES = 20 * 1024 * 1024
+
+
+class BeneficiaryDocument(models.Model):
+    """
+    利用者の基本情報に付ける書類・画像（受給者証や契約書の写真、診断書の PDF、Excel・CSV など）。
+    ドラッグ＆ドロップで何枚でも入れられる。中身は読み取らず、そのまま保管して開けるようにするだけ。
+    """
+
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='documents', verbose_name='利用者')
+    file = models.FileField(upload_to=document_upload_to, verbose_name='ファイル')
+    file_name = models.CharField(max_length=200, blank=True, verbose_name='元のファイル名')
+    title = models.CharField(max_length=100, blank=True, verbose_name='件名')
+    uploaded_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='+', verbose_name='登録者')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = '利用者の書類'
+        verbose_name_plural = '利用者の書類'
+        ordering = ['-created_at', '-pk']
+
+    def __str__(self):
+        return f'{self.beneficiary.full_name} {self.label}'
+
+    @property
+    def ext(self):
+        return (self.file_name or self.file.name or '').lower().rsplit('.', 1)[-1]
+
+    @property
+    def is_image(self):
+        return self.ext in ('jpg', 'jpeg', 'png', 'webp', 'gif')
+
+    @property
+    def kind(self):
+        """画面のアイコン用：image / pdf / sheet / other"""
+        if self.is_image or self.ext == 'heic':
+            return 'image'
+        if self.ext == 'pdf':
+            return 'pdf'
+        if self.ext in ('xlsx', 'xls', 'csv'):
+            return 'sheet'
+        return 'other'
+
+    @property
+    def label(self):
+        return self.title or self.file_name or self.file.name.rsplit('/', 1)[-1]

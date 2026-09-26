@@ -24,6 +24,7 @@ urlpatterns = [
     path('<int:year>/<int:month>/kibou/scan/<int:pk>/read/', views.RequestScanExtractView.as_view(), name='request_scan_extract'),
     path('<int:year>/<int:month>/kibou/scan/<int:pk>/', views.RequestScanActionView.as_view(), name='request_scan_action'),
     path('<int:year>/<int:month>/kibou/form/', views.MonthlyRequestFormView.as_view(), name='monthly_request_form'),
+    path('<int:year>/<int:month>/kibou/template.xlsx', views.RequestSheetTemplateView.as_view(), name='monthly_request_sheet_template'),
     path('<int:year>/<int:month>/kibou/<int:pk>/', views.MonthlyRequestEditView.as_view(), name='monthly_request_edit'),
     path('yotei/', views.MonthlyScheduleNowView.as_view(), name='monthly_schedule_now'),
     path('<int:year>/<int:month>/yotei/', views.MonthlyScheduleView.as_view(), name='monthly_schedule'),

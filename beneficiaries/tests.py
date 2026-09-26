@@ -153,3 +153,70 @@ class AssessmentTests(TestCase):
         self.assertFalse(os.path.exists(second))
         self.client.post(reverse('beneficiaries:assessment_delete', args=[self.kid.pk, a.pk]))
         self.assertFalse(BeneficiaryAssessment.objects.exists())
+
+
+class BeneficiaryDocumentTests(TestCase):
+    """利用者の基本情報の書類・画像（写真・PDF・Excel・CSV。ゆあーずだけ）"""
+
+    def setUp(self):
+        import datetime
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU)
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        self.url = reverse('beneficiaries:document_upload', args=[self.kid.pk])
+
+    @staticmethod
+    def up(name, data=b'x', ctype='application/octet-stream'):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        return SimpleUploadedFile(name, data, content_type=ctype)
+
+    def test_upload_list_delete(self):
+        from .models import BeneficiaryDocument
+        res = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
+        self.assertContains(res, 'ここにファイルを置く')
+        self.assertContains(res, 'js/dropzone.js')
+        png = b'\x89PNG\r\n\x1a\n' + b'0' * 20
+        res = self.client.post(self.url, {'files': [self.up('受給者証.png', png, 'image/png'), self.up('診断書.PDF'),
+                                                    self.up('名簿.xlsx'), self.up('data.csv'), self.up('virus.exe')], 'title': '無視される'}, follow=True)
+        self.assertContains(res, '書類を 4 件取り込みました')
+        self.assertContains(res, 'virus.exe（この種類は入れられません）')
+        docs = list(BeneficiaryDocument.objects.filter(beneficiary=self.kid).order_by('pk'))
+        self.assertEqual([d.kind for d in docs], ['image', 'pdf', 'sheet', 'sheet'])
+        self.assertEqual([d.title for d in docs], ['', '', '', ''])          # 複数のときは件名を付けない
+        self.assertContains(res, '書類・画像（4）')
+        self.assertContains(res, '受給者証.png')
+        self.assertContains(res, 'bi-file-earmark-spreadsheet')
+        # 1つだけなら件名が付く。ファイルはこの事業所の職員だけが開ける
+        self.client.post(self.url, {'files': [self.up('契約書.jpg', png, 'image/jpeg')], 'title': '契約書 2026'})
+        d = BeneficiaryDocument.objects.get(file_name='契約書.jpg')
+        self.assertEqual(d.label, '契約書 2026')
+        self.assertTrue(d.file.name.startswith('beneficiary_documents/'))
+        self.assertEqual(self.client.get(d.file.url).status_code, 200)
+        # 削除
+        res = self.client.post(reverse('beneficiaries:document_delete', args=[self.kid.pk, d.pk]), follow=True)
+        self.assertContains(res, '「契約書 2026」を削除しました')
+        self.assertFalse(BeneficiaryDocument.objects.filter(pk=d.pk).exists())
+        # 空・大きすぎ
+        res = self.client.post(self.url, {}, follow=True)
+        self.assertContains(res, 'ファイルを選ぶか')
+        from .models import DOCUMENT_MAX_BYTES
+        big = self.up('big.pdf', b'0' * (DOCUMENT_MAX_BYTES + 1))
+        res = self.client.post(self.url, {'files': [big]}, follow=True)
+        self.assertContains(res, 'MB を超えています')
+
+    def test_other_facility_and_non_ryoiku(self):
+        import datetime
+        from facilities.models import Facility
+        from accounts.models import StaffAccount
+        g = Facility.objects.create(name='ほか', layout=Facility.LAYOUT_RYOIKU)
+        other = Beneficiary.objects.create(facility=g, last_name='井上', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        self.assertEqual(self.client.post(reverse('beneficiaries:document_upload', args=[other.pk]), {'files': [self.up('a.pdf')]}).status_code, 404)
+        # 標準の型の事業所には出ない・受け付けない
+        self.f.layout = Facility.LAYOUT_STANDARD
+        self.f.save(update_fields=['layout'])
+        res = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
+        self.assertNotContains(res, 'ここにファイルを置く')
+        self.assertEqual(self.client.post(self.url, {'files': [self.up('a.pdf')]}).status_code, 404)

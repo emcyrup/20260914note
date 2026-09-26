@@ -49,3 +49,7 @@ def request_scan_upload_to(instance, filename):
 
 def assessment_upload_to(instance, filename):
     return _name('beneficiary_assessments', filename)
+
+
+def document_upload_to(instance, filename):
+    return _name('beneficiary_documents', filename)

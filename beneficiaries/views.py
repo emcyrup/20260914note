@@ -6,13 +6,13 @@ from django.views.generic import ListView, DetailView, CreateView, UpdateView
 from django.views import View
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.contrib import messages
 from django.db import models as db_models
 from django.conf import settings
 import anthropic
 
-from .models import Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guardian, RecipientCertificate
+from .models import Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guardian, RecipientCertificate, BeneficiaryDocument, DOCUMENT_EXTENSIONS, DOCUMENT_MAX_BYTES
 from .forms import BeneficiaryForm, BeneficiaryOfficeForm, GuardianForm, RecipientCertificateForm
 from facilities.context_processors import get_terms
 from config.concurrency import check_conflict
@@ -77,6 +77,9 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
         ctx['offices'] = b.offices.all()
         ctx['assessments'] = b.assessments.select_related('created_by')
         ctx['assessment_kinds'] = BeneficiaryAssessment.KIND_CHOICES
+        ctx['documents'] = b.documents.select_related('uploaded_by') if self.request.user.facility.is_ryoiku else []
+        ctx['document_accept'] = 'image/*,.pdf,.xlsx,.xls,.csv'
+        ctx['document_max_mb'] = DOCUMENT_MAX_BYTES // (1024 * 1024)
         ctx['office_form'] = BeneficiaryOfficeForm()
         ctx['guardian_form'] = GuardianForm()
         ctx['certificate_form'] = RecipientCertificateForm()
@@ -430,6 +433,53 @@ def _assessment_fields(request):
         fields['file'] = f
         fields['file_name'] = f.name[:200]
     return fields, None
+
+
+DOCUMENT_MAX_FILES = 20
+
+
+class DocumentUploadView(LoginRequiredMixin, View):
+    """利用者の基本情報に書類・画像（写真・PDF・Excel・CSV）を付ける。1回に 20 個まで。ゆあーず（療育の型）だけ"""
+
+    def post(self, request, beneficiary_pk):
+        facility = request.user.facility
+        if not facility.is_ryoiku:
+            raise Http404
+        beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=facility)
+        back = redirect(f"{reverse('beneficiaries:detail', args=[beneficiary_pk])}#documents")
+        files = request.FILES.getlist('files')[:DOCUMENT_MAX_FILES]
+        title = (request.POST.get('title') or '').strip()[:100]
+        made, skipped = 0, []
+        for f in files:
+            ext = (f.name or '').lower().rsplit('.', 1)[-1] if '.' in (f.name or '') else ''
+            if ext not in DOCUMENT_EXTENSIONS:
+                skipped.append(f'{f.name}（この種類は入れられません）')
+                continue
+            if f.size > DOCUMENT_MAX_BYTES:
+                skipped.append(f'{f.name}（{DOCUMENT_MAX_BYTES // (1024 * 1024)} MB を超えています）')
+                continue
+            BeneficiaryDocument.objects.create(beneficiary=beneficiary, file=f, file_name=(f.name or '')[:200],
+                                               title=title if len(files) == 1 else '', uploaded_by=request.user)
+            made += 1
+        if made:
+            messages.success(request, f'書類を {made} 件取り込みました。')
+        if skipped:
+            messages.error(request, '取り込めなかったもの：' + '、'.join(skipped))
+        if not made and not skipped:
+            messages.error(request, 'ファイルを選ぶか、枠の中に置いてください（写真・PDF・Excel・CSV）。')
+        return back
+
+
+class DocumentDeleteView(LoginRequiredMixin, View):
+    def post(self, request, beneficiary_pk, document_pk):
+        beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        d = get_object_or_404(beneficiary.documents, pk=document_pk)
+        label = d.label
+        if d.file:
+            d.file.delete(save=False)
+        d.delete()
+        messages.success(request, f'「{label}」を削除しました。')
+        return redirect(f"{reverse('beneficiaries:detail', args=[beneficiary_pk])}#documents")
 
 
 class AssessmentCreateView(LoginRequiredMixin, View):

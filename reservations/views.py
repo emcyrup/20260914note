@@ -21,6 +21,7 @@ from config.utils import date_or_404, home_url, month_or_404, reservation_enable
 
 from . import monthly, services
 from . import scan as scan_mod
+from . import sheet
 from .models import (BookingRequest, ClosedDate, Customer, LineInbox, MonthlyRequest, RequestScan, Reservation,
                      ReservationNotice, ReservationSetting)
 
@@ -907,10 +908,28 @@ class RequestScanUploadView(SlotModeMixin, View):
         year, month = month_or_404(year, month)
         facility = request.user.facility
         back = redirect(reverse('reservations:monthly_requests', args=[year, month]) + '#scans')
-        files = [f for f in request.FILES.getlist('images')[:MAX_SCAN_UPLOAD]
-                 if (f.content_type or '').startswith('image/')]
+        uploads = request.FILES.getlist('images')[:MAX_SCAN_UPLOAD]
+        sheets = [f for f in uploads if facility.is_ryoiku and sheet.is_spreadsheet(f.name)]
+        files = [f for f in uploads if (f.content_type or '').startswith('image/') and not sheet.is_spreadsheet(f.name)]
+        for f in sheets:                      # Excel・CSV は AI を使わず、そのまま利用希望として保存する
+            try:
+                result = sheet.import_file(f, facility, year, month, user=request.user)
+            except Exception as e:  # noqa: BLE001
+                messages.error(request, f'{f.name} を読めませんでした（{e}）。')
+                continue
+            for err in result['errors']:
+                messages.error(request, f'{f.name}：{err}')
+            if result['saved']:
+                messages.success(request, f'{f.name} から {len(result["saved"])} 人の利用希望を保存しました：' + '、'.join(result['saved']))
+            if result['unmatched']:
+                messages.warning(request, f'{f.name}：台帳に見つからない名前があり、入れていません：' + '、'.join(result['unmatched']))
+            notes = [f'{it["name"]}（{"・".join(it["notes"])}）' for it in result['items'] if it['notes']]
+            if notes:
+                messages.info(request, '入れなかった印：' + '、'.join(notes))
         if not files:
-            messages.error(request, '用紙の写真（JPEG・PNG・HEIC など）を選んでください。')
+            if sheets:
+                return back
+            messages.error(request, '用紙の写真（JPEG・PNG・HEIC など）' + ('か Excel・CSV ' if facility.is_ryoiku else '') + 'を選んでください。')
             return back
         beneficiary = None
         if request.POST.get('beneficiary'):
@@ -922,6 +941,18 @@ class RequestScanUploadView(SlotModeMixin, View):
                             + f'?scan={made[0].pk}')
         messages.success(request, f'{len(made)} 枚を取り込みました。「AIで読み取る」を押すと、○の位置を読み取ります。')
         return back
+
+
+class RequestSheetTemplateView(RyoikuOnlyMixin, View):
+    """利用希望を Excel で集めるときの雛形（利用者名入り）"""
+
+    def get(self, request, year, month):
+        year, month = month_or_404(year, month)
+        data = sheet.template_xlsx(request.user.facility, year, month)
+        res = HttpResponse(data, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        import urllib.parse
+        res['Content-Disposition'] = f"attachment; filename=\"kibou_{year}_{month:02d}.xlsx\"; filename*=UTF-8''{urllib.parse.quote(f'利用希望_{year}年{month}月.xlsx')}"
+        return res
 
 
 class RequestScanExtractView(SlotModeMixin, View):
