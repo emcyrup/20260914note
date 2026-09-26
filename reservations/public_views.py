@@ -343,13 +343,15 @@ class CustomerPageView(PublicPageMixin):
             req = monthly.save_request(facility, beneficiary, year, month,
                                        to_int(request.POST.get('desired_count'), 0), wishes,
                                        note=request.POST.get('note', '').strip(),
-                                       source=MonthlyRequest.SOURCE_WEB, customer=customer)
+                                       source=MonthlyRequest.SOURCE_WEB, customer=customer,
+                                       wish_mode=monthly.wish_mode_from_post(request.POST),
+                                       ng_dates=monthly.ng_from_post(request.POST, year, month))
             first, last = monthly.month_range(year, month)
             decided = Reservation.objects.filter(beneficiary=beneficiary, date__gte=first, date__lte=last,
                                                  status=Reservation.STATUS_CONFIRMED).exists()
             monthly.tell_staff_wish(facility, setting, req, again=again, decided=decided)
             text = (f'{month}月の {beneficiary.full_name}さんのご希望を承りました'
-                    f'（希望 {req.desired_count} 回・○ {req.slot_count(setting)} 枠）。')
+                    f'（{monthly.wish_summary(req, setting)}）。')
             text += ('この月の予定はすでに組んでいるため、変更は事業所で確かめてからご連絡します。' if decided
                      else '事業所で予定を組み、決まりましたらお知らせします。')
             messages.success(request, text)

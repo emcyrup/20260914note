@@ -109,7 +109,25 @@
              value="{{ wish_req.desired_count|default:0 }}">
       <span class="small">回</span>
     </div>
-    <div style="overflow-x: auto;">
+    <div class="btn-group btn-group-sm w-100 mb-2" role="group" aria-label="書き方">
+      <input type="radio" class="btn-check" name="wish_mode" id="pubModeOk" value="ok" autocomplete="off" {% if not wish_req.is_ng_mode %}checked{% endif %}>
+      <label class="btn btn-outline-secondary" for="pubModeOk">来られる日時に印</label>
+      <input type="radio" class="btn-check" name="wish_mode" id="pubModeNg" value="ng" autocomplete="off" {% if wish_req.is_ng_mode %}checked{% endif %}>
+      <label class="btn btn-outline-secondary" for="pubModeNg">来られない日だけ選ぶ</label>
+    </div>
+    <div id="pubNg">
+      <div class="small mb-1">来られない日を押してください（赤くなります）。それ以外の日はどの時間でも大丈夫、という意味になります。</div>
+      <div class="d-flex flex-wrap gap-1 mb-2">
+        {% for row in wish_grid.rows %}
+        {% if row.closed %}<span class="btn btn-sm btn-outline-secondary disabled">{{ row.date|date:'j' }}({{ row.weekday }})</span>
+        {% else %}
+        <input type="checkbox" class="btn-check" name="ng_{{ row.iso }}" id="png_{{ row.iso }}" value="1" autocomplete="off" {% if row.ng %}checked{% endif %}>
+        <label class="btn btn-sm btn-outline-danger" for="png_{{ row.iso }}" style="min-width: 60px;">{{ row.date|date:'j' }}({{ row.weekday }})</label>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    <div style="overflow-x: auto;" id="pubGrid">
       <table class="wish">
         <thead><tr><th style="min-width: 62px;">日付</th><th>終日</th>{% for h in wish_grid.hours %}<th>{{ h }}</th>{% endfor %}</tr></thead>
         <tbody>
@@ -126,10 +144,22 @@
         </tbody>
       </table>
     </div>
-    <div class="small text-muted my-2">終日に印を付けた日は、その日のどの枠でも大丈夫という意味になります。</div>
+    <div class="small text-muted my-2" id="pubGridHelp">終日に印を付けた日は、その日のどの枠でも大丈夫という意味になります。</div>
     <input type="text" name="note" class="form-control form-control-sm mb-2" placeholder="ご要望があれば（任意）" value="{{ wish_req.note|default:'' }}">
     <button class="btn btn-brand w-100">{{ wish_month }}月の希望を送る</button>
   </form>
+  <script>
+    (function () {
+      function apply() {
+        var ng = document.getElementById('pubModeNg').checked;
+        document.getElementById('pubGrid').classList.toggle('d-none', ng);
+        document.getElementById('pubGridHelp').classList.toggle('d-none', ng);
+        document.getElementById('pubNg').classList.toggle('d-none', !ng);
+      }
+      document.querySelectorAll('input[name=wish_mode]').forEach(function (el) { el.addEventListener('change', apply); });
+      apply();
+    })();
+  </script>
   {% if wish_waiting %}<div class="small text-muted mt-2">送ったあと、{% for b in wish_waiting %}{{ b.full_name }}さん{% if not forloop.last %}・{% endif %}{% endfor %}のぶんも続けて入れてください。</div>{% endif %}
 </div>
 {% endif %}

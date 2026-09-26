@@ -18,7 +18,8 @@
 <div class="rf-name">氏名（ {% if beneficiary %}<u>&nbsp;{{ beneficiary.full_name }}&nbsp;</u>{% else %}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{% endif %} ）</div>
 <div class="rf-note">
   可能な日時の枠に○を付けてください。{% if setting.closed_weekdays_text %}{{ setting.closed_weekdays_text }}はお休みです。{% endif %}<br>
-  {{ setting.hours_text }}。網掛けの枠は利用できません。
+  {{ setting.hours_text }}。網掛けの枠は利用できません。<br>
+  来られない日が少ないときは、日付の欄に「ダメな日」と書き、その下に来られない日付だけを並べてください（それ以外の日はどの枠でも可能として予定を組みます）。
 </div>
 <table class="rf">
   <thead><tr>

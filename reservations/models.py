@@ -472,6 +472,12 @@ class MonthlyRequest(models.Model):
     month = models.PositiveSmallIntegerField(verbose_name='月')
     desired_count = models.PositiveSmallIntegerField(default=0, verbose_name='希望利用回数')
     wishes = models.JSONField(default=dict, blank=True, verbose_name='可能な日時')
+    # 書き方：用紙の○（wishes）か、「来られない日」だけを書いたもの（ng_dates。それ以外の日は終日可能）
+    WISH_OK = 'ok'
+    WISH_NG = 'ng'
+    WISH_MODE_CHOICES = [(WISH_OK, '可能な日時に○'), (WISH_NG, '来られない日を書く')]
+    wish_mode = models.CharField(max_length=2, choices=WISH_MODE_CHOICES, default=WISH_OK, verbose_name='書き方')
+    ng_dates = models.JSONField(default=list, blank=True, verbose_name='来られない日')
     note = models.CharField(max_length=200, blank=True, verbose_name='備考')
     source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default=SOURCE_STAFF, verbose_name='入口')
     customer = models.ForeignKey(Customer, on_delete=models.SET_NULL, null=True, blank=True,
@@ -494,8 +500,30 @@ class MonthlyRequest(models.Model):
     def label(self):
         return f'{self.year}年{self.month}月'
 
+    @property
+    def is_ng_mode(self):
+        return self.wish_mode == self.WISH_NG
+
+    def ng_days(self):
+        """来られない日（日付の順）"""
+        out = []
+        for key in (self.ng_dates or []):
+            try:
+                out.append(datetime.date.fromisoformat(key))
+            except (TypeError, ValueError):
+                continue
+        return sorted(set(out))
+
+    def _month_days(self):
+        import calendar
+        return [datetime.date(self.year, self.month, d) for d in range(1, calendar.monthrange(self.year, self.month)[1] + 1)]
+
     def wish_of(self, day):
         """その日の希望：'all'（終日）・時刻のリスト・None（希望なし）"""
+        if self.is_ng_mode:          # 来られない日以外は、その月のどの日でも終日可能
+            if (day.year, day.month) != (self.year, self.month) or day.isoformat() in (self.ng_dates or []):
+                return None
+            return 'all'
         value = (self.wishes or {}).get(day.isoformat())
         if value == 'all':
             return 'all'
@@ -515,6 +543,9 @@ class MonthlyRequest(models.Model):
         return [h for h in wish if h in hours]
 
     def wished_days(self):
+        if self.is_ng_mode:
+            ng = set(self.ng_dates or [])
+            return [d for d in self._month_days() if d.isoformat() not in ng]
         out = []
         for key, value in (self.wishes or {}).items():
             if value == 'all' or (isinstance(value, list) and value):

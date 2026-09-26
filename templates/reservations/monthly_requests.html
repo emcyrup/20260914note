@@ -54,7 +54,7 @@
       <div><a href="{% url 'reservations:monthly_request_edit' year month r.beneficiary.pk %}" class="fw-bold">{{ r.beneficiary.full_name }}</a>
         {% if r.granted %}<span class="small text-muted ms-1">支給量 {{ r.granted }}日</span>{% endif %}</div>
       <div class="mr-num"><span class="row-list-label">希望</span>{% if r.request %}{{ r.desired }} 回{% else %}—{% endif %}</div>
-      <div class="mr-num"><span class="row-list-label">○</span>{% if r.request %}{{ r.slots }} 枠{% else %}—{% endif %}</div>
+      <div class="mr-num"><span class="row-list-label">○</span>{% if r.request %}{% if r.request.is_ng_mode %}<span class="small" title="来られない日以外は終日可能">来られない日 {{ r.request.ng_days|length }} 日</span>{% else %}{{ r.slots }} 枠{% endif %}{% else %}—{% endif %}</div>
       <div class="mr-num"><span class="row-list-label">確定</span>{{ r.confirmed }} 回</div>
       <div class="mr-num"><span class="row-list-label">残り</span>{% if r.request %}{% if r.remaining %}<span class="text-danger fw-bold">{{ r.remaining }} 回</span>{% else %}<span class="text-success">0</span>{% endif %}{% else %}—{% endif %}</div>
       <div class="small">{% if r.request %}{% if r.request.source == 'web' %}<span class="badge text-bg-info">保護者が入力</span> <span class="text-muted">{{ r.request.updated_at|date:'n/j H:i' }}</span>{% else %}{{ r.request.get_source_display }}{% endif %}{% if r.request.note %}<div class="text-muted">{{ r.request.note }}</div>{% endif %}{% else %}用紙なし{% endif %}</div>
@@ -115,7 +115,7 @@
             <div class="js-summary">
               {% if sc.status == 'extracted' %}
                 <div><span class="badge text-bg-success">確認待ち</span> <strong>{% if sc.beneficiary %}{{ sc.beneficiary.full_name }}{% else %}{{ sc.read_name|default:'（氏名不明）' }}{% endif %}</strong></div>
-                <div class="text-muted">希望 {% if sc.extracted.desired_count is not None %}{{ sc.extracted.desired_count }} 回{% else %}（読めず）{% endif %}・{{ sc.extracted.wishes|length }} 日・{{ sc.extracted.slot_count }} 枠</div>
+                <div class="text-muted">希望 {% if sc.extracted.desired_count is not None %}{{ sc.extracted.desired_count }} 回{% else %}（読めず）{% endif %}・{% if sc.extracted.wish_mode == 'ng' %}来られない日 {{ sc.extracted.ng_dates|length }} 日{% else %}{{ sc.extracted.wishes|length }} 日・{{ sc.extracted.slot_count }} 枠{% endif %}</div>
                 {% if sc.extracted.month_mismatch %}<div class="text-danger">用紙は {{ sc.extracted.read_month }}月 のようです</div>{% endif %}
                 {% if sc.extracted.unreadable %}<div class="text-danger">読めない箇所：{{ sc.extracted.unreadable }}</div>{% endif %}
               {% elif sc.error %}
@@ -242,7 +242,7 @@
         if (d.error) throw new Error(d.error);
         card.dataset.status = 'extracted';
         sum.innerHTML = '<div><span class="badge text-bg-success">確認待ち</span> <strong>' + esc(d.beneficiary_name || d.name || '（氏名不明）') + '</strong></div>' +
-          '<div class="text-muted">希望 ' + (d.desired_count === null ? '（読めず）' : esc(d.desired_count) + ' 回') + '・' + esc(d.days) + ' 日・' + esc(d.slots) + ' 枠</div>' +
+          '<div class="text-muted">希望 ' + (d.desired_count === null ? '（読めず）' : esc(d.desired_count) + ' 回') + '・' + (d.ng !== null && d.ng !== undefined ? '来られない日 ' + esc(d.ng) + ' 日' : esc(d.days) + ' 日・' + esc(d.slots) + ' 枠') + '</div>' +
           (d.month_mismatch ? '<div class="text-danger">用紙の月が違うようです</div>' : '') +
           (d.unreadable ? '<div class="text-danger">読めない箇所：' + esc(d.unreadable) + '</div>' : '') +
           (d.review_url ? '' : '<div class="text-danger">氏名から{{ terms.beneficiary }}を決められませんでした。下で選んでください。</div>');

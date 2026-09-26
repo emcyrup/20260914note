@@ -49,6 +49,8 @@ def request_grid(facility, year, month, setting=None, request=None, closed=None)
     first, last = month_range(year, month)
     closed = services.closed_dates(facility, first, last) if closed is None else closed
     hours = setting.all_slot_hours()
+    ng_mode = request is not None and request.is_ng_mode
+    ng = set(request.ng_dates or []) if ng_mode else set()
     rows = []
     for day in month_days(year, month):
         day_hours = [] if services.is_closed(facility, day, setting, closed) else setting.slot_hours(day)
@@ -63,9 +65,19 @@ def request_grid(facility, year, month, setting=None, request=None, closed=None)
             'closed': not day_hours, 'holiday': holiday_name(day),
             'is_sunday': day.weekday() == 6, 'is_saturday': day.weekday() == 5,
             'all_wished': bool(day_hours) and wish == 'all',
+            'ng': day.isoformat() in ng,
             'cells': cells, 'hours': day_hours,
         })
-    return {'hours': hours, 'hour_labels': [hour_label(h) for h in hours], 'rows': rows}
+    return {'hours': hours, 'hour_labels': [hour_label(h) for h in hours], 'rows': rows, 'ng_mode': ng_mode}
+
+
+def wish_mode_from_post(post):
+    return MonthlyRequest.WISH_NG if post.get('wish_mode') == MonthlyRequest.WISH_NG else MonthlyRequest.WISH_OK
+
+
+def ng_from_post(post, year, month):
+    """「来られない日」のチェック（名前は ng_<iso>）→ ISO 日付のリスト"""
+    return [day.isoformat() for day in month_days(year, month) if post.get(f'ng_{day.isoformat()}')]
 
 
 def wishes_from_post(post, facility, year, month, setting=None):
@@ -88,15 +100,29 @@ def wishes_from_post(post, facility, year, month, setting=None):
 
 
 def save_request(facility, beneficiary, year, month, desired_count, wishes, note='',
-                 source=MonthlyRequest.SOURCE_STAFF, customer=None, user=None):
-    """利用希望を1枚保存する（同じ利用者・同じ月のものは書き換える）"""
+                 source=MonthlyRequest.SOURCE_STAFF, customer=None, user=None,
+                 wish_mode=MonthlyRequest.WISH_OK, ng_dates=None):
+    """
+    利用希望を1枚保存する（同じ利用者・同じ月のものは書き換える）。
+    wish_mode='ng' のときは wishes は使わず、ng_dates（来られない日）以外を終日可能として扱う
+    """
+    ng_mode = wish_mode == MonthlyRequest.WISH_NG
     req, _ = MonthlyRequest.objects.update_or_create(
         beneficiary=beneficiary, year=year, month=month,
         defaults={'facility': facility, 'desired_count': max(0, min(int(desired_count or 0), 99)),
-                  'wishes': wishes, 'note': (note or '')[:200], 'source': source,
+                  'wishes': {} if ng_mode else wishes, 'wish_mode': wish_mode,
+                  'ng_dates': sorted(set(ng_dates or [])) if ng_mode else [],
+                  'note': (note or '')[:200], 'source': source,
                   'customer': customer, 'created_by': user},
     )
     return req
+
+
+def wish_summary(req, setting):
+    """保存や送信のあとに出す短い説明：「希望 n 回・○ m 枠」または「希望 n 回・来られない日 k 日」"""
+    if req.is_ng_mode:
+        return f'希望 {req.desired_count} 回・来られない日 {len(req.ng_days())} 日（それ以外は終日可能）'
+    return f'希望 {req.desired_count} 回・○ {req.slot_count(setting)} 枠'
 
 
 # ---------------------------------------------------------------- 月のまとめ

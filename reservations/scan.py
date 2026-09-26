@@ -38,6 +38,10 @@ SYSTEM_PROMPT = """あなたは放課後等デイサービスの事務員です�
 - 印のない日は days に入れない
 - 日付は印刷された日付の数字（1〜31）で答える。行を数え間違えないよう、曜日の並びと【この月の暦】を照らし合わせる
 - 希望利用回数が読めなければ -1、氏名が読めなければ空文字
+- **「来られない日」の書き方**：保護者が表の日付の欄に「ダメな日」「来られない日」「×の日」「不可」などと書き、
+  その下に日付（と曜日）だけを並べて時刻の枠に印を付けていないときは、mode を "ng" にし、
+  並んでいる日付を ng_days に入れる（days は空）。この書き方では、それ以外の日は終日利用できるという意味になる。
+  ふつうに○で希望を書いた用紙は mode を "ok" にし、ng_days は空にする
 - 欄外の書き込み（「午前がよい」「送迎希望」など）は note に書き写す
 - 読めない・迷った箇所は unreadable に短く書く（例：「12日の行は印がかすれている」）
 - 推測で印を足さない"""
@@ -62,10 +66,12 @@ SCHEMA = {
                 'additionalProperties': False,
             },
         },
+        'mode': {'type': 'string', 'enum': ['ok', 'ng']},
+        'ng_days': {'type': 'array', 'items': {'type': 'integer'}},
         'note': {'type': 'string'},
         'unreadable': {'type': 'string'},
     },
-    'required': ['name', 'year', 'month', 'desired_count', 'days', 'note', 'unreadable'],
+    'required': ['name', 'year', 'month', 'desired_count', 'days', 'mode', 'ng_days', 'note', 'unreadable'],
     'additionalProperties': False,
 }
 
@@ -119,8 +125,23 @@ def to_wishes(data, facility, year, month, setting):
     return wishes, ignored
 
 
+def to_ng_dates(data, year, month):
+    """「来られない日」の書き方の日付 → ISO のリスト（月に無い日は捨てる）"""
+    out = []
+    for d in data.get('ng_days') or []:
+        try:
+            out.append(datetime.date(year, month, int(d)).isoformat())
+        except (TypeError, ValueError):
+            continue
+    return sorted(set(out))
+
+
 def normalize(data, facility, year, month, setting):
+    ng_mode = data.get('mode') == 'ng'
     wishes, ignored = to_wishes(data, facility, year, month, setting)
+    ng_dates = to_ng_dates(data, year, month) if ng_mode else []
+    if ng_mode:
+        wishes, ignored = {}, []
     try:
         desired = int(data.get('desired_count'))
     except (TypeError, ValueError):
@@ -130,15 +151,25 @@ def normalize(data, facility, year, month, setting):
         'name': clean_ai_text(data.get('name', ''), keep_newlines=False)[:50],
         'desired_count': desired if 0 <= desired <= 99 else None,
         'wishes': wishes,
+        'wish_mode': 'ng' if ng_mode else 'ok',
+        'ng_dates': ng_dates,
         'ignored': ignored,
         'note': clean_ai_text(data.get('note', ''), keep_newlines=False)[:200],
         'unreadable': clean_ai_text(data.get('unreadable', ''), keep_newlines=False)[:300],
         'read_month': read_month if 1 <= read_month <= 12 else None,
     }
     out['month_mismatch'] = bool(out['read_month'] and out['read_month'] != month)
-    out['slot_count'] = sum(len(setting.slot_hours(datetime.date.fromisoformat(d))) if w == 'all' else len(w)
-                            for d, w in wishes.items())
+    out['slot_count'] = as_request_data(out, facility, year, month).slot_count(setting)
     return out
+
+
+def as_request_data(d, facility, year, month):
+    """読み取り結果（normalize の dict）から、保存していない MonthlyRequest を作る"""
+    from .models import MonthlyRequest
+    return MonthlyRequest(facility=facility, year=year, month=month,
+                          desired_count=d.get('desired_count') or 0, wishes=d.get('wishes') or {},
+                          wish_mode=d.get('wish_mode') or MonthlyRequest.WISH_OK, ng_dates=d.get('ng_dates') or [],
+                          note=d.get('note') or '')
 
 
 def match_beneficiary(facility, name):
@@ -200,8 +231,4 @@ def extract(scan):
 
 def as_request(scan):
     """確認画面の表に並べるための、保存していない利用希望（読み取り結果から）"""
-    from .models import MonthlyRequest
-    d = scan.extracted or {}
-    return MonthlyRequest(facility=scan.facility, year=scan.year, month=scan.month,
-                          desired_count=d.get('desired_count') or 0, wishes=d.get('wishes') or {},
-                          note=d.get('note') or '')
+    return as_request_data(scan.extracted or {}, scan.facility, scan.year, scan.month)

@@ -856,17 +856,20 @@ class MonthlyRequestEditView(SlotModeMixin, View):
             MonthlyRequest.objects.filter(beneficiary=beneficiary, year=year, month=month).delete()
             messages.success(request, f'{beneficiary.full_name} さんの {month}月の利用希望を消しました。')
             return back
+        mode = monthly.wish_mode_from_post(request.POST)
         wishes = monthly.wishes_from_post(request.POST, facility, year, month, setting)
+        ng_dates = monthly.ng_from_post(request.POST, year, month)
         desired = to_int(request.POST.get('desired_count'), 0)
         scan = self._scan(request, facility, year, month)
         req = monthly.save_request(facility, beneficiary, year, month, desired, wishes,
                                    note=request.POST.get('note', '').strip(), user=request.user,
-                                   source=MonthlyRequest.SOURCE_PHOTO if scan else MonthlyRequest.SOURCE_STAFF)
+                                   source=MonthlyRequest.SOURCE_PHOTO if scan else MonthlyRequest.SOURCE_STAFF,
+                                   wish_mode=mode, ng_dates=ng_dates)
         if scan is not None:
             scan.status, scan.request, scan.beneficiary = RequestScan.STATUS_IMPORTED, req, beneficiary
             scan.save(update_fields=['status', 'request', 'beneficiary'])
         messages.success(request, f'{beneficiary.full_name} さんの {month}月の利用希望を保存しました'
-                                  f'（希望 {req.desired_count} 回・○ {req.slot_count(setting)} 枠）。')
+                                  f'（{monthly.wish_summary(req, setting)}）。')
         if scan is not None and request.POST.get('action') != 'assign':
             nxt = (RequestScan.objects.filter(facility=facility, year=year, month=month)
                    .exclude(status=RequestScan.STATUS_IMPORTED).exclude(pk=scan.pk).first())
@@ -932,6 +935,7 @@ class RequestScanExtractView(SlotModeMixin, View):
             'beneficiary_name': scan.beneficiary.full_name if scan.beneficiary else '',
             'desired_count': data.get('desired_count'), 'days': len(data.get('wishes') or {}),
             'slots': data.get('slot_count', 0), 'unreadable': data.get('unreadable', ''),
+            'ng': len(data.get('ng_dates') or []) if data.get('wish_mode') == 'ng' else None,
             'month_mismatch': data.get('month_mismatch', False),
             'review_url': (reverse('reservations:monthly_request_edit', args=[year, month, scan.beneficiary_id])
                            + f'?scan={scan.pk}') if scan.beneficiary_id else '',
