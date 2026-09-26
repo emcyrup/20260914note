@@ -83,8 +83,33 @@
       <textarea class="form-control" id="summary" name="summary" rows="14" maxlength="{{ summary_max }}"
                 placeholder="「AIで議事録に整理」を押すと、【概要】【話題ごとの見出し】【決まったこと】【次にやること】の形でここに入ります。手で書いても構いません。">{% if current %}{{ current.summary }}{% endif %}</textarea>
 
+      {% if children or features.therapy %}
+      <div class="mt-3 p-2 rounded" style="background:#f6f3ee;border:1px solid var(--line);" id="mn-save-as">
+        <div class="d-flex flex-wrap align-items-center gap-3">
+          <span class="small fw-semibold">保存先</span>
+          <div class="form-check form-check-inline mb-0">
+            <input class="form-check-input" type="radio" name="save_as" id="save-as-minutes" value="minutes" checked>
+            <label class="form-check-label small" for="save-as-minutes">議事録として保存（履歴に残る）</label>
+          </div>
+          <div class="form-check form-check-inline mb-0">
+            <input class="form-check-input" type="radio" name="save_as" id="save-as-therapy" value="therapy">
+            <label class="form-check-label small" for="save-as-therapy">{{ terms.beneficiary }}の療育記録として保存</label>
+          </div>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2 mt-2 d-none" id="mn-therapy-fields">
+          <label class="small fw-semibold mb-0" for="mn-beneficiary">{{ terms.beneficiary }}</label>
+          <select name="beneficiary" id="mn-beneficiary" class="form-select form-select-sm" style="width:auto;">
+            <option value="">— 選ぶ —</option>
+            {% for b in children %}<option value="{{ b.pk }}">{{ b.full_name }}</option>{% endfor %}
+          </select>
+          <label class="small fw-semibold mb-0" for="mn-time">時刻</label>
+          <input type="time" name="time" id="mn-time" class="form-control form-control-sm" style="width:auto;">
+          <span class="form-text mt-0">「議事録」の欄（無ければ「話した内容」）が、上の日付のその{{ terms.beneficiary }}の「記録」に入ります（{{ therapy_body_max }} 字まで）。議事録の履歴には残りません。</span>
+        </div>
+      </div>
+      {% endif %}
       <div class="mn-save mt-3">
-        <div class="form-text mb-0">{% if full and not current %}<span class="text-danger">保存すると、一番古い議事録（履歴の一番下）が消えます。</span>{% else %}議事録は新しい{{ keep }}件まで残ります。{% endif %}</div>
+        <div class="form-text mb-0" id="mn-save-note">{% if full and not current %}<span class="text-danger">保存すると、一番古い議事録（履歴の一番下）が消えます。</span>{% else %}議事録は新しい{{ keep }}件まで残ります。{% endif %}</div>
         <div class="d-flex gap-2">
           {% if current %}<a href="{% url 'minutes:print' current.pk %}" target="_blank" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i>印刷</a>{% endif %}
           <button class="btn btn-primary" id="mn-save"><i class="bi bi-check2 me-1"></i>保存する</button>
@@ -151,6 +176,26 @@
     } catch (e) { /* 使えない */ }
   }
   form.addEventListener('input', function () { dirty = true; saveDraft(); });
+  // 保存先：療育記録を選んだら利用者の欄を出し、選ばれていなければ送らせない
+  var saveAs = document.querySelectorAll('input[name=save_as]'), tf = document.getElementById('mn-therapy-fields');
+  function applySaveAs() {
+    var t = document.getElementById('save-as-therapy');
+    if (!t || !tf) return;
+    tf.classList.toggle('d-none', !t.checked);
+    document.getElementById('mn-save').innerHTML = t.checked
+      ? '<i class="bi bi-check2 me-1"></i>療育記録として保存'
+      : '<i class="bi bi-check2 me-1"></i>保存する';
+  }
+  saveAs.forEach(function (el) { el.addEventListener('change', applySaveAs); });
+  applySaveAs();
+  form.addEventListener('submit', function (e) {
+    var t = document.getElementById('save-as-therapy');
+    if (t && t.checked && !document.getElementById('mn-beneficiary').value) {
+      e.preventDefault();
+      show('療育記録として保存するには、どの{{ terms.beneficiary }}の記録かを選んでください。', 'warning', false);
+      document.getElementById('mn-beneficiary').focus();
+    }
+  });
   // 「話者を分ける」の状態を覚える（端末ごと）
   var spk = document.getElementById('mn-speakers');
   if (spk) {

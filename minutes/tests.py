@@ -44,6 +44,43 @@ class MinutesTests(TestCase):
         self.client.post(self.url, {'action': 'delete', 'id': m.pk})
         self.assertFalse(Minutes.objects.exists())
 
+    def test_save_as_therapy_record(self):
+        from beneficiaries.models import Beneficiary
+        from therapy.models import TherapyRecord
+        self.f.use_therapy_record = True
+        self.f.save(update_fields=['use_therapy_record'])
+        kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        res = self.client.get(self.url)
+        self.assertContains(res, 'id="save-as-therapy"')
+        self.assertContains(res, f'<option value="{kid.pk}">青木 子</option>')
+        # 利用者を選ばないと保存しない
+        res = self.client.post(self.url, {'title': '面談', 'held_on': '2026-09-24', 'transcript': 'x', 'summary': '',
+                                          'save_as': 'therapy', 'beneficiary': ''}, follow=True)
+        self.assertContains(res, 'どの利用者の記録かを選んでください')
+        self.assertFalse(TherapyRecord.objects.exists())
+        res = self.client.post(self.url, {'title': '保護者面談', 'held_on': '2026-09-24', 'transcript': 'えー、母から',
+                                          'summary': '【概要】\n母から家庭でのようすを聞いた', 'save_as': 'therapy',
+                                          'beneficiary': kid.pk, 'time': '14:30'})
+        rec = TherapyRecord.objects.get()
+        self.assertRedirects(res, reverse('therapy:child', args=[kid.pk]) + f'?ym=2026-09#rec{rec.pk}', fetch_redirect_response=False)
+        self.assertEqual((rec.beneficiary, rec.date, rec.time, rec.staff, rec.facility),
+                         (kid, datetime.date(2026, 9, 24), datetime.time(14, 30), self.user, self.f))
+        self.assertEqual(rec.body, '【保護者面談】\n【概要】\n母から家庭でのようすを聞いた')   # 議事録の欄を優先、件名を頭に
+        self.assertFalse(Minutes.objects.exists())                                       # 議事録の履歴には残さない
+        # 議事録の欄が空なら話した内容。ほかの事業所の利用者は選べない
+        other_f = Facility.objects.create(name='ほか', use_therapy_record=True)
+        other = Beneficiary.objects.create(facility=other_f, last_name='井上', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        res = self.client.post(self.url, {'title': '', 'held_on': '2026-09-25', 'transcript': '話した', 'summary': '',
+                                          'save_as': 'therapy', 'beneficiary': other.pk}, follow=True)
+        self.assertContains(res, 'どの利用者の記録かを選んでください')
+        self.client.post(self.url, {'title': '', 'held_on': '2026-09-25', 'transcript': '話した', 'summary': '',
+                                    'save_as': 'therapy', 'beneficiary': kid.pk})
+        self.assertEqual(TherapyRecord.objects.order_by('-pk').first().body, '話した')
+        # 療育記録を使わない事業所には選択肢が無い
+        self.f.use_therapy_record = False
+        self.f.save(update_fields=['use_therapy_record'])
+        self.assertNotContains(self.client.get(self.url), 'id="save-as-therapy"')
+
     def test_empty_is_not_saved(self):
         self.client.post(self.url, {'title': '空', 'transcript': ' ', 'summary': ''})
         self.assertFalse(Minutes.objects.exists())
