@@ -161,6 +161,16 @@ GOOGLE_SPEECH_MODEL = config('GOOGLE_SPEECH_MODEL', default='latest_long')
 # 日誌を保存したときに AI が加算を提案する（API キーが無ければ何もしない）
 AI_ADDON_SUGGESTIONS = config('AI_ADDON_SUGGESTIONS', default=True, cast=bool)
 
+# メール（期限のお知らせ `python manage.py send_reminders`）。EMAIL_HOST が空なら送れない（画面のお知らせだけ使う）
+EMAIL_HOST = config('EMAIL_HOST', default='')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default=EMAIL_HOST_USER or 'webmaster@localhost')
+EMAIL_BACKEND = config('EMAIL_BACKEND', default=('django.core.mail.backends.smtp.EmailBackend' if EMAIL_HOST
+                                                 else 'django.core.mail.backends.console.EmailBackend'))
+
 # LINE Messaging API
 LINE_CHANNEL_ACCESS_TOKEN = config('LINE_CHANNEL_ACCESS_TOKEN', default='')
 LINE_CHANNEL_SECRET = config('LINE_CHANNEL_SECRET', default='')

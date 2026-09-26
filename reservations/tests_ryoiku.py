@@ -393,7 +393,7 @@ class DailyLogTests(TestCase):
         self.assertEqual((d2['weekday'], d2['staff']), ('金曜日', 'pm大坂'))
         self.assertEqual(len(d2['rows']), monthly.DAILY_LOG_ROWS)
         self.assertEqual([(r['time'], r['name']) for r in d2['rows'][:3]], [('10:00', '井上 子'), ('11:00', '青木 子'), ('', '')])
-        self.assertEqual(days[1]['rows'][0], {'time': '9:00', 'name': '上田 子'})
+        self.assertEqual(days[1]['rows'][0], {'time': '9:00', 'name': '上田 子', 'att': ''})
         self.assertEqual(days[1]['staff'], '')
 
     def test_staff_saved_from_schedule_and_printed(self):
@@ -482,6 +482,150 @@ class DailyLogTests(TestCase):
         DayStaff.objects.create(facility=g, date=datetime.date(2026, 10, 2), text='よそ')
         res = self.client.get(reverse('reservations:daily_log_pdf', args=[2026, 10]) + '?fmt=html')
         self.assertNotContains(res, 'よそ')
+
+
+class AttendanceTests(TestCase):
+    """実績（来た・欠席・キャンセル）：月間予定表の「実績を入れる」・日の画面・業務日誌の実績欄・一覧の「来」"""
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f,
+                                                     role=StaffAccount.ROLE_ADMIN, display_name='大坂')
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = child(self.f, '青木')
+        self.res, _ = services.create_reservation(self.f, self.kid, datetime.date(2026, 10, 2),
+                                                  start_time=datetime.time(10, 0), notify=False)
+
+    def test_set_from_schedule_and_print(self):
+        url = reverse('reservations:monthly_schedule', args=[2026, 10])
+        res = self.client.get(url)
+        self.assertContains(res, 'id="ms-att-toggle"')
+        self.assertContains(res, '<div title="実績が「来た」の回数">来</div>')
+        res = self.client.post(reverse('reservations:monthly_attendance', args=[2026, 10]),
+                               {'reservation': self.res.pk, 'value': 'attended'}, follow=True)
+        self.assertContains(res, '実績を「来た」にしました')
+        self.assertContains(res, 'class="ms-att attended">○</span>青木 子')
+        self.assertContains(res, 'title="来た">来1')
+        self.res.refresh_from_db()
+        self.assertEqual((self.res.attendance, self.res.attendance_mark), ('attended', '○'))
+        rows = monthly.request_rows(self.f, 2026, 10, self.s)
+        self.assertEqual(next(r for r in rows if r['beneficiary'] == self.kid)['attended'], 1)
+        # 業務日誌の「実績」欄
+        res = self.client.get(reverse('reservations:daily_log_pdf', args=[2026, 10]) + '?fmt=html')
+        self.assertContains(res, '<td class="n">青木 子</td><td class="k">1・2</td><td class="j">○</td>')
+        self.assertContains(res, '実績：○ 来た／欠 欠席／取消 キャンセル')
+        # 欠席 → 取消 → 未入力
+        self.client.post(reverse('reservations:monthly_attendance', args=[2026, 10]), {'reservation': self.res.pk, 'value': 'absent'})
+        self.res.refresh_from_db(); self.assertEqual(self.res.attendance_mark, '欠')
+        self.client.post(reverse('reservations:monthly_attendance', args=[2026, 10]), {'reservation': self.res.pk, 'value': 'cancelled'})
+        self.res.refresh_from_db(); self.assertEqual(self.res.attendance_mark, '取消')
+        res = self.client.post(reverse('reservations:monthly_attendance', args=[2026, 10]), {'reservation': self.res.pk, 'value': ''}, follow=True)
+        self.assertContains(res, '「未入力」')
+        self.res.refresh_from_db(); self.assertEqual(self.res.attendance, '')
+        res = self.client.post(reverse('reservations:monthly_attendance', args=[2026, 10]), {'reservation': self.res.pk, 'value': 'x'}, follow=True)
+        self.assertContains(res, '実績の値が正しくありません')
+
+    def test_set_from_day_page(self):
+        url = reverse('reservations:day', args=[2026, 10, 2])
+        res = self.client.get(url)
+        self.assertContains(res, 'name="action" value="attendance"')
+        res = self.client.post(url, {'action': 'attendance', 'reservation': self.res.pk, 'value': 'absent'}, follow=True)
+        self.assertContains(res, '実績を「欠席」にしました')
+        self.res.refresh_from_db()
+        self.assertEqual(self.res.attendance, 'absent')
+
+    def test_not_for_other_layouts_or_facilities(self):
+        self.f.layout = Facility.LAYOUT_STANDARD
+        self.f.save(update_fields=['layout'])
+        self.assertEqual(self.client.post(reverse('reservations:monthly_attendance', args=[2026, 10]),
+                                          {'reservation': self.res.pk, 'value': 'attended'}).status_code, 404)
+        res = self.client.get(reverse('reservations:day', args=[2026, 10, 2]))
+        self.assertNotContains(res, 'value="attendance"')
+        self.client.post(reverse('reservations:day', args=[2026, 10, 2]),
+                         {'action': 'attendance', 'reservation': self.res.pk, 'value': 'attended'})
+        self.res.refresh_from_db(); self.assertEqual(self.res.attendance, '')
+        self.assertNotContains(self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10])), 'id="ms-att-toggle"')
+        # ほかの事業所の予約は触れない
+        self.f.layout = Facility.LAYOUT_RYOIKU
+        self.f.save(update_fields=['layout'])
+        g, _ = ryoiku()
+        other, _ = services.create_reservation(g, child(g, '他'), datetime.date(2026, 10, 2), start_time=datetime.time(10, 0), notify=False)
+        self.assertEqual(self.client.post(reverse('reservations:monthly_attendance', args=[2026, 10]),
+                                          {'reservation': other.pk, 'value': 'attended'}).status_code, 404)
+
+
+class StaffShiftTests(TestCase):
+    """職員のシフト（曜日×時間帯）から「その日の担当」を入れる"""
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f,
+                                                     role=StaffAccount.ROLE_ADMIN, display_name='大坂')
+        self.client.login(username='ryo', password='pw12345678')
+
+    def test_text_and_fill(self):
+        from .models import DayStaff, StaffShift
+        a = StaffShift.objects.create(facility=self.f, name='土田', weekdays=[1, 2, 5], part=StaffShift.PART_ALL)
+        b = StaffShift.objects.create(facility=self.f, name='大坂', weekdays=[2, 5], part=StaffShift.PART_PM)
+        StaffShift.objects.create(facility=self.f, name='休', weekdays=[2], part=StaffShift.PART_AM, is_active=False)
+        self.assertEqual((a.label, b.label, a.weekdays_text), ('終日土田', 'pm大坂', '火・水・土'))
+        shifts = list(StaffShift.objects.filter(facility=self.f, is_active=True))
+        self.assertEqual(StaffShift.text_for(datetime.date(2026, 10, 7), shifts), '終日土田 pm大坂')   # 水
+        self.assertEqual(StaffShift.text_for(datetime.date(2026, 10, 6), shifts), '終日土田')         # 火
+        self.assertEqual(StaffShift.text_for(datetime.date(2026, 10, 4), shifts), '')                 # 日
+        DayStaff.objects.create(facility=self.f, date=datetime.date(2026, 10, 6), text='手入力')
+        n = monthly.fill_day_staff_from_shifts(self.f, datetime.date(2026, 10, 1), datetime.date(2026, 10, 31), self.s)
+        staff = DayStaff.for_range(self.f, datetime.date(2026, 10, 1), datetime.date(2026, 10, 31))
+        self.assertEqual(staff[datetime.date(2026, 10, 6)], '手入力')                                  # 入力済みは残す
+        self.assertEqual(staff[datetime.date(2026, 10, 7)], '終日土田 pm大坂')
+        self.assertEqual(staff[datetime.date(2026, 10, 3)], '終日土田 pm大坂')                          # 土
+        self.assertNotIn(datetime.date(2026, 10, 5), staff)                                            # 月曜はお休み
+        self.assertNotIn(datetime.date(2026, 10, 4), staff)                                            # 日曜は誰もいない
+        self.assertEqual(n, len(staff) - 1)
+        n = monthly.fill_day_staff_from_shifts(self.f, datetime.date(2026, 10, 1), datetime.date(2026, 10, 31), self.s, overwrite=True)
+        self.assertEqual(DayStaff.objects.get(facility=self.f, date=datetime.date(2026, 10, 6)).text, '終日土田')
+
+    def test_pages(self):
+        from .models import DayStaff, StaffShift
+        url = reverse('reservations:staff_shifts')
+        res = self.client.get(url)
+        self.assertContains(res, 'まだシフトがありません')
+        res = self.client.post(url, {'action': 'add', 'name': ' 土田 ', 'weekdays': ['2', '5', 'x'], 'part': 'all'}, follow=True)
+        self.assertContains(res, '終日土田（水・土）を登録しました')
+        res = self.client.post(url, {'action': 'add', 'name': '', 'weekdays': ['2'], 'part': 'all'}, follow=True)
+        self.assertContains(res, '名前・曜日・時間帯を入れてください')
+        shift = StaffShift.objects.get(facility=self.f)
+        res = self.client.post(url, {'action': 'edit', 'shift': shift.pk, 'name': '大坂', 'weekdays': ['5'], 'part': 'pm'}, follow=True)
+        self.assertContains(res, 'pm大坂（土）に直しました')
+        # 月間予定表から入れる
+        sched = reverse('reservations:monthly_schedule', args=[2026, 10])
+        res = self.client.get(sched)
+        self.assertContains(res, 'シフトから入れる')
+        self.assertContains(res, 'シフトの登録（1）')
+        res = self.client.post(reverse('reservations:staff_shift_fill', args=[2026, 10]), {}, follow=True)
+        self.assertContains(res, 'シフトから 10月の担当を入れました（5 日）')     # 10月の土曜は 3・10・17・24・31
+        self.assertEqual(DayStaff.objects.filter(facility=self.f, text='pm大坂').count(), 5)
+        self.assertContains(res, 'value="pm大坂"')
+        res = self.client.post(url, {'action': 'toggle', 'shift': shift.pk}, follow=True)
+        self.assertContains(res, '休止にしました')
+        res = self.client.post(reverse('reservations:staff_shift_fill', args=[2026, 10]), {}, follow=True)
+        self.assertContains(res, 'シフトがまだ登録されていません')
+        res = self.client.post(url, {'action': 'delete', 'shift': shift.pk}, follow=True)
+        self.assertContains(res, 'のシフトを消しました')
+        self.assertFalse(StaffShift.objects.exists())
+        self.assertEqual(DayStaff.objects.filter(facility=self.f).count(), 5)       # 入れた担当は残る
+
+    def test_only_for_ryoiku_and_own_facility(self):
+        from .models import StaffShift
+        g, _ = ryoiku()
+        other = StaffShift.objects.create(facility=g, name='よそ', weekdays=[2], part='all')
+        url = reverse('reservations:staff_shifts')
+        self.assertNotContains(self.client.get(url), 'よそ')
+        self.assertEqual(self.client.post(url, {'action': 'delete', 'shift': other.pk}).status_code, 404)
+        self.f.layout = Facility.LAYOUT_STANDARD
+        self.f.save(update_fields=['layout'])
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.assertEqual(self.client.post(reverse('reservations:staff_shift_fill', args=[2026, 10]), {}).status_code, 404)
 
 
 class SheetImportTests(TestCase):

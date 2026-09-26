@@ -29,10 +29,20 @@
   #ms-swap-bar { display: none; }
   body.ms-swap #ms-swap-bar { display: block; }
   .ms-users { grid-template-columns: 1.4fr 0.6fr 0.6fr 0.6fr 0.6fr; }
+  .ms-users.with-att { grid-template-columns: 1.4fr 0.55fr 0.55fr 0.55fr 0.55fr 0.55fr; }
   .ms-staff { color: #2f5d50; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ms-staff-list { max-height: 420px; overflow-y: auto; padding: 0 12px; }
   .ms-staff-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; border-top: 1px solid var(--line); }
   .ms-staff-row label { flex: 0 0 64px; font-size: 0.8rem; margin: 0; white-space: nowrap; }
+  .ms-att { display: inline-block; min-width: 1.1em; margin-right: 2px; font-weight: 700; text-align: center; }
+  .ms-att.attended { color: #2f7d4e; } .ms-att.absent { color: var(--color-danger); } .ms-att.cancelled { color: #8a8378; }
+  .ms-box.absent, .ms-box.cancelled { color: #8a8378; text-decoration: line-through; }
+  body.ms-att .ms-box[data-res] { cursor: pointer; }
+  body.ms-att .ms-box[data-res]:hover { background: #e3f3ea; }
+  #ms-att-bar { display: none; } body.ms-att #ms-att-bar { display: block; }
+  #ms-att-menu { position: absolute; z-index: 1050; display: none; background: #fff; border: 1px solid #cfc8bb; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.15); padding: 6px; }
+  #ms-att-menu .t { font-size: .78rem; font-weight: 600; margin-bottom: 4px; white-space: nowrap; }
+  #ms-att-menu button { display: block; width: 100%; margin-top: 3px; }
   @media (max-width: 768px) { .ms-week { font-size: 0.62rem; } .ms-box { height: 17px; line-height: 17px; padding: 0 2px; } }
 </style>
 {% endblock %}
@@ -48,6 +58,7 @@
     <div class="d-flex gap-2 flex-wrap">
       <a href="{% url 'reservations:monthly_requests' year month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-list-check me-1"></i>利用希望</a>
       <button type="button" class="btn btn-outline-primary btn-sm" id="ms-swap-toggle"><i class="bi bi-arrow-left-right me-1"></i>入れ替え・移動</button>
+      {% if facility.is_ryoiku %}<button type="button" class="btn btn-outline-success btn-sm" id="ms-att-toggle" title="名前を押して 来た・欠席・キャンセル を入れます。業務日誌の「実績」欄に印字されます"><i class="bi bi-check2-square me-1"></i>実績を入れる</button>{% endif %}
       <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-printer me-1"></i>印刷（PDF）</a>
       {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_log_pdf' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank" title="1日ごとの予定表（時間・氏名・提供形態・実績・備考）。A4 1枚に4日ぶん。右上に「その日の担当」"><i class="bi bi-journal-text me-1"></i>業務日誌（4日/枚）</a>{% endif %}
       <form method="post" action="{% url 'reservations:monthly_requests' year month %}"
@@ -70,6 +81,20 @@
     <input type="hidden" name="action"><input type="hidden" name="a"><input type="hidden" name="b">
     <input type="hidden" name="date"><input type="hidden" name="hour">
   </form>
+  {% if facility.is_ryoiku %}
+  <div id="ms-att-bar" class="alert alert-success py-2 small mb-3">
+    <i class="bi bi-check2-square me-1"></i><strong>実績を入れるモード</strong>：
+    名前を押して「来た」「欠席」「キャンセル」を選びます。印は <span class="ms-att attended">○</span>来た・<span class="ms-att absent">欠</span>欠席・<span class="ms-att cancelled">取消</span>キャンセル。業務日誌の「実績」欄に印字され、右の一覧の「来」に数えます。
+    <button type="button" class="btn btn-sm btn-outline-secondary ms-2 py-0" id="ms-att-cancel">やめる</button>
+  </div>
+  <form method="post" action="{% url 'reservations:monthly_attendance' year month %}" id="ms-att-form" class="d-none">
+    {% csrf_token %}<input type="hidden" name="reservation"><input type="hidden" name="value">
+  </form>
+  <div id="ms-att-menu">
+    <div class="t"></div>
+    {% for v, label in attendance_choices %}<button type="button" class="btn btn-sm {% if v == 'attended' %}btn-success{% elif v == 'absent' %}btn-outline-danger{% elif v == 'cancelled' %}btn-outline-secondary{% else %}btn-outline-secondary{% endif %}" data-value="{{ v }}">{{ label }}</button>{% endfor %}
+  </div>
+  {% endif %}
 
   <div class="row g-3">
     <div class="col-lg-9">
@@ -79,7 +104,7 @@
           <th class="time"></th>
           {% for d in week.days %}
           <th class="{% if d.is_sunday %}sun{% elif d.is_saturday %}sat{% endif %}{% if d.closed %} closed{% endif %}">
-            {% if d.in_month %}{{ d.date|date:'j' }}日({{ d.date|date:'D' }}){% if d.holiday %}<div class="ms-count text-danger">{{ d.holiday }}</div>{% elif d.closed %}<div class="ms-count">お休み</div>{% else %}<div class="ms-count">{{ d.count }} 名</div>{% endif %}{% if d.staff %}<div class="ms-count ms-staff" title="その日の担当">{{ d.staff }}</div>{% endif %}{% endif %}
+            {% if d.in_month %}{{ d.date|date:'j' }}日({{ d.date|date:'D' }}){% if d.holiday %}<div class="ms-count text-danger">{{ d.holiday }}</div>{% elif d.closed %}<div class="ms-count">お休み</div>{% else %}<div class="ms-count">{{ d.count }} 名{% if d.attended %}<span class="ms-att attended ms-1" title="来た">来{{ d.attended }}</span>{% endif %}</div>{% endif %}{% if d.staff %}<div class="ms-count ms-staff" title="その日の担当">{{ d.staff }}</div>{% endif %}{% endif %}
           </th>
           {% endfor %}
         </tr></thead>
@@ -96,7 +121,7 @@
                 {% else %}
                 <td>
                   {% for r in s.boxes %}
-                    {% if r %}<a class="ms-box" data-res="{{ r.pk }}" data-name="{{ r.display_name }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}" title="{{ r.display_name }} {{ r.time_label }}">{{ r.display_name }}</a>
+                    {% if r %}<a class="ms-box{% if r.attendance %} {{ r.attendance }}{% endif %}" data-res="{{ r.pk }}" data-name="{{ r.display_name }}" data-att="{{ r.attendance }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}" title="{{ r.display_name }} {{ r.time_label }}{% if r.attendance %}（{{ r.get_attendance_display }}）{% endif %}">{% if r.attendance %}<span class="ms-att {{ r.attendance }}">{{ r.attendance_mark }}</span>{% endif %}{{ r.display_name }}</a>
                     {% else %}<a class="ms-box empty" data-date="{{ d.date|date:'Y-m-d' }}" data-hour="{{ s.hour }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}?hour={{ s.hour }}" title="{{ d.date|date:'n/j' }} {{ s.label }} に追加">＋</a>{% endif %}
                   {% endfor %}
                   {% for r in s.over %}<a class="ms-box over" data-res="{{ r.pk }}" data-name="{{ r.display_name }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">{{ r.display_name }}（超過）</a>{% endfor %}
@@ -120,14 +145,15 @@
     </div>
     <div class="col-lg-3">
       <div class="card">
-        <div class="row-list-item row-list-head ms-users small">
-          <div>{{ terms.beneficiary }}</div><div>希望</div><div>確定</div><div>残</div><div>契約</div>
+        <div class="row-list-item row-list-head ms-users small{% if facility.is_ryoiku %} with-att{% endif %}">
+          <div>{{ terms.beneficiary }}</div><div>希望</div><div>確定</div>{% if facility.is_ryoiku %}<div title="実績が「来た」の回数">来</div>{% endif %}<div>残</div><div>契約</div>
         </div>
         {% for r in rows %}
-        <div class="row-list-item ms-users small">
+        <div class="row-list-item ms-users small{% if facility.is_ryoiku %} with-att{% endif %}">
           <div><a href="{% url 'reservations:monthly_request_edit' year month r.beneficiary.pk %}">{{ r.beneficiary.full_name }}</a></div>
           <div>{% if r.request %}{{ r.desired }}{% else %}—{% endif %}</div>
           <div>{{ r.confirmed }}</div>
+          {% if facility.is_ryoiku %}<div>{% if r.attended %}<span class="ms-att attended">{{ r.attended }}</span>{% else %}0{% endif %}</div>{% endif %}
           <div>{% if r.request and r.remaining %}<span class="text-danger fw-bold">{{ r.remaining }}</span>{% elif r.request %}0{% else %}—{% endif %}</div>
           <div>{% if r.granted %}{{ r.granted }}{% else %}—{% endif %}</div>
         </div>
@@ -144,6 +170,16 @@
             <div class="fw-bold small"><i class="bi bi-person-badge me-1"></i>その日の担当</div>
             <div class="form-text mt-0">業務日誌の右上に印字されます（例：pm大坂、終日土田）。空欄の日は印字しません。</div>
           </div>
+        </form>
+        <form method="post" action="{% url 'reservations:staff_shift_fill' year month %}" class="px-3 pb-2 d-flex flex-wrap align-items-center gap-2 small"
+              onsubmit="return confirm('シフト（曜日×時間帯）から {{ month }}月の担当を入れます。' + (this.overwrite.checked ? '入力済みの日も書き換えます。' : '入力済みの日はそのままです。') + 'よろしいですか？');">
+          {% csrf_token %}
+          <button class="btn btn-sm btn-outline-primary" {% if not shift_count %}title="先に「シフトの登録」で曜日と時間帯を入れてください"{% endif %}><i class="bi bi-calendar2-week me-1"></i>シフトから入れる</button>
+          <label class="form-check-label d-flex align-items-center gap-1 mb-0"><input type="checkbox" class="form-check-input mt-0" name="overwrite" value="1">入力済みも書き換え</label>
+          <a href="{% url 'reservations:staff_shifts' %}" class="ms-auto">シフトの登録{% if shift_count %}（{{ shift_count }}）{% endif %}</a>
+        </form>
+        <form method="post" action="{% url 'reservations:monthly_day_staff' year month %}">
+          {% csrf_token %}
           <datalist id="staff-options">{% for t in staff_suggestions %}<option value="{{ t }}">{% endfor %}</datalist>
           <div class="ms-staff-list">
             {% for week in schedule.weeks %}{% for d in week.days %}{% if d.in_month and not d.closed %}
@@ -177,8 +213,35 @@
     form.submit();
   }
   document.getElementById('ms-swap-toggle').addEventListener('click', function () {
-    body.classList.toggle('ms-swap'); reset();
+    body.classList.toggle('ms-swap'); body.classList.remove('ms-att'); hideAtt(); reset();
   });
+  // 実績を入れるモード（ゆあーず）
+  var attToggle = document.getElementById('ms-att-toggle'), attMenu = document.getElementById('ms-att-menu'), attForm = document.getElementById('ms-att-form');
+  function hideAtt() { if (attMenu) attMenu.style.display = 'none'; }
+  if (attToggle) {
+    attToggle.addEventListener('click', function () { body.classList.toggle('ms-att'); body.classList.remove('ms-swap'); reset(); hideAtt(); });
+    document.getElementById('ms-att-cancel').addEventListener('click', function () { body.classList.remove('ms-att'); hideAtt(); });
+    attMenu.addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-value]');
+      if (!b) return;
+      attForm.elements.value.value = b.dataset.value; attForm.submit();
+    });
+    document.addEventListener('click', function (e) {
+      if (!body.classList.contains('ms-att')) return;
+      if (e.target.closest('#ms-att-menu')) return;
+      var box = e.target.closest('.ms-box[data-res]');
+      if (!box) { hideAtt(); return; }
+      e.preventDefault();
+      attForm.elements.reservation.value = box.dataset.res;
+      attMenu.querySelector('.t').textContent = box.dataset.name + '（' + box.dataset.when + '）';
+      attMenu.querySelectorAll('button').forEach(function (b) { b.classList.toggle('active', b.dataset.value === (box.dataset.att || '')); });
+      var r = box.getBoundingClientRect();
+      attMenu.style.display = 'block';
+      var left = Math.min(r.left + window.scrollX, window.scrollX + document.documentElement.clientWidth - attMenu.offsetWidth - 8);
+      attMenu.style.left = Math.max(4, left) + 'px'; attMenu.style.top = (r.bottom + window.scrollY + 2) + 'px';
+    }, true);
+    if (new URLSearchParams(location.search).get('mode') === 'att') body.classList.add('ms-att');
+  }
   document.getElementById('ms-swap-cancel').addEventListener('click', function () {
     body.classList.remove('ms-swap'); reset();
   });

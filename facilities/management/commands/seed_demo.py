@@ -32,6 +32,7 @@ from schedules.models import ScheduledVisit
 from support_plans.models import MonitoringRecord, PlanGoal, SupportPlan
 
 SAMPLE_MARK = 'サンプルデータ'
+SAMPLE_SHIFT_PREFIX = '見本'   # サンプルのシフトの名前（終日見本A・pm見本B）。--reset で消す
 SAMPLE_LINE_ID = 'U-sample-'   # サンプルの受信につける目印（本物のLINE IDではない）
 
 ACTIVITY_TAGS = [
@@ -204,6 +205,9 @@ class Command(BaseCommand):
         ClosedDate.objects.filter(facility=facility, reason__contains=SAMPLE_MARK).delete()
         LineInbox.objects.filter(facility=facility, line_user_id__startswith=SAMPLE_LINE_ID).delete()
         ReservationNotice.objects.filter(facility=facility, reservation__isnull=True).delete()
+        from reservations.models import DayStaff, StaffShift
+        StaffShift.objects.filter(facility=facility, name__startswith=SAMPLE_SHIFT_PREFIX).delete()
+        DayStaff.objects.filter(facility=facility, text__contains=SAMPLE_SHIFT_PREFIX).delete()
 
     # ------------------------------------------------------------------
     def _create(self, facility, rng):
@@ -676,6 +680,22 @@ class Command(BaseCommand):
         counts['予約（今月の月間予定表）'] = len(result.made)
         if result.short:
             counts['希望の枠に空きが足りなかった人'] = len(result.short)
+
+        # 職員のシフト（曜日×時間帯）→ その日の担当、過ぎた日の実績（来た・欠席）
+        from reservations.models import Reservation, StaffShift
+        if not StaffShift.objects.filter(facility=facility).exists():
+            StaffShift.objects.create(facility=facility, name=f'{SAMPLE_SHIFT_PREFIX}A', weekdays=[1, 2, 4, 5], part=StaffShift.PART_ALL)
+            StaffShift.objects.create(facility=facility, name=f'{SAMPLE_SHIFT_PREFIX}B', weekdays=[2, 5, 6], part=StaffShift.PART_PM)
+            counts['職員のシフト'] = 2
+        first, last = monthly.month_range(today.year, today.month)
+        counts['その日の担当（シフトから）'] = monthly.fill_day_staff_from_shifts(facility, first, last, setting)
+        done = 0
+        for res in Reservation.objects.filter(facility=facility, date__lt=today, status=Reservation.STATUS_CONFIRMED,
+                                              beneficiary__notes__contains=SAMPLE_MARK):
+            res.attendance = Reservation.ATT_ATTENDED if rng.random() < 0.9 else Reservation.ATT_ABSENT
+            res.save(update_fields=['attendance'])
+            done += 1
+        counts['実績（過ぎた日）'] = done
         keep = list(ReservationNotice.objects.filter(facility=facility)
                     .order_by('-created_at').values_list('pk', flat=True)[:3])
         ReservationNotice.objects.filter(facility=facility).exclude(pk__in=keep).delete()

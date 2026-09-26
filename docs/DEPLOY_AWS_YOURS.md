@@ -88,6 +88,12 @@ tail -f logs/error.log                 # アプリのエラー
 @reboot sleep 25 && APP_DIR=$HOME/michinoteyours VENV=$HOME/env bash $HOME/michinoteyours/deploy/venv-deploy.sh --restart >> $HOME/michinoteyours/logs/boot.log 2>&1
 ```
 
+**期限のお知らせのメール**（受給者証の有効期限・個別支援計画の計画期間・モニタリングの期日。管理者・児発管のメールと代表者メールへ）を使うときは、`.env` に `EMAIL_HOST` などのメール設定（`deploy/.env.yours-aws.example` の末尾）を入れ、同じ `crontab -e` に毎朝の1行を足します。節目の日（30・14・7・3・1・0 日前）と、期限切れがあるときの月曜だけ送ります。まずは `--dry-run` で内容を確かめられます。
+
+```
+0 8 * * * cd $HOME/michinoteyours && $HOME/env/bin/python manage.py send_reminders --base-url https://michinote.yours.ai-labo.cloud >> $HOME/michinoteyours/logs/reminders.log 2>&1
+```
+
 ## 5. 事業所と管理者を作る（どちらか）
 
 サーバーに入らずに GitHub の画面から行うこともできます：Actions → **Manage (yours)** → Run workflow（`.github/workflows/manage-yours.yml`。手順 6 の Secrets が登録ずみであること）。

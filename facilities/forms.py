@@ -13,7 +13,7 @@ class FacilityForm(forms.ModelForm):
     class Meta:
         model = Facility
         fields = [
-            'name', 'office_number', 'address', 'phone',
+            'name', 'office_number', 'address', 'phone', 'representative_email',
             'region_category', 'standard_close_time',
             'base_unit_count', 'base_unit_count_severe', 'is_new_facility_r8',
             'line_channel_access_token', 'line_channel_secret',
@@ -24,6 +24,7 @@ class FacilityForm(forms.ModelForm):
             'office_number':            forms.TextInput(attrs={'class': 'form-control'}),
             'address':                  forms.TextInput(attrs={'class': 'form-control'}),
             'phone':                    forms.TextInput(attrs={'class': 'form-control'}),
+            'representative_email':     forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'example@example.com'}),
             'region_category':          forms.Select(attrs={'class': 'form-select'}),
             'standard_close_time':      forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}),
             'base_unit_count':          forms.NumberInput(attrs={'class': 'form-control', 'min': '0'}),

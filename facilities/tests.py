@@ -395,3 +395,99 @@ class AddonDefaultsLoadTests(TestCase):
         # 標準の名前は重複していない
         names = [i['name'] for i in DEFAULT_ADDONS]
         self.assertEqual(len(names), len(set(names)))
+
+
+class ReminderTests(TestCase):
+    """期限のお知らせ（受給者証・計画期間・モニタリング）：ホームのカードとメール"""
+
+    def setUp(self):
+        self.facility = Facility.objects.create(name='F', representative_email='rep@example.com')
+        self.admin = StaffAccount.objects.create_user('a', password='p', facility=self.facility, role=StaffAccount.ROLE_ADMIN,
+                                                      email='admin@example.com')
+        StaffAccount.objects.create_user('s', password='p', facility=self.facility, role=StaffAccount.ROLE_STAFF, email='staff@example.com')
+        StaffAccount.objects.create_user('m', password='p', facility=self.facility, role=StaffAccount.ROLE_CHILD_DEV_MANAGER,
+                                         email='rep@example.com')
+        self.today = datetime.date(2026, 10, 1)
+        self.b = Beneficiary.objects.create(facility=self.facility, last_name='山田', first_name='太郎', date_of_birth=datetime.date(2016, 4, 1))
+        RecipientCertificate.objects.create(beneficiary=self.b, valid_from=datetime.date(2025, 11, 1), valid_until=datetime.date(2026, 10, 15))
+        from support_plans.models import SupportPlan, MonitoringRecord
+        self.plan = SupportPlan.objects.create(facility=self.facility, beneficiary=self.b, title='第1期', status=SupportPlan.STATUS_ACTIVE,
+                                               current_step=SupportPlan.STEP_MONITORING)
+        draft = self.plan.get_step(SupportPlan.STEP_DRAFT)
+        draft.period_end = datetime.date(2026, 9, 25)
+        draft.save(update_fields=['period_end'])
+        MonitoringRecord.objects.create(plan=self.plan, date=datetime.date(2026, 7, 1), next_due=datetime.date(2026, 10, 8))
+        # 別の事業所・退所した利用者は出ない
+        other = Facility.objects.create(name='G')
+        ob = Beneficiary.objects.create(facility=other, last_name='他', first_name='人', date_of_birth=datetime.date(2016, 4, 1))
+        RecipientCertificate.objects.create(beneficiary=ob, valid_from=datetime.date(2025, 11, 1), valid_until=datetime.date(2026, 10, 2))
+
+    def test_collect_and_mail_text(self):
+        from facilities import reminders
+        items = reminders.collect(self.facility, self.today)
+        self.assertEqual([(i.kind, i.due, i.days_left, i.overdue) for i in items], [
+            ('plan', datetime.date(2026, 9, 25), -6, True),
+            ('monitoring', datetime.date(2026, 10, 8), 7, False),
+            ('cert', datetime.date(2026, 10, 15), 14, False),
+        ])
+        self.assertEqual([i.when for i in items], ['6 日過ぎています', 'あと 7 日', 'あと 14 日'])
+        self.assertEqual(reminders.collect(self.facility, self.today, days=3), items[:1])
+        self.assertEqual(reminders.recipients(self.facility), ['admin@example.com', 'rep@example.com'])
+        subject, body = reminders.build_mail(self.facility, items, self.today, base_url='https://x.example/')
+        self.assertEqual(subject, '【F】期限のお知らせ（3 件・期限切れ 1 件）')
+        self.assertIn('■ 個別支援計画の計画期間（終了）', body)
+        self.assertIn('・山田 太郎 さん（第1期）：2026/09/25　【期限切れ】6 日過ぎています', body)
+        self.assertIn('https://x.example/plans/', body)
+        self.assertIn('・山田 太郎 さん：2026/10/15　あと 14 日', body)
+
+    def test_should_send_and_send_for(self):
+        from django.core import mail
+        from facilities import reminders
+        items = reminders.collect(self.facility, self.today)
+        self.assertTrue(reminders.should_send(items, self.today))                       # 7日前・14日前がある
+        self.assertFalse(reminders.should_send(items[:1], datetime.date(2026, 10, 1)))   # 期限切れだけ、水曜
+        self.assertTrue(reminders.should_send(items[:1], datetime.date(2026, 10, 5)))    # 期限切れだけでも月曜は送る
+        sent, n, to, note = reminders.send_for(self.facility, self.today)
+        self.assertEqual((sent, n, to), (True, 3, ['admin@example.com', 'rep@example.com']))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ['admin@example.com', 'rep@example.com'])
+        self.assertIn('期限のお知らせ', mail.outbox[0].subject)
+        # 節目でない日は送らない（--force で送る）
+        sent, n, to, note = reminders.send_for(self.facility, datetime.date(2026, 10, 2))
+        self.assertEqual((sent, n), (False, 3)); self.assertIn('節目の日ではない', note)
+        sent, *_ = reminders.send_for(self.facility, datetime.date(2026, 10, 2), force=True, dry_run=True)
+        self.assertTrue(sent); self.assertEqual(len(mail.outbox), 1)
+        # 宛先が無い
+        self.facility.representative_email = ''; self.facility.save()
+        StaffAccount.objects.filter(facility=self.facility).update(email='')
+        sent, n, to, note = reminders.send_for(self.facility, self.today)
+        self.assertFalse(sent); self.assertIn('宛先がありません', note)
+        # 期限が近いものが無い
+        self.assertEqual(reminders.send_for(Facility.objects.create(name='H'), self.today)[3], '期限が近いものはありません')
+
+    def test_command_and_dashboard(self):
+        from unittest import mock
+        from django.core import mail
+        out = StringIO()
+        with mock.patch('facilities.reminders.datetime') as dt:
+            dt.date.today.return_value = self.today
+            dt.timedelta = datetime.timedelta
+            call_command('send_reminders', '--base-url', 'https://x.example', stdout=out)
+        self.assertIn('F: 3 件を admin@example.com, rep@example.com へ送りました', out.getvalue())
+        self.assertIn('G: 送りません（1 件）— 宛先がありません', out.getvalue())
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('https://x.example/users/', mail.outbox[0].body)
+        out = StringIO()
+        call_command('send_reminders', '--dry-run', '--force', '--facility', self.facility.pk, stdout=out)
+        self.assertIn('（お試し）', out.getvalue()); self.assertEqual(len(mail.outbox), 1)
+        # ホームのカード
+        self.client.force_login(self.admin)
+        with mock.patch('facilities.views.datetime') as dt:
+            dt.date.today.return_value = self.today
+            dt.timedelta = datetime.timedelta
+            res = self.client.get(reverse('facilities:dashboard'))
+        self.assertContains(res, '個別支援計画・モニタリングの期限（2件）')
+        self.assertContains(res, 'モニタリングの期日')
+        self.assertContains(res, '6 日過ぎています')
+        self.assertContains(res, '受給者証の有効期限が30日以内に切れます')
+        self.assertNotContains(res, '対応が必要なアラートはありません')

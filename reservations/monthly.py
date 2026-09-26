@@ -15,7 +15,8 @@ from beneficiaries.models import Beneficiary
 from config.jp_holidays import holiday_name
 
 from . import services
-from .models import DayStaff, MonthlyRequest, Reservation, ReservationNotice, ReservationSetting, hour_label
+from .models import (DayStaff, MonthlyRequest, Reservation, ReservationNotice, ReservationSetting, StaffShift,
+                     hour_label)
 
 WEEK_JP = services.WEEK_JP
 
@@ -140,9 +141,12 @@ def request_rows(facility, year, month, setting=None):
     setting = setting or services.get_setting(facility)
     requests = {r.beneficiary_id: r for r in MonthlyRequest.objects.filter(facility=facility, year=year, month=month)}
     confirmed = {}
+    attended = {}
     for res in month_reservations(facility, year, month):
         if res.beneficiary_id:
             confirmed[res.beneficiary_id] = confirmed.get(res.beneficiary_id, 0) + 1
+            if res.attendance == Reservation.ATT_ATTENDED:
+                attended[res.beneficiary_id] = attended.get(res.beneficiary_id, 0) + 1
     rows = []
     for b in Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE):
         req = requests.get(b.pk)
@@ -152,7 +156,7 @@ def request_rows(facility, year, month, setting=None):
         rows.append({
             'beneficiary': b, 'request': req, 'desired': desired,
             'slots': req.slot_count(setting) if req else 0,
-            'confirmed': done, 'remaining': max(desired - done, 0),
+            'confirmed': done, 'remaining': max(desired - done, 0), 'attended': attended.get(b.pk, 0),
             'granted': cert.granted_days if cert else None,
             'granted_left': (cert.granted_days - done) if cert and cert.granted_days else None,
         })
@@ -433,7 +437,9 @@ def month_schedule(facility, year, month, setting=None):
                          'holiday': holiday_name(day) if in_month else '',
                          'is_sunday': day.weekday() == 6, 'is_saturday': day.weekday() == 5,
                          'staff': staff_of.get(day, '') if in_month else '',
-                         'slots': slots, 'count': sum(len(s['reservations']) for s in slots)})
+                         'slots': slots, 'count': sum(len(s['reservations']) for s in slots),
+                         'attended': sum(1 for s in slots for r in s['reservations']
+                                         if r.attendance == Reservation.ATT_ATTENDED)})
         weeks.append({'days': days, 'start': week[0], 'end': week[-1]})
     return {'year': year, 'month': month, 'hours': hours, 'hour_labels': [hour_label(h) for h in hours],
             'weeks': weeks, 'capacity': setting.slot_capacity, 'closed_text': setting.closed_weekdays_text}
@@ -472,6 +478,42 @@ def staff_suggestions(facility):
     return out[:60]
 
 
+def set_attendance(res, value):
+    """実績（来た・欠席・キャンセル・空＝未入力）を入れる。知らない値は ValueError"""
+    if value not in dict(Reservation.ATT_CHOICES):
+        raise ValueError('実績の値が正しくありません。')
+    if res.attendance != value:
+        res.attendance = value
+        res.save(update_fields=['attendance', 'updated_at'])
+    return res
+
+
+def fill_day_staff_from_shifts(facility, first, last, setting=None, overwrite=False):
+    """
+    職員のシフト（曜日×時間帯）から、営業日の「その日の担当」を入れる。
+    overwrite=False なら、すでに担当の入っている日は触らない。戻り値は入れた日の数
+    """
+    setting = setting or services.get_setting(facility)
+    shifts = list(StaffShift.objects.filter(facility=facility, is_active=True))
+    if not shifts:
+        return 0
+    closed = services.closed_dates(facility, first, last)
+    have = DayStaff.for_range(facility, first, last)
+    n = 0
+    for i in range((last - first).days + 1):
+        day = first + datetime.timedelta(days=i)
+        if services.is_closed(facility, day, setting, closed):
+            continue
+        if have.get(day) and not overwrite:
+            continue
+        text = StaffShift.text_for(day, shifts)
+        if not text:
+            continue
+        DayStaff.objects.update_or_create(facility=facility, date=day, defaults={'text': text})
+        n += 1
+    return n
+
+
 def daily_log_pages(facility, first, last, setting=None):
     """
     業務日誌（1日ごとの予定表）：営業日だけを日付の順に並べ、4日ずつ A4 1枚にする。
@@ -490,8 +532,9 @@ def daily_log_pages(facility, first, last, setting=None):
         day = first + datetime.timedelta(days=i)
         if services.is_closed(facility, day, setting, closed) and day not in by_day:
             continue
-        rows = [{'time': r.time_label if r.start_time else '', 'name': r.display_name} for r in by_day.get(day, [])]
-        rows += [{'time': '', 'name': ''}] * max(0, DAILY_LOG_ROWS - len(rows))
+        rows = [{'time': r.time_label if r.start_time else '', 'name': r.display_name, 'att': r.attendance_mark}
+                for r in by_day.get(day, [])]
+        rows += [{'time': '', 'name': '', 'att': ''}] * max(0, DAILY_LOG_ROWS - len(rows))
         days.append({'date': day, 'weekday': services.WEEK_JP[day.weekday()] + '曜日',
                      'holiday': holiday_name(day), 'staff': staff_of.get(day, ''), 'rows': rows})
     return [days[i:i + DAILY_LOG_PER_PAGE] for i in range(0, len(days), DAILY_LOG_PER_PAGE)]

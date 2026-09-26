@@ -22,8 +22,8 @@ from config.utils import date_or_404, home_url, month_or_404, reservation_enable
 from . import monthly, services
 from . import scan as scan_mod
 from . import sheet
-from .models import (BookingRequest, ClosedDate, Customer, LineInbox, MonthlyRequest, RequestScan, Reservation,
-                     ReservationNotice, ReservationSetting)
+from .models import (WEEKDAYS, BookingRequest, ClosedDate, Customer, LineInbox, MonthlyRequest, RequestScan,
+                     Reservation, ReservationNotice, ReservationSetting, StaffShift)
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +192,7 @@ class DayView(ReservationEnabledMixin, View):
             'slot_hours': setting.slot_hours(d) if setting.slot_mode else [],
             'default_hour': to_int(request.GET.get('hour')),
             'therapy': getattr(facility, 'use_therapy_record', False),
+            'attendance_choices': Reservation.ATT_CHOICES if facility.is_ryoiku else [],
             'closed_date': ClosedDate.objects.filter(facility=facility, date=d).first(),
             'vacancy_text': services.vacancy_text(facility, d),
             'prev_day': d - datetime.timedelta(days=1), 'next_day': d + datetime.timedelta(days=1),
@@ -260,6 +261,19 @@ class DayView(ReservationEnabledMixin, View):
                                       f'{services.jp_date(new_day)} に移しました（{res.get_status_display()}）。'
                                       '変更のお知らせは送信待ちに入れています。')
             return redirect('reservations:day', year=new_day.year, month=new_day.month, day=new_day.day)
+
+        if action == 'attendance':
+            if not facility.is_ryoiku:
+                messages.error(request, '実績の入力はこの事業所では使えません。')
+                return back
+            res = get_object_or_404(Reservation, pk=to_int(request.POST.get('reservation'), -1), facility=facility)
+            try:
+                monthly.set_attendance(res, request.POST.get('value', ''))
+            except ValueError as e:
+                messages.error(request, str(e))
+                return back
+            messages.success(request, f'{res.display_name} さんの実績を「{res.get_attendance_display()}」にしました。')
+            return back
 
         if action == 'link':
             res = get_object_or_404(Reservation, pk=to_int(request.POST.get('reservation'), -1), facility=facility)
@@ -1046,8 +1060,92 @@ class MonthlyScheduleView(SlotModeMixin, View):
             'facility': facility, 'today': datetime.date.today(),
             'therapy': getattr(facility, 'use_therapy_record', False),
             'staff_suggestions': monthly.staff_suggestions(facility),
+            'shift_count': StaffShift.objects.filter(facility=facility, is_active=True).count() if facility.is_ryoiku else 0,
+            'attendance_choices': Reservation.ATT_CHOICES,
             **_month_ctx(year, month),
         })
+
+
+class MonthlyAttendanceView(RyoikuOnlyMixin, View):
+    """月間予定表の「実績を入れる」：名前を押して 来た・欠席・キャンセル・未入力 を選ぶ"""
+
+    def post(self, request, year, month):
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        back = redirect(reverse('reservations:monthly_schedule', args=[year, month]) + '?mode=att')
+        res = get_object_or_404(Reservation, pk=to_int(request.POST.get('reservation'), -1), facility=facility)
+        try:
+            monthly.set_attendance(res, request.POST.get('value', ''))
+        except ValueError as e:
+            messages.error(request, str(e))
+            return back
+        messages.success(request, f'{res.display_name} さん（{services.jp_date(res.date)} {res.time_label}）の実績を'
+                                  f'「{res.get_attendance_display()}」にしました。')
+        return back
+
+
+class StaffShiftView(RyoikuOnlyMixin, View):
+    """職員のシフト（曜日×時間帯）の登録。月間予定表の「シフトから入れる」で「その日の担当」に使う"""
+    template_name = 'reservations/staff_shifts.html'
+
+    def get(self, request):
+        facility = request.user.facility
+        today = datetime.date.today()
+        return render(request, self.template_name, {
+            'facility': facility,
+            'shifts': StaffShift.objects.filter(facility=facility),
+            'weekdays': list(WEEKDAYS),
+            'parts': StaffShift.PART_CHOICES,
+            'names': monthly.staff_suggestions(facility),
+            'year': today.year, 'month': today.month,
+        })
+
+    def post(self, request):
+        facility = request.user.facility
+        back = redirect('reservations:staff_shifts')
+        action = request.POST.get('action', 'add')
+        if action in ('delete', 'toggle'):
+            shift = get_object_or_404(StaffShift, pk=to_int(request.POST.get('shift'), -1), facility=facility)
+            if action == 'delete':
+                shift.delete()
+                messages.success(request, f'{shift.label} のシフトを消しました。')
+            else:
+                shift.is_active = not shift.is_active
+                shift.save(update_fields=['is_active'])
+                messages.success(request, f'{shift.label} のシフトを{"使う" if shift.is_active else "休止"}にしました。')
+            return back
+        name = (request.POST.get('name') or '').strip()[:30]
+        weekdays = sorted({to_int(v, -1) for v in request.POST.getlist('weekdays')} & set(range(7)))
+        part = request.POST.get('part') or StaffShift.PART_ALL
+        if not name or not weekdays or part not in dict(StaffShift.PART_CHOICES):
+            messages.error(request, '名前・曜日・時間帯を入れてください。')
+            return back
+        if action == 'edit':
+            shift = get_object_or_404(StaffShift, pk=to_int(request.POST.get('shift'), -1), facility=facility)
+            shift.name, shift.weekdays, shift.part = name, weekdays, part
+            shift.save(update_fields=['name', 'weekdays', 'part'])
+            messages.success(request, f'{shift.label}（{shift.weekdays_text}）に直しました。')
+        else:
+            shift = StaffShift.objects.create(facility=facility, name=name, weekdays=weekdays, part=part)
+            messages.success(request, f'{shift.label}（{shift.weekdays_text}）を登録しました。'
+                                      '月間予定表の「シフトから入れる」で、その日の担当に入ります。')
+        return back
+
+
+class StaffShiftFillView(RyoikuOnlyMixin, View):
+    """月間予定表：シフトから、その月の営業日の「その日の担当」を入れる（overwrite=1 で入力済みの日も書き換え）"""
+
+    def post(self, request, year, month):
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        first, last = monthly.month_range(year, month)
+        if not StaffShift.objects.filter(facility=facility, is_active=True).exists():
+            messages.error(request, 'シフトがまだ登録されていません。「シフトの登録」で名前・曜日・時間帯を入れてください。')
+            return redirect('reservations:staff_shifts')
+        n = monthly.fill_day_staff_from_shifts(facility, first, last, services.get_setting(facility),
+                                               overwrite=request.POST.get('overwrite') == '1')
+        messages.success(request, f'シフトから {month}月の担当を入れました（{n} 日）。日ごとに手で直すこともできます。')
+        return redirect(reverse('reservations:monthly_schedule', args=[year, month]) + '#dayStaff')
 
 
 class MonthlyDayStaffView(RyoikuOnlyMixin, View):

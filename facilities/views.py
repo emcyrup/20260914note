@@ -103,9 +103,14 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             'recorded': sum(1 for e in by_day[d] if e['has_record']),
         } for d in week_dates]
 
+        # 個別支援計画の計画期間・モニタリングの期日（30日以内と期限切れ）
+        from . import reminders
+        plan_items = reminders.collect(facility, today, kinds=(reminders.KIND_PLAN, reminders.KIND_MONITORING))
+
         ctx.update({
             'today':           today,
             'soon':            soon,
+            'plan_items':      plan_items,
             'expired_certs':   expired_certs,
             'expiring_certs':  expiring_certs,
             'today_schedules': today_schedules,

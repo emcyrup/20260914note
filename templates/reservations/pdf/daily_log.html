@@ -17,7 +17,8 @@
   table.dl td.t { text-align: right; width: 34px; }
   table.dl td.n { width: 64px; }
   table.dl td.k { text-align: center; width: 28px; }
-  table.dl td.j { width: 30px; }
+  table.dl td.j { width: 30px; text-align: center; }
+  .dl-legend { font-size: 8.5px; color: #555; text-align: right; margin-top: 2px; }
   .pb { page-break-before: always; }
 </style>
 {% for page in pages %}
@@ -34,13 +35,14 @@
       <thead><tr><th>時間</th><th>氏名</th><th>提供<br>形態</th><th>実績</th><th>備考</th></tr></thead>
       <tbody>
         {% for r in day.rows %}
-        <tr><td class="t">{{ r.time }}</td><td class="n">{{ r.name }}</td><td class="k">1・2</td><td class="j"></td><td></td></tr>
+        <tr><td class="t">{{ r.time }}</td><td class="n">{{ r.name }}</td><td class="k">1・2</td><td class="j">{{ r.att }}</td><td></td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   {% endfor %}
 </div>
+<div class="dl-legend">実績：○ 来た／欠 欠席／取消 キャンセル（月間予定表の「実績を入れる」で入れたもの）</div>
 {% empty %}
 <div class="dl-title">業務日誌</div>
 <p style="text-align:center;">{{ start|date:'Y/n/j' }}〜{{ end|date:'n/j' }} に営業日がありません。</p>

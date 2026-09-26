@@ -66,6 +66,11 @@
           <label class="form-label small fw-semibold">地域区分</label>
           {{ facility_form.region_category }}
         </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">お知らせメールの宛先（代表者メール）
+            <span class="text-muted fw-normal">（受給者証・計画期間・モニタリングの期限のお知らせ。管理者・児発管のメールにも送ります）</span></label>
+          {{ facility_form.representative_email }}
+        </div>
         <div class="col-12">
           <label class="form-label small fw-semibold">住所</label>
           {{ facility_form.address }}

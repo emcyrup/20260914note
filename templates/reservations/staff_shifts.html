@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+
+{% block title %}職員のシフト — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}職員のシフト（その日の担当）{% endblock %}
+{% block nav_reservations %}active{% endblock %}
+{% block nav_reservations_only %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .sh-item { grid-template-columns: 1fr 1.6fr 0.8fr auto; }
+  .sh-days label { margin-right: 6px; white-space: nowrap; }
+  @media (min-width: 769px) { .w-md-auto { width: auto !important; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 900px;">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="small text-muted">
+      曜日と時間帯を登録しておくと、月間予定表の「シフトから入れる」で、その月の営業日の<strong>その日の担当</strong>（業務日誌の右上）を
+      「終日土田 pm大坂」の形でまとめて入れられます。入れたあとは日ごとに手で直せます。
+    </div>
+    <a href="{% url 'reservations:monthly_schedule' year month %}#dayStaff" class="btn btn-outline-secondary btn-sm">月間予定表へ</a>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header fw-bold small"><i class="bi bi-plus-circle me-1"></i>シフトを登録する</div>
+    <div class="card-body">
+      <form method="post" class="row g-2 align-items-end">
+        {% csrf_token %}<input type="hidden" name="action" value="add">
+        <div class="col-md-3">
+          <label class="form-label small fw-semibold" for="sh-name">名前（担当欄に出す）</label>
+          <input type="text" class="form-control form-control-sm" id="sh-name" name="name" maxlength="30" list="sh-names" required placeholder="例：土田">
+          <datalist id="sh-names">{% for n in names %}<option value="{{ n }}">{% endfor %}</datalist>
+        </div>
+        <div class="col-md-5">
+          <div class="form-label small fw-semibold mb-1">曜日</div>
+          <div class="sh-days">
+            {% for i, name in weekdays %}<label class="form-check-label"><input type="checkbox" class="form-check-input me-1" name="weekdays" value="{{ i }}">{{ name }}</label>{% endfor %}
+          </div>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small fw-semibold" for="sh-part">時間帯</label>
+          <select class="form-select form-select-sm" id="sh-part" name="part">{% for v, label in parts %}<option value="{{ v }}">{{ label }}</option>{% endfor %}</select>
+        </div>
+        <div class="col-6 col-md-2 d-grid"><button class="btn btn-sm btn-primary">登録する</button></div>
+        <div class="col-12"><div class="form-text">担当欄には「終日」「am」「pm」を頭に付けて出ます（例：終日土田・pm大坂）。同じ人が曜日で時間帯が違うときは、2つに分けて登録してください。</div></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row-list-item row-list-head sh-item">
+      <div>担当欄の表示</div><div>曜日</div><div>状態</div><div></div>
+    </div>
+    {% for s in shifts %}
+    <div class="row-list-item sh-item">
+      <div><span class="fw-bold">{{ s.label }}</span></div>
+      <div class="small"><span class="row-list-label">曜日</span>{{ s.weekdays_text }}</div>
+      <div class="small">{% if s.is_active %}<span class="badge text-bg-success">使う</span>{% else %}<span class="badge text-bg-secondary">休止</span>{% endif %}</div>
+      <div class="text-md-end d-flex gap-1 justify-content-md-end flex-wrap">
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('sh-edit{{ s.pk }}').classList.toggle('d-none')">直す</button>
+        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="toggle"><input type="hidden" name="shift" value="{{ s.pk }}">
+          <button class="btn btn-sm btn-outline-secondary">{% if s.is_active %}休止する{% else %}使う{% endif %}</button></form>
+        <form method="post" onsubmit="return confirm('{{ s.label }} のシフトを消しますか？（すでに入れた担当はそのまま残ります）');">
+          {% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="shift" value="{{ s.pk }}">
+          <button class="btn btn-sm btn-outline-danger">消す</button></form>
+      </div>
+    </div>
+    <div class="px-3 pb-3 d-none" id="sh-edit{{ s.pk }}">
+      <form method="post" class="row g-2 align-items-end">
+        {% csrf_token %}<input type="hidden" name="action" value="edit"><input type="hidden" name="shift" value="{{ s.pk }}">
+        <div class="col-md-3"><label class="form-label small fw-semibold">名前</label><input type="text" class="form-control form-control-sm" name="name" maxlength="30" value="{{ s.name }}" required></div>
+        <div class="col-md-5"><div class="form-label small fw-semibold mb-1">曜日</div><div class="sh-days">
+          {% for i, name in weekdays %}<label class="form-check-label"><input type="checkbox" class="form-check-input me-1" name="weekdays" value="{{ i }}" {% if i in s.weekdays %}checked{% endif %}>{{ name }}</label>{% endfor %}</div></div>
+        <div class="col-6 col-md-2"><label class="form-label small fw-semibold">時間帯</label>
+          <select class="form-select form-select-sm" name="part">{% for v, label in parts %}<option value="{{ v }}" {% if s.part == v %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+        <div class="col-6 col-md-2 d-grid"><button class="btn btn-sm btn-primary">保存する</button></div>
+      </form>
+    </div>
+    {% empty %}
+    <div class="text-center text-muted small py-4">まだシフトがありません。上の欄から登録してください。</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

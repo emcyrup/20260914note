@@ -57,6 +57,15 @@
         {% if therapy and r.beneficiary_id %}<a href="{% url 'therapy:child' r.beneficiary_id %}?date={{ r.date|date:'Y-m-d' }}{% if r.start_time %}&time={{ r.start_time|time:'H:i' }}{% endif %}" class="small" title="療育記録を書く"><i class="bi bi-pencil-square"></i></a>{% endif %}
         {% if r.status == 'confirmed' %}<span class="badge text-bg-success">予約</span>{% else %}<span class="badge text-bg-warning">キャンセル待ち</span>{% endif %}
         {% if r.is_guest %}<span class="badge text-bg-secondary">台帳に未登録</span>{% endif %}
+        {% if attendance_choices and r.status == 'confirmed' %}
+        <form method="post" class="d-inline-flex align-items-center gap-1 ms-1" title="実績（業務日誌の「実績」欄に印字）">
+          {% csrf_token %}<input type="hidden" name="action" value="attendance"><input type="hidden" name="reservation" value="{{ r.pk }}">
+          <span class="small text-muted">実績</span>
+          <select name="value" class="form-select form-select-sm py-0" style="width:auto;" onchange="this.form.submit()">
+            {% for v, label in attendance_choices %}<option value="{{ v }}" {% if r.attendance == v %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </form>
+        {% endif %}
       </div>
       <div class="small"><span class="row-list-label">入口</span>{{ r.get_source_display }}{% if r.customer %}・{{ r.customer.name }}{% if not r.customer.can_notify %}<span class="text-muted">（LINE未連携）</span>{% endif %}{% endif %}</div>
       <div class="small">{% if r.note %}<span class="row-list-label">備考</span>{{ r.note }}{% endif %}</div>

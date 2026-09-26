@@ -64,7 +64,32 @@
     </div>
     {% endif %}
 
-    {% if not expired_certs and not expiring_certs %}
+    {% if plan_items %}
+    <div class="card mb-3" style="border-color: var(--color-primary);">
+      <div class="card-header fw-bold" style="background: var(--color-primary-bg); color: var(--color-primary-dark);">
+        <i class="bi bi-calendar-check me-2"></i>個別支援計画・モニタリングの期限（{{ plan_items|length }}件）
+        <span class="small fw-normal ms-2">30日以内と、過ぎているもの</span>
+      </div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+          {% for i in plan_items %}
+          <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-1">
+            <span>
+              <a href="{{ i.url }}" class="fw-semibold text-decoration-none">{{ i.beneficiary.full_name }}</a>
+              <span class="small ms-2">{{ i.label }}{% if i.detail %}<span class="text-muted">（{{ i.detail }}）</span>{% endif %}</span>
+            </span>
+            <span class="badge {% if i.overdue %}text-white{% elif i.days_left <= 7 %}text-white{% else %}text-bg-light border{% endif %}"
+                  {% if i.overdue %}style="background: var(--color-danger);"{% elif i.days_left <= 7 %}style="background: var(--color-warning);"{% endif %}>
+              {{ i.due|date:"Y/m/d" }}・{{ i.when }}
+            </span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if not expired_certs and not expiring_certs and not plan_items %}
     <div class="p-3 rounded text-center" style="background: var(--color-primary-bg); color: var(--color-primary-dark);">
       <i class="bi bi-check-circle-fill me-2"></i>現在、対応が必要なアラートはありません。
     </div>

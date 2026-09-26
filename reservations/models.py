@@ -296,6 +296,13 @@ class Reservation(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_CONFIRMED, verbose_name='状態')
     source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default=SOURCE_STAFF, verbose_name='入口')
     note = models.CharField(max_length=200, blank=True, verbose_name='備考')
+    # 実績（来た・欠席・キャンセル）。月間予定表・その日の画面で入れ、業務日誌の「実績」欄に印字する。空は未入力
+    ATT_ATTENDED = 'attended'
+    ATT_ABSENT = 'absent'
+    ATT_CANCELLED = 'cancelled'
+    ATT_CHOICES = [('', '未入力'), (ATT_ATTENDED, '来た'), (ATT_ABSENT, '欠席'), (ATT_CANCELLED, 'キャンセル')]
+    ATT_MARKS = {ATT_ATTENDED: '○', ATT_ABSENT: '欠', ATT_CANCELLED: '取消'}
+    attendance = models.CharField(max_length=10, choices=ATT_CHOICES, default='', blank=True, verbose_name='実績')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     cancelled_at = models.DateTimeField(null=True, blank=True, verbose_name='取消日時')
@@ -340,6 +347,11 @@ class Reservation(models.Model):
     @property
     def is_active(self):
         return self.status in self.ACTIVE_STATUSES
+
+    @property
+    def attendance_mark(self):
+        """業務日誌・月間予定表に出す実績の印（○・欠・取消。未入力は空）"""
+        return self.ATT_MARKS.get(self.attendance, '')
 
 
 class ReservationNotice(models.Model):
@@ -474,6 +486,54 @@ class DayStaff(models.Model):
     def for_range(cls, facility, first, last):
         """{日付: 担当} の辞書（空の担当は除く）"""
         return {d.date: d.text for d in cls.objects.filter(facility=facility, date__gte=first, date__lte=last) if d.text}
+
+
+class StaffShift(models.Model):
+    """
+    職員のシフト（曜日 × 時間帯）。月間予定表の「シフトから入れる」で、その月の営業日の「その日の担当」を
+    「終日土田 pm大坂」の形で自動で入れる（入れたあとは日ごとに手で直せる）。
+    """
+
+    PART_ALL = 'all'
+    PART_AM = 'am'
+    PART_PM = 'pm'
+    PART_CHOICES = [(PART_ALL, '終日'), (PART_AM, '午前'), (PART_PM, '午後')]
+    PART_PREFIX = {PART_ALL: '終日', PART_AM: 'am', PART_PM: 'pm'}
+    PART_ORDER = {PART_ALL: 0, PART_AM: 1, PART_PM: 2}
+
+    facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='staff_shifts')
+    name = models.CharField(max_length=30, verbose_name='名前', help_text='担当欄に出す名前（例：土田）')
+    weekdays = models.JSONField(default=list, blank=True, verbose_name='曜日')
+    part = models.CharField(max_length=5, choices=PART_CHOICES, default=PART_ALL, verbose_name='時間帯')
+    is_active = models.BooleanField(default=True, verbose_name='使う')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = '職員のシフト'
+        verbose_name_plural = '職員のシフト'
+        ordering = ['pk']
+
+    def __str__(self):
+        return f'{self.label} {self.weekdays_text}'
+
+    @property
+    def label(self):
+        """担当欄に出す形（終日土田・am大坂・pm大坂）"""
+        return f'{self.PART_PREFIX.get(self.part, "")}{self.name}'
+
+    @property
+    def weekdays_text(self):
+        names = dict(WEEKDAYS)
+        return '・'.join(names[d] for d in sorted(self.weekdays) if d in names) or '（曜日なし）'
+
+    def works_on(self, day):
+        return self.is_active and day.weekday() in self.weekdays
+
+    @classmethod
+    def text_for(cls, day, shifts):
+        """その日の担当の文（終日 → 午前 → 午後 の順、空白区切り）"""
+        on = sorted((s for s in shifts if s.works_on(day)), key=lambda s: (cls.PART_ORDER.get(s.part, 9), s.pk))
+        return ' '.join(s.label for s in on)[:100]
 
 
 class MonthlyRequest(models.Model):
