@@ -76,8 +76,8 @@ def _pdf_or_html(request, template, ctx, filename):
     if not ctx['pdf']:
         return HttpResponse(html)
     try:
-        from weasyprint import HTML
-        pdf = HTML(string=html, base_url=request.build_absolute_uri('/'), url_fetcher=media_url_fetcher).write_pdf()
+        from config.pdf import render_pdf
+        pdf = render_pdf(html, base_url=request.build_absolute_uri('/'))
     except (ImportError, OSError) as e:
         return HttpResponse(f'PDF を作成できません（サーバーに PDF 用ライブラリがありません）: {e}\n「画面で見る」から印刷してください。',
                             status=500, content_type='text/plain; charset=utf-8')

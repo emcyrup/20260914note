@@ -35,14 +35,15 @@ git --version
 psql --version          # 無くても動く（データ移行のときに使う）
 ```
 
-PDF 出力（帳票・計画書・請求書）には WeasyPrint が使う OS のライブラリが必要です。次で確認し、無ければプロバイダに依頼してください（無くてもアプリは動き、PDF ボタンだけ「PDF を作成できません」になります。「画面で見る」から印刷はできます）。
+PDF 出力（帳票・計画書・請求書・用紙・業務日誌）には WeasyPrint が使う OS のライブラリが必要です。次で確認し、無ければプロバイダに依頼してください（無くてもアプリは動き、PDF ボタンだけ「PDF を作成できません」になります。「画面で見る」から印刷はできます）。
 
 ```bash
 ldconfig -p | grep -E 'libpango-1.0|libpangoft2|libharfbuzz-subset' | head
-fc-list | grep -i -E 'noto.*cjk|ipa|takao' | head     # 日本語フォント（無いと PDF の日本語が豆腐になる）
 ```
 
-依頼する内容（Ubuntu の場合）: `libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fonts-noto-cjk`
+依頼する内容（Ubuntu の場合）: `libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0`
+
+日本語フォントはアプリに同梱しています（`static/fonts/ipagp.ttf`、IPAPゴシック。`config/pdf.py` の `render_pdf` がすべての PDF に埋め込む）ので、サーバーに日本語フォントが無くても PDF は文字化けしません（`fonts-noto-cjk` の依頼は不要）。
 
 ## 2. リポジトリを置く
 
@@ -150,7 +151,7 @@ rm ~/dayservice.sql.gz ~/media.tgz
 | nginx で `proxy_set_header X-Forwarded-Proto $scheme;` を付ける | Django が HTTPS と判断するため。付いていないとログイン後に `http://` へ飛んで無限リダイレクトになる（その場合は `.env` の `SECURE_SSL_REDIRECT=False` で回避できる） |
 | nginx の `client_max_body_size 100m;` | 紙の日誌を最大 20 枚まとめて取り込むため（既定 1MB だと 413） |
 | nginx の `proxy_read_timeout 300s;` | AI 生成・PDF 生成が数十秒かかることがあるため（504 対策） |
-| `libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fonts-noto-cjk` のインストール | PDF 出力（WeasyPrint）と日本語フォント |
+| `libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0` のインストール | PDF 出力（WeasyPrint）。日本語フォントはアプリに同梱ずみ |
 | Python 3.12 以上の venv | Django 6.1 の要件（`python --version` で確認） |
 
 参考: `deploy/nginx.example.conf` に上記を反映した server ブロック例があります。

@@ -427,6 +427,30 @@ class DailyLogTests(TestCase):
         # 候補：入れた担当と職員の表示名
         self.assertEqual(monthly.staff_suggestions(self.f), ['pm大坂', '大坂'])
 
+    def test_pdf_uses_bundled_japanese_font(self):
+        """PDF はサーバーのフォントに頼らず、同梱の IPAPゴシックを埋め込む（文字化け対策）"""
+        try:
+            import weasyprint  # noqa: F401
+        except (ImportError, OSError):
+            self.skipTest('WeasyPrint が無い')
+        from config.pdf import font_css, font_path
+        self.assertIsNotNone(font_path())
+        self.assertIn('@font-face', font_css())
+        self.assertIn('!important', font_css())
+        res = self.client.get(reverse('reservations:daily_log_pdf', args=[2026, 10]))
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+        # フォント名は圧縮されたストリームの中にあるので、ほどいてから探す
+        import re
+        import zlib
+        parts = [res.content]
+        for m in re.finditer(rb'stream\r?\n(.*?)\r?\nendstream', res.content, re.S):
+            try:
+                parts.append(zlib.decompress(m.group(1)))
+            except zlib.error:
+                pass
+        fonts = set(re.findall(rb'/BaseFont\s*/[A-Z]+\+([A-Za-z0-9\-]+)', b''.join(parts)))
+        self.assertTrue(fonts and all(f.startswith(b'IPAPGothic') for f in fonts), fonts)
+
     def test_only_for_ryoiku_layout(self):
         """ゆあーず以外（標準の画面の事業所）には、担当の欄・業務日誌・来られない日の書き方を出さない"""
         self.f.layout = Facility.LAYOUT_STANDARD

@@ -961,7 +961,8 @@ class InvoicePdfView(LoginRequiredMixin, BillingEnabledMixin, View):
 
     def get(self, request, beneficiary_pk, year, month):
         try:
-            from weasyprint import HTML
+            from weasyprint import HTML  # noqa: F401  （使えるかの確認）
+            from config.pdf import render_pdf
         except ImportError:
             return HttpResponse('WeasyPrintがインストールされていません。', status=500)
 
@@ -972,7 +973,7 @@ class InvoicePdfView(LoginRequiredMixin, BillingEnabledMixin, View):
         ctx['doc_type'] = 'invoice'
 
         html_string = render(request, 'billing/invoice_pdf.html', ctx).content.decode('utf-8')
-        pdf_bytes   = HTML(string=html_string).write_pdf()
+        pdf_bytes   = render_pdf(html_string)
 
         ascii_filename = f'invoice_{beneficiary_pk}_{year}{month:02d}.pdf'
         utf8_filename  = urllib.parse.quote(
@@ -991,7 +992,8 @@ class ReceiptPdfView(LoginRequiredMixin, BillingEnabledMixin, View):
 
     def get(self, request, beneficiary_pk, year, month):
         try:
-            from weasyprint import HTML
+            from weasyprint import HTML  # noqa: F401  （使えるかの確認）
+            from config.pdf import render_pdf
         except ImportError:
             return HttpResponse('WeasyPrintがインストールされていません。', status=500)
 
@@ -1002,7 +1004,7 @@ class ReceiptPdfView(LoginRequiredMixin, BillingEnabledMixin, View):
         ctx['doc_type'] = 'receipt'
 
         html_string = render(request, 'billing/invoice_pdf.html', ctx).content.decode('utf-8')
-        pdf_bytes   = HTML(string=html_string).write_pdf()
+        pdf_bytes   = render_pdf(html_string)
 
         ascii_filename = f'receipt_{beneficiary_pk}_{year}{month:02d}.pdf'
         utf8_filename  = urllib.parse.quote(

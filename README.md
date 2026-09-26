@@ -6,6 +6,7 @@
 
 - 利用者台帳（受給者証・保護者管理・OCR読み取り・アセスメントや書類の登録）
 - 議事録（音声入力 → AI で見出し・箇条書きに整理。別タブで開く。事業所ごとに新しい10件。「話者を分ける」をオンにすると、どの端末でもサーバー（Google Cloud Speech-to-Text の speaker diarization）で文字にし、「話者1：」「話者2：」の行に分ける。番号は区切りごとに付け直されるので、AI の整理で同じ人をまとめ、名前や役割が分かればそれに置き換える）
+- PDF（帳票・計画書・請求書・利用希望の用紙・月間予定表・業務日誌）は WeasyPrint で作り、日本語フォント **IPAPゴシック**（`static/fonts/ipagp.ttf`、IPA フォントライセンス v1.0）を同梱して埋め込む（`config/pdf.py` の `render_pdf`）。サーバーに日本語フォントが無くても文字化けしない
 - 音声入力はアプリ共通（`static/js/voice-input.js`）。iPhone・iPad は `GOOGLE_SPEECH_API_KEY` を設定すると、録った音声をサーバーで Google Cloud Speech-to-Text に送って文字にする（iPhone のブラウザの音声認識は1ページで1回しか文字にならないことがあるため。設定は docs/RYOIKU_SERVER.md 3-7c）
 - 予定管理（月次カレンダー・一括生成・ステータス管理）
 - 日次記録（AI文章整え・音声入力・電子サイン・LINE配信）

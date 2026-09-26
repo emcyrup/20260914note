@@ -186,7 +186,7 @@ nginx の `michinote.yours.ai-labo.cloud` の server ブロックに、開発環
 | `client_max_body_size 100m;` | 紙の利用希望・紙の日誌を写真でまとめて取り込むため（既定 1MB だと 413） |
 | `proxy_read_timeout 300s;` | AI 生成・PDF 生成・音声の文字起こしが数十秒かかることがあるため（504 対策） |
 
-別のサーバーの場合は `libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fonts-noto-cjk`（PDF と日本語フォント）と Python 3.12 以上の venv も依頼します。
+別のサーバーの場合は `libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0`（PDF 用のライブラリ）と Python 3.12 以上の venv も依頼します。日本語フォントはアプリに同梱しているので不要です。
 
 ## つまずきやすい点
 
@@ -202,4 +202,5 @@ nginx の `michinote.yours.ai-labo.cloud` の server ブロックに、開発環
 | LINE の「検証」が失敗 | Webhook URL が新しいドメインになっているか、施設設定にシークレットとトークンが入っているか |
 | iPhone の録音が文字にならない | `.env` の `GOOGLE_SPEECH_API_KEY`、キーの IP 制限（手順 7）。画面の「うまく文字にならないとき」→「記録を写す」で `server=true` か |
 | 取り込みが 413 / AI が 504 | nginx の上限・タイムアウト → 手順 8 |
+| PDF の日本語が □（豆腐）になる | 同梱フォント（`static/fonts/ipagp.ttf`）が配備されていない古い版。Deploy (yours) を実行して最新にする（`collectstatic` で `staticfiles/fonts/` に入る） |
 | Actions の Deploy (yours) が「スキップ」 | `YOURS_DEPLOY_HOST` `YOURS_DEPLOY_USER` `YOURS_DEPLOY_SSH_KEY` の登録 |
