@@ -253,7 +253,7 @@ class FeatureToggleTests(TestCase):
         f.save()
         res = self.client.get(reverse('facilities:dashboard'))
         html = res.content.decode()
-        for text in ('基本機能', 'お試し', '（AI あと 20 回）', '利用者情報', '運用管理', '議事録', '療育記録', '支援計画'):
+        for text in ('基本機能', 'お試し', '（AI あと 20 回）', '利用者情報', '運用管理', '議事録', '療育記録', '支援計画', '<span>月間予定表</span>'):
             self.assertIn(text, html)
         for text in ('利用者台帳', '職員・運用管理', '帳票出力', '<span>予定</span>', '請求マトリックス'):
             self.assertNotIn(text, html)
@@ -262,6 +262,20 @@ class FeatureToggleTests(TestCase):
         # いま開いている画面に印が付く
         res = self.client.get(reverse('therapy:index'))
         self.assertRegex(res.content.decode(), r'sidebar-nav-item active" href="/therapy/"')
+        # 左メニューの「月間予定表」は今月へ。予定表の画面では「予約」ではなく「月間予定表」に印が付く
+        import datetime
+        today = datetime.date.today()
+        from reservations import services
+        st = services.get_setting(f)
+        st.slot_mode = True
+        st.save()
+        res = self.client.get(reverse('reservations:monthly_schedule_now'))
+        self.assertRedirects(res, reverse('reservations:monthly_schedule', args=[today.year, today.month]), fetch_redirect_response=False)
+        html = self.client.get(reverse('reservations:monthly_schedule', args=[today.year, today.month])).content.decode()
+        self.assertRegex(html, r'sidebar-nav-item active" href="/reservations/yotei/"')
+        self.assertNotRegex(html, r'sidebar-nav-item active" href="/reservations/"')
+        html = self.client.get(reverse('reservations:calendar')).content.decode()
+        self.assertRegex(html, r'sidebar-nav-item active" href="/reservations/"')
         # 一般職員には運用管理が出ない
         staff = StaffAccount.objects.create_user('staff2', password='pw12345678', facility=f)
         self.client.force_login(staff)

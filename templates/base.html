@@ -164,11 +164,18 @@
         </a>
       </li>
       {% if features.reservation %}
+      {% with sched='monthly_schedule monthly_schedule_now monthly_schedule_swap monthly_schedule_pdf monthly_day_staff daily_log_pdf' %}
       <li>
-        <a class="sidebar-nav-item {% if rm.app_name == 'reservations' %}active{% endif %}" href="{% url 'reservations:calendar' %}">
+        <a class="sidebar-nav-item {% if rm.app_name == 'reservations' and rm.url_name not in sched %}active{% endif %}" href="{% url 'reservations:calendar' %}">
           <i class="bi bi-calendar-check"></i><span>予約</span>
         </a>
       </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'reservations' and rm.url_name in sched %}active{% endif %}" href="{% url 'reservations:monthly_schedule_now' %}" title="今月の月間予定表。業務日誌の印刷とその日の担当はここから">
+          <i class="bi bi-calendar3"></i><span>月間予定表</span>
+        </a>
+      </li>
+      {% endwith %}
       {% endif %}
       {% if features.therapy %}
       <li>

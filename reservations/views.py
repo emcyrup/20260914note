@@ -992,6 +992,14 @@ class MonthlyRequestFormView(SlotModeMixin, View):
         return pdf_or_html(request, 'reservations/pdf/request_form.html', ctx, name)
 
 
+class MonthlyScheduleNowView(SlotModeMixin, View):
+    """左メニューの「月間予定表」：今月の月間予定表へ"""
+
+    def get(self, request):
+        today = datetime.date.today()
+        return redirect('reservations:monthly_schedule', year=today.year, month=today.month)
+
+
 class MonthlyScheduleView(SlotModeMixin, View):
     """月間予定表（週×時間枠×1枠の人数）。空の箱を押すとその日の画面で追加できる"""
     template_name = 'reservations/monthly_schedule.html'
