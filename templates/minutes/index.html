@@ -62,7 +62,7 @@
       <div id="mn-voice-note" class="alert alert-warning small py-1 px-2 mb-1 d-none"></div>
       <textarea class="form-control" id="transcript" name="transcript" rows="10" maxlength="{{ text_max }}"
                 placeholder="「録音」を押して話すと、ここに文字で入っていきます。ほかの録音アプリの文字起こしを貼り付けても構いません。">{% if current %}{{ current.transcript }}{% endif %}</textarea>
-      <div class="form-text">止まらずに聞き続けます（黙っている間も待ちます）。録音中は画面を閉じたり、ほかのアプリに切り替えたりしないでください（止まります）。{% if speech_server %}「話者を分ける」をオンにすると、話の区切り（30〜55秒）ごとにサーバーで文字にし、発言者ごとの行になります（話者の番号は区切りごとに付け直されることがあります）。{% endif %}
+      <div class="form-text">止まらずに聞き続けます（黙っている間も待ちます）。録音中は画面を閉じたり、ほかのアプリに切り替えたりしないでください（止まります）。{% if speech_server %}「話者を分ける」をオンにすると、話の区切り（10〜40秒）ごとにサーバーで文字にし、発言者ごとの行になります（話者の番号は区切りごとに付け直されることがあります）。{% endif %}
         <a href="#" id="voice-log-toggle" class="ms-1">うまく文字にならないとき</a></div>
       <div id="voice-log-box" class="d-none mt-2 p-2 rounded" style="background:#f6f3ee;border:1px solid var(--line);">
         <div class="small mb-1">音声入力の動きの記録です（話した言葉そのものは入っていません。文字数だけです）。うまく文字にならなかったあとで「記録を写す」を押し、担当者に貼り付けて送ってください。</div>

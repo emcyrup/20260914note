@@ -269,7 +269,7 @@ sudo -u deploy bash -lc "cd /opt/ryoiku && ./enable-https.sh <ドメイン>"
 
 ### 3-7c. iPhone の音声入力（Google Cloud Speech-to-Text）
 
-iPhone・iPad のブラウザ（Safari も Chrome も中身は同じ）の音声認識は、**1ページで1回しか文字にならない**ことがあります（止めてから録音し直すと、2回目以降は音が届かない）。そのため iPhone では、アプリが音声そのものを録り、話の区切り（15〜55 秒）ごとにサーバーへ送って **Google Cloud Speech-to-Text** で文字にします。パソコン・Android はこれまでどおりブラウザの音声認識を使います（費用なし）。
+iPhone・iPad のブラウザ（Safari も Chrome も中身は同じ）の音声認識は、**1ページで1回しか文字にならない**ことがあります（止めてから録音し直すと、2回目以降は音が届かない）。そのため iPhone では、アプリが音声そのものを録り、話の切れ目（ひと息ごと。3〜15 秒）ごとにサーバーへ送って **Google Cloud Speech-to-Text** で文字にします。パソコン・Android はこれまでどおりブラウザの音声認識を使います（費用なし）。
 
 **Google Cloud 側（ゆあーずのサーバーと同じプロジェクト）**
 1. Cloud Console → 「API とサービス」→「ライブラリ」→ **Cloud Speech-to-Text API** → 「有効にする」。

@@ -467,7 +467,7 @@
 
 {% if user.is_authenticated %}<script src="{% static 'js/concurrency.js' %}?v=1"></script>
 <script>window.VOICE_INPUT_SERVER = {% if speech_server %}{url: '{% url 'ai_assist:transcribe' %}'}{% else %}null{% endif %};</script>
-<script src="{% static 'js/voice-input.js' %}?v=10"></script>{% endif %}
+<script src="{% static 'js/voice-input.js' %}?v=11"></script>{% endif %}
 {% block extra_js %}{% endblock %}
 
 {% if user.is_authenticated and user.ui_theme != 'simple' and not reservation_only %}

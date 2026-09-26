@@ -45,7 +45,7 @@
 
   // うまく動かないときに調べるための記録（話した言葉そのものは残さず、文字数だけ）
   // 保存・読み込み直しをしても消えないよう、このタブのあいだは sessionStorage にも残す
-  var VERSION = 'v9';
+  var VERSION = 'v10';
   var LOG_KEY = 'voice-input-log', LOG = [], T0 = Date.now(), seq = 0;
   try { LOG = JSON.parse(sessionStorage.getItem(LOG_KEY) || '[]') || []; } catch (e) { LOG = []; }
   function log(msg) {
@@ -356,12 +356,15 @@
     }
   }
 
-  // ===== サーバーで文字にする（iPhone） =====
-  // 画面で音声を録り（16kHz・モノラルの WAV）、話の区切り（15〜55 秒）ごとにサーバーへ送って文字にしてもらう。
+  // ===== サーバーで文字にする（iPhone・話者を分けるとき） =====
+  // 画面で音声を録り（16kHz・モノラルの WAV）、話の切れ目ごとにサーバーへ送って文字にしてもらう。
+  // 話しながら文字が出るように、ひと息の間（0.5 秒ほど）があれば 3 秒以上で送り、続けて話していても 15 秒で送る。
+  // 話者を分けるときは、区切りの中でしか同じ人と分からないので長め（10〜40 秒）にする。
   // iPhone のブラウザの音声認識は、1ページで1回しか文字にならないことがあるため
   var SERVER = window.VOICE_INPUT_SERVER || null;
-  var SEG_MIN = (cfg.segMinSec || 15), SEG_MAX = (cfg.segMaxSec || 55);
-  var LOUD = 0.015, QUIET = 0.008, QUIET_RUN = 4;       // 音の大きさ（RMS）のめやす
+  var SEG_MIN = (cfg.segMinSec || 3), SEG_MAX = (cfg.segMaxSec || 15);
+  var SPK_MIN = (cfg.speakersMinSec || 10), SPK_MAX = (cfg.speakersMaxSec || 40);
+  var LOUD = 0.015, QUIET = 0.008, QUIET_RUN = 6;       // 音の大きさ（RMS）のめやす。QUIET_RUN は 4096 サンプルの塊の数（6 ≒ 0.5 秒）
   var uploads = 0, chain = Promise.resolve(), waitingSubmit = null;
 
   function useServer(a) {
@@ -412,7 +415,7 @@
   function showBusy(a) {
     var box = liveBox(a.target);
     if (uploads > 0) box.textContent = '文字にしています…（' + uploads + '）';
-    else if (active === a) box.textContent = '録音中：話の区切りごとに文字になります';
+    else if (active === a) box.textContent = a.speakers ? '録音中：話の区切り（10〜40秒）ごとに、話者を分けて文字になります' : '録音中：ひと息ごとに文字になります';
     else box.textContent = '';
   }
 
@@ -481,8 +484,8 @@
           if (rms > LOUD) { a.loud = true; a.lastHeard = Date.now(); }
           a.quietRun = rms < QUIET ? a.quietRun + 1 : 0;
           var secs = a.samples / a.rate;
-          // 話者を分けるときは区切りを長めにする（区切りの中でしか同じ人と分からないため）
-          if (secs >= SEG_MAX || (secs >= (a.speakers ? SEG_MAX / 2 : SEG_MIN) && a.quietRun >= QUIET_RUN)) cut(a);
+          var segMin = a.speakers ? SPK_MIN : SEG_MIN, segMax = a.speakers ? SPK_MAX : SEG_MAX;
+          if (secs >= segMax || (secs >= segMin && a.quietRun >= QUIET_RUN)) cut(a);
           if (Date.now() - a.lastHeard > SILENCE_MS) stop('しばらく声が聞こえなかったので止めました。続けるときはもう一度押してください。');
         };
         src.connect(proc);
