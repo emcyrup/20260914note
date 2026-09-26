@@ -995,8 +995,41 @@ class MonthlyScheduleView(SlotModeMixin, View):
             'rows': [r for r in rows if r['request'] or r['confirmed']],
             'facility': facility, 'today': datetime.date.today(),
             'therapy': getattr(facility, 'use_therapy_record', False),
+            'staff_suggestions': monthly.staff_suggestions(facility),
             **_month_ctx(year, month),
         })
+
+
+class MonthlyDayStaffView(SlotModeMixin, View):
+    """月間予定表の「その日の担当」（業務日誌の右上に印字）をまとめて保存する"""
+
+    def post(self, request, year, month):
+        year, month = month_or_404(year, month)
+        first, last = monthly.month_range(year, month)
+        n = monthly.save_day_staff(request.user.facility, request.POST, first, last)
+        messages.success(request, f'{month}月の担当を保存しました（担当の入った日 {n} 日）。業務日誌の右上に印字されます。')
+        return redirect(reverse('reservations:monthly_schedule', args=[year, month]) + '#dayStaff')
+
+
+class DailyLogPdfView(SlotModeMixin, View):
+    """業務日誌（1日ごとの予定表）：月間予定表から、A4 1枚に4日ぶん。?from=YYYY-MM-DD&to=YYYY-MM-DD で範囲を絞れる"""
+
+    def get(self, request, year, month):
+        from config.pdf import pdf_or_html
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        first, last = monthly.month_range(year, month)
+        try:
+            start = datetime.date.fromisoformat(request.GET.get('from', '')) if request.GET.get('from') else first
+            end = datetime.date.fromisoformat(request.GET.get('to', '')) if request.GET.get('to') else last
+        except ValueError:
+            start, end = first, last
+        if start > end:
+            start, end = end, start
+        pages = monthly.daily_log_pages(facility, start, end, services.get_setting(facility))
+        ctx = {'pages': pages, 'facility': facility, 'start': start, 'end': end, 'year': year, 'month': month}
+        name = f'業務日誌_{start:%Y-%m-%d}〜{end:%Y-%m-%d}'
+        return pdf_or_html(request, 'reservations/pdf/daily_log.html', ctx, name)
 
 
 class MonthlyScheduleSwapView(SlotModeMixin, View):

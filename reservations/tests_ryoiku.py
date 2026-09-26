@@ -368,6 +368,72 @@ class NgDaysTests(TestCase):
         self.assertIn('ng_days', scan.SCHEMA['properties'])
 
 
+class DailyLogTests(TestCase):
+    """業務日誌（1日ごとの予定表・A4 に4日）と「その日の担当」"""
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f,
+                                                     role=StaffAccount.ROLE_ADMIN, display_name='大坂')
+        self.client.login(username='ryo', password='pw12345678')
+        self.kids = [child(self.f, n) for n in ('青木', '井上', '上田')]
+        for kid, (d, h) in zip(self.kids, ((2, 11), (2, 10), (3, 9))):
+            services.create_reservation(self.f, kid, datetime.date(2026, 10, d), start_time=datetime.time(h, 0), notify=False)
+
+    def test_pages_and_rows(self):
+        from .models import DayStaff
+        DayStaff.objects.create(facility=self.f, date=datetime.date(2026, 10, 2), text='pm大坂')
+        pages = monthly.daily_log_pages(self.f, datetime.date(2026, 10, 1), datetime.date(2026, 10, 31), self.s)
+        days = [d for page in pages for d in page]
+        self.assertEqual(len(pages), 6)                                   # 10月の営業日 22 日 → 4日ずつ 6 枚
+        self.assertTrue(all(len(p) <= 4 for p in pages))
+        self.assertEqual([d['date'].day for d in days[:4]], [2, 3, 4, 6])   # 1日(木)・5日(月) はお休みで出ない
+        d2 = days[0]
+        self.assertEqual((d2['weekday'], d2['staff']), ('金曜日', 'pm大坂'))
+        self.assertEqual(len(d2['rows']), monthly.DAILY_LOG_ROWS)
+        self.assertEqual([(r['time'], r['name']) for r in d2['rows'][:3]], [('10:00', '井上 子'), ('11:00', '青木 子'), ('', '')])
+        self.assertEqual(days[1]['rows'][0], {'time': '9:00', 'name': '上田 子'})
+        self.assertEqual(days[1]['staff'], '')
+
+    def test_staff_saved_from_schedule_and_printed(self):
+        url = reverse('reservations:monthly_schedule', args=[2026, 10])
+        res = self.client.get(url)
+        self.assertContains(res, 'name="staff_2026-10-02"')
+        self.assertNotContains(res, 'name="staff_2026-10-05"')              # お休みの日は欄が無い
+        self.assertContains(res, '業務日誌（4日/枚）')
+        res = self.client.post(reverse('reservations:monthly_day_staff', args=[2026, 10]),
+                               {'staff_2026-10-02': ' pm大坂 ', 'staff_2026-10-03': '終日土田', 'staff_2026-10-04': ''}, follow=True)
+        self.assertContains(res, '担当の入った日 2 日')
+        self.assertContains(res, 'value="pm大坂"')
+        self.assertContains(res, 'title="その日の担当">pm大坂')
+        res = self.client.post(reverse('reservations:monthly_day_staff', args=[2026, 10]), {'staff_2026-10-03': ''}, follow=True)
+        self.assertContains(res, '担当の入った日 0 日')
+        from .models import DayStaff
+        self.assertEqual(list(DayStaff.objects.filter(facility=self.f).values_list('date', 'text')), [(datetime.date(2026, 10, 2), 'pm大坂')])
+        # 業務日誌
+        res = self.client.get(reverse('reservations:daily_log_pdf', args=[2026, 10]) + '?fmt=html')
+        self.assertContains(res, '業務日誌')
+        self.assertContains(res, '2026年10月2日')
+        self.assertContains(res, 'pm大坂')
+        self.assertContains(res, '井上 子')
+        self.assertContains(res, '提供<br>形態')
+        self.assertEqual(res.content.decode().count('class="pb"'), 5)      # 6 枚
+        res = self.client.get(reservations_url := reverse('reservations:daily_log_pdf', args=[2026, 10]) + '?fmt=html&from=2026-10-03&to=2026-10-02')
+        self.assertContains(res, '2026年10月2日')
+        self.assertContains(res, '2026年10月3日')
+        self.assertNotContains(res, '2026年10月6日')
+        self.assertEqual(res.content.decode().count('class="pb"'), 0)
+        # 候補：入れた担当と職員の表示名
+        self.assertEqual(monthly.staff_suggestions(self.f), ['pm大坂', '大坂'])
+
+    def test_other_facility_data_not_shown(self):
+        g = Facility.objects.create(name='ほか', use_reservation=True)
+        from .models import DayStaff
+        DayStaff.objects.create(facility=g, date=datetime.date(2026, 10, 2), text='よそ')
+        res = self.client.get(reverse('reservations:daily_log_pdf', args=[2026, 10]) + '?fmt=html')
+        self.assertNotContains(res, 'よそ')
+
+
 class RyoikuScreenTests(TestCase):
     def setUp(self):
         self.f, self.s = ryoiku()

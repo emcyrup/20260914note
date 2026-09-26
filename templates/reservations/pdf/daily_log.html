@@ -1,0 +1,48 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}業務日誌 {{ start|date:'Y/n/j' }}〜{{ end|date:'n/j' }}{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'reservations:monthly_schedule' year month %}">月間予定表へ戻る</a>{% endblock %}
+{% block body %}
+<style>
+  body { font-size: 10px; }
+  .dl-title { font-size: 13px; font-weight: 700; text-align: center; margin-bottom: 4px; letter-spacing: .2em; }
+  .dl-grid { display: flex; flex-wrap: wrap; gap: 0 10px; }
+  .dl-day { width: calc(50% - 5px); margin-bottom: 8px; page-break-inside: avoid; }
+  .dl-head { display: flex; justify-content: space-between; align-items: baseline; padding: 0 2px 2px; }
+  .dl-head .d { font-weight: 700; font-size: 11px; }
+  .dl-head .w { font-weight: 700; font-size: 11px; margin-left: 10px; }
+  .dl-head .s { font-size: 10px; margin-left: auto; text-align: right; max-width: 45%; }
+  table.dl { table-layout: fixed; }
+  table.dl th { font-size: 9.5px; padding: 3px 2px; background: #eee; }
+  table.dl td { padding: 0 3px; height: 17px; line-height: 17px; font-size: 10px; white-space: nowrap; overflow: hidden; }
+  table.dl td.t { text-align: right; width: 34px; }
+  table.dl td.n { width: 64px; }
+  table.dl td.k { text-align: center; width: 28px; }
+  table.dl td.j { width: 30px; }
+  .pb { page-break-before: always; }
+</style>
+{% for page in pages %}
+{% if not forloop.first %}<div class="pb"></div>{% endif %}
+<div class="dl-title">業務日誌</div>
+<div class="dl-grid">
+  {% for day in page %}
+  <div class="dl-day">
+    <div class="dl-head">
+      <span class="d">{{ day.date|date:'Y年n月j日' }}</span><span class="w">{{ day.weekday }}{% if day.holiday %}（{{ day.holiday }}）{% endif %}</span>
+      <span class="s">{{ day.staff }}</span>
+    </div>
+    <table class="dl">
+      <thead><tr><th>時間</th><th>氏名</th><th>提供<br>形態</th><th>実績</th><th>備考</th></tr></thead>
+      <tbody>
+        {% for r in day.rows %}
+        <tr><td class="t">{{ r.time }}</td><td class="n">{{ r.name }}</td><td class="k">1・2</td><td class="j"></td><td></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+</div>
+{% empty %}
+<div class="dl-title">業務日誌</div>
+<p style="text-align:center;">{{ start|date:'Y/n/j' }}〜{{ end|date:'n/j' }} に営業日がありません。</p>
+{% endfor %}
+{% endblock %}

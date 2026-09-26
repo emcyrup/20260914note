@@ -15,7 +15,7 @@ from beneficiaries.models import Beneficiary
 from config.jp_holidays import holiday_name
 
 from . import services
-from .models import MonthlyRequest, Reservation, ReservationNotice, ReservationSetting, hour_label
+from .models import DayStaff, MonthlyRequest, Reservation, ReservationNotice, ReservationSetting, hour_label
 
 WEEK_JP = services.WEEK_JP
 
@@ -412,6 +412,7 @@ def month_schedule(facility, year, month, setting=None):
         else:
             waiting.setdefault(key, []).append(res)
 
+    staff_of = DayStaff.for_range(facility, first, last)
     cal = calendar.Calendar(firstweekday=6)     # 日曜はじまり
     weeks = []
     for week in cal.monthdatescalendar(year, month):
@@ -431,10 +432,69 @@ def month_schedule(facility, year, month, setting=None):
             days.append({'date': day, 'in_month': in_month, 'closed': in_month and not day_hours,
                          'holiday': holiday_name(day) if in_month else '',
                          'is_sunday': day.weekday() == 6, 'is_saturday': day.weekday() == 5,
+                         'staff': staff_of.get(day, '') if in_month else '',
                          'slots': slots, 'count': sum(len(s['reservations']) for s in slots)})
         weeks.append({'days': days, 'start': week[0], 'end': week[-1]})
     return {'year': year, 'month': month, 'hours': hours, 'hour_labels': [hour_label(h) for h in hours],
             'weeks': weeks, 'capacity': setting.slot_capacity, 'closed_text': setting.closed_weekdays_text}
+
+
+DAILY_LOG_ROWS = 15      # 業務日誌の1日ぶんの行数（用紙に合わせる）
+DAILY_LOG_PER_PAGE = 4   # A4 1枚に入る日数
+
+
+def save_day_staff(facility, post, first, last):
+    """月間予定表の「その日の担当」の入力（名前は staff_<iso>）を保存する。空にした日は消す"""
+    n = 0
+    for day in (first + datetime.timedelta(days=i) for i in range((last - first).days + 1)):
+        key = f'staff_{day.isoformat()}'
+        if key not in post:
+            continue
+        text = (post.get(key) or '').strip()[:100]
+        if text:
+            DayStaff.objects.update_or_create(facility=facility, date=day, defaults={'text': text})
+            n += 1
+        else:
+            DayStaff.objects.filter(facility=facility, date=day).delete()
+    return n
+
+
+def staff_suggestions(facility):
+    """担当の入力候補：これまでに入れた担当の文と、職員の表示名"""
+    from accounts.models import StaffAccount
+    used = list(DayStaff.objects.filter(facility=facility).exclude(text='').order_by('-date')
+                .values_list('text', flat=True)[:300])
+    names = [str(u) for u in StaffAccount.objects.filter(facility=facility, is_active=True)]
+    out = []
+    for t in used + names:
+        if t not in out:
+            out.append(t)
+    return out[:60]
+
+
+def daily_log_pages(facility, first, last, setting=None):
+    """
+    業務日誌（1日ごとの予定表）：営業日だけを日付の順に並べ、4日ずつ A4 1枚にする。
+    1日は {'date', 'weekday', 'staff', 'rows': [{'time', 'name'} × 15]}（確定した予約を時刻の順。足りない行は空）
+    """
+    setting = setting or services.get_setting(facility)
+    closed = services.closed_dates(facility, first, last)
+    staff_of = DayStaff.for_range(facility, first, last)
+    by_day = {}
+    for res in (Reservation.objects.filter(facility=facility, date__gte=first, date__lte=last,
+                                           status=Reservation.STATUS_CONFIRMED)
+                .select_related('beneficiary').order_by('date', 'start_time', 'created_at')):
+        by_day.setdefault(res.date, []).append(res)
+    days = []
+    for i in range((last - first).days + 1):
+        day = first + datetime.timedelta(days=i)
+        if services.is_closed(facility, day, setting, closed) and day not in by_day:
+            continue
+        rows = [{'time': r.time_label if r.start_time else '', 'name': r.display_name} for r in by_day.get(day, [])]
+        rows += [{'time': '', 'name': ''}] * max(0, DAILY_LOG_ROWS - len(rows))
+        days.append({'date': day, 'weekday': services.WEEK_JP[day.weekday()] + '曜日',
+                     'holiday': holiday_name(day), 'staff': staff_of.get(day, ''), 'rows': rows})
+    return [days[i:i + DAILY_LOG_PER_PAGE] for i in range(0, len(days), DAILY_LOG_PER_PAGE)]
 
 
 # ---------------------------------------------------------------- 保護者に入力してもらう（URL の配信）

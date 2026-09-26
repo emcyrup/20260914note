@@ -29,6 +29,10 @@
   #ms-swap-bar { display: none; }
   body.ms-swap #ms-swap-bar { display: block; }
   .ms-users { grid-template-columns: 1.4fr 0.6fr 0.6fr 0.6fr 0.6fr; }
+  .ms-staff { color: #2f5d50; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ms-staff-list { max-height: 420px; overflow-y: auto; padding: 0 12px; }
+  .ms-staff-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; border-top: 1px solid var(--line); }
+  .ms-staff-row label { flex: 0 0 64px; font-size: 0.8rem; margin: 0; white-space: nowrap; }
   @media (max-width: 768px) { .ms-week { font-size: 0.62rem; } .ms-box { height: 17px; line-height: 17px; padding: 0 2px; } }
 </style>
 {% endblock %}
@@ -45,6 +49,7 @@
       <a href="{% url 'reservations:monthly_requests' year month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-list-check me-1"></i>利用希望</a>
       <button type="button" class="btn btn-outline-primary btn-sm" id="ms-swap-toggle"><i class="bi bi-arrow-left-right me-1"></i>入れ替え・移動</button>
       <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-printer me-1"></i>印刷（PDF）</a>
+      <a href="{% url 'reservations:daily_log_pdf' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank" title="1日ごとの予定表（時間・氏名・提供形態・実績・備考）。A4 1枚に4日ぶん。右上に「その日の担当」"><i class="bi bi-journal-text me-1"></i>業務日誌（4日/枚）</a>
       <form method="post" action="{% url 'reservations:monthly_requests' year month %}"
             onsubmit="return confirm('{{ month }}月の利用希望から予約を割り当てます。\nすでに確定している予約は残し、希望回数に足りないぶんだけ足します。よろしいですか？');">
         {% csrf_token %}
@@ -74,7 +79,7 @@
           <th class="time"></th>
           {% for d in week.days %}
           <th class="{% if d.is_sunday %}sun{% elif d.is_saturday %}sat{% endif %}{% if d.closed %} closed{% endif %}">
-            {% if d.in_month %}{{ d.date|date:'j' }}日({{ d.date|date:'D' }}){% if d.holiday %}<div class="ms-count text-danger">{{ d.holiday }}</div>{% elif d.closed %}<div class="ms-count">お休み</div>{% else %}<div class="ms-count">{{ d.count }} 名</div>{% endif %}{% endif %}
+            {% if d.in_month %}{{ d.date|date:'j' }}日({{ d.date|date:'D' }}){% if d.holiday %}<div class="ms-count text-danger">{{ d.holiday }}</div>{% elif d.closed %}<div class="ms-count">お休み</div>{% else %}<div class="ms-count">{{ d.count }} 名</div>{% endif %}{% if d.staff %}<div class="ms-count ms-staff" title="その日の担当">{{ d.staff }}</div>{% endif %}{% endif %}
           </th>
           {% endfor %}
         </tr></thead>
@@ -129,6 +134,26 @@
         {% empty %}
         <div class="text-center text-muted small py-3">まだ利用希望も予約もありません。</div>
         {% endfor %}
+      </div>
+
+      <div class="card mt-3" id="dayStaff">
+        <form method="post" action="{% url 'reservations:monthly_day_staff' year month %}">
+          {% csrf_token %}
+          <div class="card-body pb-2">
+            <div class="fw-bold small"><i class="bi bi-person-badge me-1"></i>その日の担当</div>
+            <div class="form-text mt-0">業務日誌の右上に印字されます（例：pm大坂、終日土田）。空欄の日は印字しません。</div>
+          </div>
+          <datalist id="staff-options">{% for t in staff_suggestions %}<option value="{{ t }}">{% endfor %}</datalist>
+          <div class="ms-staff-list">
+            {% for week in schedule.weeks %}{% for d in week.days %}{% if d.in_month and not d.closed %}
+            <div class="ms-staff-row">
+              <label for="staff_{{ d.date|date:'Y-m-d' }}" class="{% if d.is_sunday %}text-danger{% elif d.is_saturday %}text-primary{% endif %}">{{ d.date|date:'j' }}日({{ d.date|date:'D' }})</label>
+              <input type="text" class="form-control form-control-sm" id="staff_{{ d.date|date:'Y-m-d' }}" name="staff_{{ d.date|date:'Y-m-d' }}" value="{{ d.staff }}" list="staff-options" maxlength="100" autocomplete="off" placeholder="担当">
+            </div>
+            {% endif %}{% endfor %}{% endfor %}
+          </div>
+          <div class="card-body pt-2"><button class="btn btn-sm btn-primary w-100"><i class="bi bi-check2 me-1"></i>担当を保存</button></div>
+        </form>
       </div>
     </div>
   </div>

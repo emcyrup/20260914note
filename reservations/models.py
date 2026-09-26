@@ -451,6 +451,31 @@ class LineInbox(models.Model):
         self.display_name = ''
 
 
+class DayStaff(models.Model):
+    """
+    その日の担当（パート・職員の名前）。月間予定表で入れ、業務日誌（1日ごとの予定表）の右上に印字する。
+    例：「pm大坂」「終日土田」「終日早田 終日土田」
+    """
+
+    facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='day_staff')
+    date = models.DateField(verbose_name='日付')
+    text = models.CharField(max_length=100, blank=True, verbose_name='担当')
+
+    class Meta:
+        verbose_name = 'その日の担当'
+        verbose_name_plural = 'その日の担当'
+        unique_together = [('facility', 'date')]
+        ordering = ['date']
+
+    def __str__(self):
+        return f'{self.date} {self.text}'
+
+    @classmethod
+    def for_range(cls, facility, first, last):
+        """{日付: 担当} の辞書（空の担当は除く）"""
+        return {d.date: d.text for d in cls.objects.filter(facility=facility, date__gte=first, date__lte=last) if d.text}
+
+
 class MonthlyRequest(models.Model):
     """
     月予約利用希望（時間枠で予約する事業所）。
