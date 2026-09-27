@@ -554,6 +554,60 @@ class AttendanceTests(TestCase):
                                           {'reservation': other.pk, 'value': 'attended'}).status_code, 404)
 
 
+class DailyBoardTests(TestCase):
+    """きょうの予定（スマートフォン向け）：担当・時刻順の予定・実績・前後の営業日"""
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f,
+                                                     role=StaffAccount.ROLE_ADMIN, display_name='大坂')
+        self.client.login(username='ryo', password='pw12345678')
+        self.kids = [child(self.f, n) for n in ('青木', '井上', '上田')]
+        self.day = datetime.date(2026, 10, 2)    # 金
+        self.r1, _ = services.create_reservation(self.f, self.kids[0], self.day, start_time=datetime.time(11, 0), notify=False, note='送迎あり')
+        self.r2, _ = services.create_reservation(self.f, self.kids[1], self.day, start_time=datetime.time(10, 0), notify=False)
+        monthly.set_attendance(self.r2, 'attended')
+
+    def test_board(self):
+        b = monthly.day_board(self.f, self.day, self.s)
+        self.assertEqual([r.display_name for r in b['reservations']], ['井上 子', '青木 子'])
+        self.assertEqual((b['total'], b['attended'], b['pending'], b['weekday'], b['closed']), (2, 1, 1, '金', False))
+        self.assertEqual((b['prev'], b['next']), (datetime.date(2026, 9, 30), datetime.date(2026, 10, 3)))   # 木曜はお休み
+        self.assertEqual(monthly.day_board(self.f, datetime.date(2026, 10, 5), self.s)['closed'], True)      # 月曜
+
+    def test_page_and_actions(self):
+        url = reverse('reservations:daily_board')
+        res = self.client.get(url + '?d=2026-10-02')
+        self.assertContains(res, '10月2日')
+        self.assertContains(res, '（まだ入っていません）')
+        self.assertContains(res, '送迎あり')
+        self.assertContains(res, '?d=2026-09-30')
+        self.assertContains(res, '?d=2026-10-03')
+        self.assertContains(res, 'from=2026-10-02&to=2026-10-02')
+        # 担当
+        res = self.client.post(url + '?d=2026-10-02', {'action': 'staff', 'text': ' 終日土田 '}, follow=True)
+        self.assertContains(res, 'その日の担当を保存しました')
+        self.assertContains(res, '<div class="db-staff" id="db-staff-text">終日土田</div>')
+        # 実績
+        res = self.client.post(url + '?d=2026-10-02', {'action': 'attendance', 'reservation': self.r1.pk, 'value': 'absent'}, follow=True)
+        self.assertContains(res, '実績を「欠席」にしました')
+        self.assertContains(res, '欠席 1')
+        self.r1.refresh_from_db(); self.assertEqual(self.r1.attendance, 'absent')
+        res = self.client.post(url + '?d=2026-10-02', {'action': 'staff', 'text': ''}, follow=True)
+        self.assertContains(res, 'その日の担当を空にしました')
+        # 日付が変でもきょうを出す
+        self.assertEqual(self.client.get(url + '?d=xx').status_code, 200)
+        # お休みの日
+        self.assertContains(self.client.get(url + '?d=2026-10-05'), 'お休みの日です')
+
+    def test_only_for_ryoiku(self):
+        self.assertContains(self.client.get(reverse('facilities:dashboard')), 'きょうの予定と担当')
+        self.f.layout = Facility.LAYOUT_STANDARD
+        self.f.save(update_fields=['layout'])
+        self.assertEqual(self.client.get(reverse('reservations:daily_board')).status_code, 404)
+        self.assertNotContains(self.client.get(reverse('facilities:dashboard')), 'きょうの予定と担当')
+
+
 class StaffShiftTests(TestCase):
     """職員のシフト（曜日×時間帯）から「その日の担当」を入れる"""
 

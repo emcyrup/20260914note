@@ -514,6 +514,36 @@ def fill_day_staff_from_shifts(facility, first, last, setting=None, overwrite=Fa
     return n
 
 
+def day_board(facility, day, setting=None):
+    """
+    きょうの予定（スマートフォン向けの簡易ページ）：その日の担当、時刻順の予定と実績、キャンセル待ち、集計。
+    prev/next はその前後の営業日（14 日まで探す）
+    """
+    setting = setting or services.get_setting(facility)
+    lo, hi = day - datetime.timedelta(days=14), day + datetime.timedelta(days=14)
+    closed = services.closed_dates(facility, lo, hi)
+    rows = list(Reservation.objects.filter(facility=facility, date=day, status__in=Reservation.ACTIVE_STATUSES)
+                .select_related('beneficiary', 'customer').order_by('start_time', 'created_at'))
+    confirmed = [r for r in rows if r.status == Reservation.STATUS_CONFIRMED]
+    counts = {k: sum(1 for r in confirmed if r.attendance == k) for k, _ in Reservation.ATT_CHOICES}
+    def step(d, delta):
+        for i in range(1, 15):
+            x = d + datetime.timedelta(days=i * delta)
+            if not services.is_closed(facility, x, setting, closed):
+                return x
+        return d + datetime.timedelta(days=delta)
+    return {
+        'date': day, 'weekday': WEEK_JP[day.weekday()], 'holiday': holiday_name(day),
+        'closed': services.is_closed(facility, day, setting, closed),
+        'staff': (DayStaff.objects.filter(facility=facility, date=day).first() or DayStaff(text='')).text,
+        'reservations': confirmed, 'waiting': [r for r in rows if r.status == Reservation.STATUS_WAITLIST],
+        'total': len(confirmed), 'attended': counts.get(Reservation.ATT_ATTENDED, 0),
+        'absent': counts.get(Reservation.ATT_ABSENT, 0), 'cancelled': counts.get(Reservation.ATT_CANCELLED, 0),
+        'pending': counts.get('', 0),
+        'prev': step(day, -1), 'next': step(day, 1),
+    }
+
+
 def daily_log_pages(facility, first, last, setting=None):
     """
     業務日誌（1日ごとの予定表）：営業日だけを日付の順に並べ、4日ずつ A4 1枚にする。

@@ -1,0 +1,104 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ b.date|date:'n月j日' }}の予定 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}きょうの予定{% endblock %}
+{% block nav_reservations %}active{% endblock %}
+{% block nav_reservations_only %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .db-wrap { max-width: 640px; }
+  .db-date { font-size: 1.5rem; font-weight: 700; line-height: 1.2; }
+  .db-date small { font-size: 0.95rem; font-weight: 400; color: #6b6257; margin-left: 6px; }
+  .db-nav .btn { min-width: 64px; }
+  .db-staff { font-size: 1.15rem; font-weight: 700; color: #2f5d50; }
+  .db-row { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-top: 1px solid var(--line); }
+  .db-row:first-child { border-top: 0; }
+  .db-time { flex: 0 0 60px; font-size: 1.15rem; font-weight: 700; }
+  .db-name { flex: 1; min-width: 0; font-size: 1.15rem; font-weight: 600; }
+  .db-name .note { display: block; font-size: 0.8rem; color: #6b6257; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .db-att { flex: 0 0 auto; }
+  .db-att select { font-size: 1rem; padding: 6px 28px 6px 10px; min-height: 40px; }
+  .db-att select.attended { background-color: #e3f3ea; color: #2f7d4e; font-weight: 700; }
+  .db-att select.absent { background-color: #fde9e7; color: #b42318; font-weight: 700; }
+  .db-att select.cancelled { background-color: #eee; color: #6b6257; }
+  .db-row.absent .db-name, .db-row.cancelled .db-name { color: #8a8378; text-decoration: line-through; }
+  .db-sum span { display: inline-block; margin-right: 10px; }
+  .db-sum .a { color: #2f7d4e; font-weight: 700; } .db-sum .x { color: #b42318; font-weight: 700; }
+  .db-links a { display: block; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2 db-wrap">
+  <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+    <div class="db-date">
+      {{ b.date|date:'n月j日' }}<small>{{ b.weekday }}曜日{% if b.holiday %}・{{ b.holiday }}{% endif %}{% if b.date == today %}・きょう{% endif %}</small>
+    </div>
+    <div class="btn-group db-nav">
+      <a href="{% url 'reservations:daily_board' %}?d={{ b.prev|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left"></i> 前の日</a>
+      <a href="{% url 'reservations:daily_board' %}" class="btn btn-outline-secondary btn-sm">きょう</a>
+      <a href="{% url 'reservations:daily_board' %}?d={{ b.next|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm">次の日 <i class="bi bi-chevron-right"></i></a>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body py-2">
+      <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+        <div>
+          <div class="small text-muted"><i class="bi bi-person-badge me-1"></i>その日の担当</div>
+          <div class="db-staff" id="db-staff-text">{% if b.staff %}{{ b.staff }}{% else %}<span class="text-muted fw-normal">（まだ入っていません）</span>{% endif %}</div>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('db-staff-form').classList.toggle('d-none')"><i class="bi bi-pencil me-1"></i>直す</button>
+      </div>
+      <form method="post" class="d-none mt-2 d-flex gap-2" id="db-staff-form">
+        {% csrf_token %}<input type="hidden" name="action" value="staff">
+        <input type="text" class="form-control" name="text" value="{{ b.staff }}" list="staff-options" maxlength="100" autocomplete="off" placeholder="例：終日土田 pm大坂">
+        <datalist id="staff-options">{% for t in staff_suggestions %}<option value="{{ t }}">{% endfor %}</datalist>
+        <button class="btn btn-primary">保存</button>
+      </form>
+    </div>
+  </div>
+
+  {% if b.closed and not b.reservations %}
+  <div class="card mb-3"><div class="card-body text-center text-muted py-4"><i class="bi bi-moon me-1"></i>お休みの日です。</div></div>
+  {% else %}
+  <div class="card mb-3">
+    <div class="card-body py-2 db-sum small">
+      <span>予定 <strong>{{ b.total }}</strong> 人</span>
+      <span class="a">来た {{ b.attended }}</span>
+      <span class="x">欠席 {{ b.absent }}</span>
+      <span>キャンセル {{ b.cancelled }}</span>
+      {% if b.pending %}<span class="text-muted">未入力 {{ b.pending }}</span>{% endif %}
+    </div>
+    {% for r in b.reservations %}
+    <div class="db-row{% if r.attendance %} {{ r.attendance }}{% endif %}">
+      <div class="db-time">{{ r.time_label }}</div>
+      <div class="db-name">
+        {% if r.beneficiary_id %}<a href="{% url 'therapy:child' r.beneficiary_id %}?date={{ r.date|date:'Y-m-d' }}{% if r.start_time %}&time={{ r.start_time|time:'H:i' }}{% endif %}" class="text-decoration-none text-reset" title="療育記録を書く">{{ r.display_name }}</a>{% else %}{{ r.display_name }}{% endif %}
+        {% if r.note %}<span class="note">{{ r.note }}</span>{% endif %}
+      </div>
+      <form method="post" class="db-att" title="実績">
+        {% csrf_token %}<input type="hidden" name="action" value="attendance"><input type="hidden" name="reservation" value="{{ r.pk }}">
+        <select name="value" class="form-select form-select-sm {{ r.attendance }}" aria-label="{{ r.display_name }} さんの実績" onchange="this.form.submit()">
+          {% for v, label in attendance_choices %}<option value="{{ v }}" {% if r.attendance == v %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </form>
+    </div>
+    {% empty %}
+    <div class="text-center text-muted small py-4">予定はありません。</div>
+    {% endfor %}
+    {% for r in b.waiting %}
+    <div class="db-row"><div class="db-time text-warning">待</div><div class="db-name">{{ r.display_name }}<span class="note">キャンセル待ち{% if r.start_time %}・{{ r.time_label }}{% endif %}</span></div></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="small db-links text-muted">
+    <a href="{% url 'reservations:day' b.date.year b.date.month b.date.day %}">この日の予約（追加・変更・取り消し）</a>
+    <a href="{% url 'reservations:monthly_schedule' b.date.year b.date.month %}">月間予定表</a>
+    <a href="{% url 'reservations:daily_log_pdf' b.date.year b.date.month %}?from={{ b.date|date:'Y-m-d' }}&to={{ b.date|date:'Y-m-d' }}" target="_blank">この日の業務日誌（PDF）</a>
+    <div class="mt-1">名前を押すと療育記録を書けます。実績の選択は、月間予定表の「実績を入れる」と同じものです。</div>
+  </div>
+</div>
+{% endblock %}

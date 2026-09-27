@@ -164,7 +164,7 @@
         </a>
       </li>
       {% if features.reservation %}
-      {% with sched='monthly_schedule monthly_schedule_now monthly_schedule_swap monthly_schedule_pdf monthly_day_staff daily_log_pdf monthly_attendance staff_shifts staff_shift_fill' %}
+      {% with sched='monthly_schedule monthly_schedule_now monthly_schedule_swap monthly_schedule_pdf monthly_day_staff daily_log_pdf monthly_attendance staff_shifts staff_shift_fill daily_board' %}
       <li>
         <a class="sidebar-nav-item {% if rm.app_name == 'reservations' and rm.url_name not in sched %}active{% endif %}" href="{% url 'reservations:calendar' %}">
           <i class="bi bi-calendar-check"></i><span>予約</span>
@@ -175,6 +175,13 @@
           <i class="bi bi-calendar3"></i><span>月間予定表</span>
         </a>
       </li>
+      {% if features.ryoiku %}
+      <li>
+        <a class="sidebar-nav-item {% if rm.url_name == 'daily_board' %}active{% endif %}" href="{% url 'reservations:daily_board' %}" title="きょうの担当と予定・実績を1画面で（スマートフォン向け）">
+          <i class="bi bi-phone"></i><span>きょうの予定</span>
+        </a>
+      </li>
+      {% endif %}
       {% endwith %}
       {% endif %}
       {% if features.therapy %}

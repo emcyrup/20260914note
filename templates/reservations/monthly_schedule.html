@@ -58,6 +58,7 @@
     <div class="d-flex gap-2 flex-wrap">
       <a href="{% url 'reservations:monthly_requests' year month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-list-check me-1"></i>利用希望</a>
       <button type="button" class="btn btn-outline-primary btn-sm" id="ms-swap-toggle"><i class="bi bi-arrow-left-right me-1"></i>入れ替え・移動</button>
+      {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_board' %}?d={{ today|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm" title="きょうの担当と予定を1画面で（スマートフォン向け）"><i class="bi bi-phone me-1"></i>きょうの予定</a>{% endif %}
       {% if facility.is_ryoiku %}<button type="button" class="btn btn-outline-success btn-sm" id="ms-att-toggle" title="名前を押して 来た・欠席・キャンセル を入れます。業務日誌の「実績」欄に印字されます"><i class="bi bi-check2-square me-1"></i>実績を入れる</button>{% endif %}
       <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-printer me-1"></i>印刷（PDF）</a>
       {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_log_pdf' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank" title="1日ごとの予定表（時間・氏名・提供形態・実績・備考）。A4 1枚に4日ぶん。右上に「その日の担当」"><i class="bi bi-journal-text me-1"></i>業務日誌（4日/枚）</a>{% endif %}

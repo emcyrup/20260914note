@@ -1066,6 +1066,53 @@ class MonthlyScheduleView(SlotModeMixin, View):
         })
 
 
+class DailyBoardView(RyoikuOnlyMixin, View):
+    """
+    きょうの予定（スマートフォン向け）：その日の担当と、時刻順の予定・実績を1画面で。?d=YYYY-MM-DD で日を変える。
+    POST action=attendance（実績）・action=staff（その日の担当）
+    """
+    template_name = 'reservations/daily_board.html'
+
+    @staticmethod
+    def _day(request):
+        try:
+            return datetime.date.fromisoformat(request.GET.get('d', '')) if request.GET.get('d') else datetime.date.today()
+        except ValueError:
+            return datetime.date.today()
+
+    def get(self, request):
+        facility = request.user.facility
+        day = self._day(request)
+        board = monthly.day_board(facility, day, services.get_setting(facility))
+        return render(request, self.template_name, {
+            'facility': facility, 'b': board, 'today': datetime.date.today(),
+            'attendance_choices': Reservation.ATT_CHOICES,
+            'staff_suggestions': monthly.staff_suggestions(facility),
+        })
+
+    def post(self, request):
+        facility = request.user.facility
+        day = self._day(request)
+        back = redirect(reverse('reservations:daily_board') + f'?d={day.isoformat()}')
+        action = request.POST.get('action')
+        if action == 'attendance':
+            res = get_object_or_404(Reservation, pk=to_int(request.POST.get('reservation'), -1), facility=facility)
+            try:
+                monthly.set_attendance(res, request.POST.get('value', ''))
+            except ValueError as e:
+                messages.error(request, str(e))
+                return back
+            messages.success(request, f'{res.display_name} さんの実績を「{res.get_attendance_display()}」にしました。')
+            return back
+        if action == 'staff':
+            post = {f'staff_{day.isoformat()}': request.POST.get('text', '')}
+            n = monthly.save_day_staff(facility, post, day, day)
+            messages.success(request, 'その日の担当を保存しました。' if n else 'その日の担当を空にしました。')
+            return back
+        messages.error(request, '操作を選んでください。')
+        return back
+
+
 class MonthlyAttendanceView(RyoikuOnlyMixin, View):
     """月間予定表の「実績を入れる」：名前を押して 来た・欠席・キャンセル・未入力 を選ぶ"""
 

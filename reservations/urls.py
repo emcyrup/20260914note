@@ -35,4 +35,5 @@ urlpatterns = [
     path('<int:year>/<int:month>/yotei/jisseki/', views.MonthlyAttendanceView.as_view(), name='monthly_attendance'),
     path('<int:year>/<int:month>/yotei/staff/shift/', views.StaffShiftFillView.as_view(), name='staff_shift_fill'),
     path('yotei/shift/', views.StaffShiftView.as_view(), name='staff_shifts'),
+    path('yotei/hi/', views.DailyBoardView.as_view(), name='daily_board'),
 ]
