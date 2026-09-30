@@ -29,8 +29,8 @@
   <div class="card mb-3">
     <div class="card-header fw-bold"><i class="bi bi-search me-1"></i>2. 確かめる（まだ登録していません）</div>
     <div class="card-body">
-      <div class="mb-2">「{{ file_name }}」から {{ planned|length }} 行を読みました：
-        <span class="imp-create">新規 {{ counts.create }}</span>・<span class="imp-update">書き換え {{ counts.update }}</span>・<span class="imp-error">読めない行 {{ counts.error }}</span>
+      <div class="mb-2">「{{ file_name }}」から {{ planned|length }} 行を読みました{% if fmt == 'guardian' %}（<b>保護者一覧</b>の形。1行が保護者1人で、児童は名前で台帳と照合します）{% endif %}：
+        {% if fmt == 'guardian' %}<span class="imp-update">台帳の児童に付ける {{ counts.update }}</span>・<span class="imp-create">児童も新しく作る {{ counts.create }}</span>{% else %}<span class="imp-create">新規 {{ counts.create }}</span>・<span class="imp-update">書き換え {{ counts.update }}</span>{% endif %}・<span class="imp-error">読めない行 {{ counts.error }}</span>
       </div>
       <div class="table-responsive">
         <table class="table table-sm imp-plan mb-2">
@@ -40,7 +40,7 @@
             <tr>
               <td>{{ p.line }}</td>
               <td>{{ p.name }}</td>
-              <td>{% if p.action == 'create' %}<span class="imp-create">新規</span>{% elif p.action == 'update' %}<span class="imp-update">書き換え</span>{% else %}<span class="imp-error">読めない</span>{% endif %}</td>
+              <td>{% if p.action == 'create' %}<span class="imp-create">{% if fmt == 'guardian' %}児童も作る{% else %}新規{% endif %}</span>{% elif p.action == 'update' %}<span class="imp-update">{% if fmt == 'guardian' %}付ける{% else %}書き換え{% endif %}</span>{% else %}<span class="imp-error">読めない</span>{% endif %}</td>
               <td>{{ p.detail }}</td>
             </tr>
             {% endfor %}
@@ -49,7 +49,7 @@
       </div>
       <div class="small text-muted mb-3">読めない行は登録しません。直したいときは Excel を直して、もう一度ファイルを選んでください。「書き換え」は、同じ姓・名・生年月日の{{ terms.beneficiary }}の情報を上書きします（Excel で空の欄は変えません）。</div>
       <form method="post" class="d-flex gap-2 flex-wrap">
-        {% csrf_token %}<input type="hidden" name="action" value="commit">
+        {% csrf_token %}<input type="hidden" name="action" value="commit">{% if create_children %}<input type="hidden" name="create_children" value="1">{% endif %}
         <button class="btn btn-primary px-4" {% if not counts.create and not counts.update %}disabled{% endif %}><i class="bi bi-check2 me-1"></i>この内容で登録する</button>
         <a href="{% url 'beneficiaries:import' %}" class="btn btn-outline-secondary">やり直す</a>
       </form>
@@ -71,6 +71,10 @@
         </div>
         <div class="small text-muted mt-1">＊は必須。日付は 2019-04-01・2019/4/1・2019年4月1日 のどれでも読めます。</div>
       </details>
+      <details class="mt-2"><summary class="small">前のシステムの「保護者一覧」もそのまま読めます</summary>
+        <div class="small text-muted mt-2">1行目に「保護者（名前）」がある表は<b>保護者一覧</b>として読みます（1行が保護者1人）。「児童」の欄の名前で台帳のお子さまを探し、その保護者として付けます（ふりがな・続柄・電話番号・メール・備考。住所はお子さまの住所が空のときだけ写します。連絡先の名称や請求先は「取り込んだ情報」として保護者の欄に残します）。児童が2人なら「、」で区切ります。台帳にいない児童は、下の「仮の生年月日で作る」に印を付けたときだけ作ります。</div>
+        <div class="small mt-1"><span class="fw-semibold">見出し：</span>{{ guardian_headers|join:'、' }}</div>
+      </details>
     </div>
   </div>
 
@@ -86,6 +90,7 @@
           <div class="small mt-1" id="impFileName"></div>
           <input type="file" id="impFile" name="file" accept=".xlsx,.csv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
         </label>
+        <label class="form-check-label d-flex align-items-center gap-2 mt-2 small"><input type="checkbox" class="form-check-input mt-0" name="create_children" value="1">保護者一覧のとき、台帳にいない児童は仮の生年月日（2000-01-01）で作る（あとで直す）</label>
         <div class="d-flex gap-2 mt-2 align-items-center">
           <button class="btn btn-primary" id="impBtn" disabled><i class="bi bi-search me-1"></i>確かめる（まだ登録しません）</button>
           <span class="small text-muted">次の画面で行ごとの結果を見てから登録します。</span>

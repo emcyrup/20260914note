@@ -288,7 +288,15 @@
                   {% if g.is_primary %}<span class="badge ms-1" style="background:var(--color-primary);font-size:0.7rem;">主連絡先</span>{% endif %}
                   {% if features.line %}{% if g.line_linked %}<span class="badge ms-1" style="background:#06C755;font-size:0.7rem;"><i class="bi bi-chat-dots me-1"></i>LINE連携済</span>{% else %}<span class="badge ms-1 bg-light text-muted" style="font-size:0.7rem;">LINE未連携</span>{% endif %}{% endif %}
                 </div>
-                <div class="text-muted small">{{ g.phone|default:'—' }}</div>
+                {% if g.kana %}<div class="text-muted small">{{ g.kana }}</div>{% endif %}
+                <div class="text-muted small">{{ g.phone|default:'—' }}{% if g.phone2 %}／{{ g.phone2 }}{% endif %}{% if g.email %}・{{ g.email }}{% endif %}</div>
+                {% if g.extra_items %}
+                <details class="small mt-1"><summary class="text-muted">取り込んだ情報（{{ g.extra_items|length }}）</summary>
+                  <table class="table table-sm table-borderless mb-0 mt-1" style="font-size:0.8rem;">
+                    {% for k, v in g.extra_items %}<tr><th class="ps-0 text-muted fw-normal text-nowrap" style="width:9rem;">{{ k }}</th><td>{{ v }}</td></tr>{% endfor %}
+                  </table>
+                </details>
+                {% endif %}
                 <!-- LINE登録コード -->
                 {% if features.line and not g.line_linked %}
                 <div class="mt-1 d-flex align-items-center gap-2 flex-wrap">
@@ -760,8 +768,16 @@
               </select>
             </div>
             <div class="col-6">
+              <label class="form-label small fw-semibold">ふりがな</label>
+              <input type="text" name="kana" class="form-control" value="{{ g.kana }}">
+            </div>
+            <div class="col-6">
               <label class="form-label small fw-semibold">電話番号</label>
               <input type="tel" name="phone" class="form-control" value="{{ g.phone }}">
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">電話番号2</label>
+              <input type="tel" name="phone2" class="form-control" value="{{ g.phone2 }}">
             </div>
             <div class="col-12">
               <label class="form-label small fw-semibold">メール</label>
@@ -967,8 +983,16 @@
               </select>
             </div>
             <div class="col-6">
+              <label class="form-label small fw-semibold">ふりがな</label>
+              <input type="text" name="kana" class="form-control">
+            </div>
+            <div class="col-6">
               <label class="form-label small fw-semibold">電話番号</label>
               <input type="tel" name="phone" class="form-control">
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">電話番号2</label>
+              <input type="tel" name="phone2" class="form-control">
             </div>
             <div class="col-12">
               <label class="form-label small fw-semibold">メール</label>

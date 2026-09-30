@@ -390,3 +390,101 @@ class BeneficiaryImportTests(TestCase):
         self.assertEqual(self.client.get(self.url).status_code, 404)
         self.assertEqual(self.client.get(reverse('beneficiaries:import_template')).status_code, 404)
         self.assertNotContains(self.client.get(reverse('beneficiaries:list')), 'Excel・CSV から取り込む')
+
+
+class GuardianListImportTests(TestCase):
+    """前のシステムの「保護者一覧」（1行が保護者1人・児童は名前で照合）の取り込み"""
+
+    def setUp(self):
+        import datetime
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU)
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.url = reverse('beneficiaries:import')
+        self.taro = Beneficiary.objects.create(facility=self.f, last_name='山田', first_name='太郎', date_of_birth=datetime.date(2019, 4, 1))
+        self.hana = Beneficiary.objects.create(facility=self.f, last_name='山田', first_name='花', date_of_birth=datetime.date(2021, 4, 1), address='もとの住所')
+
+    @staticmethod
+    def xlsx_from_format(rows):
+        """依頼者から届いた書式（見出しだけ）に行を足す"""
+        import io, os
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from openpyxl import load_workbook
+        path = os.path.join(os.path.dirname(__file__), 'testdata', 'guardian_list_format.xlsx')
+        wb = load_workbook(path); ws = wb.active
+        for r in rows:
+            ws.append(r)
+        buf = io.BytesIO(); wb.save(buf)
+        return SimpleUploadedFile('保護者一覧.xlsx', buf.getvalue())
+
+    def test_format_headers_and_parse(self):
+        from . import importer
+        rows = importer.rows_from_file(self.xlsx_from_format([
+            ['山田 花子', 'ヤマダ ハナコ', '母', '山田 太郎、山田 花', '600-8216', '京都府', '京都市下京区', '○○町1-1', 'コーポ101', '送迎は母',
+             '母携帯', '090-1111-1111', '', 'hanako@example.com', '父携帯', '090-2222-2222', '075-000-0000', '',
+             '口座振替', '保護者', '山田 一郎', '600-0000', '京都府', '京都市', '△△町2-2', '', '075-111-1111', '', '請求は父へ'],
+        ]))
+        self.assertEqual(importer.format_of(rows), 'guardian')
+        r = rows[0]
+        self.assertEqual((r['g_name'], r['relation'], r['children'], r['c1_label'], r['c2_phone2'], r['bill_name'], r['bill_note']),
+                         ('山田 花子', '母', '山田 太郎、山田 花', '母携帯', '075-000-0000', '山田 一郎', '請求は父へ'))
+        data = importer.parse_guardian_row(r)
+        g = data['guardian']
+        self.assertEqual((g['last_name'], g['first_name'], g['kana'], g['relation'], g['phone'], g['phone2'], g['email'], g['memo']),
+                         ('山田', '花子', 'ヤマダ ハナコ', 'mother', '090-1111-1111', '090-2222-2222', 'hanako@example.com', '送迎は母'))
+        self.assertEqual(data['children'], ['山田 太郎', '山田 花'])
+        self.assertEqual((data['postal_code'], data['address']), ('6008216', '京都府京都市下京区○○町1-1コーポ101'))
+        self.assertEqual(g['extra']['連絡先1 名称'], '母携帯')
+        self.assertEqual(g['extra']['連絡先2 電話番号2'], '075-000-0000')
+        self.assertEqual(g['extra']['請求先 住所'], '京都府京都市△△町2-2')
+        self.assertEqual(g['extra']['支払い方法'], '口座振替')
+        self.assertNotIn('連絡先1 その他', g['extra'])        # メールは email に入れたので重複させない
+        with self.assertRaisesMessage(importer.RowError, '児童が空です'):
+            importer.parse_guardian_row({'g_name': '山田 花子', 'children': ''})
+
+    def test_preview_commit_and_missing_child(self):
+        f = self.xlsx_from_format([
+            ['山田 花子', 'ヤマダ ハナコ', '母', '山田 太郎、山田 花', '600-8216', '京都府', '京都市下京区', '○○町1-1', '', '',
+             '母携帯', '090-1111-1111', '', 'hanako@example.com', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+            ['鈴木 一郎', '', '祖父', '鈴木 次郎', '', '', '', '', '', '', '', '090-3333-3333', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+        ])
+        res = self.client.post(self.url, {'file': f})
+        self.assertContains(res, '保護者一覧</b>の形')
+        self.assertContains(res, '台帳の児童に付ける 1')
+        self.assertContains(res, '読めない行 1')
+        self.assertContains(res, '台帳にいない児童：鈴木 次郎')
+        self.assertContains(res, '保護者を 山田 太郎・山田 花 さんに付けます')
+        res = self.client.post(self.url, {'action': 'commit'}, follow=True)
+        self.assertContains(res, '保護者 2 件（新しく作った児童 0 名）（読めなかった行 1 件は登録していません）')
+        g = self.taro.guardians.get()
+        self.assertEqual((g.full_name, g.kana, g.relation, g.phone, g.email, g.is_primary, g.extra['連絡先1 名称']),
+                         ('山田 花子', 'ヤマダ ハナコ', 'mother', '090-1111-1111', 'hanako@example.com', True, '母携帯'))
+        self.assertEqual(self.hana.guardians.get().full_name, '山田 花子')
+        self.taro.refresh_from_db(); self.hana.refresh_from_db()
+        self.assertEqual((self.taro.postal_code, self.taro.address), ('6008216', '京都府京都市下京区○○町1-1'))
+        self.assertEqual(self.hana.address, 'もとの住所')                          # 入っている住所は変えない
+        self.assertFalse(Beneficiary.objects.filter(facility=self.f, last_name='鈴木').exists())
+        # 「仮の生年月日で作る」を付けると児童も作る。同じ保護者をもう一度入れても増えない
+        f = self.xlsx_from_format([
+            ['山田 花子', 'ヤマダ ハナコ', '母', '山田 太郎', '', '', '', '', '', '', '', '090-9999-9999', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+            ['鈴木 一郎', '', '祖父', '鈴木 次郎', '', '', '', '', '', '', '', '090-3333-3333', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+        ])
+        res = self.client.post(self.url, {'file': f, 'create_children': '1'})
+        self.assertContains(res, '児童も新しく作る 1')
+        self.assertContains(res, '仮の生年月日 2000-01-01 で新しく作ります')
+        res = self.client.post(self.url, {'action': 'commit', 'create_children': '1'}, follow=True)
+        self.assertContains(res, '保護者 2 件（新しく作った児童 1 名）')
+        jiro = Beneficiary.objects.get(facility=self.f, last_name='鈴木', first_name='次郎')
+        self.assertEqual(jiro.date_of_birth.isoformat(), '2000-01-01')
+        self.assertIn('仮の値', jiro.notes)
+        g2 = jiro.guardians.get()
+        self.assertEqual((g2.full_name, g2.relation, g2.extra.get('続柄（原文）'), g2.phone), ('鈴木 一郎', 'other', '祖父', '090-3333-3333'))
+        self.assertEqual(self.taro.guardians.count(), 1)
+        self.assertEqual(self.taro.guardians.get().phone, '090-9999-9999')            # 書き換え
+        # 詳細に「取り込んだ情報」
+        res = self.client.get(reverse('beneficiaries:detail', args=[self.taro.pk]))
+        self.assertContains(res, '取り込んだ情報')
+        self.assertContains(res, '母携帯')
+        self.assertContains(res, 'ヤマダ ハナコ')

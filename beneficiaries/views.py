@@ -577,7 +577,8 @@ class BeneficiaryImportView(ImportRyoikuMixin, View):
 
     def _ctx(self, request, **extra):
         from . import importer
-        return {'columns': importer.COLUMNS, 'headers': importer.HEADERS, 'max_rows': importer.MAX_ROWS, **extra}
+        return {'columns': importer.COLUMNS, 'headers': importer.HEADERS, 'max_rows': importer.MAX_ROWS,
+                'guardian_headers': importer.GUARDIAN_HEADERS, **extra}
 
     def get(self, request):
         from django.shortcuts import render
@@ -588,14 +589,20 @@ class BeneficiaryImportView(ImportRyoikuMixin, View):
         from django.shortcuts import render
         from . import importer
         facility = request.user.facility
+        create_children = request.POST.get('create_children') == '1'
         if request.POST.get('action') == 'commit':
             rows = request.session.pop(IMPORT_SESSION_KEY, None)
             if not rows:
                 messages.error(request, '取り込む内容がありません。もう一度ファイルを選んでください。')
                 return redirect('beneficiaries:import')
-            planned = importer.plan(facility, rows)
-            created, updated, errors = importer.apply(facility, planned)
-            msg = f'利用者を取り込みました：新規 {created} 名・書き換え {updated} 名'
+            if importer.format_of(rows) == importer.FORMAT_GUARDIAN:
+                planned = importer.plan_guardians(facility, rows, create_children=create_children)
+                made, guardians, errors = importer.apply_guardians(facility, planned)
+                msg = f'保護者一覧を取り込みました：保護者 {guardians} 件（新しく作った児童 {made} 名）'
+            else:
+                planned = importer.plan(facility, rows)
+                created, updated, errors = importer.apply(facility, planned)
+                msg = f'利用者を取り込みました：新規 {created} 名・書き換え {updated} 名'
             if errors:
                 msg += f'（読めなかった行 {errors} 件は登録していません）'
             messages.success(request, msg + '。')
@@ -612,7 +619,10 @@ class BeneficiaryImportView(ImportRyoikuMixin, View):
         if not rows:
             messages.error(request, 'データの行がありません（1行目は見出し、2行目から利用者）。')
             return render(request, self.template_name, self._ctx(request))
-        planned = importer.plan(facility, rows)
+        fmt = importer.format_of(rows)
+        planned = (importer.plan_guardians(facility, rows, create_children=create_children) if fmt == importer.FORMAT_GUARDIAN
+                   else importer.plan(facility, rows))
         request.session[IMPORT_SESSION_KEY] = rows
         counts = {k: sum(1 for p in planned if p['action'] == k) for k in ('create', 'update', 'error')}
-        return render(request, self.template_name, self._ctx(request, planned=planned, counts=counts, file_name=f.name))
+        return render(request, self.template_name, self._ctx(request, planned=planned, counts=counts, file_name=f.name,
+                                                             fmt=fmt, create_children=create_children))

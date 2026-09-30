@@ -36,8 +36,8 @@ class GuardianForm(forms.ModelForm):
     class Meta:
         model = Guardian
         fields = [
-            'last_name', 'first_name', 'relation',
-            'phone', 'email', 'is_primary', 'memo',
+            'last_name', 'first_name', 'kana', 'relation',
+            'phone', 'phone2', 'email', 'is_primary', 'memo',
             'line_user_id', 'line_linked',
         ]
         labels = {

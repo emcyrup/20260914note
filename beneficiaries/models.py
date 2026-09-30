@@ -224,8 +224,12 @@ class Guardian(models.Model):
     relation = models.CharField(
         max_length=10, choices=RELATION_CHOICES, default=RELATION_MOTHER, verbose_name='続柄'
     )
+    kana = models.CharField(max_length=100, blank=True, verbose_name='ふりがな')
     phone = models.CharField(max_length=20, blank=True, verbose_name='電話番号')
+    phone2 = models.CharField(max_length=20, blank=True, verbose_name='電話番号2')
     email = models.EmailField(blank=True, verbose_name='メールアドレス')
+    # 取り込みで受け取った、画面に欄の無い情報（連絡先の名称・請求先など）。{見出し: 値} の形で保持して詳細に出す
+    extra = models.JSONField(default=dict, blank=True, verbose_name='取り込んだ情報')
     line_user_id = models.CharField(max_length=100, blank=True, verbose_name='LINE User ID')
     line_linked = models.BooleanField(default=False, verbose_name='LINE連携済み')
     # LINE連携用の登録コード（8文字の英数字・重複不可・有効期限つき）。保護者がLINEでこのコードを送ると自動連携する
@@ -244,7 +248,12 @@ class Guardian(models.Model):
 
     @property
     def full_name(self):
-        return f'{self.last_name} {self.first_name}'
+        return f'{self.last_name} {self.first_name}'.strip()
+
+    @property
+    def extra_items(self):
+        """取り込んだ情報を (見出し, 値) の順で。値が無いものは出さない"""
+        return [(k, v) for k, v in (self.extra or {}).items() if v not in ('', None)]
 
     @property
     def line_code_valid(self):

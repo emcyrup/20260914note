@@ -6,6 +6,8 @@
 - 同じ「姓・名・生年月日」の利用者がいれば更新（空の欄は上書きしない）、いなければ新規登録
 - 保護者は「保護者 姓・名」が同じなら更新、受給者証は受給者証番号が同じなら更新
 - まず「確かめる」（登録しない）で行ごとの結果を見せ、「登録する」で保存する
+- もう1つの形「保護者一覧」（前のシステムからのデータ移行用。1行が保護者1人。児童は名前で台帳と照合）にも対応する。
+  1行目に「保護者（名前）」があればこの形とみなす（GUARDIAN_COLUMNS）
 """
 import csv
 import datetime
@@ -62,6 +64,25 @@ DISABILITY = {'1級': '1', '2級': '2', '1': '1', '2': '2', '１級': '1', '２�
 GRADE = {label: key for key, label in Beneficiary.GRADE_CHOICES if key}
 WEEKDAY_FIELDS = {'月': 'weekday_mon', '火': 'weekday_tue', '水': 'weekday_wed', '木': 'weekday_thu', '金': 'weekday_fri', '土': 'weekday_sat'}
 TRUE_WORDS = {'○', '◯', '〇', 'はい', 'あり', '有', 'yes', 'true', '1', 'y'}
+
+
+# 保護者一覧の形：(見出し, 同じ見出しの何番目か, キー)。前のシステムの書き出しをそのまま読む
+GUARDIAN_COLUMNS = [
+    ('保護者（名前）', 0, 'g_name'), ('保護者（カナ）', 0, 'g_kana'), ('続柄', 0, 'relation'), ('児童', 0, 'children'),
+    ('郵便番号', 0, 'postal'), ('都道府県', 0, 'pref'), ('市区町村', 0, 'city'), ('番地', 0, 'street'), ('ビル・マンション名', 0, 'building'),
+    ('備考', 0, 'note'),
+    ('連絡先', 0, 'c1_label'), ('電話番号1', 0, 'c1_phone1'), ('電話番号2', 0, 'c1_phone2'), ('その他（メールアドレス等）', 0, 'c1_other'),
+    ('連絡先', 1, 'c2_label'), ('電話番号1', 1, 'c2_phone1'), ('電話番号2', 1, 'c2_phone2'), ('その他（メールアドレス等）', 1, 'c2_other'),
+    ('支払い方法', 0, 'pay_method'), ('請求先区分', 0, 'bill_type'), ('宛名', 0, 'bill_name'),
+    ('郵便番号', 1, 'bill_postal'), ('都道府県', 1, 'bill_pref'), ('市区町村', 1, 'bill_city'), ('番地', 1, 'bill_street'),
+    ('ビル・マンション名', 1, 'bill_building'), ('電話番号1', 2, 'bill_phone1'), ('電話番号2', 2, 'bill_phone2'), ('備考', 1, 'bill_note'),
+]
+GUARDIAN_HEADERS = [c[0] for c in GUARDIAN_COLUMNS]
+GUARDIAN_MARK = '保護者（名前）'
+FORMAT_BENEFICIARY = 'beneficiary'
+FORMAT_GUARDIAN = 'guardian'
+PLACEHOLDER_DOB = datetime.date(2000, 1, 1)     # 児童の生年月日が無いときの仮の値（あとで直してもらう）
+RELATION_WORDS = {'父': 'father', '母': 'mother', '父親': 'father', '母親': 'mother', 'お父さん': 'father', 'お母さん': 'mother'}
 
 
 class RowError(Exception):
@@ -127,9 +148,12 @@ def rows_from_file(uploaded):
     if not rows:
         return []
     header = [(h or '').strip() for h in rows[0]]
+    if GUARDIAN_MARK in header:
+        return _guardian_rows(header, rows[1:MAX_ROWS + 1])
     keys = [LABEL_TO_KEY.get(h) for h in header]
     if 'last_name' not in keys or 'first_name' not in keys or 'date_of_birth' not in keys:
-        raise ValueError('1行目の見出しに「姓」「名」「生年月日」が見つかりません。雛形の見出しを使ってください。')
+        raise ValueError('1行目の見出しに「姓」「名」「生年月日」が見つかりません。雛形の見出しを使ってください'
+                         '（前のシステムの「保護者一覧」なら「保護者（名前）」の見出しがあれば読めます）。')
     out = []
     for r in rows[1:MAX_ROWS + 1]:
         d = {}
@@ -139,6 +163,29 @@ def rows_from_file(uploaded):
         if any(d.values()):
             out.append(d)
     return out
+
+
+def _guardian_rows(header, body):
+    """保護者一覧（同じ見出しが何度も出る）を、何番目かで見分けてキーに割り当てる"""
+    seen = {}
+    keys = []
+    for h in header:
+        n = seen.get(h, 0)
+        seen[h] = n + 1
+        keys.append(next((k for label, idx, k in GUARDIAN_COLUMNS if label == h and idx == n), None))
+    out = []
+    for r in body:
+        d = {'_format': FORMAT_GUARDIAN}
+        for i, k in enumerate(keys):
+            if k:
+                d[k] = (r[i] if i < len(r) else '').strip()
+        if any(v for k, v in d.items() if k != '_format'):
+            out.append(d)
+    return out
+
+
+def format_of(rows):
+    return FORMAT_GUARDIAN if rows and rows[0].get('_format') == FORMAT_GUARDIAN else FORMAT_BENEFICIARY
 
 
 def _cell_text(v):
@@ -241,6 +288,138 @@ def parse_row(r):
             'municipality': r.get('municipality', '')[:50], 'support_office': r.get('support_office', '')[:100],
         }
     return out
+
+
+def split_name(name):
+    """「山田 太郎」「山田　太郎」→ (山田, 太郎)。区切りが無ければ (全体, '')"""
+    parts = re.split(r'[\s\u3000]+', (name or '').strip(), maxsplit=1)
+    return (parts[0], parts[1] if len(parts) > 1 else '')
+
+
+def _norm(name):
+    return re.sub(r'[\s\u3000]+', '', name or '')
+
+
+def _join_address(r, pre=''):
+    return ''.join((r.get(pre + k, '') for k in ('pref', 'city', 'street', 'building')))[:200]
+
+
+def parse_guardian_row(r):
+    """保護者一覧の1行 → 保護者の値・児童の名前・児童に写す住所。問題があれば RowError"""
+    name = r.get('g_name', '').strip()
+    if not name:
+        raise RowError('保護者（名前）が空です')
+    children = [c.strip() for c in re.split(r'[、,，／/;；\n]+', r.get('children', '')) if c.strip()]
+    if not children:
+        raise RowError('児童が空です（誰の保護者か分からないので登録できません）')
+    last, first = split_name(name)
+    rel = r.get('relation', '').strip()
+    relation = RELATION_WORDS.get(rel) or RELATION.get(rel) or 'other'
+    phones = [p for p in (r.get('c1_phone1'), r.get('c1_phone2'), r.get('c2_phone1'), r.get('c2_phone2')) if p]
+    others = [o for o in (r.get('c1_other'), r.get('c2_other')) if o]
+    email = next((o for o in others if '@' in o), '')
+    extra = {}
+    for n, pre in ((1, 'c1_'), (2, 'c2_')):
+        label = r.get(pre + 'label', '')
+        block = {'名称': label, '電話番号1': r.get(pre + 'phone1', ''), '電話番号2': r.get(pre + 'phone2', ''), 'その他': r.get(pre + 'other', '')}
+        for k, v in block.items():
+            if v and not (k == 'その他' and v == email):
+                extra[f'連絡先{n} {k}'] = v
+    if rel and relation == 'other' and rel not in ('その他',):
+        extra['続柄（原文）'] = rel
+    bill_addr = _join_address(r, 'bill_')
+    for k, v in (('支払い方法', r.get('pay_method', '')), ('請求先区分', r.get('bill_type', '')), ('請求先 宛名', r.get('bill_name', '')),
+                 ('請求先 郵便番号', r.get('bill_postal', '')), ('請求先 住所', bill_addr),
+                 ('請求先 電話番号1', r.get('bill_phone1', '')), ('請求先 電話番号2', r.get('bill_phone2', '')), ('請求先 備考', r.get('bill_note', ''))):
+        if v:
+            extra[k] = v
+    return {
+        'children': children,
+        'guardian': {'last_name': last[:50], 'first_name': first[:50], 'kana': r.get('g_kana', '')[:100], 'relation': relation,
+                     'phone': (phones[0] if phones else '')[:20], 'phone2': (phones[1] if len(phones) > 1 else '')[:20],
+                     'email': email[:254], 'memo': r.get('note', '')[:200], 'extra': extra},
+        'postal_code': r.get('postal', '').replace('-', '').replace('ー', '')[:8], 'address': _join_address(r),
+    }
+
+
+def find_child_by_name(facility, name):
+    key = _norm(name)
+    for b in Beneficiary.objects.filter(facility=facility).order_by('pk'):
+        if _norm(b.last_name + b.first_name) == key:
+            return b
+    return None
+
+
+def plan_guardians(facility, rows, create_children=False):
+    """保護者一覧の行ごとの見込み。児童は名前で台帳と照合し、無ければエラー（create_children なら仮の生年月日で作る）"""
+    out = []
+    for i, r in enumerate(rows, 2):
+        name = r.get('g_name', '').strip() or '（名前なし）'
+        try:
+            data = parse_guardian_row(r)
+        except RowError as e:
+            out.append({'line': i, 'name': name, 'action': 'error', 'detail': str(e), 'data': None})
+            continue
+        found, missing = [], []
+        for child in data['children']:
+            b = find_child_by_name(facility, child)
+            (found if b else missing).append((child, b.pk if b else None))
+        if missing and not create_children:
+            out.append({'line': i, 'name': name, 'action': 'error', 'data': None,
+                        'detail': '台帳にいない児童：' + '・'.join(c for c, _ in missing) + '（先に児童を登録するか、「台帳にいない児童は仮の生年月日で作る」を付けてください）'})
+            continue
+        parts = []
+        if found:
+            parts.append('保護者を ' + '・'.join(c for c, _ in found) + ' さんに付けます（同じ名前の保護者がいれば書き換え）')
+        if missing:
+            parts.append('児童 ' + '・'.join(c for c, _ in missing) + ' さんを仮の生年月日 2000-01-01 で新しく作ります（あとで直してください）')
+        data['found'], data['missing'] = found, missing
+        out.append({'line': i, 'name': name, 'action': 'update' if found and not missing else 'create',
+                    'detail': '。'.join(parts), 'data': data})
+    return out
+
+
+@transaction.atomic
+def apply_guardians(facility, planned):
+    """plan_guardians() の結果を保存する。戻り値 (新しく作った児童, 付けた保護者の数, エラー数)"""
+    children_made = guardians = errors = 0
+    for item in planned:
+        data = item['data']
+        if item['action'] == 'error' or data is None:
+            errors += 1
+            continue
+        targets = [Beneficiary.objects.filter(pk=pk, facility=facility).first() for _, pk in data['found']]
+        for child, _ in data['missing']:
+            last, first = split_name(child)
+            b = find_child_by_name(facility, child)     # 同じ取り込みの前の行で作った場合
+            if b is None:
+                b = Beneficiary.objects.create(facility=facility, last_name=last[:50], first_name=first[:50], date_of_birth=PLACEHOLDER_DOB,
+                                               has_prior_records=True, notes='生年月日は取り込み時の仮の値（2000-01-01）です。正しい日付に直してください。')
+                children_made += 1
+            targets.append(b)
+        g = data['guardian']
+        for b in targets:
+            if b is None:
+                continue
+            changed = False
+            if data['postal_code'] and not b.postal_code:
+                b.postal_code, changed = data['postal_code'], True
+            if data['address'] and not b.address:
+                b.address, changed = data['address'], True
+            if changed:
+                b.save(update_fields=['postal_code', 'address', 'updated_at'])
+            existing = b.guardians.filter(last_name=g['last_name'], first_name=g['first_name']).first()
+            fields = {k: v for k, v in g.items() if k in ('kana', 'relation', 'phone', 'phone2', 'email', 'memo') and v}
+            if existing is None:
+                Guardian.objects.create(beneficiary=b, last_name=g['last_name'], first_name=g['first_name'], extra=g['extra'],
+                                        is_primary=not b.guardians.filter(is_primary=True).exists(), **fields)
+            else:
+                for k, v in fields.items():
+                    setattr(existing, k, v)
+                existing.extra = {**(existing.extra or {}), **g['extra']}
+                existing.save()
+            guardians += 1
+    return children_made, guardians, errors
 
 
 def find_existing(facility, data):
