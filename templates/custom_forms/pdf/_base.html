@@ -9,6 +9,7 @@
   .toolbar { text-align: right; margin-bottom: 10px; }
   .toolbar a, .toolbar button { padding: 7px 14px; border-radius: 8px; border: 1px solid #4e7d89; background: #4e7d89; color: #fff; cursor: pointer; text-decoration: none; margin-left: 6px; font-size: 13px; }
   .toolbar a.outline { background: #fff; color: #4e7d89; }
+  .toolbar-note { font-size: 11px; color: #666; margin-top: 6px; }
   h1 { font-size: 17px; text-align: center; letter-spacing: .15em; margin: 0 0 8px; }
   table { border-collapse: collapse; width: 100%; table-layout: fixed; }
   th, td { border: 1px solid #333; padding: 4px 6px; vertical-align: top; word-break: break-all; white-space: pre-wrap; }
@@ -31,8 +32,9 @@
   {% if not pdf %}
   <div class="toolbar">
     {% block back_link %}<a class="outline" href="{% url 'custom_forms:index' %}">事業所様式へ戻る</a>{% endblock %}
-    <a href="?">PDFをダウンロード</a>
-    <button onclick="window.print()">印刷する</button>
+    <a href="{{ pdf_url|default:'?' }}">PDFをダウンロード</a>
+    <a href="{{ pdf_print_url|default:'?inline=1' }}" title="用紙どおりの PDF を開きます。スマートフォンは共有（□↑）から「プリント」、パソコンは PDF の画面の印刷ボタンで印刷してください">印刷する（PDF）</a>
+    <div class="toolbar-note">この画面をそのまま印刷すると、端末によっては用紙からはみ出します。「印刷する（PDF）」から印刷してください。</div>
   </div>
   {% endif %}
   {% block body %}{% endblock %}

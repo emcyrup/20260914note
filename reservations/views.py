@@ -1273,8 +1273,23 @@ class MonthlyScheduleSwapView(SlotModeMixin, View):
         return back
 
 
+A4_5, A4_6, A3_5, A3_6 = 11, 9, 16, 14   # 箱の高さ（px）：A4・A3 × 5 週まで・6 週
+
+
+def schedule_pdf_sizes(paper, weeks):
+    """
+    月間予定表 PDF の文字と箱の大きさ（px）。A3・A4 とも横 1 枚に収める（A4 は A3 の約 0.7 倍）。
+    6 週ある月は箱を低くする。変えたら 5 週・6 週の月の PDF が 1 ページか確かめる（tests_ryoiku）
+    """
+    if paper == 'a4':
+        return {'font': 7, 'th': 7, 'title': 12, 'time': 24, 'side': 150, 'gap': 158, 'user': 6.8,
+                'box': A4_5 if weeks <= 5 else A4_6}
+    return {'font': 10, 'th': 10, 'title': 16, 'time': 34, 'side': 230, 'gap': 242, 'user': 9.5,
+            'box': A3_5 if weeks <= 5 else A3_6}
+
+
 class MonthlySchedulePdfView(SlotModeMixin, View):
-    """月間予定表の PDF。A3 横 1 枚（?paper=a4 なら A4 横。週ごとに切れる）。日付の下に「その日の担当」"""
+    """月間予定表の PDF。A3 横 1 枚（?paper=a4 なら A4 横 1 枚に縮めて）。日付の下に「その日の担当」"""
 
     def get(self, request, year, month):
         from config.pdf import pdf_or_html
@@ -1289,7 +1304,6 @@ class MonthlySchedulePdfView(SlotModeMixin, View):
                'year': year, 'month': month, 'paper': paper,
                'has_staff': any(d['staff'] for w in schedule['weeks'] for d in w['days']),
                'box_pct': 100 // max(int(schedule['capacity'] or 1), 1),
-               # 箱の高さ（px）：A3 は 5 週までなら 16、6 週の月は 13 で 1 枚に収める。A4 は 11
-               'box_h': 11 if paper == 'a4' else (16 if len(schedule['weeks']) <= 5 else 13)}
+               'sz': schedule_pdf_sizes(paper, len(schedule['weeks']))}
         return pdf_or_html(request, 'reservations/pdf/monthly_schedule.html', ctx,
                            f'{year}年{month}月_月間予定表' + ('_A4' if paper == 'a4' else ''))

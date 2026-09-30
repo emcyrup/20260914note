@@ -460,6 +460,35 @@ class DailyLogTests(TestCase):
         # 候補：入れた担当と職員の表示名
         self.assertEqual(monthly.staff_suggestions(self.f), ['pm大坂', '大坂'])
 
+    def test_printed_pages_fit_the_paper(self):
+        """印刷したときに用紙からはみ出さない：業務日誌は A4 1 枚に 4 日、月間予定表は A3・A4 とも 1 枚（5 週・6 週の月）"""
+        try:
+            import weasyprint  # noqa: F401
+            import pymupdf
+        except (ImportError, OSError):
+            self.skipTest('WeasyPrint か pymupdf が無い')
+
+        def pages(url):
+            res = self.client.get(url)
+            self.assertEqual(res['Content-Type'], 'application/pdf')
+            with pymupdf.open(stream=res.content, filetype='pdf') as doc:
+                return len(doc), round(doc[0].rect.width), round(doc[0].rect.height)
+
+        self.assertEqual(pages(reverse('reservations:daily_log_pdf', args=[2026, 10])), (6, 595, 842))   # 22 日 → 6 枚
+        for year, month in ((2026, 10), (2026, 8)):            # 10月は 5 週、8月は 6 週
+            url = reverse('reservations:monthly_schedule_pdf', args=[year, month])
+            self.assertEqual(pages(url), (1, 1191, 842))                       # A3 横
+            self.assertEqual(pages(url + '?paper=a4'), (1, 842, 595))          # A4 横
+        # 画面のボタンは PDF をブラウザで開く（inline）。見本の画面の「印刷する（PDF）」も条件（A4）を引き継ぐ
+        res = self.client.get(reverse('reservations:daily_log_pdf', args=[2026, 10]) + '?inline=1')
+        self.assertTrue(res['Content-Disposition'].startswith('inline;'))
+        res = self.client.get(reverse('reservations:monthly_schedule_pdf', args=[2026, 10]) + '?fmt=html&paper=a4')
+        self.assertContains(res, '?paper=a4&amp;inline=1')
+        self.assertContains(res, '印刷する（PDF）')
+        res = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))
+        self.assertContains(res, 'yotei/nisshi/?inline=1')
+        self.assertContains(res, 'yotei/pdf/?paper=a4&inline=1')
+
     def test_pdf_uses_bundled_japanese_font(self):
         """PDF はサーバーのフォントに頼らず、同梱の IPAPゴシックを埋め込む（文字化け対策）"""
         try:

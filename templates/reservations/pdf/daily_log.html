@@ -22,6 +22,8 @@
   table.dl td.j { width: 32px; text-align: center; }
   .dl-legend { font-size: 8.5px; color: #555; text-align: right; margin-top: 2px; }
   .pb { page-break-before: always; }
+  {% if not pdf %}/* この画面をブラウザでそのまま印刷したとき（用紙の余白が端末ごとに違う）も 1 枚に 4 日が収まるように */
+  @media print { body { padding: 0; } table.dl td { height: 16pt; line-height: 16pt; } .dl-day { margin-bottom: 3px; } }{% endif %}
 </style>
 {% for page in pages %}
 {% if not forloop.first %}<div class="pb"></div>{% endif %}

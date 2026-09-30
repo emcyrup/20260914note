@@ -73,6 +73,12 @@ def pdf_or_html(request, template, ctx, filename):
     from django.shortcuts import render
 
     ctx = dict(ctx, pdf=request.GET.get('fmt') != 'html')
+    params = request.GET.copy()
+    for k in ('fmt', 'inline'):
+        params.pop(k, None)
+    ctx['pdf_url'] = request.path + ('?' + params.urlencode() if params else '')
+    params['inline'] = '1'
+    ctx['pdf_print_url'] = request.path + '?' + params.urlencode()
     html = render(request, template, ctx).content.decode('utf-8')
     if not ctx['pdf']:
         return HttpResponse(html)
@@ -82,5 +88,6 @@ def pdf_or_html(request, template, ctx, filename):
         return HttpResponse(f'PDF を作成できません（サーバーに PDF 用ライブラリがありません）: {e}\n「画面で見る」から印刷してください。',
                             status=500, content_type='text/plain; charset=utf-8')
     res = HttpResponse(pdf, content_type='application/pdf')
-    res['Content-Disposition'] = f'attachment; filename="form.pdf"; filename*=UTF-8\'\'{urllib.parse.quote(filename)}.pdf'
+    how = 'inline' if request.GET.get('inline') == '1' else 'attachment'      # inline：ブラウザで開いてそのまま印刷
+    res['Content-Disposition'] = f'{how}; filename="form.pdf"; filename*=UTF-8\'\'{urllib.parse.quote(filename)}.pdf'
     return res

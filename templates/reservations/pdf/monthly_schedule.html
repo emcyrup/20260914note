@@ -6,28 +6,30 @@
 {% block back_link %}<a class="outline" href="{% url 'reservations:monthly_schedule' year month %}">月間予定表へ戻る</a>{% endblock %}
 {% block body %}
 <style>
-  body { font-size: {% if paper == 'a4' %}8px{% else %}10px{% endif %}; padding: 6px; }
-  .ms-title { font-size: {% if paper == 'a4' %}13px{% else %}16px{% endif %}; font-weight: 700; text-align: center; margin-bottom: 4px; }
-  .side { float: right; width: {% if paper == 'a4' %}170px{% else %}230px{% endif %}; }
-  .main { margin-right: {% if paper == 'a4' %}180px{% else %}242px{% endif %}; }
-  table.w { margin-bottom: 4px;{% if paper == 'a4' %} page-break-inside: avoid;{% endif %} }
+  body { font-size: {{ sz.font }}px; padding: 4px; }
+  .ms-title { font-size: {{ sz.title }}px; font-weight: 700; text-align: center; margin-bottom: 3px; }
+  .side { float: right; width: {{ sz.side }}px; }
+  .main { margin-right: {{ sz.gap }}px; }
+  table.w { margin-bottom: 3px; }
   table.w th, table.w td { padding: 0; white-space: normal; }
-  table.w th { font-size: {% if paper == 'a4' %}8px{% else %}10px{% endif %}; padding: 1px 2px; line-height: 1.25; }
-  table.w th.t { width: {% if paper == 'a4' %}26px{% else %}34px{% endif %}; }
+  table.w td { line-height: 0; }      /* 行の高さを箱の高さだけにする（文字の行の高さで広がらないように） */
+  table.w tbody th { padding: 0 2px; line-height: {{ sz.box }}px; }
+  table.w th { font-size: {{ sz.th }}px; padding: 1px 2px; line-height: 1.2; }
+  table.w th.t { width: {{ sz.time }}px; }
   table.w th.sun { color: #c0392b; } table.w th.sat { color: #2b6cb0; }
   table.w td.closed, table.w th.closed, table.w td.off { background: #d9d9d9; }
   table.w td.out { background: #f2f2f2; }
   th .st { display: block; font-weight: 400; color: #2f5d50; font-size: 92%; white-space: nowrap; overflow: hidden; }
-  .bx { display: inline-block; box-sizing: border-box; height: {{ box_h }}px; line-height: {{ box_h }}px; padding: 0 2px; border-right: 1px dotted #999; white-space: nowrap; overflow: hidden; vertical-align: top; }
+  .bx { display: inline-block; box-sizing: border-box; height: {{ sz.box }}px; line-height: {{ sz.box }}px; padding: 0 1px; border-right: 1px dotted #999; white-space: nowrap; overflow: hidden; vertical-align: top; }
   .bx.last { border-right: 0; }
-  .wl { display: block; background: #fff3c4; padding: 0 2px; white-space: nowrap; overflow: hidden; }
-  table.u th, table.u td { padding: 1px 3px; font-size: {% if paper == 'a4' %}8px{% else %}9.5px{% endif %}; white-space: nowrap; overflow: hidden; }
+  .wl { display: block; background: #fff3c4; padding: 0 2px; white-space: nowrap; overflow: hidden; line-height: {{ sz.box }}px; }
+  table.u th, table.u td { padding: 1px 3px; font-size: {{ sz.user }}px; white-space: nowrap; overflow: hidden; }
   table.u th:first-child { width: 46%; }
   table.u td.n { text-align: right; }
-  .pb { page-break-before: always; }
+  {% if not pdf %}@media print { body { zoom: {% if paper == 'a4' %}0.94{% else %}0.66{% endif %}; } }{% endif %}
 </style>
 <div class="ms-title">{{ year }}年 {{ month }}月 月間予定表</div>
-{% if paper == 'a4' %}<div>{% else %}<div class="side">{% include 'reservations/pdf/_schedule_users.html' %}</div><div class="main">{% endif %}
+<div class="side">{% include 'reservations/pdf/_schedule_users.html' %}</div><div class="main">
     {% for week in schedule.weeks %}
     <table class="w">
       <thead><tr>
@@ -58,6 +60,5 @@
     </table>
     {% endfor %}
     <div class="small muted">網掛け：お休み（{{ schedule.closed_text|default:'なし' }}）・その日に無い時刻。1枠 {{ schedule.capacity }} 人（箱は左から順）。待＝キャンセル待ち。※＝定員超過。右の一覧の NG＝来られない日のある利用者（NG児童）。{% if has_staff %}日付の下は「その日の担当」。{% endif %}</div>
-{% if paper == 'a4' %}</div><div class="pb"></div><div style="width: 60%;">{% include 'reservations/pdf/_schedule_users.html' %}</div>
-{% else %}</div>{% endif %}
+</div>
 {% endblock %}
