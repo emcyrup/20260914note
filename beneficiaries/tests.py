@@ -544,3 +544,101 @@ class CsvVariantsImportTests(TestCase):
         tsv = '\t'.join(importer.GUARDIAN_HEADERS) + '\n' + line.replace(',', '\t') + '\n'
         res = self.client.post(self.url, {'file': self.up('保護者一覧.txt', tsv.encode('utf-16'))})
         self.assertContains(res, '台帳の児童に付ける 1')
+
+
+class ChildrenListImportTests(TestCase):
+    """前のシステムの「児童一覧」（見出しなし・15列・1行が契約1件）の取り込み"""
+
+    ROWS = [
+        ['山田 花子', 'ヤマダ ハナコ', '000010', '山田 太郎', 'ヤマダ タロウ', '男', '2018/4/2', '', '退所', '2023/4/1', '2025/3/31', '利用中', '2025/4/1', '', '利用なし'],
+        ['山田 花子', 'ヤマダ ハナコ', '000011', '山田 太郎', 'ヤマダ タロウ', '男', '2018/4/2', '', '利用なし', '', '', '退所', '2021/1/1', '2022/3/31', '利用なし'],
+        ['山田 花子', 'ヤマダ ハナコ', '000012', '山田 花', 'ヤマダ ハナ', '女', '2020/5/5', '', '退所', '2024/4/1', '2025/3/31', '利用なし', '', '', '利用なし'],
+        ['佐藤 花子', 'サトウ ハナコ', '000013', '佐藤 花', 'サトウ ハナ', '女', '2020/5/5', '', '利用中', '2025/4/1', '', '利用なし', '', '', '利用なし'],
+    ]
+
+    def setUp(self):
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU)
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.url = reverse('beneficiaries:import')
+
+    @staticmethod
+    def csv(rows, enc='cp932', name='児童一覧.csv'):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        text = '\r\n'.join(','.join(r) for r in rows) + '\r\n'
+        return SimpleUploadedFile(name, text.encode(enc))
+
+    def test_rows_are_grouped_per_child(self):
+        from . import importer
+        rows = importer.rows_from_file(self.csv(self.ROWS))
+        self.assertEqual(importer.format_of(rows), importer.FORMAT_CHILDREN)
+        self.assertEqual([(r['last_name'], r['first_name']) for r in rows], [('山田', '太郎'), ('山田', '花'), ('佐藤', '花')])
+        taro, hana, sato = rows
+        self.assertEqual((taro['status'], taro['admission_date'], taro['discharge_date']), ('在籍中', '2021/1/1', ''))
+        self.assertEqual((taro['last_name_kana'], taro['first_name_kana'], taro['guardian_kana']), ('やまだ', 'たろう', 'やまだ はなこ'))
+        self.assertEqual((taro['guardian_last_name'], taro['guardian_first_name'], taro['gender']), ('山田', '花子', '男'))
+        self.assertIn('利用者番号 000010 児童発達支援 退所 2023/4/1〜2025/3/31', taro['notes_append'])
+        self.assertIn('利用者番号 000010 放課後等デイ 利用中 2025/4/1〜', taro['notes_append'])
+        self.assertIn('利用者番号 000011 放課後等デイ 退所 2021/1/1〜2022/3/31', taro['notes_append'])
+        self.assertEqual((hana['status'], hana['admission_date'], hana['discharge_date']), ('退所', '2024/4/1', '2025/3/31'))
+        self.assertIn('姓だけ違う', hana['_detail'])
+        self.assertIn('佐藤 花', hana['_detail'])
+        self.assertIn('山田 花', sato['_detail'])
+
+    def test_header_row_and_utf8_are_accepted(self):
+        from . import importer
+        header = ['保護者', 'カナ', '番号', '児童', 'カナ', '性別', '生年月日', '', '児発', '開始', '終了', '放デイ', '開始', '終了', '他']
+        rows = importer.rows_from_file(self.csv([header] + self.ROWS, enc='utf-8', name='list.csv'))
+        self.assertEqual(importer.format_of(rows), importer.FORMAT_CHILDREN)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0]['_line'], 2)
+
+    def test_preview_and_commit_twice(self):
+        import datetime
+        res = self.client.post(self.url, {'file': self.csv(self.ROWS)})
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, '児童一覧')
+        self.assertContains(res, '放課後等デイ 利用中（2025/4/1〜）')
+        self.assertContains(res, '姓だけ違う')
+        res = self.client.post(self.url, {'action': 'commit'}, follow=True)
+        self.assertContains(res, '新規 3 名')
+        taro = Beneficiary.objects.get(facility=self.f, last_name='山田', first_name='太郎')
+        self.assertEqual((taro.status, taro.admission_date, taro.discharge_date, taro.gender),
+                         ('active', datetime.date(2021, 1, 1), None, 'male'))
+        self.assertEqual((taro.last_name_kana, taro.first_name_kana), ('やまだ', 'たろう'))
+        self.assertEqual(taro.notes.count('利用者番号 000010'), 2)
+        self.assertTrue(taro.has_prior_records)
+        g = taro.guardians.get()
+        self.assertEqual((g.last_name, g.first_name, g.kana, g.relation, g.is_primary), ('山田', '花子', 'やまだ はなこ', 'other', True))
+        hana = Beneficiary.objects.get(facility=self.f, last_name='山田', first_name='花')
+        self.assertEqual((hana.status, hana.discharge_date), ('inactive', datetime.date(2025, 3, 31)))
+        # もう一度読ませても増えない。備考も二重にならない
+        self.client.post(self.url, {'file': self.csv(self.ROWS)})
+        res = self.client.post(self.url, {'action': 'commit'}, follow=True)
+        self.assertContains(res, '書き換え 3 名')
+        self.assertEqual(Beneficiary.objects.filter(facility=self.f).count(), 3)
+        taro.refresh_from_db()
+        self.assertEqual(taro.notes.count('利用者番号 000010'), 2)
+        self.assertEqual(taro.guardians.count(), 1)
+
+    def test_standard_format_status_and_discharge(self):
+        import datetime
+        from . import importer
+        header = ','.join(['姓', '名', '生年月日', '在籍状況', '退所日', '保護者 姓', '保護者 名', '保護者 ふりがな'])
+        f = self.csv([header.split(','), ['山田', '太郎', '2018-04-02', '退所', '2025-03-31', '山田', '花子', 'やまだ はなこ']], enc='utf-8', name='a.csv')
+        rows = importer.rows_from_file(f)
+        self.assertEqual(importer.format_of(rows), importer.FORMAT_BENEFICIARY)
+        importer.apply(self.f, importer.plan(self.f, rows))
+        taro = Beneficiary.objects.get(facility=self.f, last_name='山田', first_name='太郎')
+        self.assertEqual((taro.status, taro.discharge_date), ('inactive', datetime.date(2025, 3, 31)))
+        self.assertEqual(taro.guardians.get().kana, 'やまだ はなこ')
+        f = self.csv([['姓', '名', '生年月日', '在籍状況'], ['山田', '太郎', '2018-04-02', '在籍中']], enc='utf-8', name='b.csv')
+        importer.apply(self.f, importer.plan(self.f, importer.rows_from_file(f)))
+        taro.refresh_from_db()
+        self.assertEqual((taro.status, taro.discharge_date), ('active', None))
+        f = self.csv([['姓', '名', '生年月日', '在籍状況'], ['山田', '太郎', '2018-04-02', '通所中']], enc='utf-8', name='c.csv')
+        planned = importer.plan(self.f, importer.rows_from_file(f))
+        self.assertEqual(planned[0]['action'], 'error')
+        self.assertIn('在籍状況', planned[0]['detail'])

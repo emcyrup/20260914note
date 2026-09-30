@@ -29,7 +29,7 @@
   <div class="card mb-3">
     <div class="card-header fw-bold"><i class="bi bi-search me-1"></i>2. 確かめる（まだ登録していません）</div>
     <div class="card-body">
-      <div class="mb-2">「{{ file_name }}」から {{ planned|length }} 行を読みました{% if fmt == 'guardian' %}（<b>保護者一覧</b>の形。1行が保護者1人で、児童は名前で台帳と照合します）{% endif %}：
+      <div class="mb-2">「{{ file_name }}」から {% if fmt == 'children' %}{{ planned|length }} 人分を読みました{% else %}{{ planned|length }} 行を読みました{% endif %}{% if fmt == 'guardian' %}（<b>保護者一覧</b>の形。1行が保護者1人で、児童は名前で台帳と照合します）{% elif fmt == 'children' %}（<b>児童一覧</b>の形。見出しなしの15列。同じお子さまの契約が複数行あれば1人にまとめ、「利用中」があれば在籍中、なければ退所にします。前のシステムの利用者番号と契約は備考に残します）{% endif %}：
         {% if fmt == 'guardian' %}<span class="imp-update">台帳の児童に付ける {{ counts.update }}</span>・<span class="imp-create">児童も新しく作る {{ counts.create }}</span>{% else %}<span class="imp-create">新規 {{ counts.create }}</span>・<span class="imp-update">書き換え {{ counts.update }}</span>{% endif %}・<span class="imp-error">読めない行 {{ counts.error }}</span>
       </div>
       <div class="table-responsive">
@@ -70,6 +70,9 @@
           {% endfor %}
         </div>
         <div class="small text-muted mt-1">＊は必須。日付は 2019-04-01・2019/4/1・2019年4月1日 のどれでも読めます。</div>
+      </details>
+      <details class="mt-2"><summary class="small">前のシステムの「児童一覧」（見出しなしの CSV）もそのまま読めます</summary>
+        <div class="small text-muted mt-2">見出しの無い15列の CSV（保護者 氏名・保護者 カナ・利用者番号・児童 氏名・児童 カナ・性別・生年月日・空欄・児童発達支援の利用状況／開始日／終了日・放課後等デイの利用状況／開始日／終了日・3つ目の利用状況）は<b>児童一覧</b>として読みます。1行が契約1件なので、同じお子さまが何行あっても1人にまとめます（「利用中」があれば在籍中、なければ退所。入所日は最初の開始日、退所日は最後の終了日）。カナはひらがなにして登録し、保護者は姓・名・ふりがなだけ付けます（続柄・電話は「保護者一覧」を後から読ませると入ります）。利用者番号と各契約は備考に「前のシステム：…」として残ります。姓だけ違う同じ名・生年月日の行があれば注意を出します。</div>
       </details>
       <details class="mt-2"><summary class="small">前のシステムの「保護者一覧」もそのまま読めます</summary>
         <div class="small text-muted mt-2">1行目に「保護者（名前）」がある表は<b>保護者一覧</b>として読みます（1行が保護者1人）。「児童」の欄の名前で台帳のお子さまを探し、その保護者として付けます（ふりがな・続柄・電話番号・メール・備考。住所はお子さまの住所が空のときだけ写します。連絡先の名称や請求先は「取り込んだ情報」として保護者の欄に残します）。児童が2人なら「、」で区切ります。台帳にいない児童は、下の「仮の生年月日で作る」に印を付けたときだけ作ります。</div>

@@ -8,6 +8,8 @@
 - まず「確かめる」（登録しない）で行ごとの結果を見せ、「登録する」で保存する
 - もう1つの形「保護者一覧」（前のシステムからのデータ移行用。1行が保護者1人。児童は名前で台帳と照合）にも対応する。
   1行目に「保護者（名前）」があればこの形とみなす（GUARDIAN_COLUMNS）
+- もう1つの形「児童一覧」（前のシステムの CSV。見出しなし・15列。1行が契約1件で、同じお子さまが複数行に出る）にも対応する。
+  列の並びは CHILDREN_COLUMNS。同じ姓・名・生年月日の行は1人にまとめ、利用中があれば在籍中、なければ退所にする
 """
 import datetime
 import io
@@ -35,10 +37,13 @@ COLUMNS = [
     ('school_name', '通学学校名', False, '', '○○小学校'),
     ('grade', '学年', False, '未就学・小1〜小6・中1〜中3・高1〜高3・その他', '小1'),
     ('admission_date', '入所日', False, '日付', '2026-04-01'),
+    ('status', '在籍状況', False, '在籍中・退所（空なら変えない。新しい人は在籍中）', '在籍中'),
+    ('discharge_date', '退所日', False, '日付（退所のとき）', ''),
     ('weekdays', '利用予定曜日', False, '月・水・金 のように「・」か「,」で区切る', '月・水'),
     ('notes', '備考', False, '', ''),
     ('guardian_last_name', '保護者 姓', False, '', '山田'),
     ('guardian_first_name', '保護者 名', False, '', '花子'),
+    ('guardian_kana', '保護者 ふりがな', False, '', 'やまだ はなこ'),
     ('guardian_relation', '保護者 続柄', False, '父・母・その他', '母'),
     ('guardian_phone', '保護者 電話番号', False, '', '090-0000-0001'),
     ('guardian_email', '保護者 メール', False, '', ''),
@@ -59,6 +64,8 @@ MAX_ROWS = 500
 GENDER = {'男': 'male', '男性': 'male', '女': 'female', '女性': 'female', 'その他': 'other',
           'male': 'male', 'female': 'female', 'other': 'other'}
 RELATION = {'父': 'father', '母': 'mother', 'その他': 'other', 'father': 'father', 'mother': 'mother', 'other': 'other'}
+STATUS = {'在籍中': 'active', '在籍': 'active', '利用中': 'active', '退所': 'inactive', '退所済': 'inactive', '退所済み': 'inactive',
+          'active': 'active', 'inactive': 'inactive'}
 DISABILITY = {'1級': '1', '2級': '2', '1': '1', '2': '2', '１級': '1', '２級': '2'}
 GRADE = {label: key for key, label in Beneficiary.GRADE_CHOICES if key}
 WEEKDAY_FIELDS = {'月': 'weekday_mon', '火': 'weekday_tue', '水': 'weekday_wed', '木': 'weekday_thu', '金': 'weekday_fri', '土': 'weekday_sat'}
@@ -80,6 +87,13 @@ GUARDIAN_HEADERS = [c[0] for c in GUARDIAN_COLUMNS]
 GUARDIAN_MARK = '保護者（名前）'
 FORMAT_BENEFICIARY = 'beneficiary'
 FORMAT_GUARDIAN = 'guardian'
+FORMAT_CHILDREN = 'children'
+# 前のシステムの「児童一覧」CSV（見出しなし・15列。1行が契約1件）。列の意味は依頼者のファイルから推測したもの
+CHILDREN_COLUMNS = ['保護者 氏名', '保護者 カナ', '利用者番号', '児童 氏名', '児童 カナ', '性別', '生年月日', '（空）',
+                    '児童発達支援 利用状況', '児童発達支援 開始日', '児童発達支援 終了日',
+                    '放課後等デイ 利用状況', '放課後等デイ 開始日', '放課後等デイ 終了日', '3つ目のサービス 利用状況']
+CHILDREN_SERVICES = ((8, '児童発達支援'), (11, '放課後等デイ'), (14, '3つ目のサービス'))   # (利用状況の列, 名前)
+CHILDREN_STATUS_WORDS = {'利用なし', '退所', '利用中'}
 PLACEHOLDER_DOB = datetime.date(2000, 1, 1)     # 児童の生年月日が無いときの仮の値（あとで直してもらう）
 RELATION_WORDS = {'父': 'father', '母': 'mother', '父親': 'father', '母親': 'mother', 'お父さん': 'father', 'お母さん': 'mother'}
 
@@ -129,6 +143,9 @@ def rows_from_file(uploaded):
     head = find_header(rows, [GUARDIAN_MARK])
     if head is not None:
         return _guardian_rows([(h or '').strip() for h in rows[head]], rows[head + 1:head + 1 + MAX_ROWS])
+    start = _children_start(rows)
+    if start is not None:
+        return _children_rows(rows[start:start + MAX_ROWS], start)
     head = find_header(rows, ['姓', '名', '生年月日'])
     if head is None:
         head = find_header(rows, ['last_name', 'first_name', 'date_of_birth'])
@@ -167,8 +184,109 @@ def _guardian_rows(header, body):
     return out
 
 
+def _is_children_row(r):
+    """児童一覧の1行か：15列以上、性別が男/女、利用状況の語、利用者番号が数字、生年月日が日付"""
+    if len(r) < 15:
+        return False
+    c = [(x or '').strip() for x in r]
+    try:
+        return (c[5] in GENDER and c[8] in CHILDREN_STATUS_WORDS and c[11] in CHILDREN_STATUS_WORDS
+                and re.fullmatch(r'\d{3,}', c[2]) is not None and parse_date(c[6]) is not None)
+    except RowError:
+        return False
+
+
+def _children_start(rows):
+    """先頭 3 行のうち、児童一覧の行として読める最初の行番号（見出し行が足されていても飛ばす）。無ければ None"""
+    for i, r in enumerate(rows[:3]):
+        if _is_children_row(r):
+            return i
+    return None
+
+
+def _hira(s):
+    """カタカナ → ひらがな（台帳のふりがなはひらがな）"""
+    return ''.join(chr(ord(ch) - 0x60) if 0x30A1 <= ord(ch) <= 0x30F6 else ch for ch in (s or ''))
+
+
+def _fmt_date(v):
+    try:
+        d = parse_date(v)
+    except RowError:
+        return v
+    return f'{d.year}/{d.month}/{d.day}' if d else ''
+
+
+def _children_rows(body, offset):
+    """児童一覧（1行が契約1件）→ 同じお子さまを1人にまとめて、雛形と同じキーの dict にする"""
+    groups = {}
+    order = []
+    for n, r in enumerate(body):
+        c = [(x or '').strip() for x in r] + [''] * 15
+        if not any(c[:15]):
+            continue
+        if not _is_children_row(c):
+            key = ('?', n)
+            groups[key] = {'_format': FORMAT_CHILDREN, '_line': offset + n + 1, '_error': '児童一覧の行として読めません（15列の並びを確かめてください）',
+                           'last_name': c[3], 'first_name': ''}
+            order.append(key)
+            continue
+        last, first = split_name(c[3])
+        key = (last, first, c[6])
+        regs = []
+        for col, name in CHILDREN_SERVICES:
+            st = c[col]
+            start, end = (c[col + 1], c[col + 2]) if col + 2 < 15 else ('', '')
+            if st and st != '利用なし':
+                regs.append({'service': name, 'status': st, 'start': start, 'end': end, 'number': c[2]})
+        if not regs:
+            regs.append({'service': '', 'status': '利用なし', 'start': '', 'end': '', 'number': c[2]})
+        g = groups.get(key)
+        if g is None:
+            g = {'_format': FORMAT_CHILDREN, '_line': offset + n + 1, '_regs': [],
+                 'last_name': last, 'first_name': first, 'date_of_birth': c[6], 'gender': c[5]}
+            groups[key] = g
+            order.append(key)
+        kl, kf = split_name(c[4])
+        g['last_name_kana'], g['first_name_kana'] = _hira(kl), _hira(kf)
+        gl, gf = split_name(c[0])
+        g['guardian_last_name'], g['guardian_first_name'], g['guardian_kana'] = gl, gf, _hira(c[1])
+        g['_regs'].extend(regs)
+    by_first = {}
+    for key in order:
+        if key[0] != '?':
+            by_first.setdefault((key[1], key[2]), []).append(key)
+    out = []
+    for key in order:
+        g = groups[key]
+        if '_error' in g:
+            out.append(g)
+            continue
+        regs = g.pop('_regs')
+        others = [k for k in by_first.get((key[1], key[2]), []) if k != key]
+        actives = [x for x in regs if x['status'] == '利用中']
+        starts = sorted(x['start'] for x in regs if x['start'])
+        ends = sorted(x['end'] for x in regs if x['end'])
+        g['status'] = '在籍中' if actives else '退所'
+        g['admission_date'] = starts[0] if starts else ''
+        g['discharge_date'] = '' if actives else (ends[-1] if ends else '')
+        g['notes_append'] = '\n'.join(
+            f"前のシステム：利用者番号 {x['number']}" + (f" {x['service']}" if x['service'] else '') + f" {x['status']}"
+            + (f" {_fmt_date(x['start'])}〜{_fmt_date(x['end'])}" if x['start'] or x['end'] else '') for x in regs)
+        g['_detail'] = '・'.join(
+            (f"{x['service']} " if x['service'] else '') + x['status']
+            + (f"（{_fmt_date(x['start'])}〜{_fmt_date(x['end'])}）" if x['start'] or x['end'] else '') for x in regs)
+        if others:
+            g['_detail'] += '。※ 姓だけ違う同じ名・生年月日の行（' + '・'.join(f'{k[0]} {k[1]}' for k in others) + \
+                            '）もあります。姓が変わったのなら、登録後にどちらかを消してください'
+        out.append(g)
+    return out
+
+
 def format_of(rows):
-    return FORMAT_GUARDIAN if rows and rows[0].get('_format') == FORMAT_GUARDIAN else FORMAT_BENEFICIARY
+    if not rows:
+        return FORMAT_BENEFICIARY
+    return rows[0].get('_format') if rows[0].get('_format') in (FORMAT_GUARDIAN, FORMAT_CHILDREN) else FORMAT_BENEFICIARY
 
 
 def parse_date(v):
@@ -236,8 +354,11 @@ def parse_row(r):
         'school_name': r.get('school_name', '')[:100],
         'grade': _choice(r.get('grade'), GRADE, '学年'),
         'admission_date': parse_date(r.get('admission_date')),
+        'status': _choice(r.get('status'), STATUS, '在籍状況'),
+        'discharge_date': parse_date(r.get('discharge_date')),
         'weekdays': _weekdays(r.get('weekdays')),
         'notes': r.get('notes', ''),
+        'notes_append': r.get('notes_append', ''),
         'guardian': None, 'certificate': None,
     }
     gl, gf = r.get('guardian_last_name', '').strip(), r.get('guardian_first_name', '').strip()
@@ -245,6 +366,7 @@ def parse_row(r):
         out['guardian'] = {
             'last_name': (gl or out['last_name'])[:50], 'first_name': (gf or '保護者')[:50],
             'relation': _choice(r.get('guardian_relation'), RELATION, '保護者 続柄') or 'other',
+            'kana': r.get('guardian_kana', '')[:100],
             'phone': r.get('guardian_phone', '')[:20], 'email': r.get('guardian_email', '')[:254],
         }
     cert_no = r.get('certificate_number', '').strip()
@@ -403,10 +525,14 @@ def plan(facility, rows):
     out = []
     for i, r in enumerate(rows, 2):
         name = f'{r.get("last_name", "")} {r.get("first_name", "")}'.strip() or '（名前なし）'
+        line = r.get('_line', i)
+        if r.get('_error'):
+            out.append({'line': line, 'name': name, 'action': 'error', 'detail': r['_error'], 'data': None})
+            continue
         try:
             data = parse_row(r)
         except RowError as e:
-            out.append({'line': i, 'name': name, 'action': 'error', 'detail': str(e), 'data': None})
+            out.append({'line': line, 'name': name, 'action': 'error', 'detail': str(e), 'data': None})
             continue
         existing = find_existing(facility, data)
         extras = []
@@ -416,13 +542,20 @@ def plan(facility, rows):
             extras.append('受給者証')
         detail = ('同じ姓・名・生年月日の利用者がいるので書き換えます' if existing else '新しく登録します') + \
                  ('（' + '・'.join(extras) + ' も）' if extras else '')
-        out.append({'line': i, 'name': name, 'action': 'update' if existing else 'create', 'detail': detail, 'data': data,
+        if r.get('_detail'):
+            detail += '。' + r['_detail']
+        if not existing:
+            same = Beneficiary.objects.filter(facility=facility, first_name=data['first_name'], date_of_birth=data['date_of_birth']) \
+                .exclude(last_name=data['last_name']).first()
+            if same:
+                detail += f'。※ 姓だけ違う同じ名・生年月日の利用者（{same.full_name}）がいます。姓が変わったのなら、登録後にどちらかを消してください'
+        out.append({'line': line, 'name': name, 'action': 'update' if existing else 'create', 'detail': detail, 'data': data,
                     'existing_pk': existing.pk if existing else None})
     return out
 
 
 SIMPLE_FIELDS = ('last_name_kana', 'first_name_kana', 'gender', 'disability_class', 'disability_type', 'postal_code', 'address',
-                 'mobile_phone', 'home_phone', 'school_name', 'grade', 'admission_date', 'notes')
+                 'mobile_phone', 'home_phone', 'school_name', 'grade', 'admission_date', 'status', 'discharge_date', 'notes')
 
 
 @transaction.atomic
@@ -447,6 +580,13 @@ def apply(facility, planned):
                 setattr(b, k, v)
         if is_new and not b.gender:
             b.gender = Beneficiary.GENDER_MALE
+        if data.get('status') == Beneficiary.STATUS_ACTIVE and not data.get('discharge_date'):
+            b.discharge_date = None      # 在籍中に戻すときは退所日を消す
+        add = (data.get('notes_append') or '').strip()
+        if add:
+            lines = [ln for ln in add.split('\n') if ln and ln not in (b.notes or '')]
+            if lines:
+                b.notes = ((b.notes or '').rstrip() + '\n' if b.notes else '') + '\n'.join(lines)
         if data.get('is_severe') is not None:
             b.is_severe = data['is_severe']
         if data.get('weekdays') is not None:
@@ -458,6 +598,7 @@ def apply(facility, planned):
             Guardian.objects.update_or_create(
                 beneficiary=b, last_name=g['last_name'], first_name=g['first_name'],
                 defaults={'relation': g['relation'], 'phone': g['phone'], 'email': g['email'],
+                          **({'kana': g['kana']} if g.get('kana') else {}),
                           'is_primary': not b.guardians.filter(is_primary=True).exclude(last_name=g['last_name'], first_name=g['first_name']).exists()})
         c = data.get('certificate')
         if c:
