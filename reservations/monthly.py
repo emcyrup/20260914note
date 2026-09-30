@@ -163,6 +163,8 @@ def request_rows(facility, year, month, setting=None):
         rows.append({
             'beneficiary': b, 'request': req, 'desired': desired,
             'slots': req.slot_count(setting) if req else 0,
+            # NG 児童：利用希望に「来られない日」がある子（予定を動かすときに、その日に入れないよう注意する）
+            'ng_days': req.ng_days() if req and req.is_ng_mode else [],
             'confirmed': done, 'remaining': max(desired - done, 0), 'attended': attended.get(b.pk, 0),
             'granted': cert.granted_days if cert else None,
             'granted_left': (cert.granted_days - done) if cert and cert.granted_days else None,

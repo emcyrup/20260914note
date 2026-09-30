@@ -344,6 +344,12 @@ class NgDaysTests(TestCase):
         self.assertContains(res, 'id="ng_2026-10-04" value="1" autocomplete="off" checked')
         res = self.client.get(reverse('reservations:monthly_requests', args=[2026, 10]))
         self.assertContains(res, '来られない日 2 日・○ 1 枠')
+        self.assertContains(res, 'NG児童')                                   # 来られない日のある子は NG 児童
+        self.assertContains(res, '来られない日：10/4・10/11')
+        res = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))
+        self.assertContains(res, 'NG児童：来られない日 10/4・10/11')
+        res = self.client.get(reverse('reservations:monthly_schedule_pdf', args=[2026, 10]) + '?fmt=html')
+        self.assertContains(res, '<b>NG</b>')
 
     def test_assign_prefers_marked_hours_in_ng_mode(self):
         """来られない日の書き方でも、○のある日・時刻を先に使い、足りないぶんだけ印の無い日から取る"""

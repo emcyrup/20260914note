@@ -52,7 +52,8 @@
     {% for r in rows %}
     <div class="row-list-item mr-item {% if not r.request %}mr-none{% endif %}">
       <div><a href="{% url 'reservations:monthly_request_edit' year month r.beneficiary.pk %}" class="fw-bold">{{ r.beneficiary.full_name }}</a>
-        {% if r.granted %}<span class="small text-muted ms-1">支給量 {{ r.granted }}日</span>{% endif %}</div>
+        {% if r.ng_days %}<span class="badge text-bg-danger ms-1" title="来られない日：{% for d in r.ng_days %}{{ d|date:'n/j' }}{% if not forloop.last %}・{% endif %}{% endfor %}">NG児童</span>{% endif %}
+        {% if r.granted %}<span class="small text-muted ms-1 text-nowrap">支給量 {{ r.granted }}日</span>{% endif %}</div>
       <div class="mr-num"><span class="row-list-label">希望</span>{% if r.request %}{{ r.desired }} 回{% else %}—{% endif %}</div>
       <div class="mr-num"><span class="row-list-label">○</span>{% if r.request %}{% if r.request.is_ng_mode %}<span class="small" title="○の無い日はどの枠でも可">来られない日 {{ r.request.ng_days|length }} 日{% if r.slots %}・○ {{ r.slots }} 枠{% endif %}</span>{% else %}{{ r.slots }} 枠{% endif %}{% else %}—{% endif %}</div>
       <div class="mr-num"><span class="row-list-label">確定</span>{{ r.confirmed }} 回</div>

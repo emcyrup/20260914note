@@ -133,3 +133,25 @@ class MinutesTests(TestCase):
     def test_organize_empty(self):
         res = self.client.post(reverse('minutes:organize'), {'text': ''})
         self.assertEqual(res.status_code, 400)
+
+
+class ConsentTests(TestCase):
+    """面談の録音・文字起こしの同意書と、画面の「録音のご案内」"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず')
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.login(username='ryo', password='pw12345678')
+
+    def test_notice_on_screen_and_consent_form(self):
+        res = self.client.get(reverse('minutes:index'))
+        self.assertContains(res, '録音のご案内')
+        self.assertContains(res, '文字起こしと要約の作成に AI')
+        self.assertContains(res, reverse('minutes:consent'))
+        res = self.client.get(reverse('minutes:consent') + '?fmt=html')
+        self.assertContains(res, '面談の録音・文字起こしに関する同意書')
+        self.assertContains(res, '発達支援ルーム　ゆあーず')
+        self.assertContains(res, '保護者氏名（署名）')
+        self.assertContains(res, '撤回')
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse('minutes:consent')).status_code, 302)

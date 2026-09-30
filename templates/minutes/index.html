@@ -21,6 +21,7 @@
   .mn-hist .d { font-size: 0.78rem; color: #8a8378; }
   .mn-hist .t { font-weight: 600; font-size: 0.92rem; }
   .mn-save { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .mn-consent summary { cursor: pointer; color: var(--color-primary); font-weight: 600; }
   @media (max-width: 900px) { .mn-grid { grid-template-columns: 1fr; } }
 </style>
 {% endblock %}
@@ -59,6 +60,16 @@
                   title="押している間、話した言葉を下の欄に足していきます。もう一度押すと止まります"><i class="bi bi-mic"></i> 録音（音声入力）</button>
         </div>
       </div>
+      <details class="mn-consent small mb-2" id="mn-consent">
+        <summary><i class="bi bi-shield-check me-1"></i>録音のご案内（面談のはじめに読み上げます）・同意書の印刷</summary>
+        <div class="p-2 mt-1 rounded" style="background:#f6f3ee;border:1px solid var(--line);">
+          <div class="mb-2">「{{ consent_notice }}」</div>
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            <a href="{% url 'minutes:consent' %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>同意書を印刷（A4）</a>
+            <span class="text-muted">契約のときに書面で同意をいただき、保護者との面談を録音するときはこの案内を読み上げてから始めてください。職員会議など保護者のいない場では不要です。</span>
+          </div>
+        </div>
+      </details>
       <div id="mn-voice-note" class="alert alert-warning small py-1 px-2 mb-1 d-none"></div>
       <textarea class="form-control" id="transcript" name="transcript" rows="10" maxlength="{{ text_max }}"
                 placeholder="「録音」を押して話すと、ここに文字で入っていきます。ほかの録音アプリの文字起こしを貼り付けても構いません。">{% if current %}{{ current.transcript }}{% endif %}</textarea>

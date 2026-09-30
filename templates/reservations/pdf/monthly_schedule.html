@@ -57,7 +57,7 @@
       </tbody>
     </table>
     {% endfor %}
-    <div class="small muted">網掛け：お休み（{{ schedule.closed_text|default:'なし' }}）・その日に無い時刻。1枠 {{ schedule.capacity }} 人（箱は左から順）。待＝キャンセル待ち。※＝定員超過。{% if has_staff %}日付の下は「その日の担当」。{% endif %}</div>
+    <div class="small muted">網掛け：お休み（{{ schedule.closed_text|default:'なし' }}）・その日に無い時刻。1枠 {{ schedule.capacity }} 人（箱は左から順）。待＝キャンセル待ち。※＝定員超過。右の一覧の NG＝来られない日のある利用者（NG児童）。{% if has_staff %}日付の下は「その日の担当」。{% endif %}</div>
 {% if paper == 'a4' %}</div><div class="pb"></div><div style="width: 60%;">{% include 'reservations/pdf/_schedule_users.html' %}</div>
 {% else %}</div>{% endif %}
 {% endblock %}
