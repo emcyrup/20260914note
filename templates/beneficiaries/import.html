@@ -61,7 +61,7 @@
     <div class="card-header fw-bold"><i class="bi bi-1-circle me-1"></i>雛形をダウンロードして、{{ terms.beneficiary }}を 1 人 1 行で入れる</div>
     <div class="card-body">
       <a href="{% url 'beneficiaries:import_template' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-download me-1"></i>雛形（Excel）をダウンロード</a>
-      <div class="small text-muted mt-2">Excel で開いて 2 行目から入れ、そのまま .xlsx で保存します（CSV でも読めます）。1 行目の見出しはそのまま。使わない列は消しても、並びを変えても構いません。見出しが同じなら、手持ちの名簿からも読めます。1 回に {{ max_rows }} 行まで。</div>
+      <div class="small text-muted mt-2">Excel で開いて 2 行目から入れ、そのまま .xlsx で保存します（CSV でも読めます。Shift_JIS・UTF-8・UTF-16、カンマ・タブ区切りのどれでも。見出しの上に表題の行があっても読みます）。1 行目の見出しはそのまま。使わない列は消しても、並びを変えても構いません。見出しが同じなら、手持ちの名簿からも読めます。1 回に {{ max_rows }} 行まで。</div>
       <div class="small text-muted">同じ<b>姓・名・生年月日</b>の{{ terms.beneficiary }}がすでにいれば、その人の情報を書き換えます（空の欄は変えません）。いなければ新しく登録します。保護者の欄は「保護者 姓・名」が同じなら書き換え、受給者証は受給者証番号が同じなら書き換えます。</div>
       <details class="mt-2"><summary class="small">列の一覧と書き方（{{ columns|length }} 列）</summary>
         <div class="imp-cols mt-2">
@@ -86,9 +86,9 @@
         <label class="imp-drop d-block" for="impFile">
           <i class="bi bi-cloud-arrow-up" style="font-size:1.6rem;color:var(--lake-text);"></i>
           <div class="fw-semibold small">ここにファイルを置く（ドラッグ＆ドロップ）か、押して選ぶ</div>
-          <div class="small text-muted">Excel（.xlsx）か CSV</div>
+          <div class="small text-muted">Excel（.xlsx）か CSV（カンマ・タブ区切り。UTF-8・Shift_JIS・UTF-16）</div>
           <div class="small mt-1" id="impFileName"></div>
-          <input type="file" id="impFile" name="file" accept=".xlsx,.csv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+          <input type="file" id="impFile" name="file" accept=".xlsx,.csv,.tsv,.txt,text/csv,text/tab-separated-values,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
         </label>
         <label class="form-check-label d-flex align-items-center gap-2 mt-2 small"><input type="checkbox" class="form-check-input mt-0" name="create_children" value="1">保護者一覧のとき、台帳にいない児童は仮の生年月日（2000-01-01）で作る（あとで直す）</label>
         <div class="d-flex gap-2 mt-2 align-items-center">

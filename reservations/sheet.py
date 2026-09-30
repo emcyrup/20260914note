@@ -7,7 +7,6 @@
   - 書き方が「ダメな日」のとき：来られない日に「×」（それ以外の日はどの枠でも可能）
 氏名は台帳の名前と照らして決める（姓だけでもよい）。読み取った結果は利用希望として直接保存する（入口「ファイルから」）。
 """
-import csv
 import datetime
 import io
 import re
@@ -20,7 +19,7 @@ MODE_OK_WORDS = ('○', '〇', 'まる', 'ok', 'OK', '可能な日時', '可能'
 MODE_NG_WORDS = ('×', 'x', 'X', 'ダメな日', 'だめな日', '来られない日', 'ng', 'NG', '不可')
 ALL_WORDS = ('○', '〇', '◯', '終日', 'all', 'ALL', '1', 'o', 'O', '●', '✓', 'レ')
 NG_WORDS = ('×', 'x', 'X', '✕', '✗', 'ng', 'NG', '不可', 'ダメ', 'だめ')
-SPREADSHEET_EXTENSIONS = ('xlsx', 'xls', 'csv')
+SPREADSHEET_EXTENSIONS = ('xlsx', 'xls', 'csv', 'tsv')
 
 
 def is_spreadsheet(filename):
@@ -72,28 +71,9 @@ def template_xlsx(facility, year, month, setting=None):
 
 
 def _rows_from_file(uploaded):
-    """アップロードされた xlsx / csv → 文字列の行のリスト"""
-    name = (uploaded.name or '').lower()
-    data = uploaded.read()
-    if name.endswith('.csv'):
-        for enc in ('utf-8-sig', 'cp932', 'utf-8'):
-            try:
-                text = data.decode(enc)
-                break
-            except UnicodeDecodeError:
-                continue
-        else:
-            raise ValueError('CSV の文字コードを読めませんでした（UTF-8 か Shift_JIS で保存してください）。')
-        return [[(c or '').strip() for c in row] for row in csv.reader(io.StringIO(text))]
-    if name.endswith('.xls') and not name.endswith('.xlsx'):
-        raise ValueError('古い Excel 形式（.xls）は読めません。「名前を付けて保存」で .xlsx にしてください。')
-    from openpyxl import load_workbook
-    wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-    ws = wb.active
-    rows = []
-    for row in ws.iter_rows(values_only=True):
-        rows.append(['' if v is None else str(v).strip() for v in row])
-    return rows
+    """アップロードされた xlsx / csv / タブ区切り → 文字列の行のリスト（config.tabular）"""
+    from config.tabular import read_rows
+    return read_rows(uploaded)
 
 
 def _cell_hours(text):

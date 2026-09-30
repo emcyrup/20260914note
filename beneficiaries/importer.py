@@ -9,7 +9,6 @@
 - もう1つの形「保護者一覧」（前のシステムからのデータ移行用。1行が保護者1人。児童は名前で台帳と照合）にも対応する。
   1行目に「保護者（名前）」があればこの形とみなす（GUARDIAN_COLUMNS）
 """
-import csv
 import datetime
 import io
 import re
@@ -122,40 +121,24 @@ def template_xlsx():
 
 
 def rows_from_file(uploaded):
-    """xlsx / csv → 見出し→値 の dict のリスト（見出し行は 1 行目。空行は飛ばす）"""
-    name = (uploaded.name or '').lower()
-    data = uploaded.read()
-    if name.endswith('.csv') or name.endswith('.txt'):
-        for enc in ('utf-8-sig', 'cp932', 'utf-8'):
-            try:
-                text = data.decode(enc)
-                break
-            except UnicodeDecodeError:
-                continue
-        else:
-            raise ValueError('CSV の文字コードを読めませんでした（UTF-8 か Shift_JIS で保存してください）。')
-        rows = [[(c or '').strip() for c in r] for r in csv.reader(io.StringIO(text))]
-    elif name.endswith('.xls'):
-        raise ValueError('古い Excel 形式（.xls）は読めません。「名前を付けて保存」で .xlsx にしてください。')
-    else:
-        from openpyxl import load_workbook
-        wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-        ws = wb.worksheets[0]
-        rows = []
-        for r in ws.iter_rows(values_only=True):
-            rows.append([_cell_text(v) for v in r])
-    rows = [r for r in rows if any(c for c in r)]
+    """xlsx / csv / タブ区切り → 見出し→値 の dict のリスト（見出しの行は自動で探す。表題行があっても読める。空行は飛ばす）"""
+    from config.tabular import find_header, read_rows
+    rows = read_rows(uploaded)
     if not rows:
         return []
-    header = [(h or '').strip() for h in rows[0]]
-    if GUARDIAN_MARK in header:
-        return _guardian_rows(header, rows[1:MAX_ROWS + 1])
-    keys = [LABEL_TO_KEY.get(h) for h in header]
-    if 'last_name' not in keys or 'first_name' not in keys or 'date_of_birth' not in keys:
+    head = find_header(rows, [GUARDIAN_MARK])
+    if head is not None:
+        return _guardian_rows([(h or '').strip() for h in rows[head]], rows[head + 1:head + 1 + MAX_ROWS])
+    head = find_header(rows, ['姓', '名', '生年月日'])
+    if head is None:
+        head = find_header(rows, ['last_name', 'first_name', 'date_of_birth'])
+    if head is None:
         raise ValueError('1行目の見出しに「姓」「名」「生年月日」が見つかりません。雛形の見出しを使ってください'
                          '（前のシステムの「保護者一覧」なら「保護者（名前）」の見出しがあれば読めます）。')
+    header = [(h or '').strip() for h in rows[head]]
+    keys = [LABEL_TO_KEY.get(h) for h in header]
     out = []
-    for r in rows[1:MAX_ROWS + 1]:
+    for r in rows[head + 1:head + 1 + MAX_ROWS]:
         d = {}
         for i, k in enumerate(keys):
             if k:
@@ -186,18 +169,6 @@ def _guardian_rows(header, body):
 
 def format_of(rows):
     return FORMAT_GUARDIAN if rows and rows[0].get('_format') == FORMAT_GUARDIAN else FORMAT_BENEFICIARY
-
-
-def _cell_text(v):
-    if v is None:
-        return ''
-    if isinstance(v, datetime.datetime):
-        return v.strftime('%Y-%m-%d')
-    if isinstance(v, datetime.date):
-        return v.isoformat()
-    if isinstance(v, float) and v.is_integer():
-        return str(int(v))
-    return str(v).strip()
 
 
 def parse_date(v):

@@ -488,3 +488,59 @@ class GuardianListImportTests(TestCase):
         self.assertContains(res, '取り込んだ情報')
         self.assertContains(res, '母携帯')
         self.assertContains(res, 'ヤマダ ハナコ')
+
+
+class CsvVariantsImportTests(TestCase):
+    """CSV の読み方：Shift_JIS・UTF-16（Excel の Unicode テキスト）・タブ区切り・表題行つき・拡張子違い"""
+
+    def setUp(self):
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU)
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.url = reverse('beneficiaries:import')
+
+    @staticmethod
+    def up(name, data):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        return SimpleUploadedFile(name, data, content_type='application/octet-stream')
+
+    def test_read_rows_variants(self):
+        from config.tabular import read_rows, guess_delimiter
+        body = '姓,名,生年月日\n高橋,結,2017-04-01\n'
+        self.assertEqual(read_rows(body.encode('cp932'), '名簿.csv')[1], ['高橋', '結', '2017-04-01'])
+        self.assertEqual(read_rows(('﻿' + body).encode('utf-8'), '名簿.csv')[0], ['姓', '名', '生年月日'])
+        tab = '姓\t名\t生年月日\n高橋\t結\t2017/4/1\n'
+        self.assertEqual(read_rows(tab.encode('utf-16'), '名簿.txt')[1], ['高橋', '結', '2017/4/1'])       # Excel の Unicode テキスト
+        self.assertEqual(read_rows(tab.encode('utf-16-le'), '名簿.tsv')[1], ['高橋', '結', '2017/4/1'])    # BOM 無しの UTF-16
+        self.assertEqual(read_rows('姓;名;生年月日\n高橋;結;2017-04-01\n'.encode('utf-8'), 'x.csv')[1][1], '結')
+        self.assertEqual(guess_delimiter('a,b\tc\td'), '\t')
+        # .csv という名前の xlsx も中身で見分ける
+        import io
+        from openpyxl import Workbook
+        wb = Workbook(); wb.active.append(['姓', '名', '生年月日']); wb.active.append(['高橋', '結', '2017-04-01'])
+        buf = io.BytesIO(); wb.save(buf)
+        self.assertEqual(read_rows(buf.getvalue(), '名簿.csv')[1], ['高橋', '結', '2017-04-01'])
+        with self.assertRaisesMessage(ValueError, '古い Excel 形式'):
+            read_rows(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1' + b'0' * 16, '名簿.xls')
+        with self.assertRaisesMessage(ValueError, 'PDF は読めません'):
+            read_rows(b'%PDF-1.4 ...', '名簿.pdf')
+
+    def test_title_row_above_header_and_guardian_csv(self):
+        from . import importer
+        # 表題行と空行のあとに見出し
+        rows = importer.rows_from_file(self.up('名簿.csv', '利用者名簿（2026年度）\n\n姓,名,生年月日,学年\n高橋,結,2017-04-01,小3\n'.encode('cp932')))
+        self.assertEqual(rows, [{'last_name': '高橋', 'first_name': '結', 'date_of_birth': '2017-04-01', 'grade': '小3'}])
+        # 保護者一覧を Shift_JIS の CSV（前のシステムの書き出し）で
+        header = ','.join(importer.GUARDIAN_HEADERS)
+        line = ','.join(['山田 花子', 'ヤマダ ハナコ', '母', '山田 太郎', '', '京都府', '京都市', '1-1', '', '', '母携帯', '090-1111-1111'] + [''] * 17)
+        rows = importer.rows_from_file(self.up('保護者一覧.csv', f'保護者一覧\n{header}\n{line}\n'.encode('cp932')))
+        self.assertEqual(importer.format_of(rows), 'guardian')
+        self.assertEqual((rows[0]['g_name'], rows[0]['children'], rows[0]['c1_label']), ('山田 花子', '山田 太郎', '母携帯'))
+        # 画面からタブ区切り（UTF-16）で
+        import datetime
+        Beneficiary.objects.create(facility=self.f, last_name='山田', first_name='太郎', date_of_birth=datetime.date(2019, 4, 1))
+        tsv = '\t'.join(importer.GUARDIAN_HEADERS) + '\n' + line.replace(',', '\t') + '\n'
+        res = self.client.post(self.url, {'file': self.up('保護者一覧.txt', tsv.encode('utf-16'))})
+        self.assertContains(res, '台帳の児童に付ける 1')
