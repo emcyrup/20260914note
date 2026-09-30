@@ -289,10 +289,18 @@ class NgDaysTests(TestCase):
         req = monthly.save_request(self.f, self.kid, 2026, 10, 2, {'2026-10-02': 'all'},
                                    wish_mode=MonthlyRequest.WISH_NG, ng_dates=['2026-10-04', '2026-10-11', '2026-10-04', 'bad'])
         self.assertTrue(req.is_ng_mode)
-        self.assertEqual(req.wishes, {})                                   # ○は使わない
+        self.assertEqual(req.wishes, {'2026-10-02': 'all'})              # 来られる日の○は残す
         self.assertEqual(req.ng_days(), [datetime.date(2026, 10, 4), datetime.date(2026, 10, 11)])
-        self.assertEqual(req.wish_of(datetime.date(2026, 10, 3)), 'all')
+        self.assertEqual(req.wish_of(datetime.date(2026, 10, 2)), 'all')
+        self.assertEqual(req.wish_of(datetime.date(2026, 10, 3)), 'any')  # 印の無い日はどの枠でも可
         self.assertIsNone(req.wish_of(datetime.date(2026, 10, 4)))
+        self.assertEqual(req.marked_days(), [datetime.date(2026, 10, 2)])
+        self.assertEqual(req.slot_count(self.s), len(self.s.slot_hours(datetime.date(2026, 10, 2))))
+        self.assertIn('○', monthly.wish_summary(req, self.s))
+        # 来られない日に付いた○は捨てる
+        req2 = monthly.save_request(self.f, self.other, 2026, 10, 2, {'2026-10-04': [10], '2026-10-06': [10]},
+                                    wish_mode=MonthlyRequest.WISH_NG, ng_dates=['2026-10-04'])
+        self.assertEqual(req2.wishes, {'2026-10-06': [10]})
         self.assertIsNone(req.wish_of(datetime.date(2026, 11, 3)))        # ほかの月
         self.assertEqual(len(req.wished_days()), 31 - 2)
         self.assertEqual(req.wish_hours(datetime.date(2026, 10, 5), self.s), [])   # 月曜はお休み
@@ -328,20 +336,37 @@ class NgDaysTests(TestCase):
         self.assertContains(res, 'name="ng_2026-10-03"')
         res = self.client.post(url, {'desired_count': '2', 'wish_mode': 'ng', 'ng_2026-10-04': '1', 'ng_2026-10-11': '1',
                                      'h_2026-10-02': ['10']}, follow=True)
-        self.assertContains(res, '来られない日 2 日')
+        self.assertContains(res, '来られない日 2 日・○ 1 枠')
         req = MonthlyRequest.objects.get(beneficiary=self.kid)
-        self.assertEqual((req.wish_mode, req.ng_dates, req.wishes), ('ng', ['2026-10-04', '2026-10-11'], {}))
+        self.assertEqual((req.wish_mode, req.ng_dates, req.wishes), ('ng', ['2026-10-04', '2026-10-11'], {'2026-10-02': [10]}))
         res = self.client.get(url)
         self.assertContains(res, 'id="wishModeNg" value="ng" autocomplete="off" checked')
         self.assertContains(res, 'id="ng_2026-10-04" value="1" autocomplete="off" checked')
         res = self.client.get(reverse('reservations:monthly_requests', args=[2026, 10]))
-        self.assertContains(res, '来られない日 2 日')
+        self.assertContains(res, '来られない日 2 日・○ 1 枠')
+
+    def test_assign_prefers_marked_hours_in_ng_mode(self):
+        """来られない日の書き方でも、○のある日・時刻を先に使い、足りないぶんだけ印の無い日から取る"""
+        req = monthly.save_request(self.f, self.kid, 2026, 10, 2, {'2026-10-10': [14], '2026-10-17': 'all'},
+                                   wish_mode='ng', ng_dates=['2026-10-02', '2026-10-03'])
+        result = monthly.assign_month(self.f, 2026, 10, self.s, notify=False)
+        made = sorted((r.date, r.hour) for r in result.made)
+        self.assertEqual(made, [(datetime.date(2026, 10, 10), 14), (datetime.date(2026, 10, 17), 9)])
+        # 3回目は印の無い日（来られない日・休業日・すでに入った日以外）から
+        req.desired_count = 3
+        req.save()
+        result = monthly.assign_month(self.f, 2026, 10, self.s, notify=False)
+        self.assertEqual(len(result.made), 1)
+        d = result.made[0].date
+        self.assertNotIn(d, (datetime.date(2026, 10, 2), datetime.date(2026, 10, 3), datetime.date(2026, 10, 10), datetime.date(2026, 10, 17)))
+        self.assertTrue(self.s.slot_hours(d))
+        self.assertEqual(result.short, [])
 
     def test_customer_page_saves_ng_mode(self):
         customer = Customer.objects.create(facility=self.f, name='青木 母')
         customer.children.add(self.kid)
         url = reverse('reservations_public:customer', args=[customer.token])
-        self.assertContains(self.client.get(url), '来られない日だけ選ぶ')
+        self.assertContains(self.client.get(url), '来られない日を選ぶ')
         today = datetime.date.today()
         y, m = monthly.next_month(today.year, today.month)
         day = next(d for d in monthly.month_days(y, m) if self.s.slot_hours(d))
@@ -353,16 +378,18 @@ class NgDaysTests(TestCase):
 
     def test_scan_normalize_ng_mode(self):
         from . import scan
-        data = {'name': '青木 子', 'year': 2026, 'month': 10, 'desired_count': 2, 'days': [],
+        data = {'name': '青木 子', 'year': 2026, 'month': 10, 'desired_count': 2,
+                'days': [{'day': 3, 'all_day': False, 'hours': [10]}, {'day': 4, 'all_day': True, 'hours': []}],
                 'mode': 'ng', 'ng_days': [4, 11, 12, 17, 18, 24, 31, 40], 'note': '', 'unreadable': ''}
         out = scan.normalize(data, self.f, 2026, 10, self.s)
         self.assertEqual(out['wish_mode'], 'ng')
         self.assertEqual(out['ng_dates'], ['2026-10-04', '2026-10-11', '2026-10-12', '2026-10-17', '2026-10-18', '2026-10-24', '2026-10-31'])
-        self.assertEqual(out['wishes'], {})
-        self.assertGreater(out['slot_count'], 0)
+        self.assertEqual(out['wishes'], {'2026-10-03': [10]})          # 来られる日の○は残し、来られない日（4日）の○は捨てる
+        self.assertEqual(out['slot_count'], 1)
         req = scan.as_request_data(out, self.f, 2026, 10)
         self.assertTrue(req.is_ng_mode)
-        self.assertEqual(req.wish_of(datetime.date(2026, 10, 3)), 'all')
+        self.assertEqual(req.wish_of(datetime.date(2026, 10, 3)), [10])
+        self.assertEqual(req.wish_of(datetime.date(2026, 10, 6)), 'any')
         self.assertIsNone(req.wish_of(datetime.date(2026, 10, 4)))
         ok = scan.normalize(dict(READ, mode='ok', ng_days=[4]), self.f, 2026, 10, self.s)
         self.assertEqual((ok['wish_mode'], ok['ng_dates']), ('ok', []))
@@ -474,7 +501,7 @@ class DailyLogTests(TestCase):
         self.assertEqual((out['wish_mode'], out['ng_dates']), ('ok', []))
         customer = Customer.objects.create(facility=self.f, name='青木 母')
         customer.children.add(self.kids[0])
-        self.assertNotContains(self.client.get(reverse('reservations_public:customer', args=[customer.token])), '来られない日だけ選ぶ')
+        self.assertNotContains(self.client.get(reverse('reservations_public:customer', args=[customer.token])), '来られない日を選ぶ')
 
     def test_other_facility_data_not_shown(self):
         g = Facility.objects.create(name='ほか', use_reservation=True)
@@ -729,6 +756,8 @@ class SheetImportTests(TestCase):
         row_aoki[3 + 5] = '9'          # 6日（火）：9時は枠なし → 印だけなので終日
         row_inoue = ['井上 太郎', '2回', 'ダメな日'] + [''] * 31
         row_inoue[3 + 3] = '×'; row_inoue[3 + 10] = '×'
+        row_inoue[3 + 5] = '10'        # 6日（火）：来られる日のうちの希望（10時）
+        row_inoue[3 + 8] = '○'         # 9日（金）：終日に○
         row_none = ['山田', '1', '○'] + ['○'] * 31
         out = sheet.parse_rows([head, ['', '', '', '木'], row_aoki, row_inoue, row_none, [], ['書き方の説明']], self.f, 2026, 10, self.s)
         self.assertEqual(out['errors'], [])
@@ -738,7 +767,7 @@ class SheetImportTests(TestCase):
         self.assertEqual(a['wishes'], {'2026-10-02': 'all', '2026-10-03': [10, 11], '2026-10-06': 'all'})
         self.assertEqual(a['notes'], ['5日はお休みの日'])
         self.assertEqual((i['beneficiary'], i['desired'], i['mode'], i['ng_dates'], i['wishes']),
-                         (self.inoue, 2, 'ng', ['2026-10-04', '2026-10-11'], {}))
+                         (self.inoue, 2, 'ng', ['2026-10-04', '2026-10-11'], {'2026-10-06': [10], '2026-10-09': 'all'}))
         bad = sheet.parse_rows([['名前', '1']], self.f, 2026, 10, self.s)
         self.assertIn('「氏名」の見出し', bad['errors'][0])
 

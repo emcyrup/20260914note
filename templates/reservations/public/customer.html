@@ -10,6 +10,8 @@
   .wish th { background: #f6f4ef; font-weight: 600; }
   .wish td.d { text-align: left; padding-left: 4px; white-space: nowrap; }
   .wish tr.closed td, .wish td.off { background: #f1efea; }
+  .wish tr.ngday td { background: #fbe3e3; color: #b55; }
+  .wish tr.ngday input { opacity: 0.25; pointer-events: none; }
   .wish td.sun { color: #c0392b; } .wish td.sat { color: #2b6cb0; }
   .wish input[type=checkbox] { width: 18px; height: 18px; }
 </style>
@@ -114,10 +116,10 @@
       <input type="radio" class="btn-check" name="wish_mode" id="pubModeOk" value="ok" autocomplete="off" {% if not wish_req.is_ng_mode %}checked{% endif %}>
       <label class="btn btn-outline-secondary" for="pubModeOk">来られる日時に印</label>
       <input type="radio" class="btn-check" name="wish_mode" id="pubModeNg" value="ng" autocomplete="off" {% if wish_req.is_ng_mode %}checked{% endif %}>
-      <label class="btn btn-outline-secondary" for="pubModeNg">来られない日だけ選ぶ</label>
+      <label class="btn btn-outline-secondary" for="pubModeNg">来られない日を選ぶ</label>
     </div>
     <div id="pubNg">
-      <div class="small mb-1">来られない日を押してください（赤くなります）。それ以外の日はどの時間でも大丈夫、という意味になります。</div>
+      <div class="small mb-1">来られない日を押してください（赤くなります）。来られる日のうち希望の時間があれば、下の表にも印を付けてください。印の無い日はどの時間でも大丈夫、という意味になります。</div>
       <div class="d-flex flex-wrap gap-1 mb-2">
         {% for row in wish_grid.rows %}
         {% if row.closed %}<span class="btn btn-sm btn-outline-secondary disabled">{{ row.date|date:'j' }}({{ row.weekday }})</span>
@@ -134,7 +136,7 @@
         <thead><tr><th style="min-width: 62px;">日付</th><th>終日</th>{% for h in wish_grid.hours %}<th>{{ h }}</th>{% endfor %}</tr></thead>
         <tbody>
           {% for row in wish_grid.rows %}
-          <tr class="{% if row.closed %}closed{% endif %}">
+          <tr class="{% if row.closed %}closed{% endif %}" data-day="{{ row.iso }}">
             <td class="d {% if row.is_sunday %}sun{% elif row.is_saturday %}sat{% endif %}">{{ row.date|date:'j' }}({{ row.weekday }})</td>
             {% if row.closed %}<td colspan="{{ wish_grid.hours|length|add:1 }}" class="small text-muted">お休み</td>
             {% else %}
@@ -155,11 +157,17 @@
       if (!document.getElementById('pubModeNg')) return;
       function apply() {
         var ng = document.getElementById('pubModeNg').checked;
-        document.getElementById('pubGrid').classList.toggle('d-none', ng);
         document.getElementById('pubGridHelp').classList.toggle('d-none', ng);
         document.getElementById('pubNg').classList.toggle('d-none', !ng);
+        document.querySelectorAll('#pubNg input[type=checkbox]').forEach(function (cb) {
+          var tr = document.querySelector('#pubGrid tr[data-day="' + cb.name.slice(3) + '"]');
+          if (!tr) return;
+          var on = ng && cb.checked;
+          tr.classList.toggle('ngday', on);
+          tr.querySelectorAll('input').forEach(function (i) { i.disabled = on; });
+        });
       }
-      document.querySelectorAll('input[name=wish_mode]').forEach(function (el) { el.addEventListener('change', apply); });
+      document.querySelectorAll('input[name=wish_mode], #pubNg input[type=checkbox]').forEach(function (el) { el.addEventListener('change', apply); });
       apply();
     })();
   </script>

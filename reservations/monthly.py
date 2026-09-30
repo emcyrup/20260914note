@@ -67,6 +67,7 @@ def request_grid(facility, year, month, setting=None, request=None, closed=None)
             'is_sunday': day.weekday() == 6, 'is_saturday': day.weekday() == 5,
             'all_wished': bool(day_hours) and wish == 'all',
             'ng': day.isoformat() in ng,
+            'any': bool(day_hours) and wish == 'any',
             'cells': cells, 'hours': day_hours,
         })
     return {'hours': hours, 'hour_labels': [hour_label(h) for h in hours], 'rows': rows, 'ng_mode': ng_mode}
@@ -105,14 +106,18 @@ def save_request(facility, beneficiary, year, month, desired_count, wishes, note
                  wish_mode=MonthlyRequest.WISH_OK, ng_dates=None):
     """
     利用希望を1枚保存する（同じ利用者・同じ月のものは書き換える）。
-    wish_mode='ng' のときは wishes は使わず、ng_dates（来られない日）以外を終日可能として扱う
+    wish_mode='ng' のときは ng_dates（来られない日）を除いた日を可能とし、wishes（○）があればその日の時刻を優先する。
+    来られない日に付いた○は捨てる
     """
     ng_mode = wish_mode == MonthlyRequest.WISH_NG
+    ng_list = sorted(set(ng_dates or [])) if ng_mode else []
+    if ng_mode:
+        wishes = {k: v for k, v in (wishes or {}).items() if k not in ng_list}
     req, _ = MonthlyRequest.objects.update_or_create(
         beneficiary=beneficiary, year=year, month=month,
         defaults={'facility': facility, 'desired_count': max(0, min(int(desired_count or 0), 99)),
-                  'wishes': {} if ng_mode else wishes, 'wish_mode': wish_mode,
-                  'ng_dates': sorted(set(ng_dates or [])) if ng_mode else [],
+                  'wishes': wishes or {}, 'wish_mode': wish_mode,
+                  'ng_dates': ng_list,
                   'note': (note or '')[:200], 'source': source,
                   'customer': customer, 'created_by': user},
     )
@@ -122,7 +127,9 @@ def save_request(facility, beneficiary, year, month, desired_count, wishes, note
 def wish_summary(req, setting):
     """保存や送信のあとに出す短い説明：「希望 n 回・○ m 枠」または「希望 n 回・来られない日 k 日」"""
     if req.is_ng_mode:
-        return f'希望 {req.desired_count} 回・来られない日 {len(req.ng_days())} 日（それ以外は終日可能）'
+        marked = req.slot_count(setting)
+        tail = f'・○ {marked} 枠（○の無い日はどの枠でも可）' if marked else '（それ以外は終日可能）'
+        return f'希望 {req.desired_count} 回・来られない日 {len(req.ng_days())} 日' + tail
     return f'希望 {req.desired_count} 回・○ {req.slot_count(setting)} 枠'
 
 
@@ -196,7 +203,8 @@ def assign_month(facility, year, month, setting=None, base='', notify=True, only
     - すでに確定している予約は残し、希望回数に足りないぶんだけ足す
     - 同じ日に同じ利用者を2回入れない。休業日・枠のない時刻は使わない
     - **時刻を指定した希望を先に、「終日」（時刻の指定なし）の希望をあとに**割り当てる。
-      時刻の決まっている子の枠を、どの時刻でもよい子が先に埋めてしまわないように
+      時刻の決まっている子の枠を、どの時刻でもよい子が先に埋めてしまわないように。
+      「来られない日」の書き方で○の無い日（どの枠でも可）はさらにそのあと（○の日で足りないときだけ）
     - 日にちは「その人のほかの利用日から遠い日」→「早い日」の順で選ぶ（月の中でなるべく間があく）
     - 時刻は**その日の空いている一番早い枠**（午前から詰める）。終日の希望はその日の全部の枠から、
       時刻を指定した希望は○の付いた枠の中から選ぶ
@@ -233,13 +241,15 @@ def assign_month(facility, year, month, setting=None, base='', notify=True, only
     need = {}
     fixed = {}      # 時刻を指定した希望の枠
     flexible = {}   # 終日（時刻の指定なし）の希望の枠
+    anyday = {}     # 「来られない日」の書き方で印の無い日（どの枠でも可）
     for req in requests:
         need[req.pk] = max(req.desired_count - confirmed_count.get(req.beneficiary_id, 0), 0)
-        fixed[req.pk], flexible[req.pk] = [], []
+        fixed[req.pk], flexible[req.pk], anyday[req.pk] = [], [], []
         for day in req.wished_days():
             if not (first <= day <= last) or services.is_closed(facility, day, setting, closed):
                 continue
-            target = flexible if req.wish_of(day) == 'all' else fixed
+            wish = req.wish_of(day)
+            target = anyday if wish == 'any' else (flexible if wish == 'all' else fixed)
             target[req.pk].extend((day, h) for h in req.wish_hours(day, setting))
 
     made_for = {}
@@ -279,6 +289,7 @@ def assign_month(facility, year, month, setting=None, base='', notify=True, only
 
     run(fixed)       # 1. 時刻を指定した希望
     run(flexible)    # 2. 終日の希望（空いている早い枠から）
+    run(anyday)      # 3. 「来られない日」の書き方で印の無い日（○の日で足りないときだけ）
 
     for req in requests:
         if need[req.pk] > 0:

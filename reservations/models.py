@@ -559,7 +559,8 @@ class MonthlyRequest(models.Model):
     month = models.PositiveSmallIntegerField(verbose_name='月')
     desired_count = models.PositiveSmallIntegerField(default=0, verbose_name='希望利用回数')
     wishes = models.JSONField(default=dict, blank=True, verbose_name='可能な日時')
-    # 書き方：用紙の○（wishes）か、「来られない日」だけを書いたもの（ng_dates。それ以外の日は終日可能）
+    # 書き方：用紙の○（wishes）か、「来られない日」を書いたもの（ng_dates。来られる日のうち○のある日はその時刻を優先し、
+    # ○の無い日はどの枠でも可能として扱う）
     WISH_OK = 'ok'
     WISH_NG = 'ng'
     WISH_MODE_CHOICES = [(WISH_OK, '可能な日時に○'), (WISH_NG, '来られない日を書く')]
@@ -606,18 +607,20 @@ class MonthlyRequest(models.Model):
         return [datetime.date(self.year, self.month, d) for d in range(1, calendar.monthrange(self.year, self.month)[1] + 1)]
 
     def wish_of(self, day):
-        """その日の希望：'all'（終日）・時刻のリスト・None（希望なし）"""
-        if self.is_ng_mode:          # 来られない日以外は、その月のどの日でも終日可能
-            if (day.year, day.month) != (self.year, self.month) or day.isoformat() in (self.ng_dates or []):
-                return None
-            return 'all'
+        """
+        その日の希望：'all'（終日に○）・時刻のリスト（○の枠）・None（希望なし／来られない日）・
+        'any'（「来られない日」の書き方で印の無い日＝どの枠でも可。○のある日のあとに回す）
+        """
+        if self.is_ng_mode and ((day.year, day.month) != (self.year, self.month) or day.isoformat() in (self.ng_dates or [])):
+            return None
         value = (self.wishes or {}).get(day.isoformat())
         if value == 'all':
             return 'all'
         if isinstance(value, list):
             hours = sorted({h for h in value if isinstance(h, int)})
-            return hours or None
-        return None
+            if hours:
+                return hours
+        return 'any' if self.is_ng_mode else None
 
     def wish_hours(self, day, setting):
         """その日に○の付いた枠の時刻（休業日・枠のない時刻は除く）"""
@@ -625,7 +628,7 @@ class MonthlyRequest(models.Model):
         hours = setting.slot_hours(day)
         if wish is None:
             return []
-        if wish == 'all':
+        if wish in ('all', 'any'):
             return list(hours)
         return [h for h in wish if h in hours]
 
@@ -642,8 +645,13 @@ class MonthlyRequest(models.Model):
                     continue
         return sorted(out)
 
+    def marked_days(self):
+        """○を付けた日（「来られない日」の書き方では、印の無い日は数えない）"""
+        return [d for d in self.wished_days() if self.wish_of(d) != 'any']
+
     def slot_count(self, setting):
-        return sum(len(self.wish_hours(d, setting)) for d in self.wished_days())
+        """○の付いた枠の数（「来られない日」の書き方では、○の無い日は数えない）"""
+        return sum(len(self.wish_hours(d, setting)) for d in self.marked_days())
 
 
 class RequestScan(models.Model):
