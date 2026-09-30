@@ -7,6 +7,7 @@
 #   - seed_demo_reset : サンプルデータを消す（実データを入れる前に）
 #   - list            : 事業所の一覧を表示する
 #   - error_log       : サーバーのエラーログの末尾（技術的な行だけ。日本語と長い数字は伏せる）を表示する
+#   - set_media_root  : .env の MEDIA_ROOT を ~/michinoteyours/media に直して Gunicorn を再起動する（写真・書類が 500 になるとき）
 #
 # パスワードは入力欄（admin_password）に入れる。ログには出ない（マスクし、サーバーへは環境変数で渡す）。
 # このリポジトリは公開なので、ログに秘密の値を出さないこと。
@@ -21,7 +22,7 @@ on:
         type: choice
         required: true
         default: list
-        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, error_log]
+        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, error_log, set_media_root]
       facility_name:
         description: "事業所名（create_facility）"
         type: string
@@ -134,6 +135,12 @@ jobs:
                     | LC_ALL=C sed -E 's/[^\x00-\x7F]/*/g; s/[0-9]{6,}/#/g; s/\*{4,}/***/g' || echo "(無し)"
                 done
                 echo "== 空き容量 =="; df -h "$APP_DIR" /tmp 2>/dev/null | tail -n 2; du -sh media 2>/dev/null ;;
+              set_media_root)
+                target="$HOME/michinoteyours/media"
+                mkdir -p "$target"
+                if grep -q '^MEDIA_ROOT=' .env; then sed -i "s#^MEDIA_ROOT=.*#MEDIA_ROOT=$target#" .env; else echo "MEDIA_ROOT=$target" >> .env; fi
+                echo "MEDIA_ROOT を $target にしました"
+                APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --restart ;;
               *) echo "unknown task: $TASK"; exit 1 ;;
             esac
           REMOTE

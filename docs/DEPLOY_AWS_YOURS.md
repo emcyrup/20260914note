@@ -56,7 +56,7 @@ chmod 600 .env
 |---|---|
 | `SECRET_KEY` | `python -c "import secrets; print(secrets.token_urlsafe(50))"` で作ったもの（開発環境とは別の値） |
 | `DB_PASSWORD` | プロバイダ発行の `ai_labo_dbuser` のパスワード |
-| `MEDIA_ROOT` | 自分のホームの絶対パス。例 `/home/dev4/michinoteyours/media`（開発環境の `media` とは別にする） |
+| `MEDIA_ROOT` | `~/michinoteyours/media`（`~` は自分のホームに展開される。開発環境の `media` とは別にする）。別ユーザーのホームなど作れないパスを書くと、写真・書類の保存が失敗するので、アプリは `~/michinoteyours/media` に切り替えて警告を出す。Manage (yours) の `set_media_root` で `.env` を直せる |
 | `ANTHROPIC_API_KEY` | AI を使うなら（開発環境と同じキーでよい） |
 | `GOOGLE_SPEECH_API_KEY` | iPhone の音声入力を使うなら（手順 7） |
 
@@ -205,6 +205,7 @@ nginx の `michinote.yours.ai-labo.cloud` の server ブロックに、開発環
 | 400 Bad Request | `DJANGO_ALLOWED_HOSTS` にドメインが無い |
 | `password authentication failed` | `DB_PASSWORD` がプロバイダ発行の値と違う |
 | 写真が 404 | `MEDIA_ROOT` が実在するパスか（データを移した場合は `tar` の展開先がそのパスか） |
+| 写真・書類・PDF を入れると「Server Error (500)」 | `.env` の `MEDIA_ROOT` が別ユーザーのホーム（例 `/home/dev4/…`）を指している。Manage (yours) の `set_media_root` で `~/michinoteyours/media` に直す（2026-09-30 以降のアプリは自動で切り替えるが、`.env` も直しておく） |
 | LINE の「検証」が失敗 | Webhook URL が新しいドメインになっているか、施設設定にシークレットとトークンが入っているか |
 | iPhone の録音が文字にならない | `.env` の `GOOGLE_SPEECH_API_KEY`、キーの IP 制限（手順 7）。画面の「うまく文字にならないとき」→「記録を写す」で `server=true` か |
 | 取り込みが 413 / AI が 504 | nginx の上限・タイムアウト → 手順 8 |

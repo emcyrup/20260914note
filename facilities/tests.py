@@ -491,3 +491,40 @@ class ReminderTests(TestCase):
         self.assertContains(res, '6 日過ぎています')
         self.assertContains(res, '受給者証の有効期限が30日以内に切れます')
         self.assertNotContains(res, '対応が必要なアラートはありません')
+
+
+class MediaRootAndEditingTests(TestCase):
+    """本番で見つかった 2 つの 500：MEDIA_ROOT が別ユーザーのホームを指していた／同時編集の合図で事業所そのものを指したとき"""
+
+    def test_choose_media_root(self):
+        import tempfile, warnings
+        from pathlib import Path
+        from config.media_root import choose_media_root
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            self.assertEqual(choose_media_root('', base), base / 'media')
+            ok = choose_media_root(str(base / 'uploads'), base)
+            self.assertEqual(ok, base / 'uploads'); self.assertTrue(ok.is_dir())
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter('always')
+                bad = choose_media_root('/proc/no-such-user/michinoteyours/media', base)
+            self.assertEqual(bad, base / 'media')
+            self.assertTrue(any('MEDIA_ROOT' in str(x.message) for x in w))
+            import os
+            self.assertEqual(choose_media_root('~/x-media-test', base), Path(os.path.expanduser('~/x-media-test')))
+            Path(os.path.expanduser('~/x-media-test')).rmdir()
+
+    def test_editing_for_facility_itself(self):
+        from accounts.models import StaffAccount
+        from config import concurrency
+        f = Facility.objects.create(name='F'); g = Facility.objects.create(name='G')
+        user = StaffAccount.objects.create_user('s', password='p', facility=f, role=StaffAccount.ROLE_ADMIN)
+        self.assertEqual(concurrency.resolve('facility', f.pk, f), f)
+        self.assertIsNone(concurrency.resolve('facility', g.pk, f))
+        self.client.force_login(user)
+        res = self.client.get(reverse('facilities:editing'), {'kind': 'facility', 'id': f.pk})
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('version', res.json())
+        res = self.client.post(reverse('facilities:editing'), {'kind': 'facility', 'id': f.pk, 'action': 'touch'})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.client.get(reverse('facilities:editing'), {'kind': 'facility', 'id': g.pk}).status_code, 404)

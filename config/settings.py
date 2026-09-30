@@ -120,7 +120,9 @@ STATIC_ROOT = config('STATIC_ROOT', default=str(BASE_DIR / 'staticfiles'))
 
 MEDIA_URL = '/media/'
 # Docker ではボリュームを割り当てるため環境変数で差し替えられるようにする
-MEDIA_ROOT = Path(config('MEDIA_ROOT', default=str(BASE_DIR / 'media')))
+# `~` は展開する。作れない・書けないパス（別ユーザーのホームなど）なら BASE_DIR/media に切り替えて警告する（config/media_root.py）
+from config.media_root import choose_media_root  # noqa: E402
+MEDIA_ROOT = choose_media_root(config('MEDIA_ROOT', default=''), BASE_DIR)
 # DEBUG=False でも Django が /media/ を配信する（前段の nginx/Caddy が配信できない構成向け）
 
 # リバースプロキシ（Caddy/Nginx）越しの HTTPS で POST を受けるために必要（例: https://app.example.com）

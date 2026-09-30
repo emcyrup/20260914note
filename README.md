@@ -398,7 +398,7 @@ DYLD_LIBRARY_PATH=/opt/homebrew/lib python manage.py runserver
 | `DJANGO_ALLOWED_HOSTS` | アクセスを許可するホスト名（例: `example.com,localhost`） |
 | `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_HOST` / `DB_PORT` | PostgreSQL の接続情報。`DB_NAME` が空欄の場合はSQLiteを使用 |
 | `CSRF_TRUSTED_ORIGINS` | リバースプロキシ越しのHTTPSで使うオリジン（例: `https://app.example.com`） |
-| `MEDIA_ROOT` | 写真などアップロードファイルの保存先（Dockerではボリュームを割り当てる） |
+| `MEDIA_ROOT` | 写真などアップロードファイルの保存先（Dockerではボリュームを割り当てる）。`~` は展開する。作れない・書けないパスなら `media/`（アプリの直下）に切り替えて警告を出す（`config/media_root.py`） |
 | `ANTHROPIC_API_KEY` | Anthropic Claude APIキー |
 | `LINE_CHANNEL_ACCESS_TOKEN` | LINE Messaging APIのチャネルアクセストークン |
 | `LINE_CHANNEL_SECRET` | LINE Messaging APIのチャネルシークレット |

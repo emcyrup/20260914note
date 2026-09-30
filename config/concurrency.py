@@ -77,6 +77,8 @@ def resolve(kind, pk, facility):
         pk = int(pk)
     except (TypeError, ValueError):
         return None
+    if lookup == 'pk':      # 事業所そのもの（自分の事業所だけ）
+        return apps.get_model(label).objects.filter(pk=pk).first() if pk == facility.pk else None
     return apps.get_model(label).objects.filter(pk=pk, **{lookup: facility.pk}).first()
 
 
