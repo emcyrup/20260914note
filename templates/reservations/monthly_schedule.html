@@ -44,6 +44,18 @@
   #ms-att-menu .t { font-size: .78rem; font-weight: 600; margin-bottom: 4px; white-space: nowrap; }
   #ms-att-menu button { display: block; width: 100%; margin-top: 3px; }
   @media (max-width: 768px) { .ms-week { font-size: 0.62rem; } .ms-box { height: 17px; line-height: 17px; padding: 0 2px; } }
+  /* 全体表示：1 か月がひと目で見えるように、枠の箱を横に並べて右の一覧をたたむ（手直しのときに使う） */
+  body.ms-fit .ms-week { font-size: 0.64rem; margin-bottom: 6px; }
+  body.ms-fit .ms-week th { padding: 1px 2px; font-size: 0.68rem; }
+  body.ms-fit .ms-week th.time { width: 38px; font-size: 0.62rem; }
+  body.ms-fit .ms-week td { overflow: hidden; }
+  body.ms-fit .ms-box { float: left; box-sizing: border-box; width: calc(100% / var(--cap, 3)); height: 16px; line-height: 16px; padding: 0 1px; font-size: 0.6rem; word-spacing: -3px; text-overflow: clip; border-bottom: 0; border-right: 1px dotted #ddd6c9; }
+  body.ms-fit .ms-box:last-child { border-right: 0; }
+  body.ms-fit .ms-box.wait, body.ms-fit .ms-box.over { float: none; clear: both; display: block; width: auto; border-right: 0; }
+  body.ms-fit #ms-main { flex: 0 0 100%; max-width: 100%; }
+  body.ms-fit #ms-side { display: none; }
+  body.ms-fit .ms-count { font-size: 0.6rem; }
+  body.ms-fit .ms-count:not(.ms-staff) { display: none; }
 </style>
 {% endblock %}
 
@@ -60,7 +72,11 @@
       <button type="button" class="btn btn-outline-primary btn-sm" id="ms-swap-toggle"><i class="bi bi-arrow-left-right me-1"></i>入れ替え・移動</button>
       {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_board' %}?d={{ today|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm" title="きょうの担当と予定を1画面で（スマートフォン向け）"><i class="bi bi-phone me-1"></i>きょうの予定</a>{% endif %}
       {% if facility.is_ryoiku %}<button type="button" class="btn btn-outline-success btn-sm" id="ms-att-toggle" title="名前を押して 来た・欠席・キャンセル を入れます。業務日誌の「実績」欄に印字されます"><i class="bi bi-check2-square me-1"></i>実績を入れる</button>{% endif %}
-      <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-printer me-1"></i>印刷（PDF）</a>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="ms-fit-toggle" title="1 か月をひと目で見る（枠の箱を横に並べ、右の一覧をたたむ）"><i class="bi bi-arrows-angle-contract me-1"></i>全体を見る</button>
+      <div class="btn-group">
+        <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank" title="A3 横 1 枚（日付の下にその日の担当）"><i class="bi bi-printer me-1"></i>印刷（A3）</a>
+        <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?fmt=html&paper=a4" class="btn btn-outline-secondary btn-sm" target="_blank" title="A4 横（週ごとに切れて 2 枚ほど）">A4</a>
+      </div>
       {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_log_pdf' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank" title="1日ごとの予定表（時間・氏名・提供形態・実績・備考）。A4 1枚に4日ぶん。右上に「その日の担当」"><i class="bi bi-journal-text me-1"></i>業務日誌（4日/枚）</a>{% endif %}
       <form method="post" action="{% url 'reservations:monthly_requests' year month %}"
             onsubmit="return confirm('{{ month }}月の利用希望から予約を割り当てます。\nすでに確定している予約は残し、希望回数に足りないぶんだけ足します。よろしいですか？');">
@@ -98,9 +114,9 @@
   {% endif %}
 
   <div class="row g-3">
-    <div class="col-lg-9">
+    <div class="col-lg-9" id="ms-main">
       {% for week in schedule.weeks %}
-      <table class="ms-week">
+      <table class="ms-week" style="--cap: {{ schedule.capacity }};">
         <thead><tr>
           <th class="time"></th>
           {% for d in week.days %}
@@ -144,7 +160,7 @@
         割り当ては、時刻を指定した希望を先に、「終日」の希望はあとから<strong>その日の空いている早い時刻（午前）から詰めて</strong>入れます。○の付いていない日・時刻には入れません。
       </div>
     </div>
-    <div class="col-lg-3">
+    <div class="col-lg-3" id="ms-side">
       <div class="card">
         <div class="row-list-item row-list-head ms-users small{% if facility.is_ryoiku %} with-att{% endif %}">
           <div>{{ terms.beneficiary }}</div><div>希望</div><div>確定</div>{% if facility.is_ryoiku %}<div title="実績が「来た」の回数">来</div>{% endif %}<div>残</div><div>契約</div>
@@ -216,6 +232,19 @@
   document.getElementById('ms-swap-toggle').addEventListener('click', function () {
     body.classList.toggle('ms-swap'); body.classList.remove('ms-att'); hideAtt(); reset();
   });
+  // 全体表示（1 か月をひと目で）。選んだ状態はこの端末に覚える
+  (function () {
+    var btn = document.getElementById('ms-fit-toggle');
+    function apply(on) {
+      body.classList.toggle('ms-fit', on);
+      btn.innerHTML = on ? '<i class="bi bi-arrows-angle-expand me-1"></i>ふつうの表示' : '<i class="bi bi-arrows-angle-contract me-1"></i>全体を見る';
+      try { localStorage.setItem('ms-fit', on ? '1' : ''); } catch (e) {}
+    }
+    var saved = false;
+    try { saved = localStorage.getItem('ms-fit') === '1'; } catch (e) {}
+    apply(saved);
+    btn.addEventListener('click', function () { apply(!body.classList.contains('ms-fit')); });
+  })();
   // 実績を入れるモード（ゆあーず）
   var attToggle = document.getElementById('ms-att-toggle'), attMenu = document.getElementById('ms-att-menu'), attForm = document.getElementById('ms-att-form');
   function hideAtt() { if (attMenu) attMenu.style.display = 'none'; }

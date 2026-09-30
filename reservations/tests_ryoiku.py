@@ -11,7 +11,7 @@ from config.jp_holidays import holidays, is_weekend_or_holiday
 from facilities.models import Facility
 
 from . import monthly, services
-from .models import Customer, MonthlyRequest, RequestScan, Reservation, ReservationNotice
+from .models import Customer, DayStaff, MonthlyRequest, RequestScan, Reservation, ReservationNotice
 
 
 def child(facility, last, first='子'):
@@ -832,6 +832,16 @@ class RyoikuScreenTests(TestCase):
         self.assertContains(res, '青木 子')
         res = self.client.get(reverse('reservations:monthly_schedule_pdf', args=[2026, 10]) + '?fmt=html')
         self.assertContains(res, '月間予定表')
+        self.assertContains(res, 'size: A3 landscape')          # 既定は A3 横 1 枚
+        self.assertNotContains(res, 'class="st"')               # 担当が無い月は担当の行を出さない
+        DayStaff.objects.create(facility=self.f, date=datetime.date(2026, 10, 2), text='終日土田 pm大坂')
+        res = self.client.get(reverse('reservations:monthly_schedule_pdf', args=[2026, 10]) + '?fmt=html&paper=a4')
+        self.assertContains(res, 'size: A4 landscape')
+        self.assertContains(res, '終日土田 pm大坂')              # 日付の下に「その日の担当」
+        self.assertContains(res, 'width:33%')                   # 1 枠 3 人の箱を横に並べる
+        res = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))
+        self.assertContains(res, 'id="ms-fit-toggle"')          # 全体表示の切り替え
+        self.assertContains(res, '印刷（A3）')
         res = self.client.get(reverse('reservations:monthly_request_form', args=[2026, 10]) + f'?fmt=html&b={self.kid.pk}')
         self.assertContains(res, '10月予約利用希望')
         self.assertContains(res, '月曜日・木曜日はお休み')

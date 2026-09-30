@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>{% block title %}{% endblock %}</title>
 <style>
-  @page { size: A4 {% block page_orientation %}portrait{% endblock %}; margin: 12mm; }
+  @page { size: {% block page_size %}A4{% endblock %} {% block page_orientation %}portrait{% endblock %}; margin: {% block page_margin %}12mm{% endblock %}; }
   body { font-family: "Noto Sans CJK JP", "Noto Sans JP", "BIZ UDPGothic", "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif; color: #111; margin: 0; padding: 14px; font-size: 10.5px; line-height: 1.45; }
   .toolbar { text-align: right; margin-bottom: 10px; }
   .toolbar a, .toolbar button { padding: 7px 14px; border-radius: 8px; border: 1px solid #4e7d89; background: #4e7d89; color: #fff; cursor: pointer; text-decoration: none; margin-left: 6px; font-size: 13px; }

@@ -1207,7 +1207,7 @@ class MonthlyDayStaffView(RyoikuOnlyMixin, View):
 
 
 class DailyLogPdfView(RyoikuOnlyMixin, View):
-    """業務日誌（1日ごとの予定表）：月間予定表から、A4 1枚に4日ぶん。?from=YYYY-MM-DD&to=YYYY-MM-DD で範囲を絞れる"""
+    """業務日誌（1日ごとの予定表）：月間予定表から、A4 1枚に4日ぶん（1枚がちょうど埋まる行の高さ）。?from=YYYY-MM-DD&to=YYYY-MM-DD で範囲を絞れる"""
 
     def get(self, request, year, month):
         from config.pdf import pdf_or_html
@@ -1274,7 +1274,7 @@ class MonthlyScheduleSwapView(SlotModeMixin, View):
 
 
 class MonthlySchedulePdfView(SlotModeMixin, View):
-    """月間予定表の PDF（A4 横）"""
+    """月間予定表の PDF。A3 横 1 枚（?paper=a4 なら A4 横。週ごとに切れる）。日付の下に「その日の担当」"""
 
     def get(self, request, year, month):
         from config.pdf import pdf_or_html
@@ -1282,7 +1282,14 @@ class MonthlySchedulePdfView(SlotModeMixin, View):
         facility = request.user.facility
         setting = services.get_setting(facility)
         rows = monthly.request_rows(facility, year, month, setting)
-        ctx = {'schedule': monthly.month_schedule(facility, year, month, setting), 'setting': setting,
+        schedule = monthly.month_schedule(facility, year, month, setting)
+        paper = 'a4' if request.GET.get('paper', '').lower() == 'a4' else 'a3'
+        ctx = {'schedule': schedule, 'setting': setting,
                'rows': [r for r in rows if r['request'] or r['confirmed']], 'facility': facility,
-               'year': year, 'month': month}
-        return pdf_or_html(request, 'reservations/pdf/monthly_schedule.html', ctx, f'{year}年{month}月_月間予定表')
+               'year': year, 'month': month, 'paper': paper,
+               'has_staff': any(d['staff'] for w in schedule['weeks'] for d in w['days']),
+               'box_pct': 100 // max(int(schedule['capacity'] or 1), 1),
+               # 箱の高さ（px）：A3 は 5 週までなら 16、6 週の月は 13 で 1 枚に収める。A4 は 11
+               'box_h': 11 if paper == 'a4' else (16 if len(schedule['weeks']) <= 5 else 13)}
+        return pdf_or_html(request, 'reservations/pdf/monthly_schedule.html', ctx,
+                           f'{year}年{month}月_月間予定表' + ('_A4' if paper == 'a4' else ''))

@@ -1,43 +1,40 @@
 {% extends 'custom_forms/pdf/_base.html' %}
 {% block title %}{{ year }}年{{ month }}月 月間予定表{% endblock %}
+{% block page_size %}{% if paper == 'a4' %}A4{% else %}A3{% endif %}{% endblock %}
 {% block page_orientation %}landscape{% endblock %}
+{% block page_margin %}10mm{% endblock %}
 {% block back_link %}<a class="outline" href="{% url 'reservations:monthly_schedule' year month %}">月間予定表へ戻る</a>{% endblock %}
 {% block body %}
 <style>
-  body { font-size: 8.5px; }
-  .ms-title { font-size: 14px; font-weight: 700; text-align: center; margin-bottom: 4px; }
-  .ms-wrap { display: flex; gap: 8px; align-items: flex-start; }
-  .ms-main { flex: 1 1 auto; }
-  .ms-side { width: 190px; flex: 0 0 auto; }
-  table.w { margin-bottom: 5px; }
-  table.w th, table.w td { padding: 0; }
-  table.w th { font-size: 8px; padding: 1px; }
-  table.w th.t { width: 30px; }
+  body { font-size: {% if paper == 'a4' %}8px{% else %}10px{% endif %}; padding: 6px; }
+  .ms-title { font-size: {% if paper == 'a4' %}13px{% else %}16px{% endif %}; font-weight: 700; text-align: center; margin-bottom: 4px; }
+  .side { float: right; width: {% if paper == 'a4' %}170px{% else %}230px{% endif %}; }
+  .main { margin-right: {% if paper == 'a4' %}180px{% else %}242px{% endif %}; }
+  table.w { margin-bottom: 4px;{% if paper == 'a4' %} page-break-inside: avoid;{% endif %} }
+  table.w th, table.w td { padding: 0; white-space: normal; }
+  table.w th { font-size: {% if paper == 'a4' %}8px{% else %}10px{% endif %}; padding: 1px 2px; line-height: 1.25; }
+  table.w th.t { width: {% if paper == 'a4' %}26px{% else %}34px{% endif %}; }
   table.w th.sun { color: #c0392b; } table.w th.sat { color: #2b6cb0; }
   table.w td.closed, table.w th.closed, table.w td.off { background: #d9d9d9; }
   table.w td.out { background: #f2f2f2; }
-  .b { display: block; height: 11px; line-height: 11px; padding: 0 2px; border-bottom: 1px dotted #999; white-space: nowrap; overflow: hidden; }
-  .b:last-child { border-bottom: 0; }
-  .b.w { background: #fff3c4; }
-  table.u th, table.u td { padding: 1px 3px; font-size: 8px; }
+  th .st { display: block; font-weight: 400; color: #2f5d50; font-size: 92%; white-space: nowrap; overflow: hidden; }
+  .bx { display: inline-block; box-sizing: border-box; height: {{ box_h }}px; line-height: {{ box_h }}px; padding: 0 2px; border-right: 1px dotted #999; white-space: nowrap; overflow: hidden; vertical-align: top; }
+  .bx.last { border-right: 0; }
+  .wl { display: block; background: #fff3c4; padding: 0 2px; white-space: nowrap; overflow: hidden; }
+  table.u th, table.u td { padding: 1px 3px; font-size: {% if paper == 'a4' %}8px{% else %}9.5px{% endif %}; white-space: nowrap; overflow: hidden; }
+  table.u th:first-child { width: 46%; }
   table.u td.n { text-align: right; }
   .pb { page-break-before: always; }
 </style>
 <div class="ms-title">{{ year }}年 {{ month }}月 月間予定表</div>
-<div class="ms-wrap">
-  <div class="ms-main">
+{% if paper == 'a4' %}<div>{% else %}<div class="side">{% include 'reservations/pdf/_schedule_users.html' %}</div><div class="main">{% endif %}
     {% for week in schedule.weeks %}
-    {% if forloop.counter == 4 %}</div>
-  <div class="ms-side">
-    {% include 'reservations/pdf/_schedule_users.html' %}
-  </div>
-</div><div class="pb"></div><div class="ms-wrap"><div class="ms-main">{% endif %}
     <table class="w">
       <thead><tr>
         <th class="t"></th>
         {% for d in week.days %}
         <th class="{% if d.is_sunday %}sun{% elif d.is_saturday %}sat{% endif %}{% if d.closed %} closed{% endif %}">
-          {% if d.in_month %}{{ d.date|date:'j' }}日({{ d.date|date:'D' }}){% if d.holiday %} {{ d.holiday }}{% elif d.closed %} 休{% endif %}{% endif %}
+          {% if d.in_month %}{{ d.date|date:'j' }}日({{ d.date|date:'D' }}){% if d.holiday %} {{ d.holiday }}{% elif d.closed %} 休{% endif %}{% if has_staff %}<span class="st">{% if d.closed %}&nbsp;{% else %}{{ d.staff|default:'&nbsp;' }}{% endif %}</span>{% endif %}{% else %}&nbsp;{% if has_staff %}<span class="st">&nbsp;</span>{% endif %}{% endif %}
         </th>
         {% endfor %}
       </tr></thead>
@@ -51,7 +48,7 @@
               {% if not d.in_month %}<td class="out"></td>
               {% elif d.closed %}<td class="closed"></td>
               {% elif not s.active %}<td class="off"></td>
-              {% else %}<td>{% for r in s.boxes %}<span class="b">{% if r %}{{ r.display_name }}{% endif %}</span>{% endfor %}{% for r in s.over %}<span class="b">{{ r.display_name }}※</span>{% endfor %}{% for r in s.waiting %}<span class="b w">待 {{ r.display_name }}</span>{% endfor %}</td>{% endif %}
+              {% else %}<td>{% for r in s.boxes %}<span class="bx{% if forloop.last %} last{% endif %}" style="width:{{ box_pct }}%;">{% if r %}{{ r.display_name }}{% else %}&nbsp;{% endif %}</span>{% endfor %}{% for r in s.over %}<span class="bx" style="width:{{ box_pct }}%;">{{ r.display_name }}※</span>{% endfor %}{% for r in s.waiting %}<span class="wl">待 {{ r.display_name }}</span>{% endfor %}</td>{% endif %}
             {% endif %}{% endfor %}
           {% endfor %}
         </tr>
@@ -60,9 +57,7 @@
       </tbody>
     </table>
     {% endfor %}
-    <div class="small muted">網掛け：お休み（{{ schedule.closed_text|default:'なし' }}）・その日に無い時刻。1枠 {{ schedule.capacity }} 人。待＝キャンセル待ち。</div>
-  </div>
-  {% if schedule.weeks|length < 4 %}<div class="ms-side">{% include 'reservations/pdf/_schedule_users.html' %}</div>{% endif %}
-</div>
-</div>
+    <div class="small muted">網掛け：お休み（{{ schedule.closed_text|default:'なし' }}）・その日に無い時刻。1枠 {{ schedule.capacity }} 人（箱は左から順）。待＝キャンセル待ち。※＝定員超過。{% if has_staff %}日付の下は「その日の担当」。{% endif %}</div>
+{% if paper == 'a4' %}</div><div class="pb"></div><div style="width: 60%;">{% include 'reservations/pdf/_schedule_users.html' %}</div>
+{% else %}</div>{% endif %}
 {% endblock %}
