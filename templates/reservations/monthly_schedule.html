@@ -202,7 +202,7 @@
             {% for week in schedule.weeks %}{% for d in week.days %}{% if d.in_month and not d.closed %}
             <div class="ms-staff-row">
               <label for="staff_{{ d.date|date:'Y-m-d' }}" class="{% if d.is_sunday %}text-danger{% elif d.is_saturday %}text-primary{% endif %}">{{ d.date|date:'j' }}日({{ d.date|date:'D' }})</label>
-              <input type="text" class="form-control form-control-sm" id="staff_{{ d.date|date:'Y-m-d' }}" name="staff_{{ d.date|date:'Y-m-d' }}" value="{{ d.staff }}" list="staff-options" maxlength="100" autocomplete="off" placeholder="担当">
+              <input type="hidden" name="staff_was_{{ d.date|date:'Y-m-d' }}" value="{{ d.staff }}"><input type="text" class="form-control form-control-sm" id="staff_{{ d.date|date:'Y-m-d' }}" name="staff_{{ d.date|date:'Y-m-d' }}" value="{{ d.staff }}" list="staff-options" maxlength="100" autocomplete="off" placeholder="担当">
             </div>
             {% endif %}{% endfor %}{% endfor %}
           </div>

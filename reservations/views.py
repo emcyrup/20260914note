@@ -878,6 +878,12 @@ class MonthlyRequestEditView(SlotModeMixin, View):
         beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=facility)
         setting = services.get_setting(facility)
         back = redirect('reservations:monthly_requests', year=year, month=month)
+        current = MonthlyRequest.objects.filter(beneficiary=beneficiary, year=year, month=month).first()
+        conflict = check_conflict(request, current)
+        if conflict:        # 開いたあとに他の職員か保護者（入力ページ）が保存していた
+            messages.error(request, conflict.replace('他の職員が', '他の職員か保護者が'))
+            url = reverse('reservations:monthly_request_edit', args=[year, month, pk])
+            return redirect(url + (f"?scan={request.POST['scan']}" if request.POST.get('scan') else ''))
         if request.POST.get('action') == 'delete':
             MonthlyRequest.objects.filter(beneficiary=beneficiary, year=year, month=month).delete()
             messages.success(request, f'{beneficiary.full_name} さんの {month}月の利用希望を消しました。')
@@ -1106,8 +1112,15 @@ class DailyBoardView(RyoikuOnlyMixin, View):
             return back
         if action == 'staff':
             post = {f'staff_{day.isoformat()}': request.POST.get('text', '')}
-            n = monthly.save_day_staff(facility, post, day, day)
-            messages.success(request, 'その日の担当を保存しました。' if n else 'その日の担当を空にしました。')
+            if 'was' in request.POST:
+                post[f'staff_was_{day.isoformat()}'] = request.POST.get('was', '')
+            saved, skipped = monthly.save_day_staff(facility, post, day, day)
+            if skipped:
+                messages.error(request, monthly.skipped_staff_message(skipped))
+            elif saved:
+                messages.success(request, 'その日の担当を保存しました。' if request.POST.get('text', '').strip() else 'その日の担当を空にしました。')
+            else:
+                messages.info(request, 'その日の担当は変わっていません。')
             return back
         messages.error(request, '操作を選んでください。')
         return back
@@ -1158,7 +1171,7 @@ class StaffShiftView(RyoikuOnlyMixin, View):
                 messages.success(request, f'{shift.label} のシフトを消しました。')
             else:
                 shift.is_active = not shift.is_active
-                shift.save(update_fields=['is_active'])
+                shift.save(update_fields=['is_active', 'updated_at'])
                 messages.success(request, f'{shift.label} のシフトを{"使う" if shift.is_active else "休止"}にしました。')
             return back
         name = (request.POST.get('name') or '').strip()[:30]
@@ -1169,8 +1182,12 @@ class StaffShiftView(RyoikuOnlyMixin, View):
             return back
         if action == 'edit':
             shift = get_object_or_404(StaffShift, pk=to_int(request.POST.get('shift'), -1), facility=facility)
+            conflict = check_conflict(request, shift)
+            if conflict:
+                messages.error(request, conflict)
+                return back
             shift.name, shift.weekdays, shift.part = name, weekdays, part
-            shift.save(update_fields=['name', 'weekdays', 'part'])
+            shift.save(update_fields=['name', 'weekdays', 'part', 'updated_at'])
             messages.success(request, f'{shift.label}（{shift.weekdays_text}）に直しました。')
         else:
             shift = StaffShift.objects.create(facility=facility, name=name, weekdays=weekdays, part=part)
@@ -1201,8 +1218,11 @@ class MonthlyDayStaffView(RyoikuOnlyMixin, View):
     def post(self, request, year, month):
         year, month = month_or_404(year, month)
         first, last = monthly.month_range(year, month)
-        n = monthly.save_day_staff(request.user.facility, request.POST, first, last)
-        messages.success(request, f'{month}月の担当を保存しました（担当の入った日 {n} 日）。業務日誌の右上に印字されます。')
+        saved, skipped = monthly.save_day_staff(request.user.facility, request.POST, first, last)
+        if saved or not skipped:
+            messages.success(request, f'{month}月の担当を保存しました（直した日 {saved} 日）。業務日誌の右上に印字されます。')
+        if skipped:
+            messages.error(request, monthly.skipped_staff_message(skipped))
         return redirect(reverse('reservations:monthly_schedule', args=[year, month]) + '#dayStaff')
 
 

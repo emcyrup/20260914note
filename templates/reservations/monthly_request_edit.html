@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load concurrency %}
 
 {% block title %}{{ month }}月 予約利用希望 {{ beneficiary.full_name }} — 放課後等デイサービス業務支援{% endblock %}
 {% block page_title %}{{ month }}月 予約利用希望 — {{ beneficiary.full_name }}{% endblock %}
@@ -84,8 +85,8 @@
     {% endif %}
   {% endif %}
 
-  <form method="post" id="wishForm">
-    {% csrf_token %}
+  <form method="post" id="wishForm" {% if req %}data-concurrency="monthly_request:{{ req.pk }}" data-concurrency-lazy{% endif %}>
+    {% csrf_token %}{% version_field req %}
     {% if scan %}<input type="hidden" name="scan" value="{{ scan.pk }}">{% endif %}
     <div class="card mb-3"><div class="card-body">
       <div class="row g-2 align-items-end">

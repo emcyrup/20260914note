@@ -386,8 +386,8 @@
           </div>
           {% endif %}
           <div class="collapse" id="asmEdit{{ a.pk }}">
-            <form method="post" action="{% url 'beneficiaries:assessment_update' beneficiary.pk a.pk %}" enctype="multipart/form-data" class="asm-form row g-2 mt-2 p-2 rounded" style="background:var(--color-primary-bg);">
-              {% csrf_token %}
+            <form method="post" action="{% url 'beneficiaries:assessment_update' beneficiary.pk a.pk %}" enctype="multipart/form-data" class="asm-form row g-2 mt-2 p-2 rounded" style="background:var(--color-primary-bg);" data-concurrency="beneficiary_assessment:{{ a.pk }}" data-concurrency-lazy>
+              {% csrf_token %}{% version_field a %}
               {% include 'beneficiaries/_assessment_fields.html' with a=a prefix=a.pk %}
               <div class="col-12 text-end"><button class="btn btn-sm btn-primary">保存する</button></div>
             </form>

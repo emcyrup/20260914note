@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load static %}
+{% load static concurrency %}
 
 {% block title %}議事録 — 放課後等デイサービス業務支援{% endblock %}
 {% block page_title %}議事録{% endblock %}
@@ -34,9 +34,19 @@
   </div>
 
   <div class="mn-grid">
-    <form method="post" id="mn-form" class="card"><div class="card-body">
+    <form method="post" id="mn-form" class="card" {% if current %}data-concurrency="minutes:{{ current.pk }}" data-concurrency-lazy{% endif %}><div class="card-body">
       {% csrf_token %}
-      {% if current %}<input type="hidden" name="id" value="{{ current.pk }}">{% endif %}
+      {% if current %}<input type="hidden" name="id" value="{{ current.pk }}">{% version_field current %}{% endif %}
+      {% if unsaved %}
+      <div class="alert alert-warning small py-2">
+        <b>保存できなかった内容</b>（開いたあとに他の職員がこの議事録を保存したため）。欄は最新の内容です。見比べて必要なところを写してから保存してください。
+        <details class="mt-1"><summary>入れていた内容を見る</summary>
+          <div class="mt-1">件名：{{ unsaved.title }}（{{ unsaved.held_on }}）</div>
+          {% if unsaved.summary %}<div class="mt-1 fw-semibold">議事録</div><textarea class="form-control form-control-sm" rows="6" readonly>{{ unsaved.summary }}</textarea>{% endif %}
+          {% if unsaved.transcript %}<div class="mt-1 fw-semibold">話した内容</div><textarea class="form-control form-control-sm" rows="6" readonly>{{ unsaved.transcript }}</textarea>{% endif %}
+        </details>
+      </div>
+      {% endif %}
       <div class="row g-2 mb-2">
         <div class="col-12 col-md-8"><label class="form-label small fw-semibold" for="mn-title">件名</label>
           <input type="text" name="title" id="mn-title" class="form-control form-control-sm" maxlength="100"

@@ -852,3 +852,41 @@ class KnowledgeInTherapyAiTests(TestCase):
         self.assertNotIn('書類から分かっていること', client_cls.return_value.messages.create.call_args.kwargs['messages'][0]['content'])
         page = self.client.get(reverse('therapy:child', args=[self.kid.pk]))
         self.assertContains(page, '書類から分かっていること</a>（1 件')
+
+
+class RyoikuConflictTests(TestCase):
+    """アセスメント・資料と、書類から分かっていることの修正の競合"""
+
+    def setUp(self):
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+
+    def test_assessment_and_knowledge(self):
+        from config.concurrency import version_token
+        from .models import BeneficiaryAssessment, BeneficiaryKnowledge
+        a = BeneficiaryAssessment.objects.create(beneficiary=self.kid, date=datetime.date(2026, 9, 1), title='面談', content='もと')
+        opened = version_token(a)
+        detail = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
+        self.assertContains(detail, f'data-concurrency="beneficiary_assessment:{a.pk}" data-concurrency-lazy')
+        a.content = '他の職員'
+        a.save()
+        url = reverse('beneficiaries:assessment_update', args=[self.kid.pk, a.pk])
+        res = self.client.post(url, {'date': '2026-09-01', 'title': '面談', 'kind': 'assessment', 'content': 'わたし', 'version': opened}, follow=True)
+        self.assertContains(res, '他の職員が')
+        a.refresh_from_db()
+        self.assertEqual(a.content, '他の職員')
+        k = BeneficiaryKnowledge.objects.create(beneficiary=self.kid, kind='診断書', title='診断書', summary='もと', status='saved')
+        opened = version_token(k)
+        page = self.client.get(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]))
+        self.assertContains(page, f'data-concurrency="knowledge:{k.pk}"')
+        k.summary = '他の職員'
+        k.save()
+        res = self.client.post(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]),
+                               {'action': 'save', 'summary': 'わたし', 'points': '', 'text': '', 'use_in_ai': '1', 'version': opened}, follow=True)
+        self.assertContains(res, '他の職員が')
+        k.refresh_from_db()
+        self.assertEqual(k.summary, '他の職員')

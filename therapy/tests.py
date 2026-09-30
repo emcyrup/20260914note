@@ -505,3 +505,78 @@ class VoiceInputWiringTests(TestCase):
         hits = [str(p) for p in Path(settings.BASE_DIR, 'templates').rglob('*.html')
                 if 'SpeechRecognition' in p.read_text(encoding='utf-8')]
         self.assertEqual(hits, [])
+
+
+class TherapyConflictTests(TestCase):
+    """編集の競合：留意点と療育記録の修正。開いたあとに他の職員が保存していれば止め、入れた文は画面に残す"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_therapy_record=True, layout=Facility.LAYOUT_RYOIKU)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        self.url = reverse('therapy:child', args=[self.kid.pk])
+
+    def _version(self, obj):
+        from config.concurrency import version_token
+        obj.refresh_from_db()
+        return version_token(obj)
+
+    def test_cautions_conflict_keeps_text(self):
+        profile = TherapyProfile.objects.create(beneficiary=self.kid, cautions='・もとの留意点')
+        page = self.client.get(self.url)
+        self.assertContains(page, f'data-concurrency="therapy_profile:{profile.pk}" data-concurrency-lazy')
+        opened = self._version(profile)
+        # 他の職員（または書類の読み取り）が先に保存
+        profile.cautions = '・他の職員が足した留意点'
+        profile.save()
+        res = self.client.post(self.url, {'action': 'cautions', 'cautions': '・わたしの直した留意点', 'version': opened}, follow=True)
+        self.assertContains(res, '他の職員が')
+        self.assertContains(res, '保存できなかった留意点')
+        self.assertContains(res, '・わたしの直した留意点')          # 入れた文は残して見せる
+        profile.refresh_from_db()
+        self.assertEqual(profile.cautions, '・他の職員が足した留意点')    # 上書きしない
+        # 開き直した画面では出さない（1 回だけ）
+        self.assertNotContains(self.client.get(self.url), '保存できなかった留意点')
+        # 最新の版なら保存できる。上書きを選んだとき（force_save）も保存できる
+        self.client.post(self.url, {'action': 'cautions', 'cautions': '・まとめた留意点', 'version': self._version(profile)})
+        profile.refresh_from_db()
+        self.assertEqual(profile.cautions, '・まとめた留意点')
+        self.client.post(self.url, {'action': 'cautions', 'cautions': '・上書き', 'version': opened, 'force_save': '1'})
+        profile.refresh_from_db()
+        self.assertEqual(profile.cautions, '・上書き')
+        # はじめての留意点（まだ無い）は版なしで保存できる
+        other = Beneficiary.objects.create(facility=self.f, last_name='井上', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        self.client.post(reverse('therapy:child', args=[other.pk]), {'action': 'cautions', 'cautions': '・新しく', 'version': ''})
+        self.assertEqual(TherapyProfile.objects.get(beneficiary=other).cautions, '・新しく')
+
+    def test_record_edit_conflict(self):
+        rec = TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date(2026, 10, 2), body='もとの記録')
+        opened = self._version(rec)
+        rec.body = '他の職員の記録'
+        rec.save()
+        post = {'action': 'edit', 'record': rec.pk, 'date': '2026-10-02', 'body': 'わたしの記録', 'activity_1': 'トランポリン',
+                'version': opened}
+        res = self.client.post(self.url, post)
+        self.assertRedirects(res, f'{self.url}?edit={rec.pk}#rec{rec.pk}', fetch_redirect_response=False)
+        rec.refresh_from_db()
+        self.assertEqual(rec.body, '他の職員の記録')
+        page = self.client.get(f'{self.url}?edit={rec.pk}')
+        self.assertContains(page, '保存できなかった内容')
+        self.assertContains(page, 'わたしの記録')
+        self.assertContains(page, 'やったこと：トランポリン')
+        self.assertContains(page, f'data-concurrency="therapy_record:{rec.pk}"')
+        post['version'] = self._version(rec)
+        self.client.post(self.url, post)
+        rec.refresh_from_db()
+        self.assertEqual(rec.body, 'わたしの記録')
+
+    def test_editing_endpoint_knows_new_kinds(self):
+        profile = TherapyProfile.objects.create(beneficiary=self.kid, cautions='x')
+        res = self.client.get(reverse('facilities:editing') + f'?kind=therapy_profile&id={profile.pk}')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['version'], self._version(profile))
+        other_f = Facility.objects.create(name='ほか')
+        other_kid = Beneficiary.objects.create(facility=other_f, last_name='他', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        other = TherapyProfile.objects.create(beneficiary=other_kid, cautions='y')
+        self.assertEqual(self.client.get(reverse('facilities:editing') + f'?kind=therapy_profile&id={other.pk}').status_code, 404)

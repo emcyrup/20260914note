@@ -9,6 +9,7 @@ from django.urls import reverse
 from django.views import View
 
 from ai_assist.quick import ask_ai, tidy_sections
+from config.concurrency import check_conflict, keep_unsaved, pop_unsaved
 from config.utils import to_int
 
 from .models import KEEP, Minutes
@@ -83,6 +84,7 @@ class MinutesView(LoginRequiredMixin, View):
             children = list(Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE))
         return render(request, self.template_name, {
             'history': history, 'current': current, 'keep': KEEP, 'today': today, 'consent_notice': CONSENT_NOTICE,
+            'unsaved': pop_unsaved(request, 'minutes', current.pk) if current else None,
             'default_title': _default_title(today), 'full': len(history) >= KEEP,
             'text_max': TEXT_MAX, 'summary_max': SUMMARY_MAX, 'children': children,
             'therapy_body_max': THERAPY_BODY_MAX,
@@ -113,6 +115,11 @@ class MinutesView(LoginRequiredMixin, View):
             return self._save_as_therapy(request, facility, fields)
         if p.get('id'):
             m = get_object_or_404(Minutes, pk=to_int(p.get('id'), -1), facility=facility)
+            conflict = check_conflict(request, m)
+            if conflict:
+                keep_unsaved(request, 'minutes', m.pk, {k: str(v) for k, v in fields.items()})
+                messages.error(request, conflict + '（入れた内容は画面の上に残してあります）')
+                return redirect(f"{reverse('minutes:index')}?id={m.pk}")
             for k, v in fields.items():
                 setattr(m, k, v)
             m.save()

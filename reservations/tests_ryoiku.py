@@ -437,11 +437,11 @@ class DailyLogTests(TestCase):
         self.assertContains(res, '業務日誌（4日/枚）')
         res = self.client.post(reverse('reservations:monthly_day_staff', args=[2026, 10]),
                                {'staff_2026-10-02': ' pm大坂 ', 'staff_2026-10-03': '終日土田', 'staff_2026-10-04': ''}, follow=True)
-        self.assertContains(res, '担当の入った日 2 日')
+        self.assertContains(res, '直した日 2 日')
         self.assertContains(res, 'value="pm大坂"')
         self.assertContains(res, 'title="その日の担当">pm大坂')
         res = self.client.post(reverse('reservations:monthly_day_staff', args=[2026, 10]), {'staff_2026-10-03': ''}, follow=True)
-        self.assertContains(res, '担当の入った日 0 日')
+        self.assertContains(res, '直した日 1 日')
         from .models import DayStaff
         self.assertEqual(list(DayStaff.objects.filter(facility=self.f).values_list('date', 'text')), [(datetime.date(2026, 10, 2), 'pm大坂')])
         # 業務日誌
@@ -1293,3 +1293,77 @@ class PresetAndSeedTests(TestCase):
         self.assertTrue(TherapyProfile.objects.filter(beneficiary__facility=f).exists())
         # --reset で入れ直せる
         call_command('seed_demo', '--facility', str(f.pk), '--reset', stdout=StringIO())
+
+
+class RyoikuConflictTests(TestCase):
+    """編集の競合：利用希望の転記・その日の担当・職員のシフト"""
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = child(self.f, '青木')
+
+    def test_monthly_request_conflict_with_parent_or_staff(self):
+        from config.concurrency import version_token
+        url = reverse('reservations:monthly_request_edit', args=[2026, 10, self.kid.pk])
+        page = self.client.get(url)
+        self.assertContains(page, 'name="version" value=""')                 # まだ無いときは版なし
+        # 開いているあいだに保護者が入力ページから送った
+        monthly.save_request(self.f, self.kid, 2026, 10, 2, {'2026-10-02': 'all'}, source=MonthlyRequest.SOURCE_WEB)
+        res = self.client.post(url, {'desired_count': '5', 'h_2026-10-03': ['10'], 'version': ''}, follow=True)
+        self.assertContains(res, '他の職員か保護者が')
+        req = MonthlyRequest.objects.get(beneficiary=self.kid)
+        self.assertEqual((req.desired_count, req.source), (2, 'web'))            # 保護者の入力を上書きしない
+        page = self.client.get(url)
+        self.assertContains(page, f'data-concurrency="monthly_request:{req.pk}"')
+        res = self.client.post(url, {'desired_count': '5', 'h_2026-10-03': ['10'], 'version': version_token(req)})
+        req.refresh_from_db()
+        self.assertEqual(req.desired_count, 5)
+        # 消すときも確かめる
+        opened = version_token(req)
+        monthly.save_request(self.f, self.kid, 2026, 10, 3, {}, source=MonthlyRequest.SOURCE_WEB)
+        self.client.post(url, {'action': 'delete', 'version': opened})
+        self.assertTrue(MonthlyRequest.objects.filter(beneficiary=self.kid).exists())
+
+    def test_day_staff_saves_only_changed_days(self):
+        from .models import DayStaff
+        DayStaff.objects.create(facility=self.f, date=datetime.date(2026, 10, 2), text='終日土田')
+        DayStaff.objects.create(facility=self.f, date=datetime.date(2026, 10, 3), text='am大坂')
+        page = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))
+        self.assertContains(page, 'name="staff_was_2026-10-02" value="終日土田"')
+        # 画面を開いたあとに、他の職員が 2 日と 3 日を直した
+        DayStaff.objects.filter(date=datetime.date(2026, 10, 2)).update(text='終日早田')
+        DayStaff.objects.filter(date=datetime.date(2026, 10, 3)).update(text='pm大坂')
+        # わたしは 3 日だけ直して、月の担当をまとめて保存（2 日は開いたときの値のまま送られる）
+        res = self.client.post(reverse('reservations:monthly_day_staff', args=[2026, 10]), {
+            'staff_2026-10-02': '終日土田', 'staff_was_2026-10-02': '終日土田',
+            'staff_2026-10-03': '終日土田', 'staff_was_2026-10-03': 'am大坂',
+            'staff_2026-10-06': 'pm大坂', 'staff_was_2026-10-06': '',
+        }, follow=True)
+        texts = dict(DayStaff.objects.filter(facility=self.f).values_list('date__day', 'text'))
+        self.assertEqual(texts[2], '終日早田')        # 変えていない日は古い値で戻さない
+        self.assertEqual(texts[3], 'pm大坂')          # 他の職員が先に直した日は上書きしない
+        self.assertEqual(texts[6], 'pm大坂')          # 直した日は保存
+        self.assertContains(res, '10/3 の担当は、この画面を開いたあとに他の職員が直していたため')
+        self.assertContains(res, '直した日 1 日')
+        # きょうの予定の画面（1 日だけ）も同じ
+        board = reverse('reservations:daily_board') + '?d=2026-10-03'
+        self.assertContains(self.client.get(board), 'name="was" value="pm大坂"')
+        res = self.client.post(board, {'action': 'staff', 'text': '終日土田', 'was': 'am大坂'}, follow=True)
+        self.assertContains(res, 'この画面を開いたあとに他の職員が直していた')
+        self.client.post(board, {'action': 'staff', 'text': '終日土田', 'was': 'pm大坂'})
+        self.assertEqual(DayStaff.objects.get(date=datetime.date(2026, 10, 3)).text, '終日土田')
+
+    def test_staff_shift_edit_conflict(self):
+        from config.concurrency import version_token
+        from .models import StaffShift
+        shift = StaffShift.objects.create(facility=self.f, name='土田', weekdays=[1, 2], part='all')
+        opened = version_token(shift)
+        self.assertContains(self.client.get(reverse('reservations:staff_shifts')), f'data-concurrency="staff_shift:{shift.pk}"')
+        self.client.post(reverse('reservations:staff_shifts'), {'action': 'toggle', 'shift': shift.pk})   # 他の職員が休止にした
+        res = self.client.post(reverse('reservations:staff_shifts'), {'action': 'edit', 'shift': shift.pk, 'name': '土田',
+                                                                      'weekdays': ['4'], 'part': 'am', 'version': opened}, follow=True)
+        self.assertContains(res, '他の職員が')
+        shift.refresh_from_db()
+        self.assertEqual((shift.weekdays, shift.part, shift.is_active), ([1, 2], 'all', False))

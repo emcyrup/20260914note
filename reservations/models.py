@@ -507,6 +507,7 @@ class StaffShift(models.Model):
     part = models.CharField(max_length=5, choices=PART_CHOICES, default=PART_ALL, verbose_name='時間帯')
     is_active = models.BooleanField(default=True, verbose_name='使う')
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)     # 編集の競合の確認に使う版
 
     class Meta:
         verbose_name = '職員のシフト'

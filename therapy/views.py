@@ -7,6 +7,7 @@ from django.db.models import Count, Max, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
+from django.urls import reverse
 from django.views import View
 
 from accounts.models import StaffAccount
@@ -14,6 +15,7 @@ from ai_assist.quick import ask_ai as _ask_ai, tidy_sections
 from ai_assist.text import clean_ai_text
 from beneficiaries.knowledge import context_for as knowledge_context, usable as knowledge_usable
 from beneficiaries.models import Beneficiary
+from config.concurrency import check_conflict, keep_unsaved, pop_unsaved
 from config.utils import to_int
 
 from . import figure
@@ -220,7 +222,18 @@ class ChildView(TherapyEnabledMixin, View):
             'cautions_rows': min(max(len((profile.cautions if profile else '').splitlines()) + 1, 4), 24),
             'fig': figure.build(profile.cautions if profile else '', beneficiary.full_name),
             'knowledge_count': knowledge_usable(beneficiary).count(),
+            # 他の職員の保存と重なって保存できなかった内容（1回だけ見せる）
+            'unsaved_cautions': pop_unsaved(request, 'therapy_profile', beneficiary.pk),
+            'unsaved_record': self._unsaved_record(request, records),
         })
+
+    @staticmethod
+    def _unsaved_record(request, records):
+        for rec in records:
+            data = pop_unsaved(request, 'therapy_record', rec.pk)
+            if data is not None:
+                return dict(data, pk=rec.pk)
+        return None
 
     def post(self, request, pk):
         facility = request.user.facility
@@ -230,8 +243,16 @@ class ChildView(TherapyEnabledMixin, View):
         action = p.get('action', 'add')
 
         if action == 'cautions':
-            profile, _ = TherapyProfile.objects.get_or_create(beneficiary=beneficiary)
-            profile.cautions = p.get('cautions', '').strip()[:CAUTIONS_MAX]
+            profile = TherapyProfile.objects.filter(beneficiary=beneficiary).first()
+            text = p.get('cautions', '').strip()[:CAUTIONS_MAX]
+            conflict = check_conflict(request, profile)
+            if conflict:            # 開いたあとに他の職員（または書類の読み取り）が留意点を保存していた
+                keep_unsaved(request, 'therapy_profile', beneficiary.pk, {'text': text})
+                messages.error(request, conflict + '（入れた文は留意点の下に残してあります）')
+                return back
+            if profile is None:
+                profile, _ = TherapyProfile.objects.get_or_create(beneficiary=beneficiary)
+            profile.cautions = text
             profile.save()
             messages.success(request, '留意点を保存しました。')
             return back
@@ -254,6 +275,12 @@ class ChildView(TherapyEnabledMixin, View):
         }
         if action == 'edit':
             rec = get_object_or_404(TherapyRecord, pk=to_int(p.get('record'), -1), beneficiary=beneficiary)
+            conflict = check_conflict(request, rec)
+            if conflict:
+                keep_unsaved(request, 'therapy_record', rec.pk, {'text': fields['body'],
+                                                                 'activities': [a for a in fields['activities'] if a]})
+                messages.error(request, conflict + '（入れた記録は、その記録の直す欄の下に残してあります）')
+                return redirect(f"{reverse('therapy:child', args=[pk])}?edit={rec.pk}#rec{rec.pk}")
             for k, v in fields.items():
                 setattr(rec, k, v)
             rec.save()

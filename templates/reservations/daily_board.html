@@ -52,7 +52,7 @@
         <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('db-staff-form').classList.toggle('d-none')"><i class="bi bi-pencil me-1"></i>直す</button>
       </div>
       <form method="post" class="d-none mt-2 d-flex gap-2" id="db-staff-form">
-        {% csrf_token %}<input type="hidden" name="action" value="staff">
+        {% csrf_token %}<input type="hidden" name="action" value="staff"><input type="hidden" name="was" value="{{ b.staff }}">
         <input type="text" class="form-control" name="text" value="{{ b.staff }}" list="staff-options" maxlength="100" autocomplete="off" placeholder="例：終日土田 pm大坂">
         <datalist id="staff-options">{% for t in staff_suggestions %}<option value="{{ t }}">{% endfor %}</datalist>
         <button class="btn btn-primary">保存</button>

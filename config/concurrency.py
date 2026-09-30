@@ -35,7 +35,16 @@ KINDS = {
     'copayment':        ('billing.CopaymentManagement', 'facility'),
     'reservation_setting': ('reservations.ReservationSetting', 'facility'),
     'customer':         ('reservations.Customer', 'facility'),
+    # ゆあーず（療育）の画面
+    'therapy_profile':  ('therapy.TherapyProfile', 'beneficiary__facility'),
+    'therapy_record':   ('therapy.TherapyRecord', 'facility'),
+    'minutes':          ('minutes.Minutes', 'facility'),
+    'monthly_request':  ('reservations.MonthlyRequest', 'facility'),
+    'staff_shift':      ('reservations.StaffShift', 'facility'),
+    'beneficiary_assessment': ('beneficiaries.BeneficiaryAssessment', 'beneficiary__facility'),
+    'knowledge':        ('beneficiaries.BeneficiaryKnowledge', 'beneficiary__facility'),
 }
+UNSAVED_KEY = 'unsaved_edits'
 STEP_KINDS = {1: 'assessment', 2: 'plan_draft', 3: 'staff_meeting', 4: 'consent', 5: 'monitoring'}
 
 
@@ -66,6 +75,22 @@ def check_conflict(request, obj):
     when = saved_at_label(obj)
     return (f'この画面を開いたあとに、他の職員が{f" {when} に" if when else ""}保存しています。'
             '保存を止めました。画面を開き直して最新の内容を確認してから、もう一度編集してください。')
+
+
+def keep_unsaved(request, kind, pk, data):
+    """競合で保存を止めたとき、職員が入れた内容をセッションに残す（開き直した画面で見せて、写せるようにする）"""
+    store = request.session.get(UNSAVED_KEY, {})
+    store[f'{kind}:{pk}'] = data
+    request.session[UNSAVED_KEY] = store
+
+
+def pop_unsaved(request, kind, pk):
+    """keep_unsaved で残した内容を1回だけ取り出す（無ければ None）"""
+    store = request.session.get(UNSAVED_KEY, {})
+    data = store.pop(f'{kind}:{pk}', None)
+    if data is not None:
+        request.session[UNSAVED_KEY] = store
+    return data
 
 
 def resolve(kind, pk, facility):

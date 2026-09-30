@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load static %}
+{% load static concurrency %}
 
 {% block title %}療育記録 {{ beneficiary.full_name }} — 放課後等デイサービス業務支援{% endblock %}
 {% block page_title %}療育記録 — {{ beneficiary.full_name }}{% endblock %}
@@ -68,8 +68,8 @@
   </div>
 
   <div class="card mb-3"><div class="card-body">
-    <form method="post">
-      {% csrf_token %}<input type="hidden" name="action" value="cautions">
+    <form method="post" {% if profile %}data-concurrency="therapy_profile:{{ profile.pk }}" data-concurrency-lazy{% endif %}>
+      {% csrf_token %}<input type="hidden" name="action" value="cautions">{% if profile %}{% version_field profile %}{% endif %}
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
         <label class="th-card-title mb-0" for="cautions"><i class="bi bi-exclamation-diamond"></i>留意点</label>
         <div class="th-tools">
@@ -88,6 +88,12 @@
         <span class="msg"></span>
         <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline d-none" id="cautions-undo">元の文に戻す</button>
       </div>
+      {% if unsaved_cautions %}
+      <div class="alert alert-warning small py-2 mb-2">
+        <b>保存できなかった留意点</b>（開いたあとに他の職員が留意点を保存したため）。下の欄は最新の内容です。見比べて、必要なところを写してから保存してください。
+        <textarea class="form-control form-control-sm mt-1" rows="{{ cautions_rows }}" readonly>{{ unsaved_cautions.text }}</textarea>
+      </div>
+      {% endif %}
       <textarea class="form-control" id="cautions" name="cautions" rows="{{ cautions_rows }}" placeholder="用紙の上の枠に書いてある、この{{ terms.beneficiary }}のときに気をつけること">{{ profile.cautions|default:'' }}</textarea>
       <div class="th-save-row">
         <div class="form-text mb-0">用紙の上に印刷されます。話して入れたあと「詳しくまとめる」で場面ごとの見出しと箇条書きに、「短く要約」で短い箇条書きに整えます。{% if knowledge_count %}<br><i class="bi bi-journal-medical"></i> 「短く要約」と記録の「留意点から記録に追記」は、<a href="{% url 'beneficiaries:detail' beneficiary.pk %}#knowledge">書類から分かっていること</a>（{{ knowledge_count }} 件：診断書など）も参考にします。{% endif %}</div>
@@ -148,8 +154,15 @@
       {% if rec.activity_list %}<div class="th-chips">{% for a in rec.activity_list %}<span class="th-chip">{{ a }}</span>{% endfor %}</div>{% endif %}
       {% if rec.body %}<div class="th-body">{{ rec.body }}</div>{% endif %}
       <div class="th-edit {% if edit_pk != rec.pk %}d-none{% endif %}" id="edit{{ rec.pk }}">
-        <form method="post" class="row g-2">
-          {% csrf_token %}<input type="hidden" name="action" value="edit"><input type="hidden" name="record" value="{{ rec.pk }}">
+        <form method="post" class="row g-2" data-concurrency="therapy_record:{{ rec.pk }}" data-concurrency-lazy>
+          {% csrf_token %}<input type="hidden" name="action" value="edit"><input type="hidden" name="record" value="{{ rec.pk }}">{% version_field rec %}
+          {% if unsaved_record and unsaved_record.pk == rec.pk %}
+          <div class="col-12"><div class="alert alert-warning small py-2 mb-0">
+            <b>保存できなかった内容</b>（開いたあとに他の職員がこの記録を保存したため）。下の欄は最新の内容です。見比べて写してから保存してください。
+            {% if unsaved_record.activities %}<div class="mt-1">やったこと：{{ unsaved_record.activities|join:'・' }}</div>{% endif %}
+            <textarea class="form-control form-control-sm mt-1" rows="4" readonly>{{ unsaved_record.text }}</textarea>
+          </div></div>
+          {% endif %}
           {% include 'therapy/_record_fields.html' with rec=rec %}
           <div class="col-12 text-end"><button class="btn btn-sm btn-primary">保存する</button></div>
         </form>

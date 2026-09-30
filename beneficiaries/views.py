@@ -534,6 +534,10 @@ class AssessmentUpdateView(LoginRequiredMixin, View):
     def post(self, request, beneficiary_pk, assessment_pk):
         beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
         a = get_object_or_404(beneficiary.assessments, pk=assessment_pk)
+        conflict = check_conflict(request, a)
+        if conflict:
+            messages.error(request, conflict)
+            return redirect(f"{reverse('beneficiaries:detail', args=[beneficiary_pk])}#assessments")
         fields, error = _assessment_fields(request)
         if error:
             messages.error(request, error)
@@ -705,6 +709,10 @@ class KnowledgeReviewView(ImportRyoikuMixin, View):
             messages.success(request, f'「{label}」の読み取り結果を消しました。' if action == 'discard'
                              else f'「{label}」を書類から分かっていることから消しました（台帳に反映した内容は残ります）。')
             return redirect(back)
+        conflict = check_conflict(request, k)
+        if conflict:
+            messages.error(request, conflict)
+            return redirect('beneficiaries:knowledge_review', beneficiary_pk=beneficiary.pk, pk=k.pk)
         was_draft = not k.is_saved
         applied = knowledge.save_reviewed(k, request.POST, user=request.user)
         msg = f'「{k.label}」を保存しました。'

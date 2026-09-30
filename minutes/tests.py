@@ -155,3 +155,30 @@ class ConsentTests(TestCase):
         self.assertContains(res, '撤回')
         self.client.logout()
         self.assertEqual(self.client.get(reverse('minutes:consent')).status_code, 302)
+
+
+class MinutesConflictTests(TestCase):
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず')
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.login(username='ryo', password='pw12345678')
+
+    def test_edit_conflict_keeps_text(self):
+        from config.concurrency import version_token
+        m = Minutes.objects.create(facility=self.f, title='職員会議', held_on=datetime.date(2026, 10, 1), summary='もとの議事録')
+        opened = version_token(m)
+        page = self.client.get(reverse('minutes:index') + f'?id={m.pk}')
+        self.assertContains(page, f'data-concurrency="minutes:{m.pk}"')
+        m.summary = '他の職員が直した議事録'
+        m.save()
+        res = self.client.post(reverse('minutes:index'), {'id': m.pk, 'title': '職員会議', 'held_on': '2026-10-01',
+                                                          'summary': 'わたしの議事録', 'version': opened}, follow=True)
+        self.assertContains(res, '他の職員が')
+        self.assertContains(res, '保存できなかった内容')
+        self.assertContains(res, 'わたしの議事録')
+        m.refresh_from_db()
+        self.assertEqual(m.summary, '他の職員が直した議事録')
+        self.client.post(reverse('minutes:index'), {'id': m.pk, 'title': '職員会議', 'held_on': '2026-10-01',
+                                                    'summary': 'わたしの議事録', 'version': version_token(m)})
+        m.refresh_from_db()
+        self.assertEqual(m.summary, 'わたしの議事録')

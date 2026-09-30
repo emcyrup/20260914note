@@ -463,19 +463,43 @@ DAILY_LOG_PER_PAGE = 4   # A4 1枚に入る日数
 
 
 def save_day_staff(facility, post, first, last):
-    """月間予定表の「その日の担当」の入力（名前は staff_<iso>）を保存する。空にした日は消す"""
-    n = 0
+    """
+    「その日の担当」の入力（名前は staff_<iso>）を保存する。空にした日は消す。戻り値 (保存した日数, 保存しなかった日)。
+
+    画面を開いたときの値（staff_was_<iso>）も一緒に送られてきたときは、
+    - 開いたときから変えていない日は保存しない（ほかの職員がその間に直した日を、古い値で戻さないため）
+    - 変えた日でも、開いたあとにほかの職員が同じ日を直していたら保存せず、その日を返す（上書きしない）
+    """
+    saved, skipped = 0, []
+    current = DayStaff.for_range(facility, first, last)
     for day in (first + datetime.timedelta(days=i) for i in range((last - first).days + 1)):
         key = f'staff_{day.isoformat()}'
         if key not in post:
             continue
         text = (post.get(key) or '').strip()[:100]
+        was = post.get(f'staff_was_{day.isoformat()}')
+        if was is not None:
+            was = was.strip()[:100]
+            if text == was:
+                continue
+            if current.get(day, '') != was:
+                skipped.append(day)
+                continue
+        if text == current.get(day, ''):
+            continue                                   # いまと同じ（保存しても変わらない）
         if text:
             DayStaff.objects.update_or_create(facility=facility, date=day, defaults={'text': text})
-            n += 1
         else:
             DayStaff.objects.filter(facility=facility, date=day).delete()
-    return n
+        saved += 1
+    return saved, skipped
+
+
+def skipped_staff_message(skipped):
+    """save_day_staff で保存しなかった日の知らせ"""
+    days = '・'.join(f'{d.month}/{d.day}' for d in skipped)
+    return (f'{days} の担当は、この画面を開いたあとに他の職員が直していたため、保存していません。'
+            '画面の値は最新にしてあります。必要ならもう一度直してください。')
 
 
 def staff_suggestions(facility):

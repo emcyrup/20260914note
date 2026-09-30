@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load concurrency %}
 {% block title %}{{ beneficiary.full_name }} — 書類の読み取り{% endblock %}
 {% block page_title %}{{ beneficiary.full_name }}：書類の読み取り{% endblock %}
 {% block nav_beneficiaries %}active{% endblock %}
@@ -37,8 +38,8 @@
     {% if not k.is_saved %}<div class="small text-muted mt-2">AI が書類から取り出した内容です。書類と見比べて直してから「保存する」を押してください。保存するまで台帳は変わらず、療育記録の AI も使いません。</div>{% endif %}
   </div>
 
-  <form method="post">
-    {% csrf_token %}
+  <form method="post" data-concurrency="knowledge:{{ k.pk }}" data-concurrency-lazy>
+    {% csrf_token %}{% version_field k %}
     <div class="info-card mb-3">
       <div class="row g-2">
         <div class="col-md-3"><label class="form-label small fw-semibold">書類の種類</label>
