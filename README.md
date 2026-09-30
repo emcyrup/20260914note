@@ -278,14 +278,14 @@ python manage.py set_developer <ログインID> --off    # 解除
 
 「シンプル」だけを GCP の別サーバー（Compute Engine・Docker Compose・Caddy）で動かす手順と、次に作る療育日記・シフトの案は [docs/SIMPLE_SERVER.md](docs/SIMPLE_SERVER.md) にまとめています（配備はブランチ `simple` → ワークフロー **Deploy (simple)**。VM の起動スクリプトは `deploy/setup-server.sh`）。
 
-「発達支援ルーム　ゆあーず」（旧名 りょういく）も同じ作りで別サーバーに出せます。ドメインを決めたら `./enable-https.sh <ドメイン>` の1行で HTTPS に切り替えられます（前の `http://<IP>/…` はドメインへ転送。docs/RYOIKU_SERVER.md 3-7）。公式 LINE のつなぎ方は同 3-7b（保護者が登録コードを送ると、保護者台帳と予約の顧客台帳の両方に LINE がつながる。受信箱から既存の顧客につなぐこともできる）。手順は [docs/RYOIKU_SERVER.md](docs/RYOIKU_SERVER.md)（配備はブランチ `ryoiku` → ワークフロー **Deploy (ryoiku)**、置き場所は `/opt/ryoiku`、Secrets は `RYOIKU_*`）。AWS 共用サーバー（`https://michinote.yours.ai-labo.cloud/`、ポート 8030、開発環境と同じ venv＋Gunicorn の仕組み）へ出す手順は [docs/DEPLOY_AWS_YOURS.md](docs/DEPLOY_AWS_YOURS.md)（同じブランチ `ryoiku` → ワークフロー **Deploy (yours)**、置き場所は `~/michinoteyours`、Secrets は `YOURS_*`。`.env` の雛形は `deploy/.env.yours-aws.example`）。
+「発達支援ルーム　ゆあーず」（旧名 りょういく）の GCP のお試しサーバーは **2026-09-30 に廃止**し、いまは AWS 共用サーバーだけで動いています（下の表）。以下は GCP で動かしていたときの手引きで、同じ作りの別サーバーを立てるときの参考として残しています。ドメインを決めたら `./enable-https.sh <ドメイン>` の1行で HTTPS に切り替えられます（前の `http://<IP>/…` はドメインへ転送。docs/RYOIKU_SERVER.md 3-7）。公式 LINE のつなぎ方は同 3-7b（保護者が登録コードを送ると、保護者台帳と予約の顧客台帳の両方に LINE がつながる。受信箱から既存の顧客につなぐこともできる）。手順は [docs/RYOIKU_SERVER.md](docs/RYOIKU_SERVER.md)（配備はブランチ `ryoiku` → ワークフロー **Deploy (ryoiku)**、置き場所は `/opt/ryoiku`、Secrets は `RYOIKU_*`）。AWS 共用サーバー（`https://michinote.yours.ai-labo.cloud/`、ポート 8030、開発環境と同じ venv＋Gunicorn の仕組み）へ出す手順は [docs/DEPLOY_AWS_YOURS.md](docs/DEPLOY_AWS_YOURS.md)（同じブランチ `ryoiku` → ワークフロー **Deploy (yours)**、置き場所は `~/michinoteyours`、Secrets は `YOURS_*`。`.env` の雛形は `deploy/.env.yours-aws.example`）。
 
 | ブランチ | 配備先 | ワークフロー | 事業所 |
 |---|---|---|---|
 | `develop` | AWS 開発環境 | Deploy (dev) | 全部（ウィズユー藤森・はぴねす・なゆた・シンプル・ゆあーず） |
 | `simple` | GCP のシンプル用サーバー | Deploy (simple) | シンプル |
-| `ryoiku` | GCP のゆあーず用サーバー（お試し） | Deploy (ryoiku) | 発達支援ルーム　ゆあーず |
 | `ryoiku` | AWS 共用サーバーのゆあーず（`https://michinote.yours.ai-labo.cloud/`、ポート 8030） | Deploy (yours) | 発達支援ルーム　ゆあーず |
+| （廃止） | GCP のゆあーず用お試しサーバー（`yourstest.duckdns.org`）は **2026-09-30 に廃止**。Deploy (ryoiku) は push では動かず、手動実行だけ残している | Deploy (ryoiku) | — |
 | `main` | 配備先なし（許可制） | — | — |
 
 サーバーの部品（`deploy/setup-server.sh`・`docker-compose.yml`・`Caddyfile`・`backup.sh`）は共通です。置き場所は VM のカスタムメタデータ `app-dir`（例 `/opt/ryoiku`）で変えられます（未設定なら `/opt/simple`）。
@@ -449,7 +449,7 @@ python manage.py collectstatic --noinput
 
 ## Docker で動かす（任意の VM）
 
-> GCP（Compute Engine）の本番環境は **2026-09-14 に廃止**しました。`main` への push で自動配備するワークフローも削除しています。現在動いているのは AWS 開発環境（上記）だけです。
+> GCP（Compute Engine）の本番環境は **2026-09-14 に廃止**、ゆあーずの GCP お試しサーバーも **2026-09-30 に廃止**しました。`main` への push で自動配備するワークフローも削除しています。現在動いているのは AWS の開発環境とゆあーず本番（上記）と、GCP のシンプル用サーバーです。
 
 Docker が使えるサーバーでは `Dockerfile`／`deploy/docker-compose.yml`（db・app・caddy）／`deploy/Caddyfile` で動かせます。`.env` の雛形は `deploy/.env.production.example`、ドメインと HTTPS の付け方は [docs/HTTPS.md](docs/HTTPS.md) です。
 

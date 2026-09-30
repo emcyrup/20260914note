@@ -1,5 +1,7 @@
 # 「発達支援ルーム　ゆあーず」（旧名 りょういく）を GCP の別サーバーで動かす
 
+> **この GCP のお試しサーバー（`yourstest.duckdns.org`）は 2026-09-30 に廃止しました。** ゆあーずは AWS 共用サーバー（[docs/DEPLOY_AWS_YOURS.md](DEPLOY_AWS_YOURS.md)）だけで動いています。以下は当時の手引きです（同じ作りのサーバーを立てるときの参考）。
+
 療育の事業所「発達支援ルーム　ゆあーず」（時間枠の予約・月予約利用希望・月間予定表・療育記録）を、開発環境やシンプルのサーバーとは**別のサーバー・別のデータベース**で動かすための手引きです。
 配備先は **GCP Compute Engine の VM 1台**（Docker Compose：Caddy → Django/Gunicorn → PostgreSQL）で、コードは同じリポジトリのブランチ `ryoiku` を配備します。
 

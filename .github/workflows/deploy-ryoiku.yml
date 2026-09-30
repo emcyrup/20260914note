@@ -1,6 +1,10 @@
 # =============================================
+# ⚠ GCP のゆあーず用お試しサーバー（yourstest.duckdns.org）は 2026-09-30 に廃止した。
+#   ゆあーずの配備先は AWS 共用サーバー（deploy-yours.yml、https://michinote.yours.ai-labo.cloud/）だけ。
+#   このワークフローは push では動かさない（手動実行だけ残す。Secrets RYOIKU_* を消せば配備はスキップされる）
+#
 # 「発達支援ルーム　ゆあーず」（旧名 りょういく）用の別サーバー（GCP Compute Engine・Docker Compose・Caddy）へのデプロイ
-#   ブランチ ryoiku への push、または Actions から手動実行（任意のブランチを選べる）
+#   Actions から手動実行（任意のブランチを選べる）
 #   テスト → イメージを GHCR に push → SSH で compose を同期して pull / up / migrate → ヘルスチェック
 #   サーバーの準備手順は docs/RYOIKU_SERVER.md
 #
@@ -16,8 +20,6 @@
 name: Deploy (ryoiku)
 
 on:
-  push:
-    branches: [ryoiku]
   workflow_dispatch:
 
 permissions:

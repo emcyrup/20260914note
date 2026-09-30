@@ -4,9 +4,9 @@
 
 開発環境（`https://st-michinotedemo.ai-labo.cloud/`、ポート 8029、`docs/DEPLOY_AWS_DEV.md`）と**同じ仕組み**で、置き場所・ポート・DB・`.env` が違うだけです。同じサーバーに置く場合は、開発環境の clone（`~/michinotedemo`）と venv（`~/env`）はそのまま使い、ゆあーずは別の clone（`~/michinoteyours`）で動かします。venv は共用で構いません（同じリポジトリなので必要なパッケージは同じ）。
 
-GCP のゆあーず用サーバー（`docs/RYOIKU_SERVER.md`、`/opt/ryoiku`、Docker）との違い:
+GCP のゆあーず用サーバー（`docs/RYOIKU_SERVER.md`、`/opt/ryoiku`、Docker。**2026-09-30 に廃止**）との違い:
 
-| 項目 | GCP（お試し・現行） | AWS（この手順） |
+| 項目 | GCP（お試し・廃止ずみ） | AWS（この手順） |
 |---|---|---|
 | 実行方式 | Docker（`ghcr.io` のイメージ）＋ Caddy | `~/env` の venv ＋ Gunicorn（`deploy/venv-deploy.sh`） |
 | HTTPS 終端 | Caddy（compose 内、`enable-https.sh`） | プロバイダの nginx（自分では触らない） |
