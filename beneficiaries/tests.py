@@ -220,3 +220,173 @@ class BeneficiaryDocumentTests(TestCase):
         res = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
         self.assertNotContains(res, 'ここにファイルを置く')
         self.assertEqual(self.client.post(self.url, {'files': [self.up('a.pdf')]}).status_code, 404)
+
+
+class RecentTherapyOnDetailTests(TestCase):
+    """利用者の詳細に療育記録の直近5日分（ゆあーず）"""
+
+    def setUp(self):
+        import datetime
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        from therapy.models import TherapyRecord
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU,
+                                         use_reservation=True, use_therapy_record=True)
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF, display_name='大坂')
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        for i in range(7):
+            TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date(2026, 10, 1) + datetime.timedelta(days=i * 2),
+                                         time=datetime.time(10, 0), staff=self.user, activities=['ウレタン棒'], body=f'記録{i}')
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date(2026, 10, 13), body='同じ日の2件目')
+
+    def test_five_days_shown(self):
+        res = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
+        self.assertContains(res, '療育記録（直近5日分）')
+        self.assertContains(res, '全部で 8 件')
+        for body in ('記録6', '記録5', '記録4', '記録3', '記録2', '同じ日の2件目'):
+            self.assertContains(res, body)
+        self.assertNotContains(res, '記録1')
+        self.assertNotContains(res, '記録0')
+        self.assertContains(res, '①ウレタン棒')
+        self.assertContains(res, '担当 大坂')
+        self.assertContains(res, f'#rec{self.kid.therapy_records.first().pk}')
+
+    def test_hidden_for_other_layouts(self):
+        from facilities.models import Facility
+        self.f.layout = Facility.LAYOUT_STANDARD
+        self.f.save(update_fields=['layout'])
+        self.assertNotContains(self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk])), '療育記録（直近5日分）')
+
+
+class BeneficiaryImportTests(TestCase):
+    """利用者情報の Excel・CSV 取り込み（ゆあーず）"""
+
+    def setUp(self):
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU)
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.url = reverse('beneficiaries:import')
+
+    @staticmethod
+    def xlsx(rows):
+        import io
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from openpyxl import Workbook
+        wb = Workbook(); ws = wb.active
+        for r in rows:
+            ws.append(r)
+        buf = io.BytesIO(); wb.save(buf)
+        return SimpleUploadedFile('名簿.xlsx', buf.getvalue(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    @staticmethod
+    def csv_file(text, enc='utf-8-sig'):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        return SimpleUploadedFile('名簿.csv', text.encode(enc), content_type='text/csv')
+
+    def test_template(self):
+        from openpyxl import load_workbook
+        import io
+        res = self.client.get(reverse('beneficiaries:import_template'))
+        self.assertEqual(res.status_code, 200)
+        wb = load_workbook(io.BytesIO(res.content))
+        self.assertEqual(wb.sheetnames, ['利用者', '書き方'])
+        header = [c.value for c in wb['利用者'][1]]
+        self.assertEqual(header[:5], ['姓', '名', 'せい（ふりがな）', 'めい（ふりがな）', '生年月日'])
+        self.assertIn('受給者証番号', header)
+
+    def test_parse_row_and_errors(self):
+        import datetime
+        from . import importer
+        data = importer.parse_row({'last_name': '山田', 'first_name': '太郎', 'date_of_birth': '2019年4月1日', 'gender': '女', 'grade': '小1',
+                                   'weekdays': '月・水,金', 'is_severe': '○', 'postal_code': '600-8216', 'disability_class': '2級',
+                                   'guardian_last_name': '山田', 'guardian_first_name': '花子', 'guardian_relation': '母',
+                                   'certificate_number': '2600001234', 'granted_days': '１０', 'monthly_cap': '4,600円', 'valid_until': '2027/3/31'})
+        self.assertEqual((data['date_of_birth'], data['gender'], data['grade'], data['is_severe'], data['postal_code'], data['disability_class']),
+                         (datetime.date(2019, 4, 1), 'female', 'e1', True, '6008216', '2'))
+        self.assertEqual(data['weekdays'], {'weekday_mon', 'weekday_wed', 'weekday_fri'})
+        self.assertEqual(data['guardian']['relation'], 'mother')
+        self.assertEqual((data['certificate']['granted_days'], data['certificate']['monthly_cap'], data['certificate']['valid_until']),
+                         (10, 4600, datetime.date(2027, 3, 31)))
+        with self.assertRaisesMessage(importer.RowError, '生年月日が空です'):
+            importer.parse_row({'last_name': '山田', 'first_name': '太郎', 'date_of_birth': ''})
+        with self.assertRaisesMessage(importer.RowError, '日付を読み取れません'):
+            importer.parse_row({'last_name': '山田', 'first_name': '太郎', 'date_of_birth': '平成31年'})
+        with self.assertRaisesMessage(importer.RowError, '性別の書き方が違います'):
+            importer.parse_row({'last_name': '山田', 'first_name': '太郎', 'date_of_birth': '2019-04-01', 'gender': '男子'})
+        with self.assertRaisesMessage(importer.RowError, '有効期間（終了）'):
+            importer.parse_row({'last_name': '山田', 'first_name': '太郎', 'date_of_birth': '2019-04-01', 'certificate_number': '1'})
+        with self.assertRaisesMessage(importer.RowError, '利用予定曜日の書き方'):
+            importer.parse_row({'last_name': '山田', 'first_name': '太郎', 'date_of_birth': '2019-04-01', 'weekdays': '月・日'})
+
+    def test_preview_then_commit_create_and_update(self):
+        import datetime
+        existing = Beneficiary.objects.create(facility=self.f, last_name='鈴木', first_name='一郎', date_of_birth=datetime.date(2018, 5, 5), address='前の住所')
+        rows = [['姓', '名', '生年月日', '性別', '住所', '利用予定曜日', '保護者 姓', '保護者 名', '保護者 続柄', '受給者証番号', '受給者証 有効期間（終了）', '支給量（日/月）'],
+                ['山田', '太郎', '2019-04-01', '男', '京都市', '月・水', '山田', '花子', '母', '2600001234', '2027-03-31', '10'],
+                ['鈴木', '一郎', '2018/5/5', '', '', '火', '', '', '', '', '', ''],
+                ['', '名無し', '2019-04-01', '', '', '', '', '', '', '', '', ''],
+                ['佐藤', '花', 'いつか', '', '', '', '', '', '', '', '', '']]
+        res = self.client.post(self.url, {'file': self.xlsx(rows)})
+        self.assertContains(res, '2. 確かめる（まだ登録していません）')
+        self.assertContains(res, '新規 1')
+        self.assertContains(res, '書き換え 1')
+        self.assertContains(res, '読めない行 2')
+        self.assertContains(res, '新しく登録します（保護者・受給者証 も）')
+        self.assertContains(res, '同じ姓・名・生年月日の利用者がいるので書き換えます')
+        self.assertContains(res, '姓が空です')
+        self.assertContains(res, '日付を読み取れません')
+        self.assertEqual(Beneficiary.objects.filter(facility=self.f).count(), 1)     # まだ登録していない
+        res = self.client.post(self.url, {'action': 'commit'}, follow=True)
+        self.assertContains(res, '新規 1 名・書き換え 1 名（読めなかった行 2 件は登録していません）')
+        self.assertEqual(Beneficiary.objects.filter(facility=self.f).count(), 2)
+        taro = Beneficiary.objects.get(facility=self.f, last_name='山田')
+        self.assertEqual((taro.gender, taro.address, taro.weekday_mon, taro.weekday_wed, taro.weekday_tue, taro.has_prior_records),
+                         ('male', '京都市', True, True, False, True))
+        g = taro.guardians.get()
+        self.assertEqual((g.first_name, g.relation, g.is_primary), ('花子', 'mother', True))
+        c = taro.recipient_certificates.get()
+        self.assertEqual((c.certificate_number, c.granted_days, c.valid_until), ('2600001234', 10, datetime.date(2027, 3, 31)))
+        existing.refresh_from_db()
+        self.assertEqual((existing.address, existing.weekday_tue, existing.weekday_mon), ('前の住所', True, False))   # 空の欄は変えない
+        # もう一度同じファイル → 全部「書き換え」、件数は増えない。受給者証も増えない
+        res = self.client.post(self.url, {'file': self.xlsx(rows)})
+        self.assertContains(res, '新規 0')
+        self.assertContains(res, '書き換え 2')
+        self.client.post(self.url, {'action': 'commit'})
+        self.assertEqual(Beneficiary.objects.filter(facility=self.f).count(), 2)
+        self.assertEqual(taro.recipient_certificates.count(), 1)
+        self.assertEqual(taro.guardians.count(), 1)
+        # 内容が無いまま登録
+        res = self.client.post(self.url, {'action': 'commit'}, follow=True)
+        self.assertContains(res, '取り込む内容がありません')
+
+    def test_csv_shift_jis_and_bad_files(self):
+        res = self.client.post(self.url, {'file': self.csv_file('姓,名,生年月日,学年\n高橋,結,2017-04-01,小3\n', enc='cp932')})
+        self.assertContains(res, '新規 1')
+        self.client.post(self.url, {'action': 'commit'})
+        self.assertEqual(Beneficiary.objects.get(facility=self.f, last_name='高橋').grade, 'e3')
+        res = self.client.post(self.url, {'file': self.csv_file('氏名,誕生日\n高橋 結,2017\n')})
+        self.assertContains(res, '「姓」「名」「生年月日」が見つかりません')
+        res = self.client.post(self.url, {})
+        self.assertContains(res, 'ファイルを選んでください')
+        res = self.client.post(self.url, {'file': self.csv_file('姓,名,生年月日\n')})
+        self.assertContains(res, 'データの行がありません')
+
+    def test_only_for_ryoiku_and_own_facility(self):
+        import datetime
+        from facilities.models import Facility
+        g = Facility.objects.create(name='ほか', layout=Facility.LAYOUT_RYOIKU)
+        Beneficiary.objects.create(facility=g, last_name='山田', first_name='太郎', date_of_birth=datetime.date(2019, 4, 1), address='よそ')
+        self.client.post(self.url, {'file': self.csv_file('姓,名,生年月日\n山田,太郎,2019-04-01\n')})
+        res = self.client.post(self.url, {'action': 'commit'}, follow=True)
+        self.assertContains(res, '新規 1 名')                       # 別の事業所の同名は書き換えない
+        self.assertEqual(Beneficiary.objects.filter(facility=g, address='よそ').count(), 1)
+        self.assertContains(self.client.get(reverse('beneficiaries:list')), 'Excel・CSV から取り込む')
+        self.f.layout = Facility.LAYOUT_STANDARD
+        self.f.save(update_fields=['layout'])
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+        self.assertEqual(self.client.get(reverse('beneficiaries:import_template')).status_code, 404)
+        self.assertNotContains(self.client.get(reverse('beneficiaries:list')), 'Excel・CSV から取り込む')

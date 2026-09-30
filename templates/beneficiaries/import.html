@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ terms.beneficiary }}を Excel・CSV から取り込む — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}{{ terms.beneficiary }}を Excel・CSV から取り込む{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .imp-drop { border: 2px dashed #cfc8bb; border-radius: 10px; padding: 18px 14px; text-align: center; cursor: pointer; background: rgba(255,255,255,0.6); }
+  .imp-drop.dz-over { border-color: var(--color-primary); background: var(--color-primary-bg); }
+  .imp-drop input[type=file] { display: none; }
+  .imp-cols { columns: 2; column-gap: 24px; font-size: 0.85rem; }
+  .imp-cols div { break-inside: avoid; padding: 1px 0; }
+  .imp-req { color: var(--color-danger); font-weight: 700; }
+  table.imp-plan td, table.imp-plan th { font-size: 0.88rem; vertical-align: top; }
+  .imp-create { color: #2f7d4e; font-weight: 700; } .imp-update { color: #0d6efd; font-weight: 700; } .imp-error { color: var(--color-danger); font-weight: 700; }
+  @media (max-width: 768px) { .imp-cols { columns: 1; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 980px;">
+  <div class="mb-3">
+    <a href="{% url 'beneficiaries:list' %}" class="text-muted small text-decoration-none"><i class="bi bi-people me-1"></i>{{ terms.beneficiary }}一覧</a>
+    <span class="text-muted small mx-1">/</span><span class="small">Excel・CSV から取り込む</span>
+  </div>
+
+  {% if planned %}
+  <div class="card mb-3">
+    <div class="card-header fw-bold"><i class="bi bi-search me-1"></i>2. 確かめる（まだ登録していません）</div>
+    <div class="card-body">
+      <div class="mb-2">「{{ file_name }}」から {{ planned|length }} 行を読みました：
+        <span class="imp-create">新規 {{ counts.create }}</span>・<span class="imp-update">書き換え {{ counts.update }}</span>・<span class="imp-error">読めない行 {{ counts.error }}</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm imp-plan mb-2">
+          <thead><tr><th style="width:56px;">行</th><th style="width:160px;">氏名</th><th style="width:90px;">結果</th><th>内容</th></tr></thead>
+          <tbody>
+            {% for p in planned %}
+            <tr>
+              <td>{{ p.line }}</td>
+              <td>{{ p.name }}</td>
+              <td>{% if p.action == 'create' %}<span class="imp-create">新規</span>{% elif p.action == 'update' %}<span class="imp-update">書き換え</span>{% else %}<span class="imp-error">読めない</span>{% endif %}</td>
+              <td>{{ p.detail }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="small text-muted mb-3">読めない行は登録しません。直したいときは Excel を直して、もう一度ファイルを選んでください。「書き換え」は、同じ姓・名・生年月日の{{ terms.beneficiary }}の情報を上書きします（Excel で空の欄は変えません）。</div>
+      <form method="post" class="d-flex gap-2 flex-wrap">
+        {% csrf_token %}<input type="hidden" name="action" value="commit">
+        <button class="btn btn-primary px-4" {% if not counts.create and not counts.update %}disabled{% endif %}><i class="bi bi-check2 me-1"></i>この内容で登録する</button>
+        <a href="{% url 'beneficiaries:import' %}" class="btn btn-outline-secondary">やり直す</a>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card mb-3">
+    <div class="card-header fw-bold"><i class="bi bi-1-circle me-1"></i>雛形をダウンロードして、{{ terms.beneficiary }}を 1 人 1 行で入れる</div>
+    <div class="card-body">
+      <a href="{% url 'beneficiaries:import_template' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-download me-1"></i>雛形（Excel）をダウンロード</a>
+      <div class="small text-muted mt-2">Excel で開いて 2 行目から入れ、そのまま .xlsx で保存します（CSV でも読めます）。1 行目の見出しはそのまま。使わない列は消しても、並びを変えても構いません。見出しが同じなら、手持ちの名簿からも読めます。1 回に {{ max_rows }} 行まで。</div>
+      <div class="small text-muted">同じ<b>姓・名・生年月日</b>の{{ terms.beneficiary }}がすでにいれば、その人の情報を書き換えます（空の欄は変えません）。いなければ新しく登録します。保護者の欄は「保護者 姓・名」が同じなら書き換え、受給者証は受給者証番号が同じなら書き換えます。</div>
+      <details class="mt-2"><summary class="small">列の一覧と書き方（{{ columns|length }} 列）</summary>
+        <div class="imp-cols mt-2">
+          {% for key, label, required, help, example in columns %}
+          <div>{% if required %}<span class="imp-req">＊</span>{% endif %}<b>{{ label }}</b>{% if help %}<span class="text-muted">：{{ help }}</span>{% endif %}</div>
+          {% endfor %}
+        </div>
+        <div class="small text-muted mt-1">＊は必須。日付は 2019-04-01・2019/4/1・2019年4月1日 のどれでも読めます。</div>
+      </details>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header fw-bold"><i class="bi bi-2-circle me-1"></i>ファイルを選んで、まず確かめる</div>
+    <div class="card-body">
+      <form method="post" enctype="multipart/form-data" id="impForm">
+        {% csrf_token %}
+        <label class="imp-drop d-block" for="impFile">
+          <i class="bi bi-cloud-arrow-up" style="font-size:1.6rem;color:var(--lake-text);"></i>
+          <div class="fw-semibold small">ここにファイルを置く（ドラッグ＆ドロップ）か、押して選ぶ</div>
+          <div class="small text-muted">Excel（.xlsx）か CSV</div>
+          <div class="small mt-1" id="impFileName"></div>
+          <input type="file" id="impFile" name="file" accept=".xlsx,.csv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+        </label>
+        <div class="d-flex gap-2 mt-2 align-items-center">
+          <button class="btn btn-primary" id="impBtn" disabled><i class="bi bi-search me-1"></i>確かめる（まだ登録しません）</button>
+          <span class="small text-muted">次の画面で行ごとの結果を見てから登録します。</span>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var input = document.getElementById('impFile'), btn = document.getElementById('impBtn'), name = document.getElementById('impFileName');
+  input.addEventListener('change', function () {
+    var f = input.files[0];
+    name.textContent = f ? f.name : ''; btn.disabled = !f;
+  });
+})();
+</script>
+{% endblock %}

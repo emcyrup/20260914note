@@ -56,6 +56,9 @@ class BeneficiaryListView(LoginRequiredMixin, ListView):
 # =============================================
 # 利用者詳細（支援の流れナビ付き）
 # =============================================
+RECENT_THERAPY_DAYS = 5     # 利用者の詳細に出す療育記録の日数（ゆあーず）
+
+
 class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
     """
     利用者詳細。保護者・受給者証・支援計画の流れを1画面で確認できる。
@@ -93,6 +96,14 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
         # 受給者証の期限アラート判定用
         ctx['today'] = today
         ctx['cert_expiry_soon'] = today + datetime.timedelta(days=30)
+        # 療育記録の直近5日分（ゆあーず。日付の新しい順に5日ぶん。同じ日に2件あればどちらも出す）
+        ctx['recent_therapy'] = []
+        if self.request.user.facility.is_ryoiku and getattr(self.request.user.facility, 'use_therapy_record', False):
+            days = list(b.therapy_records.order_by('-date').values_list('date', flat=True).distinct()[:RECENT_THERAPY_DAYS])
+            if days:
+                ctx['recent_therapy'] = list(b.therapy_records.filter(date__in=days).select_related('staff')
+                                             .order_by('-date', '-time', '-pk'))
+            ctx['therapy_total'] = b.therapy_records.count()
         # 個別支援計画（進行中のものを先頭に）
         plans = list(b.support_plans.select_related('manager'))
         ctx['support_plans'] = plans
@@ -529,3 +540,79 @@ class AssessmentDeleteView(LoginRequiredMixin, View):
         a.delete()
         messages.success(request, f'「{a.title}」を削除しました。')
         return redirect(f"{reverse('beneficiaries:detail', args=[beneficiary_pk])}#assessments")
+
+
+# =============================================
+# 利用者情報の Excel・CSV 取り込み（ゆあーず）
+# =============================================
+IMPORT_SESSION_KEY = 'beneficiary_import_rows'
+
+
+class ImportRyoikuMixin(LoginRequiredMixin):
+    def dispatch(self, request, *args, **kwargs):
+        facility = getattr(request.user, 'facility', None)
+        if request.user.is_authenticated and (facility is None or not facility.is_ryoiku):
+            raise Http404
+        return super().dispatch(request, *args, **kwargs)
+
+
+class BeneficiaryImportTemplateView(ImportRyoikuMixin, View):
+    """取り込みの雛形（Excel）"""
+
+    def get(self, request):
+        from django.http import HttpResponse
+        from . import importer
+        res = HttpResponse(importer.template_xlsx(),
+                           content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        res['Content-Disposition'] = "attachment; filename*=UTF-8''%E5%88%A9%E7%94%A8%E8%80%85_%E5%8F%96%E3%82%8A%E8%BE%BC%E3%81%BF%E9%9B%9B%E5%BD%A2.xlsx"
+        return res
+
+
+class BeneficiaryImportView(ImportRyoikuMixin, View):
+    """
+    Excel・CSV から利用者を取り込む。1) ファイルを選ぶ → 2) 行ごとの見込み（新規・書き換え・エラー）を確かめる → 3) 登録する。
+    見込みはセッションに置き、「登録する」でその内容を保存する
+    """
+    template_name = 'beneficiaries/import.html'
+
+    def _ctx(self, request, **extra):
+        from . import importer
+        return {'columns': importer.COLUMNS, 'headers': importer.HEADERS, 'max_rows': importer.MAX_ROWS, **extra}
+
+    def get(self, request):
+        from django.shortcuts import render
+        request.session.pop(IMPORT_SESSION_KEY, None)
+        return render(request, self.template_name, self._ctx(request))
+
+    def post(self, request):
+        from django.shortcuts import render
+        from . import importer
+        facility = request.user.facility
+        if request.POST.get('action') == 'commit':
+            rows = request.session.pop(IMPORT_SESSION_KEY, None)
+            if not rows:
+                messages.error(request, '取り込む内容がありません。もう一度ファイルを選んでください。')
+                return redirect('beneficiaries:import')
+            planned = importer.plan(facility, rows)
+            created, updated, errors = importer.apply(facility, planned)
+            msg = f'利用者を取り込みました：新規 {created} 名・書き換え {updated} 名'
+            if errors:
+                msg += f'（読めなかった行 {errors} 件は登録していません）'
+            messages.success(request, msg + '。')
+            return redirect('beneficiaries:list')
+        f = request.FILES.get('file')
+        if f is None:
+            messages.error(request, 'ファイルを選んでください（Excel の .xlsx か CSV）。')
+            return render(request, self.template_name, self._ctx(request))
+        try:
+            rows = importer.rows_from_file(f)
+        except Exception as e:  # noqa: BLE001 - 壊れたファイルなど。理由をそのまま見せる
+            messages.error(request, f'ファイルを読めませんでした：{e}')
+            return render(request, self.template_name, self._ctx(request))
+        if not rows:
+            messages.error(request, 'データの行がありません（1行目は見出し、2行目から利用者）。')
+            return render(request, self.template_name, self._ctx(request))
+        planned = importer.plan(facility, rows)
+        request.session[IMPORT_SESSION_KEY] = rows
+        counts = {k: sum(1 for p in planned if p['action'] == k) for k in ('create', 'update', 'error')}
+        return render(request, self.template_name, self._ctx(request, planned=planned, counts=counts, file_name=f.name))

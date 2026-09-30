@@ -12,9 +12,12 @@
     <h5 class="mb-0 fw-bold">
       <i class="bi bi-people-fill me-2"></i>{{ terms.beneficiary }}一覧
     </h5>
-    <a href="{% url 'beneficiaries:create' %}" class="btn btn-primary">
-      <i class="bi bi-person-plus-fill me-1"></i>新規登録
-    </a>
+    <div class="d-flex gap-2">
+      {% if user.facility.is_ryoiku %}<a href="{% url 'beneficiaries:import' %}" class="btn btn-outline-primary" title="Excel・CSV から利用者をまとめて登録・書き換え"><i class="bi bi-file-earmark-spreadsheet me-1"></i>Excel・CSV から取り込む</a>{% endif %}
+      <a href="{% url 'beneficiaries:create' %}" class="btn btn-primary">
+        <i class="bi bi-person-plus-fill me-1"></i>新規登録
+      </a>
+    </div>
   </div>
 
   <!-- 検索・フィルタ -->

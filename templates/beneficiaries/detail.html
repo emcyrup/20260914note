@@ -8,6 +8,14 @@
 
 {% block extra_css %}
 <style>
+  .th-recent-item { padding: 10px 0; border-top: 1px solid var(--line); }
+  .th-recent-item:first-child { border-top: 0; padding-top: 0; }
+  .th-recent-head { display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap; }
+  .th-recent-acts { margin: 4px 0; }
+  .th-chip { display: inline-block; background: var(--color-primary-bg); color: var(--color-primary-dark); border-radius: 12px; padding: 1px 9px; font-size: 0.78rem; margin: 2px 4px 2px 0; }
+  .th-recent-body { white-space: pre-wrap; font-size: 0.92rem; line-height: 1.6; }
+</style>
+<style>
   .detail-label { font-size: 0.75rem; color: #888; letter-spacing: 0.05em; margin-bottom: 2px; }
   .detail-value { font-size: 0.95rem; font-weight: 500; }
   .section-title {
@@ -309,6 +317,38 @@
         {% endif %}
       </div>
     </div>
+
+    {% if user.facility.is_ryoiku and features.therapy %}
+    <!-- 療育記録（直近5日分） -->
+    <div class="col-12" id="therapy-recent">
+      <div class="info-card">
+        <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+          <div>
+            <div class="section-title mb-0">療育記録（直近5日分）</div>
+            <div class="small text-muted">日付の新しい順に5日ぶん。{% if therapy_total %}全部で {{ therapy_total }} 件。{% endif %}続きと留意点は「療育記録を開く」で。</div>
+          </div>
+          <a href="{% url 'therapy:child' beneficiary.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-journal-medical me-1"></i>療育記録を開く（書く・すべて見る）</a>
+        </div>
+        {% if recent_therapy %}
+        <div class="th-recent">
+          {% for r in recent_therapy %}
+          <div class="th-recent-item">
+            <div class="th-recent-head">
+              <span class="fw-bold">{{ r.date|date:'Y年n月j日（D）' }}{% if r.time %} {{ r.time|time:'G:i' }}{% endif %}</span>
+              {% if r.staff_label %}<span class="text-muted small ms-2">担当 {{ r.staff_label }}</span>{% endif %}
+              <a href="{% url 'therapy:child' beneficiary.pk %}?ym={{ r.date|date:'Y-m' }}#rec{{ r.pk }}" class="small ms-auto">開く</a>
+            </div>
+            {% if r.activity_list %}<div class="th-recent-acts">{% for a in r.activity_list %}<span class="th-chip">{{ a }}</span>{% endfor %}</div>{% endif %}
+            {% if r.body %}<div class="th-recent-body">{{ r.body }}</div>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted small mb-0">療育記録はまだありません。</p>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
 
     <!-- アセスメント・資料 -->
     <div class="col-12" id="assessments">
