@@ -12,6 +12,7 @@ from django.views import View
 from accounts.models import StaffAccount
 from ai_assist.quick import ask_ai as _ask_ai, tidy_sections
 from ai_assist.text import clean_ai_text
+from beneficiaries.knowledge import context_for as knowledge_context, usable as knowledge_usable
 from beneficiaries.models import Beneficiary
 from config.utils import to_int
 
@@ -218,6 +219,7 @@ class ChildView(TherapyEnabledMixin, View):
             'activity_range': range(1, ACTIVITY_MAX + 1), 'edit_pk': to_int(request.GET.get('edit')),
             'cautions_rows': min(max(len((profile.cautions if profile else '').splitlines()) + 1, 4), 24),
             'fig': figure.build(profile.cautions if profile else '', beneficiary.full_name),
+            'knowledge_count': knowledge_usable(beneficiary).count(),
         })
 
     def post(self, request, pk):
@@ -313,6 +315,8 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
 - 苦手なこと・危険につながること・配慮のしかたを先に、好きなこと・得意なことをあとに並べる
 - 常用漢字とひらがな・カタカナで書く。英語・絵文字・記号（★ ※ → など）・マークダウンは使わない
 - 人名・物の名前は入力の表記のまま
+- 【書類から分かっていること（参考）】が付いているときは、メモと関係する配慮や、安全にかかわること（服薬・発作・アレルギー・苦手な刺激など）を、
+  書類にあることとして短く足してよい（メモと同じことは1つにまとめる）。診断名を並べたり、医学的な判断を足したりしない
 - 返すのは箇条書きだけ"""
 
     DETAIL_PROMPT = """あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
@@ -349,16 +353,19 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
         detail = request.POST.get('mode') == 'detail'
         if not text:
             return JsonResponse({'error': '留意点が空です。先に音声入力か文字で入れてください。'}, status=400)
-        if detail:
+        refs = 0
+        if detail:     # 話したことの整理なので、書類の内容は混ぜない
             raw, error = _ask_ai(self.DETAIL_PROMPT, f'【{beneficiary.full_name}さんについて職員が話したこと】\n{text[:CAUTIONS_MAX]}', 4096)
         else:
-            raw, error = _ask_ai(self.SYSTEM_PROMPT, f'【{beneficiary.full_name}さんについてのメモ】\n{text[:CAUTIONS_MAX]}', 1024)
+            reference, refs = knowledge_context(beneficiary, text)
+            content = f'【{beneficiary.full_name}さんについてのメモ】\n{text[:CAUTIONS_MAX]}' + (f'\n\n{reference}' if reference else '')
+            raw, error = _ask_ai(self.SYSTEM_PROMPT, content, 1024)
         if error:
             return error
         result = tidy_sections(raw) if detail else self.tidy(raw)
         if not result:
             return JsonResponse({'error': 'AIの返答が空でした。もう一度お試しください。'}, status=500)
-        return JsonResponse({'result': result[:CAUTIONS_MAX]})
+        return JsonResponse({'result': result[:CAUTIONS_MAX], 'references': refs})
 
     @staticmethod
     def tidy(raw):
@@ -418,6 +425,10 @@ class RecordSummaryView(TherapyEnabledMixin, View):
 - 箇条書き・見出し・前置き・あいさつは書かない。段落は1〜3つ
 - 入力にある事実だけを使う。子どものようす・反応・できたこと・結果は入力に無いので書かない（推測しない）
 - 入力に無い対応方法や一般論を足さない。留意点が短いときは、無理に長くせず{RECORD_SUMMARY_MIN}字に近い長さでよい
+- 【書類から分かっていること（参考）】（診断書・検査結果などを職員が確かめて登録したもの）が付いているときは、
+  今日の活動に関係する配慮（感覚の特性・服薬・発作・体調など）を、留意点と合わせて使ってよい。
+  書類の内容を使うときは「〜との所見があるため」のように書類にあることとして書き、診断名を並べたり医学的な判断を加えたりしない。
+  今日の活動に関係しない書類の内容は書かない
 - 常用漢字とひらがな・カタカナで書く。英語・絵文字・記号（★ ※ → など）・マークダウンは使わない
 - 返すのは記録に書く文だけ"""
 
@@ -441,13 +452,16 @@ class RecordSummaryView(TherapyEnabledMixin, View):
             + '【今日のやったこと】\n' + '\n'.join(f'・{a}' for a in activities)
             + (f'\n\n【記録（書きかけ）】\n{body[:2000]}' if body else '')
         )
+        reference, refs = knowledge_context(beneficiary, '\n'.join(activities) + '\n' + cautions + '\n' + body)
+        if reference:
+            content += f'\n\n{reference}'
         raw, error = _ask_ai(self.SYSTEM_PROMPT, content, 2048)
         if error:
             return error
         result = self.tidy(raw)
         if not result:
             return JsonResponse({'error': 'AIの返答が空でした。もう一度お試しください。'}, status=500)
-        return JsonResponse({'result': result, 'length': len(result.replace('\n', ''))})
+        return JsonResponse({'result': result, 'length': len(result.replace('\n', '')), 'references': refs})
 
     @staticmethod
     def tidy(raw):

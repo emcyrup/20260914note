@@ -90,7 +90,7 @@
       </div>
       <textarea class="form-control" id="cautions" name="cautions" rows="{{ cautions_rows }}" placeholder="用紙の上の枠に書いてある、この{{ terms.beneficiary }}のときに気をつけること">{{ profile.cautions|default:'' }}</textarea>
       <div class="th-save-row">
-        <div class="form-text mb-0">用紙の上に印刷されます。話して入れたあと「詳しくまとめる」で場面ごとの見出しと箇条書きに、「短く要約」で短い箇条書きに整えます。</div>
+        <div class="form-text mb-0">用紙の上に印刷されます。話して入れたあと「詳しくまとめる」で場面ごとの見出しと箇条書きに、「短く要約」で短い箇条書きに整えます。{% if knowledge_count %}<br><i class="bi bi-journal-medical"></i> 「短く要約」と記録の「留意点から記録に追記」は、<a href="{% url 'beneficiaries:detail' beneficiary.pk %}#knowledge">書類から分かっていること</a>（{{ knowledge_count }} 件：診断書など）も参考にします。{% endif %}</div>
         <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>留意点を保存</button>
       </div>
     </form>
@@ -244,7 +244,7 @@
         area.value = data.result;
         area.rows = Math.max(3, Math.min(detail ? 24 : 12, data.result.split('\n').length + 1));
         area.dispatchEvent(new Event('input', {bubbles: true}));
-        show((detail ? '詳しくまとめて' : '要約して') + '書き換えました。内容を確かめて「留意点を保存」を押してください。', 'info', true);
+        show((detail ? '詳しくまとめて' : '要約して') + '書き換えました' + (data.references ? '（書類から分かっていること ' + data.references + ' 件を参考）' : '') + '。内容を確かめて「留意点を保存」を押してください。', 'info', true);
       })
       .catch(function () { show('通信できませんでした。もう一度お試しください。', 'danger', false); })
       .finally(function () {
@@ -290,7 +290,7 @@
         before = area.value;
         area.value = before.trim() ? before.replace(/\s+$/, '') + '\n' + data.result : data.result;
         area.rows = Math.max(4, Math.min(14, Math.ceil(area.value.length / 45) + area.value.split('\n').length));
-        show('留意点をまとめて記録の最後に足しました（' + data.length + '字）。内容を確かめて「追加する」を押してください。', 'info', true);
+        show('留意点をまとめて記録の最後に足しました（' + data.length + '字' + (data.references ? '・書類から分かっていること ' + data.references + ' 件を参考' : '') + '）。内容を確かめて「追加する」を押してください。', 'info', true);
       })
       .catch(function () { show('通信できませんでした。もう一度お試しください。', 'danger', false); })
       .finally(function () { btn.disabled = false; btn.innerHTML = label; });

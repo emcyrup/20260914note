@@ -81,6 +81,25 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
         ctx['assessments'] = b.assessments.select_related('created_by')
         ctx['assessment_kinds'] = BeneficiaryAssessment.KIND_CHOICES
         ctx['documents'] = b.documents.select_related('uploaded_by') if self.request.user.facility.is_ryoiku else []
+        # 書類から分かっていること（診断書などを AI で読み取ったもの。ゆあーず）
+        ctx['knowledge'], ctx['knowledge_drafts'], ctx['ai_ready'] = [], [], bool(settings.ANTHROPIC_API_KEY)
+        if self.request.user.facility.is_ryoiku:
+            from . import knowledge as kn
+            items = list(b.knowledge.select_related('created_by'))
+            ctx['knowledge'] = [k for k in items if k.is_saved]
+            ctx['knowledge_drafts'] = [k for k in items if not k.is_saved]
+            read_doc = {k.document_id: k for k in reversed(items) if k.document_id}
+            read_asm = {k.assessment_id: k for k in reversed(items) if k.assessment_id}
+            docs = list(ctx['documents'])
+            for d in docs:
+                d.readable = kn.is_readable(d.file_name or d.file.name)
+                d.read_k = read_doc.get(d.pk)
+            ctx['documents'] = docs
+            asms = list(ctx['assessments'])
+            for a in asms:
+                a.readable = bool(a.file) and kn.is_readable(a.file_name or a.file.name)
+                a.read_k = read_asm.get(a.pk)
+            ctx['assessments'] = asms
         ctx['document_accept'] = 'image/*,.pdf,.xlsx,.xls,.csv'
         ctx['document_max_mb'] = DOCUMENT_MAX_BYTES // (1024 * 1024)
         ctx['office_form'] = BeneficiaryOfficeForm()
@@ -626,3 +645,85 @@ class BeneficiaryImportView(ImportRyoikuMixin, View):
         counts = {k: sum(1 for p in planned if p['action'] == k) for k in ('create', 'update', 'error')}
         return render(request, self.template_name, self._ctx(request, planned=planned, counts=counts, file_name=f.name,
                                                              fmt=fmt, create_children=create_children))
+
+
+# =============================================
+# 書類の読み取り（診断書など）→ 台帳への反映・療育記録の AI の参考（ゆあーず）
+# =============================================
+class KnowledgeReadView(ImportRyoikuMixin, View):
+    """書類・画像（またはアセスメント・資料の書類）を AI で読み取り、確認画面へ進む"""
+
+    def post(self, request, beneficiary_pk):
+        from . import knowledge
+        beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        back = redirect(f"{reverse('beneficiaries:detail', args=[beneficiary_pk])}#knowledge")
+        source = request.POST.get('source')
+        document = assessment = None
+        if source == 'assessment':
+            assessment = get_object_or_404(beneficiary.assessments, pk=request.POST.get('source_pk') or 0)
+            file_field, name, hint = assessment.file, assessment.file_name or assessment.file.name, f'{assessment.title}\n{assessment.content}'
+        else:
+            document = get_object_or_404(beneficiary.documents, pk=request.POST.get('source_pk') or 0)
+            file_field, name, hint = document.file, document.file_name or document.file.name, document.title
+        if not file_field:
+            messages.error(request, '書類が付いていません。')
+            return back
+        try:
+            data = knowledge.read_file(beneficiary, file_field, name, hint=hint)
+        except knowledge.ReadError as e:
+            messages.error(request, str(e))
+            return back
+        draft = knowledge.make_draft(beneficiary, data, user=request.user, document=document, assessment=assessment)
+        return redirect('beneficiaries:knowledge_review', beneficiary_pk=beneficiary.pk, pk=draft.pk)
+
+
+class KnowledgeReviewView(ImportRyoikuMixin, View):
+    """読み取った内容の確認・修正。台帳への反映（確認待ちのときだけ）・保存・破棄"""
+    template_name = 'beneficiaries/knowledge_review.html'
+
+    def _get(self, request, beneficiary_pk, pk):
+        beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        return beneficiary, get_object_or_404(beneficiary.knowledge.select_related('document', 'assessment'), pk=pk)
+
+    def get(self, request, beneficiary_pk, pk):
+        from django.shortcuts import render
+        from . import knowledge
+        beneficiary, k = self._get(request, beneficiary_pk, pk)
+        return render(request, self.template_name, {
+            'beneficiary': beneficiary, 'k': k, 'p': k.proposals or {}, 'kinds': knowledge.KINDS,
+            'therapy': getattr(request.user.facility, 'use_therapy_record', False),
+        })
+
+    def post(self, request, beneficiary_pk, pk):
+        from . import knowledge
+        beneficiary, k = self._get(request, beneficiary_pk, pk)
+        back = f"{reverse('beneficiaries:detail', args=[beneficiary.pk])}#knowledge"
+        action = request.POST.get('action')
+        if action in ('discard', 'delete'):
+            label = k.label
+            k.delete()
+            messages.success(request, f'「{label}」の読み取り結果を消しました。' if action == 'discard'
+                             else f'「{label}」を書類から分かっていることから消しました（台帳に反映した内容は残ります）。')
+            return redirect(back)
+        was_draft = not k.is_saved
+        applied = knowledge.save_reviewed(k, request.POST, user=request.user)
+        msg = f'「{k.label}」を保存しました。'
+        if applied:
+            msg += '台帳に反映：' + '・'.join(applied) + '。'
+        elif was_draft:
+            msg += '台帳は変えていません。'
+        msg += '療育記録の AI が参考にします。' if k.use_in_ai else '療育記録の AI では使いません。'
+        messages.success(request, msg)
+        return redirect(back)
+
+
+class KnowledgeToggleView(ImportRyoikuMixin, View):
+    """療育記録の AI で参考にする／しない を切り替える"""
+
+    def post(self, request, beneficiary_pk, pk):
+        beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        k = get_object_or_404(beneficiary.knowledge, pk=pk)
+        k.use_in_ai = not k.use_in_ai
+        k.save(update_fields=['use_in_ai', 'updated_at'])
+        messages.success(request, f'「{k.label}」を療育記録の AI で{"参考にします" if k.use_in_ai else "使わないようにしました"}。')
+        return redirect(f"{reverse('beneficiaries:detail', args=[beneficiary.pk])}#knowledge")

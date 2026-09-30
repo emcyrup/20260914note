@@ -23,5 +23,8 @@ urlpatterns = [
     path('<int:beneficiary_pk>/assessments/new/', views.AssessmentCreateView.as_view(), name='assessment_create'),
     path('<int:beneficiary_pk>/assessments/<int:assessment_pk>/edit/', views.AssessmentUpdateView.as_view(), name='assessment_update'),
     path('<int:beneficiary_pk>/assessments/<int:assessment_pk>/delete/', views.AssessmentDeleteView.as_view(), name='assessment_delete'),
+    path('<int:beneficiary_pk>/knowledge/read/', views.KnowledgeReadView.as_view(), name='knowledge_read'),
+    path('<int:beneficiary_pk>/knowledge/<int:pk>/', views.KnowledgeReviewView.as_view(), name='knowledge_review'),
+    path('<int:beneficiary_pk>/knowledge/<int:pk>/toggle/', views.KnowledgeToggleView.as_view(), name='knowledge_toggle'),
     path('guardians/<int:guardian_pk>/regenerate-line-code/', views.RegenerateLineCodeView.as_view(), name='regenerate_line_code'),
 ]

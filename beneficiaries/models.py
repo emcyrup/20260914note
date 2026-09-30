@@ -419,3 +419,74 @@ class BeneficiaryDocument(models.Model):
     @property
     def label(self):
         return self.title or self.file_name or self.file.name.rsplit('/', 1)[-1]
+
+
+class BeneficiaryKnowledge(models.Model):
+    """
+    診断書・意見書・検査結果などの書類を AI で読み取った内容（利用者ごと）。
+
+    職員が確認画面で直してから保存すると（status=saved）、要約・支援で気をつけること・文字起こしを
+    小さく分けて（KnowledgeChunk）保存し、療育記録の AI（留意点の要約・記録の文）が、その子の分だけを
+    検索して参考にする（RAG）。台帳（障害種別・重身・備考・留意点）への反映は、確認画面で印を付けたものだけ。
+    """
+    STATUS_DRAFT = 'draft'
+    STATUS_SAVED = 'saved'
+    STATUS_CHOICES = [(STATUS_DRAFT, '確認待ち'), (STATUS_SAVED, '保存済み')]
+
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='knowledge', verbose_name='利用者')
+    document = models.ForeignKey('BeneficiaryDocument', on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='knowledge', verbose_name='読み取った書類')
+    assessment = models.ForeignKey('BeneficiaryAssessment', on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='knowledge', verbose_name='読み取ったアセスメント・資料')
+    kind = models.CharField(max_length=50, blank=True, verbose_name='書類の種類')
+    title = models.CharField(max_length=100, blank=True, verbose_name='件名')
+    doc_date = models.DateField(null=True, blank=True, verbose_name='書類の日付')
+    issuer = models.CharField(max_length=100, blank=True, verbose_name='発行元')
+    summary = models.TextField(blank=True, verbose_name='要約')
+    points = models.TextField(blank=True, verbose_name='支援で気をつけること')
+    text = models.TextField(blank=True, verbose_name='書類の文字')
+    proposals = models.JSONField(default=dict, blank=True, verbose_name='台帳への反映案')
+    applied = models.JSONField(default=list, blank=True, verbose_name='台帳に反映したもの')
+    use_in_ai = models.BooleanField(default=True, verbose_name='療育記録の AI で参考にする')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_DRAFT, verbose_name='状態')
+    created_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='+', verbose_name='読み取った職員')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '書類から分かっていること'
+        verbose_name_plural = '書類から分かっていること'
+        ordering = ['-created_at', '-pk']
+
+    def __str__(self):
+        return f'{self.beneficiary.full_name} {self.label}'
+
+    @property
+    def label(self):
+        return self.title or self.kind or '読み取った書類'
+
+    @property
+    def points_list(self):
+        return [ln.strip().lstrip('・-*•').strip() for ln in (self.points or '').splitlines() if ln.strip().lstrip('・-*•').strip()]
+
+    @property
+    def is_saved(self):
+        return self.status == self.STATUS_SAVED
+
+
+class KnowledgeChunk(models.Model):
+    """書類から分かっていることの検索用の小片（文字バイグラムの出現数。ai_assist.retrieval と同じ考え方）"""
+    PART_SUMMARY = 'summary'
+    PART_POINTS = 'points'
+    PART_TEXT = 'text'
+
+    knowledge = models.ForeignKey(BeneficiaryKnowledge, on_delete=models.CASCADE, related_name='chunks')
+    part = models.CharField(max_length=10, default=PART_TEXT)
+    index = models.PositiveIntegerField(default=0)
+    text = models.TextField()
+    terms = models.JSONField(default=dict)
+    length = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['knowledge', 'index']

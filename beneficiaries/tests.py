@@ -1,6 +1,8 @@
 import datetime
+import json
+from unittest import mock
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 # Create your tests here.
 
@@ -642,3 +644,211 @@ class ChildrenListImportTests(TestCase):
         planned = importer.plan(self.f, importer.rows_from_file(f))
         self.assertEqual(planned[0]['action'], 'error')
         self.assertIn('在籍状況', planned[0]['detail'])
+
+
+class KnowledgeTests(TestCase):
+    """診断書などを AI で読み取り → 確認して保存・台帳に反映 → 療育記録の AI が参考にする（RAG）"""
+
+    READ = {
+        'kind': '診断書', 'title': '診断書', 'doc_date': '2026-04-10', 'issuer': 'こども発達クリニック',
+        'name_on_doc': '青木 子', 'birth_on_doc': '2019-04-01', 'diagnosis': '自閉スペクトラム症', 'severe': 'no',
+        'summary': '自閉スペクトラム症と診断。聴覚過敏があり、大きな音で混乱しやすい。',
+        'support_points': ['大きな音の出る活動では、イヤーマフを使う', '予定の変更は絵カードで前もって伝える'],
+        'medical_notes': ['てんかんの薬（朝夕）を服用している'],
+        'full_text': '診断名：自閉スペクトラム症\n所見：聴覚過敏が強く、太鼓や掃除機の音で耳をふさぐ。トランポリンなど揺れる遊びは好む。\n'
+                     '保険証番号：（書かない）',
+        'unreadable': '',
+    }
+
+    def setUp(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        from .models import BeneficiaryDocument
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', last_name_kana='あおき',
+                                              first_name_kana='こ', date_of_birth=datetime.date(2019, 4, 1))
+        self.doc = BeneficiaryDocument.objects.create(beneficiary=self.kid, file_name='診断書.pdf',
+                                                      file=SimpleUploadedFile('shindan.pdf', b'%PDF-1.4 test'))
+
+    def _mock_response(self, data, stop='end_turn'):
+        from types import SimpleNamespace
+        return SimpleNamespace(stop_reason=stop, content=[SimpleNamespace(type='text', text=json.dumps(data, ensure_ascii=False))])
+
+    def _read(self, client_cls, data=None):
+        client_cls.return_value.messages.create.return_value = self._mock_response(data or self.READ)
+        return self.client.post(reverse('beneficiaries:knowledge_read', args=[self.kid.pk]),
+                                {'source': 'document', 'source_pk': self.doc.pk})
+
+    @mock.patch('beneficiaries.knowledge.anthropic.Anthropic')
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    def test_read_review_save_and_apply(self, client_cls):
+        from therapy.models import TherapyProfile
+        from .models import BeneficiaryKnowledge
+        TherapyProfile.objects.create(beneficiary=self.kid, cautions='・予定の変更は絵カードで前もって伝える')
+        res = self._read(client_cls)
+        k = BeneficiaryKnowledge.objects.get()
+        self.assertRedirects(res, reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]))
+        kwargs = client_cls.return_value.messages.create.call_args.kwargs
+        block = kwargs['messages'][0]['content'][0]
+        self.assertEqual((block['type'], block['source']['media_type']), ('document', 'application/pdf'))
+        self.assertEqual(kwargs['output_config']['format']['type'], 'json_schema')
+        self.assertIn('青木 子さん', kwargs['messages'][0]['content'][1]['text'])
+        # 確認待ち：台帳はまだ変わらない。反映案（留意点はすでにある項目を除く）
+        self.assertEqual(k.status, 'draft')
+        self.assertEqual(k.proposals['disability_type'], {'current': '', 'new': '自閉スペクトラム症', 'checked': True})
+        self.assertNotIn('is_severe', k.proposals)
+        self.assertIn('てんかんの薬', k.proposals['notes_add']['text'])
+        self.assertIn('イヤーマフ', k.proposals['cautions_add']['text'])
+        self.assertNotIn('絵カード', k.proposals['cautions_add']['text'])
+        self.assertEqual(k.proposals['warnings'], [])
+        self.kid.refresh_from_db()
+        self.assertEqual(self.kid.disability_type, '')
+        page = self.client.get(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]))
+        self.assertContains(page, '確認待ち')
+        self.assertContains(page, '障害種別を書き換える')
+        self.assertContains(page, '療育記録の「留意点」に足す')
+        detail = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
+        self.assertContains(detail, '確認待ち')
+        # 保存：印を付けたもの（障害種別・留意点）だけ反映。備考は印なし
+        res = self.client.post(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]), {
+            'action': 'save', 'kind': '診断書', 'title': '診断書', 'doc_date': '2026-04-10', 'issuer': 'こども発達クリニック',
+            'summary': k.summary, 'points': k.points, 'text': k.text, 'use_in_ai': '1',
+            'apply_disability_type': '1', 'disability_type': '自閉スペクトラム症',
+            'notes_add': k.proposals['notes_add']['text'],
+            'apply_cautions': '1', 'cautions_add': k.proposals['cautions_add']['text'],
+        }, follow=True)
+        self.assertContains(res, '台帳に反映：障害種別・留意点')
+        self.kid.refresh_from_db()
+        self.assertEqual((self.kid.disability_type, self.kid.notes), ('自閉スペクトラム症', ''))
+        self.assertIn('イヤーマフ', TherapyProfile.objects.get(beneficiary=self.kid).cautions)
+        k.refresh_from_db()
+        self.assertEqual((k.status, k.applied, k.use_in_ai), ('saved', ['障害種別', '留意点'], True))
+        self.assertGreaterEqual(k.chunks.count(), 3)
+        detail = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
+        self.assertContains(detail, '書類から分かっていること')
+        self.assertContains(detail, '読み取り済み')
+        self.assertContains(detail, 'AIの参考')
+        # 同じ書類を読み直して保存すると入れ替わる
+        self._read(client_cls)
+        k2 = BeneficiaryKnowledge.objects.get(status='draft')
+        self.client.post(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k2.pk]),
+                         {'action': 'save', 'summary': 'x', 'points': '', 'text': '', 'use_in_ai': '1'})
+        self.assertEqual(list(BeneficiaryKnowledge.objects.values_list('pk', flat=True)), [k2.pk])
+
+    @mock.patch('beneficiaries.knowledge.anthropic.Anthropic')
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    def test_warnings_discard_and_errors(self, client_cls):
+        from .models import BeneficiaryKnowledge
+        self._read(client_cls, dict(self.READ, name_on_doc='山田 花子', birth_on_doc='2018-01-01', severe='yes'))
+        k = BeneficiaryKnowledge.objects.get()
+        self.assertEqual(len(k.proposals['warnings']), 2)
+        self.assertEqual(k.proposals['is_severe'], {'checked': True})
+        page = self.client.get(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]))
+        self.assertContains(page, '別のお子さまの書類でないか')
+        res = self.client.post(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]), {'action': 'discard'}, follow=True)
+        self.assertContains(res, '読み取り結果を消しました')
+        self.assertFalse(BeneficiaryKnowledge.objects.exists())
+        # AI が断った・長すぎた
+        client_cls.return_value.messages.create.return_value = self._mock_response({}, stop='refusal')
+        res = self.client.post(reverse('beneficiaries:knowledge_read', args=[self.kid.pk]),
+                               {'source': 'document', 'source_pk': self.doc.pk}, follow=True)
+        self.assertContains(res, 'AI がこの書類を読み取れませんでした')
+        client_cls.return_value.messages.create.return_value = self._mock_response({}, stop='max_tokens')
+        res = self.client.post(reverse('beneficiaries:knowledge_read', args=[self.kid.pk]),
+                               {'source': 'document', 'source_pk': self.doc.pk}, follow=True)
+        self.assertContains(res, 'ページを分けて')
+        self.assertFalse(BeneficiaryKnowledge.objects.exists())
+
+    def test_readable_types_and_other_facility(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        from . import knowledge
+        from .models import BeneficiaryDocument
+        self.assertTrue(knowledge.is_readable('a.PDF'))
+        self.assertTrue(knowledge.is_readable('a.jpeg'))
+        self.assertFalse(knowledge.is_readable('a.xlsx'))
+        heic = BeneficiaryDocument.objects.create(beneficiary=self.kid, file_name='a.heic', file=SimpleUploadedFile('a.heic', b'x'))
+        with override_settings(ANTHROPIC_API_KEY='test-key'):
+            res = self.client.post(reverse('beneficiaries:knowledge_read', args=[self.kid.pk]),
+                                   {'source': 'document', 'source_pk': heic.pk}, follow=True)
+        self.assertContains(res, 'HEIC')
+        with override_settings(ANTHROPIC_API_KEY=''):
+            res = self.client.post(reverse('beneficiaries:knowledge_read', args=[self.kid.pk]),
+                                   {'source': 'document', 'source_pk': self.doc.pk}, follow=True)
+        self.assertContains(res, 'ANTHROPIC_API_KEY')
+        other = Facility.objects.create(name='ほか', layout=Facility.LAYOUT_RYOIKU)
+        StaffAccount.objects.create_user('oth', password='pw12345678', facility=other, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='oth', password='pw12345678')
+        res = self.client.post(reverse('beneficiaries:knowledge_read', args=[self.kid.pk]), {'source': 'document', 'source_pk': self.doc.pk})
+        self.assertEqual(res.status_code, 404)
+
+    def test_context_for_only_this_child_and_relevant_passages(self):
+        from . import knowledge
+        from .models import BeneficiaryKnowledge
+        other = Beneficiary.objects.create(facility=self.f, last_name='井上', first_name='太郎', date_of_birth=datetime.date(2018, 5, 1))
+        k = BeneficiaryKnowledge.objects.create(beneficiary=self.kid, kind='診断書', title='診断書', issuer='こども発達クリニック',
+                                                summary='聴覚過敏がある。', points='・大きな音の活動ではイヤーマフを使う',
+                                                text=self.READ['full_text'] + '\n' + 'その他の記載。' * 80, status='saved')
+        knowledge.reindex(k)
+        BeneficiaryKnowledge.objects.create(beneficiary=other, kind='診断書', title='井上の書類', summary='別の子', status='saved')
+        BeneficiaryKnowledge.objects.create(beneficiary=self.kid, kind='その他', title='確認待ち', summary='まだ', status='draft')
+        text, n = knowledge.context_for(self.kid, '太鼓あそび トランポリン')
+        self.assertEqual(n, 1)
+        self.assertIn('書類から分かっていること', text)
+        self.assertIn('イヤーマフ', text)
+        self.assertIn('太鼓や掃除機の音', text)          # 今日の活動に関係しそうな記載
+        self.assertNotIn('井上', text)
+        self.assertNotIn('確認待ち', text)
+        self.assertLessEqual(len(text), knowledge.CONTEXT_MAX + 80)
+        k.use_in_ai = False
+        k.save()
+        self.assertEqual(knowledge.context_for(self.kid, '太鼓'), ('', 0))
+
+
+@override_settings(ANTHROPIC_API_KEY='test-key')
+class KnowledgeInTherapyAiTests(TestCase):
+    """療育記録の AI（留意点の要約・記録の文）に、その子の書類から分かっていることが渡る"""
+
+    def setUp(self):
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        from . import knowledge
+        from .models import BeneficiaryKnowledge
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        k = BeneficiaryKnowledge.objects.create(beneficiary=self.kid, kind='診断書', title='診断書', summary='聴覚過敏がある。',
+                                                points='・大きな音の活動ではイヤーマフを使う', text='太鼓の音で耳をふさぐ。', status='saved')
+        knowledge.reindex(k)
+
+    def _ai(self, client_cls, text):
+        from types import SimpleNamespace
+        client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(type='text', text=text)])
+
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_record_summary_and_cautions_get_reference(self, client_cls):
+        self._ai(client_cls, '太鼓あそびでは聴覚過敏との所見があるため、イヤーマフを使って取り組む。' * 3)
+        res = self.client.post(reverse('therapy:record_summary', args=[self.kid.pk]),
+                               {'cautions': '・音に敏感', 'activity_1': '太鼓あそび', 'date': '2026-10-02'})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['references'], 1)
+        kwargs = client_cls.return_value.messages.create.call_args.kwargs
+        self.assertIn('【書類から分かっていること（参考。職員が確かめて登録したもの）】', kwargs['messages'][0]['content'])
+        self.assertIn('イヤーマフ', kwargs['messages'][0]['content'])
+        self.assertIn('太鼓の音で耳をふさぐ', kwargs['messages'][0]['content'])
+        self.assertIn('医学的な判断を加えたりしない', kwargs['system'])
+        # 留意点の「短く要約」も参考にする。「詳しくまとめる」は話したことの整理なので使わない
+        self._ai(client_cls, '・音に敏感\n・大きな音の活動ではイヤーマフを使う')
+        res = self.client.post(reverse('therapy:cautions_summary', args=[self.kid.pk]), {'text': '音に敏感'})
+        self.assertEqual(res.json()['references'], 1)
+        self.assertIn('イヤーマフ', client_cls.return_value.messages.create.call_args.kwargs['messages'][0]['content'])
+        res = self.client.post(reverse('therapy:cautions_summary', args=[self.kid.pk]), {'text': '音に敏感', 'mode': 'detail'})
+        self.assertEqual(res.json()['references'], 0)
+        self.assertNotIn('書類から分かっていること', client_cls.return_value.messages.create.call_args.kwargs['messages'][0]['content'])
+        page = self.client.get(reverse('therapy:child', args=[self.kid.pk]))
+        self.assertContains(page, '書類から分かっていること</a>（1 件')

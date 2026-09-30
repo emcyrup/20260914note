@@ -1,0 +1,118 @@
+{% extends 'base.html' %}
+{% block title %}{{ beneficiary.full_name }} — 書類の読み取り{% endblock %}
+{% block page_title %}{{ beneficiary.full_name }}：書類の読み取り{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .kr-wrap { max-width: 980px; }
+  .kr-wrap .info-card { background: #fff; border: 1px solid #e8e8e8; border-radius: 12px; padding: 1.25rem; }
+  .kr-wrap .section-title { font-size: 0.78rem; letter-spacing: 0.12em; color: var(--color-primary); font-weight: 600; }
+  .kr-apply { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: #fff; }
+  .kr-apply .cur { color: #8a8378; font-size: .82rem; }
+  .kr-apply textarea { font-size: .88rem; }
+  .kr-src { font-size: .85rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2 kr-wrap">
+  <nav class="small mb-2"><a href="{% url 'beneficiaries:list' %}">利用者一覧</a> / <a href="{% url 'beneficiaries:detail' beneficiary.pk %}#knowledge">{{ beneficiary.full_name }}</a> / 書類の読み取り</nav>
+
+  <div class="info-card mb-3">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+      <div>
+        <div class="section-title mb-1">{% if k.is_saved %}書類から分かっていること{% else %}読み取った内容を確かめる{% endif %}</div>
+        <div class="kr-src text-muted">
+          {% if k.document %}読み取った書類：<a href="{{ k.document.file.url }}" target="_blank" rel="noopener">{{ k.document.label }}</a>
+          {% elif k.assessment %}読み取った書類：<a href="{{ k.assessment.file.url }}" target="_blank" rel="noopener">{{ k.assessment.file_name|default:k.assessment.title }}</a>（アセスメント・資料）
+          {% else %}元の書類は削除されています{% endif %}
+          ・{{ k.created_at|date:'Y/n/j H:i' }}{% if k.created_by %}・{{ k.created_by }}{% endif %}
+        </div>
+      </div>
+      {% if not k.is_saved %}<span class="badge text-bg-warning">確認待ち（まだ保存していません）</span>{% endif %}
+    </div>
+    {% for w in p.warnings %}<div class="alert alert-danger small py-2 mt-2 mb-0"><i class="bi bi-exclamation-triangle me-1"></i>{{ w }}</div>{% endfor %}
+    {% if p.unreadable %}<div class="alert alert-warning small py-2 mt-2 mb-0">読み取りで迷ったところ：{{ p.unreadable }}</div>{% endif %}
+    {% if not k.is_saved %}<div class="small text-muted mt-2">AI が書類から取り出した内容です。書類と見比べて直してから「保存する」を押してください。保存するまで台帳は変わらず、療育記録の AI も使いません。</div>{% endif %}
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+    <div class="info-card mb-3">
+      <div class="row g-2">
+        <div class="col-md-3"><label class="form-label small fw-semibold">書類の種類</label>
+          <select name="kind" class="form-select form-select-sm">{% for x in kinds %}<option value="{{ x }}" {% if x == k.kind %}selected{% endif %}>{{ x }}</option>{% endfor %}</select></div>
+        <div class="col-md-5"><label class="form-label small fw-semibold">件名</label>
+          <input type="text" name="title" class="form-control form-control-sm" maxlength="100" value="{{ k.title }}"></div>
+        <div class="col-md-2 col-6"><label class="form-label small fw-semibold">書類の日付</label>
+          <input type="date" name="doc_date" class="form-control form-control-sm" value="{{ k.doc_date|date:'Y-m-d' }}"></div>
+        <div class="col-md-2 col-6"><label class="form-label small fw-semibold">発行元</label>
+          <input type="text" name="issuer" class="form-control form-control-sm" maxlength="100" value="{{ k.issuer }}"></div>
+        <div class="col-12"><label class="form-label small fw-semibold">要約</label>
+          <textarea name="summary" class="form-control form-control-sm" rows="4" maxlength="2000">{{ k.summary }}</textarea></div>
+        <div class="col-12"><label class="form-label small fw-semibold">支援で気をつけること（1行に1項目）</label>
+          <textarea name="points" class="form-control form-control-sm" rows="{{ k.points_list|length|add:2 }}">{{ k.points }}</textarea></div>
+        <div class="col-12">
+          <details><summary class="small fw-semibold">書類の文字（検索に使う書き写し。{{ k.text|length }} 字）</summary>
+            <textarea name="text" class="form-control form-control-sm mt-1" rows="10">{{ k.text }}</textarea></details>
+        </div>
+        <div class="col-12">
+          <label class="form-check small mb-0"><input type="checkbox" class="form-check-input" name="use_in_ai" value="1" {% if k.use_in_ai %}checked{% endif %}>
+            療育記録の AI（留意点の要約・記録の文）で参考にする</label>
+          <div class="form-text">この子の療育記録を AI で作るとき、上の要約と「支援で気をつけること」、今日の活動に関係しそうな書類の文字を参考に渡します（ほかのお子さまには使いません）。</div>
+        </div>
+      </div>
+    </div>
+
+    {% if not k.is_saved %}
+    <div class="info-card mb-3">
+      <div class="section-title mb-2">台帳に反映する</div>
+      {% if p.disability_type or p.is_severe or p.notes_add or p.cautions_add %}
+      <div class="small text-muted mb-2">印を付けたものだけ、保存するときに台帳へ入れます。文は直せます。</div>
+      {% if p.disability_type %}
+      <div class="kr-apply">
+        <label class="form-check fw-semibold mb-1"><input type="checkbox" class="form-check-input" name="apply_disability_type" value="1" {% if p.disability_type.checked %}checked{% endif %}>障害種別を書き換える</label>
+        <div class="cur">いま：{{ p.disability_type.current|default:'（空）' }}</div>
+        <input type="text" name="disability_type" class="form-control form-control-sm mt-1" maxlength="100" value="{{ p.disability_type.new }}">
+      </div>
+      {% endif %}
+      {% if p.is_severe %}
+      <div class="kr-apply">
+        <label class="form-check fw-semibold mb-0"><input type="checkbox" class="form-check-input" name="apply_is_severe" value="1" {% if p.is_severe.checked %}checked{% endif %}>重症心身障害児（重身）にする</label>
+        <div class="cur">書類に重症心身障害の記載があります。</div>
+      </div>
+      {% endif %}
+      {% if p.notes_add %}
+      <div class="kr-apply">
+        <label class="form-check fw-semibold mb-1"><input type="checkbox" class="form-check-input" name="apply_notes" value="1" {% if p.notes_add.checked %}checked{% endif %}>基本情報の「備考」に足す（服薬・アレルギー・発作・医療的ケアなど）</label>
+        <textarea name="notes_add" class="form-control form-control-sm" rows="4">{{ p.notes_add.text }}</textarea>
+      </div>
+      {% endif %}
+      {% if p.cautions_add and therapy %}
+      <div class="kr-apply">
+        <label class="form-check fw-semibold mb-1"><input type="checkbox" class="form-check-input" name="apply_cautions" value="1" {% if p.cautions_add.checked %}checked{% endif %}>療育記録の「留意点」に足す</label>
+        <textarea name="cautions_add" class="form-control form-control-sm" rows="4">{{ p.cautions_add.text }}</textarea>
+        <div class="form-text">留意点は療育記録の用紙の上に印字されます。すでに書いてある項目は除いてあります。</div>
+      </div>
+      {% endif %}
+      {% else %}
+      <div class="small text-muted">台帳に入れる内容はありません（障害種別・重身・備考・留意点は、いまの台帳と同じか、書類に書かれていません）。</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="d-flex justify-content-between flex-wrap gap-2 mb-4">
+      <div class="d-flex gap-2">
+        <button class="btn btn-primary" name="action" value="save"><i class="bi bi-check2 me-1"></i>{% if k.is_saved %}直した内容を保存する{% else %}保存する{% if p.disability_type or p.is_severe or p.notes_add or p.cautions_add %}（印を付けたものを台帳に反映）{% endif %}{% endif %}</button>
+        <a href="{% url 'beneficiaries:detail' beneficiary.pk %}#knowledge" class="btn btn-outline-secondary">戻る</a>
+      </div>
+      {% if k.is_saved %}
+      <button class="btn btn-outline-danger" name="action" value="delete" formnovalidate onclick="return confirm('書類から分かっていることから消します（台帳に反映した内容と元の書類は残ります）。よろしいですか？');">消す</button>
+      {% else %}
+      <button class="btn btn-outline-danger" name="action" value="discard" formnovalidate onclick="return confirm('読み取った結果を捨てます。よろしいですか？');">読み取り結果を捨てる</button>
+      {% endif %}
+    </div>
+  </form>
+</div>
+{% endblock %}

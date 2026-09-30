@@ -54,6 +54,7 @@
   .doc-list { display: flex; flex-direction: column; gap: 4px; }
   .doc-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px dotted #e0dbd2; }
   .doc-link { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; text-decoration: none; color: inherit; }
+  .doc-link > .min-w-0 { min-width: 0; }
   .doc-link:hover .doc-name { text-decoration: underline; }
   .doc-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; border: 1px solid #e8e8e8; flex: 0 0 auto; }
   .doc-icon { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.4rem; color: var(--lake-text, #2f5d50); background: #f1efe9; border-radius: 6px; flex: 0 0 auto; }
@@ -226,9 +227,10 @@
                 {% elif d.kind == 'pdf' %}<span class="doc-icon"><i class="bi bi-file-earmark-pdf"></i></span>
                 {% elif d.kind == 'sheet' %}<span class="doc-icon"><i class="bi bi-file-earmark-spreadsheet"></i></span>
                 {% else %}<span class="doc-icon"><i class="bi bi-file-earmark"></i></span>{% endif %}
-                <span class="doc-name">{{ d.label }}</span>
+                <span class="min-w-0"><span class="doc-name d-block">{{ d.label }}</span><span class="doc-meta d-block">{{ d.created_at|date:'Y/n/j' }}{% if d.uploaded_by %}・{{ d.uploaded_by }}{% endif %}</span></span>
               </a>
-              <div class="doc-meta">{{ d.created_at|date:'Y/n/j' }}{% if d.uploaded_by %}・{{ d.uploaded_by }}{% endif %}</div>
+              {% if d.read_k %}<a href="{% url 'beneficiaries:knowledge_review' beneficiary.pk d.read_k.pk %}" class="badge {% if d.read_k.is_saved %}text-bg-success{% else %}text-bg-warning{% endif %} text-decoration-none" title="読み取った内容を見る・直す">{% if d.read_k.is_saved %}読み取り済み{% else %}確認待ち{% endif %}</a>
+              {% elif d.readable and ai_ready %}<form method="post" action="{% url 'beneficiaries:knowledge_read' beneficiary.pk %}" class="kn-read">{% csrf_token %}<input type="hidden" name="source" value="document"><input type="hidden" name="source_pk" value="{{ d.pk }}"><button class="btn btn-sm btn-outline-primary py-0 text-nowrap" title="診断書などを AI で読み取り、台帳への反映と療育記録の AI の参考にします"><i class="bi bi-magic me-1"></i>AIで読み取る</button></form>{% endif %}
               <form method="post" action="{% url 'beneficiaries:document_delete' beneficiary.pk d.pk %}" onsubmit="return confirm('「{{ d.label|escapejs }}」を削除します。よろしいですか？');">
                 {% csrf_token %}<button class="btn btn-sm btn-outline-danger py-0" title="削除"><i class="bi bi-trash"></i></button>
               </form>
@@ -300,6 +302,45 @@
     </div>
 
 
+    {% if user.facility.is_ryoiku %}
+    <!-- 書類から分かっていること（診断書などを AI で読み取ったもの） -->
+    <div class="col-12" id="knowledge">
+      <div class="info-card">
+        <div class="mb-2">
+          <div class="section-title mb-0">書類から分かっていること</div>
+          <div class="small text-muted">基本情報の「書類・画像」やアセスメント・資料に付けた診断書・意見書・検査結果などを「AIで読み取る」と、ここに残ります。{% if user.facility.use_therapy_record %}療育記録の AI（留意点の要約・記録の文）が、この子の分だけを参考にします。{% endif %}</div>
+        </div>
+        {% for k in knowledge_drafts %}
+        <div class="alert alert-warning small py-2 mb-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
+          <span><b>確認待ち</b>：{{ k.label }}（{{ k.created_at|date:'n/j H:i' }} に読み取り）。確かめて保存するまで台帳と AI には使いません。</span>
+          <a href="{% url 'beneficiaries:knowledge_review' beneficiary.pk k.pk %}" class="btn btn-sm btn-warning py-0">確かめる</a>
+        </div>
+        {% endfor %}
+        {% for k in knowledge %}
+        <div class="{% if not forloop.first %}border-top{% endif %} py-2">
+          <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+            <div class="min-w-0">
+              <span class="badge asm-kind">{{ k.kind }}</span>
+              <span class="fw-semibold ms-1">{{ k.label }}</span>
+              <span class="small text-muted ms-1">{% if k.issuer %}{{ k.issuer }}・{% endif %}{% if k.doc_date %}{{ k.doc_date|date:'Y/n/j' }}{% else %}{{ k.created_at|date:'Y/n/j' }} 読み取り{% endif %}</span>
+              {% if k.use_in_ai %}<span class="badge text-bg-success ms-1" style="font-size:.68rem;">AIの参考</span>{% else %}<span class="badge text-bg-light text-muted ms-1" style="font-size:.68rem;">AIでは使わない</span>{% endif %}
+              {% if k.applied %}<span class="small text-muted ms-1">台帳に反映：{{ k.applied|join:'・' }}</span>{% endif %}
+            </div>
+            <div class="d-flex gap-1 flex-shrink-0">
+              <form method="post" action="{% url 'beneficiaries:knowledge_toggle' beneficiary.pk k.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary py-0" title="療育記録の AI で参考にする／しない">{% if k.use_in_ai %}AIで使わない{% else %}AIの参考にする{% endif %}</button></form>
+              <a href="{% url 'beneficiaries:knowledge_review' beneficiary.pk k.pk %}" class="btn btn-sm btn-outline-secondary py-0" title="見る・直す"><i class="bi bi-pencil"></i></a>
+            </div>
+          </div>
+          {% if k.summary %}<div class="small mt-1">{{ k.summary }}</div>{% endif %}
+          {% if k.points_list %}<ul class="small mb-0 mt-1 ps-3">{% for x in k.points_list %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+        {% empty %}
+        {% if not knowledge_drafts %}<p class="text-muted small mb-0">まだありません。{% if not ai_ready %}（AIを使う設定がサーバーに無いため、読み取りは使えません）{% endif %}</p>{% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
     <!-- アセスメント・資料 -->
     <div class="col-12" id="assessments">
       <div class="info-card">
@@ -340,6 +381,8 @@
             <a href="{{ a.file.url }}" target="_blank" rel="noopener" class="small">
               {% if a.is_image %}<img src="{{ a.file.url }}" alt="" class="asm-thumb me-1">{% else %}<i class="bi bi-file-earmark-pdf me-1"></i>{% endif %}{{ a.file_name|default:'書類を開く' }}
             </a>
+            {% if a.read_k %}<a href="{% url 'beneficiaries:knowledge_review' beneficiary.pk a.read_k.pk %}" class="badge ms-1 {% if a.read_k.is_saved %}text-bg-success{% else %}text-bg-warning{% endif %} text-decoration-none">{% if a.read_k.is_saved %}読み取り済み{% else %}確認待ち{% endif %}</a>
+            {% elif a.readable and ai_ready %}<form method="post" action="{% url 'beneficiaries:knowledge_read' beneficiary.pk %}" class="kn-read d-inline ms-1">{% csrf_token %}<input type="hidden" name="source" value="assessment"><input type="hidden" name="source_pk" value="{{ a.pk }}"><button class="btn btn-sm btn-outline-primary py-0"><i class="bi bi-magic me-1"></i>AIで読み取る</button></form>{% endif %}
           </div>
           {% endif %}
           <div class="collapse" id="asmEdit{{ a.pk }}">
@@ -1052,6 +1095,16 @@
 {% endblock %}
 
 {% block extra_js %}
+<script>
+  // AIで読み取る：押したら読み取り中の表示にして二重に押せないようにする（1分ほどかかる）
+  document.querySelectorAll('form.kn-read').forEach(function (f) {
+    f.addEventListener('submit', function () {
+      document.querySelectorAll('form.kn-read button').forEach(function (b) { b.disabled = true; });
+      var btn = f.querySelector('button');
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 読み取り中（1分ほど）';
+    });
+  });
+</script>
 <script>
 (function () {
   var input = document.getElementById('docFiles'), btn = document.getElementById('docUploadBtn'), names = document.getElementById('docFileNames');
