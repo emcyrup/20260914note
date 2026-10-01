@@ -41,6 +41,13 @@ class MinutesTests(TestCase):
         self.assertEqual(Minutes.objects.count(), 1)
         res = self.client.get(reverse('minutes:print', args=[m.pk]))
         self.assertContains(res, '行事')
+        self.assertNotContains(res, '来月の行事について')     # 話した内容（文字起こし）は印刷しない
+        self.assertNotContains(res, '文字起こし')
+        m.summary = ''
+        m.save()
+        res = self.client.get(reverse('minutes:print', args=[m.pk]))
+        self.assertNotContains(res, '来月の行事について')
+        self.assertContains(res, '議事録の欄がまだ空です')
         self.client.post(self.url, {'action': 'delete', 'id': m.pk})
         self.assertFalse(Minutes.objects.exists())
 
