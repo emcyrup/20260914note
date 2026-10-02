@@ -195,11 +195,17 @@ class BeneficiaryDocumentTests(TestCase):
         self.client.post(self.url, {'files': [self.up('契約書.jpg', png, 'image/jpeg')], 'title': '契約書 2026'})
         d = BeneficiaryDocument.objects.get(file_name='契約書.jpg')
         self.assertEqual(d.label, '契約書 2026')
+        # 名前を変える（元のファイル名は残る）
+        res = self.client.post(reverse('beneficiaries:document_rename', args=[self.kid.pk, d.pk]), {'title': '契約書（2026年度）'}, follow=True)
+        self.assertContains(res, '書類の名前を「契約書（2026年度）」にしました')
+        d.refresh_from_db()
+        self.assertEqual((d.label, d.file_name), ('契約書（2026年度）', '契約書.jpg'))
+        self.assertContains(res, 'doc-rename-btn')
         self.assertTrue(d.file.name.startswith('beneficiary_documents/'))
         self.assertEqual(self.client.get(d.file.url).status_code, 200)
         # 削除
         res = self.client.post(reverse('beneficiaries:document_delete', args=[self.kid.pk, d.pk]), follow=True)
-        self.assertContains(res, '「契約書 2026」を削除しました')
+        self.assertContains(res, '「契約書（2026年度）」を削除しました')
         self.assertFalse(BeneficiaryDocument.objects.filter(pk=d.pk).exists())
         # 空・大きすぎ
         res = self.client.post(self.url, {}, follow=True)
@@ -710,6 +716,7 @@ class KnowledgeTests(TestCase):
         self.assertContains(page, '確認待ち')
         self.assertContains(page, '障害種別を書き換える')
         self.assertContains(page, '療育記録の「留意点」に足す')
+        self.assertContains(page, 'name="apply_assessment"')
         detail = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
         self.assertContains(detail, '確認待ち')
         # 保存：印を付けたもの（障害種別・留意点）だけ反映。備考は印なし
@@ -719,13 +726,21 @@ class KnowledgeTests(TestCase):
             'apply_disability_type': '1', 'disability_type': '自閉スペクトラム症',
             'notes_add': k.proposals['notes_add']['text'],
             'apply_cautions': '1', 'cautions_add': k.proposals['cautions_add']['text'],
+            'apply_assessment': '1',
         }, follow=True)
-        self.assertContains(res, '台帳に反映：障害種別・留意点')
+        self.assertContains(res, '台帳に反映：障害種別・留意点・アセスメント・資料')
+        # アセスメント・資料にも 1 件（書類のファイルを写して付ける）
+        a = self.kid.assessments.get()
+        self.assertEqual((a.kind, a.title, str(a.date), a.file_name), ('medical', '診断書', '2026-04-10', '診断書.pdf'))
+        self.assertIn('聴覚過敏', a.content)
+        self.assertIn('【支援で気をつけること】', a.content)
+        self.assertIn('発行元：こども発達クリニック', a.content)
+        self.assertTrue(a.file and a.file.name != self.doc.file.name and a.file.storage.exists(a.file.name))
         self.kid.refresh_from_db()
         self.assertEqual((self.kid.disability_type, self.kid.notes), ('自閉スペクトラム症', ''))
         self.assertIn('イヤーマフ', TherapyProfile.objects.get(beneficiary=self.kid).cautions)
         k.refresh_from_db()
-        self.assertEqual((k.status, k.applied, k.use_in_ai), ('saved', ['障害種別', '留意点'], True))
+        self.assertEqual((k.status, k.applied, k.use_in_ai), ('saved', ['障害種別', '留意点', 'アセスメント・資料'], True))
         self.assertGreaterEqual(k.chunks.count(), 3)
         detail = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
         self.assertContains(detail, '書類から分かっていること')

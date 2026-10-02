@@ -21,6 +21,7 @@ urlpatterns = [
     path('<int:beneficiary_pk>/offices/<int:office_pk>/delete/', views.BeneficiaryOfficeDeleteView.as_view(), name='office_delete'),
     path('<int:beneficiary_pk>/documents/upload/', views.DocumentUploadView.as_view(), name='document_upload'),
     path('<int:beneficiary_pk>/documents/<int:document_pk>/delete/', views.DocumentDeleteView.as_view(), name='document_delete'),
+    path('<int:beneficiary_pk>/documents/<int:document_pk>/rename/', views.DocumentRenameView.as_view(), name='document_rename'),
     path('<int:beneficiary_pk>/assessments/new/', views.AssessmentCreateView.as_view(), name='assessment_create'),
     path('<int:beneficiary_pk>/assessments/<int:assessment_pk>/edit/', views.AssessmentUpdateView.as_view(), name='assessment_update'),
     path('<int:beneficiary_pk>/assessments/<int:assessment_pk>/delete/', views.AssessmentDeleteView.as_view(), name='assessment_delete'),

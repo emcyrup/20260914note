@@ -295,6 +295,9 @@ def save_reviewed(knowledge, post, user=None):
             profile.cautions = _append(profile.cautions, post['cautions_add'].strip())
             profile.save()
             applied.append('留意点')
+        if post.get('apply_assessment') and k.document_id:
+            add_assessment(k, user)
+            applied.append('アセスメント・資料')
         k.applied = applied
         k.status = BeneficiaryKnowledge.STATUS_SAVED
         old = BeneficiaryKnowledge.objects.filter(beneficiary=b).exclude(pk=k.pk)
@@ -305,6 +308,38 @@ def save_reviewed(knowledge, post, user=None):
     k.save()
     reindex(k)
     return applied
+
+
+ASSESSMENT_KIND = {'発達検査・評価': 'test', '個別支援計画': 'assessment', 'その他': 'other'}   # それ以外（診断書など）は medical
+
+
+def add_assessment(k, user=None):
+    """
+    書類・画像から読み取った内容を「アセスメント・資料」にも 1 件登録する（書類のファイルを写して付ける）。
+    種類は書類の種類から決め、内容は要約と「支援で気をつけること」。
+    """
+    from django.core.files.base import ContentFile
+    from .models import BeneficiaryAssessment
+    body = k.summary.strip()
+    if k.points.strip():
+        body += ('\n\n' if body else '') + '【支援で気をつけること】\n' + k.points.strip()
+    if k.issuer:
+        body += ('\n\n' if body else '') + f'発行元：{k.issuer}'
+    a = BeneficiaryAssessment(
+        beneficiary=k.beneficiary, created_by=user, date=k.doc_date or datetime.date.today(),
+        kind=ASSESSMENT_KIND.get(k.kind, BeneficiaryAssessment.KIND_MEDICAL),
+        title=(k.title or k.kind or '読み取った書類')[:100], content=body[:20000],
+    )
+    doc = k.document
+    if doc and doc.file:
+        try:
+            with doc.file.open('rb') as f:
+                a.file.save(doc.file_name or doc.file.name.rsplit('/', 1)[-1], ContentFile(f.read()), save=False)
+            a.file_name = (doc.file_name or '')[:200]
+        except Exception:       # noqa: BLE001 元のファイルが無いときは文だけ登録する
+            logger.exception('書類のファイルをアセスメントに写せない')
+    a.save()
+    return a
 
 
 def _bm25(chunks, query, top_k, k1=1.5, b=0.75):

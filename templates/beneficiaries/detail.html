@@ -59,6 +59,7 @@
   .doc-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; border: 1px solid #e8e8e8; flex: 0 0 auto; }
   .doc-icon { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.4rem; color: var(--lake-text, #2f5d50); background: #f1efe9; border-radius: 6px; flex: 0 0 auto; }
   .doc-name { font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .doc-rename { padding: 2px 0 6px; }
   .doc-meta { font-size: 0.75rem; color: #8a8378; white-space: nowrap; }
   .asm-voice.recording { color: #fff; background: var(--color-danger); border-color: var(--color-danger); }
   a.flow-step:hover { background: var(--color-primary-light); color: var(--color-primary-dark); }
@@ -231,10 +232,20 @@
               </a>
               {% if d.read_k %}<a href="{% url 'beneficiaries:knowledge_review' beneficiary.pk d.read_k.pk %}" class="badge {% if d.read_k.is_saved %}text-bg-success{% else %}text-bg-warning{% endif %} text-decoration-none" title="読み取った内容を見る・直す">{% if d.read_k.is_saved %}読み取り済み{% else %}確認待ち{% endif %}</a>
               {% elif d.readable and ai_ready %}<form method="post" action="{% url 'beneficiaries:knowledge_read' beneficiary.pk %}" class="kn-read">{% csrf_token %}<input type="hidden" name="source" value="document"><input type="hidden" name="source_pk" value="{{ d.pk }}"><button class="btn btn-sm btn-outline-primary py-0 text-nowrap" title="診断書などを AI で読み取り、台帳への反映と療育記録の AI の参考にします"><i class="bi bi-magic me-1"></i>AIで読み取る</button></form>{% endif %}
+              <button type="button" class="btn btn-sm btn-outline-secondary py-0 doc-rename-btn" title="名前を変える" data-target="doc-rename-{{ d.pk }}"><i class="bi bi-pencil"></i></button>
               <form method="post" action="{% url 'beneficiaries:document_delete' beneficiary.pk d.pk %}" onsubmit="return confirm('「{{ d.label|escapejs }}」を削除します。よろしいですか？');">
                 {% csrf_token %}<button class="btn btn-sm btn-outline-danger py-0" title="削除"><i class="bi bi-trash"></i></button>
               </form>
             </div>
+            <form method="post" action="{% url 'beneficiaries:document_rename' beneficiary.pk d.pk %}" class="doc-rename d-none" id="doc-rename-{{ d.pk }}">
+              {% csrf_token %}
+              <div class="input-group input-group-sm">
+                <input type="text" name="title" class="form-control" maxlength="100" value="{{ d.label }}" placeholder="書類の名前" required>
+                <button class="btn btn-primary">名前を変える</button>
+                <button type="button" class="btn btn-outline-secondary doc-rename-cancel">やめる</button>
+              </div>
+              <div class="form-text">元のファイル名（{{ d.file_name }}）はそのまま残ります。</div>
+            </form>
             {% endfor %}
           </div>
           {% endif %}
@@ -1121,6 +1132,17 @@
     names.textContent = n ? (n === 1 ? input.files[0].name : n + ' 個を選びました') : '';
   });
   document.getElementById('docForm').addEventListener('submit', function () { btn.disabled = true; btn.textContent = '取り込み中…'; });
+  // 書類の名前を変える：鉛筆で入力欄を開く
+  document.querySelectorAll('.doc-rename-btn').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var f = document.getElementById(b.dataset.target);
+      f.classList.toggle('d-none');
+      if (!f.classList.contains('d-none')) { var i = f.querySelector('input'); i.focus(); i.select(); }
+    });
+  });
+  document.querySelectorAll('.doc-rename-cancel').forEach(function (b) {
+    b.addEventListener('click', function () { b.closest('form').classList.add('d-none'); });
+  });
 })();
 </script>
 <script>

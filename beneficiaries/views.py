@@ -588,6 +588,22 @@ class DocumentUploadView(LoginRequiredMixin, View):
         return back
 
 
+class DocumentRenameView(LoginRequiredMixin, View):
+    """書類・画像の名前（件名）を変える。元のファイル名は残す"""
+
+    def post(self, request, beneficiary_pk, document_pk):
+        beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        d = get_object_or_404(beneficiary.documents, pk=document_pk)
+        title = (request.POST.get('title') or '').strip()[:100]
+        if not title:
+            messages.error(request, '名前を入れてください。')
+        elif title != d.title:
+            d.title = title
+            d.save(update_fields=['title'])
+            messages.success(request, f'書類の名前を「{title}」にしました。')
+        return redirect(f"{reverse('beneficiaries:detail', args=[beneficiary_pk])}#documents")
+
+
 class DocumentDeleteView(LoginRequiredMixin, View):
     def post(self, request, beneficiary_pk, document_pk):
         beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
