@@ -54,5 +54,5 @@ jobs:
             echo "python: $(python --version 2>&1)"
             echo "disk: $(df -h "$HOME" | tail -1 | awk '{print $4 " free"}')"
             pip install --quiet -r requirements-speech.txt
-            WHISPER_MODEL="$MODEL" python manage.py speech_check --seconds "${SECS:-15}"
+            WHISPER_MODEL="$MODEL" SPEECH_BACKEND=whisper python manage.py speech_check --seconds "${SECS:-15}"
           REMOTE
