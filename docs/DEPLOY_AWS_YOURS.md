@@ -198,6 +198,8 @@ nginx の `michinote.yours.ai-labo.cloud` の server ブロックに、開発環
 | `client_max_body_size 100m;` | 紙の利用希望・紙の日誌を写真でまとめて取り込むため（既定 1MB だと 413） |
 | `proxy_read_timeout 300s;` | AI 生成・PDF 生成・音声の文字起こしが数十秒かかることがあるため（504 対策） |
 
+2026-10-02 にプロバイダが設定ずみ（`client_max_body_size 100M; proxy_read_timeout / proxy_connect_timeout / proxy_send_timeout 300s; X-Forwarded-Proto` など）。外から確かめるには Actions の **Site check (yours)**（healthz と 3MB の送信が 413 にならないか）。
+
 別のサーバーの場合は `libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0`（PDF 用のライブラリ）と Python 3.12 以上の venv も依頼します。日本語フォントはアプリに同梱しているので不要です。
 
 ## つまずきやすい点
