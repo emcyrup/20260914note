@@ -540,6 +540,13 @@
 </div>
 
 
+{% if beneficiary.status == 'inactive' and user.is_admin or beneficiary.status == 'inactive' and user.is_superuser %}
+<div class="text-end mt-4">
+  <a href="{% url 'beneficiaries:delete' beneficiary.pk %}" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>この{{ terms.beneficiary }}を削除する</a>
+  <div class="small text-muted mt-1">退所した人を、療育記録・予約・書類ごと消します（戻せません）。次の画面で確かめてから消します。</div>
+</div>
+{% endif %}
+
 <!-- ========== 利用者編集モーダル ========== -->
 <div class="modal fade" id="editModal" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">

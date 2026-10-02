@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block title %}{{ terms.beneficiary }}の削除 — {{ beneficiary.full_name }}{% endblock %}
+{% block page_title %}{{ terms.beneficiary }}の削除{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width:720px;">
+  <a href="{% url 'beneficiaries:detail' beneficiary.pk %}" class="small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>{{ beneficiary.full_name }} の画面に戻る</a>
+  <h5 class="fw-bold mt-2 mb-3"><i class="bi bi-trash me-2 text-danger"></i>「{{ beneficiary.full_name }}」を削除する</h5>
+
+  <div class="alert alert-danger">
+    <div class="fw-bold mb-1">この操作は戻せません。</div>
+    次のものがすべて消えます（写真・PDF などのファイルも消えます）。
+    {% if counts %}
+    <ul class="mb-0 mt-1">{% for label, n in counts %}<li>{{ label }}：{{ n }} 件</li>{% endfor %}</ul>
+    {% else %}<div class="mt-1">関連する記録はありません（{{ terms.beneficiary }}の基本情報だけです）。</div>{% endif %}
+  </div>
+
+  <div class="alert alert-warning small">
+    <i class="bi bi-exclamation-triangle me-1"></i>{{ retention_note }}
+    退所から 5 年たっていない場合は、削除せず「退所」のままにしておくことをおすすめします（退所の人は一覧の既定では出ません。「退所」で絞ると見られます）。
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+    <div class="mb-3">
+      <label class="form-label small fw-semibold" for="confirm_name">確認のため、氏名「{{ beneficiary.full_name }}」をそのまま入れてください</label>
+      <input type="text" name="confirm_name" id="confirm_name" class="form-control" autocomplete="off" required>
+    </div>
+    <div class="form-check mb-3">
+      <input class="form-check-input" type="checkbox" name="agree" value="1" id="agree" required>
+      <label class="form-check-label small" for="agree">記録の保存期間を確かめたうえで削除します</label>
+    </div>
+    <button class="btn btn-danger"><i class="bi bi-trash me-1"></i>削除する</button>
+    <a href="{% url 'beneficiaries:detail' beneficiary.pk %}" class="btn btn-outline-secondary ms-2">やめる</a>
+  </form>
+</div>
+{% endblock %}

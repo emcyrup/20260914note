@@ -40,6 +40,14 @@
         </button>
       </div>
     </div>
+    {# 50 音の行で絞る（姓のふりがなの最初の文字。検索・在籍状況はそのまま） #}
+    <div class="d-flex flex-wrap gap-1 mt-2 align-items-center" aria-label="50音で絞る">
+      <a href="?q={{ q|urlencode }}&status={{ status }}" class="btn btn-sm {% if not row %}btn-secondary{% else %}btn-outline-secondary{% endif %}">すべて</a>
+      {% for r in kana_rows %}<a href="?q={{ q|urlencode }}&status={{ status }}&row={{ r }}" class="btn btn-sm {% if row == r %}btn-secondary{% else %}btn-outline-secondary{% endif %}">{{ r }}</a>{% endfor %}
+      <a href="?q={{ q|urlencode }}&status={{ status }}&row=他" class="btn btn-sm {% if row == '他' %}btn-secondary{% else %}btn-outline-secondary{% endif %}" title="ふりがなが入っていない人">ふりがな無し</a>
+      <span class="small text-muted ms-1">50音順（姓のふりがな）。ふりがなの無い人は最後に並びます。</span>
+    </div>
+    {% if row %}<input type="hidden" name="row" value="{{ row }}">{% endif %}
   </form>
 
   <!-- 利用者リスト -->
@@ -69,7 +77,8 @@
   {% else %}
   <div class="text-center text-muted py-5">
     <i class="bi bi-people fs-1 d-block mb-2"></i>
-    {{ terms.beneficiary }}が登録されていません。
+    {% if q or row %}該当する{{ terms.beneficiary }}がいません。{% else %}{{ terms.beneficiary }}が登録されていません。{% endif %}
+    {% if status == 'inactive' and not q and not row %}<div class="small mt-1">退所した人を消すには、「編集」で在籍状況を「退所」にしたあと、その人の画面の下にある「この{{ terms.beneficiary }}を削除する」から行います（管理者だけ）。</div>{% endif %}
     <div class="mt-2">
       <a href="{% url 'beneficiaries:create' %}" class="btn btn-primary btn-sm">
         最初の{{ terms.beneficiary }}を登録する

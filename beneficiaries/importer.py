@@ -17,7 +17,7 @@ import re
 
 from django.db import transaction
 
-from .models import Beneficiary, Guardian, RecipientCertificate
+from .models import Beneficiary, Guardian, RecipientCertificate, to_hiragana
 
 # (キー, 見出し, 必須, 書き方の説明, 雛形の例)
 COLUMNS = [
@@ -206,7 +206,7 @@ def _children_start(rows):
 
 def _hira(s):
     """カタカナ → ひらがな（台帳のふりがなはひらがな）"""
-    return ''.join(chr(ord(ch) - 0x60) if 0x30A1 <= ord(ch) <= 0x30F6 else ch for ch in (s or ''))
+    return to_hiragana(s)
 
 
 def _fmt_date(v):

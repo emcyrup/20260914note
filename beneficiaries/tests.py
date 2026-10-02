@@ -890,3 +890,80 @@ class RyoikuConflictTests(TestCase):
         self.assertContains(res, '他の職員が')
         k.refresh_from_db()
         self.assertEqual(k.summary, '他の職員')
+
+
+class ListOrderTests(TestCase):
+    """利用者一覧の 50 音順（ふりがなの無い人は最後・行の絞り込み・カタカナはひらがなに）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='はぴねす')
+        StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f)
+        self.client.login(username='st', password='pw12345678')
+        d = datetime.date(2018, 1, 1)
+        for ln, fn, lk, fk in [('田中', '太郎', 'たなか', 'たろう'), ('佐藤', '花', 'サトウ', 'ハナ'), ('渡辺', '空', '', ''),
+                               ('青木', '子', 'あおき', 'こ'), ('高橋', '一', 'たかはし', 'はじめ')]:
+            Beneficiary.objects.create(facility=self.f, last_name=ln, first_name=fn, last_name_kana=lk, first_name_kana=fk, date_of_birth=d)
+
+    def test_kana_order_blank_last_and_rows(self):
+        b = Beneficiary.objects.get(last_name='佐藤')
+        self.assertEqual((b.last_name_kana, b.first_name_kana), ('さとう', 'はな'))     # 保存でひらがなに
+        names = [x.last_name for x in self.client.get(reverse('beneficiaries:list')).context['beneficiaries']]
+        self.assertEqual(names, ['青木', '佐藤', '高橋', '田中', '渡辺'])              # ふりがな無しは最後
+        names = [x.last_name for x in self.client.get(reverse('beneficiaries:list') + '?row=た').context['beneficiaries']]
+        self.assertEqual(names, ['高橋', '田中'])
+        names = [x.last_name for x in self.client.get(reverse('beneficiaries:list') + '?row=他').context['beneficiaries']]
+        self.assertEqual(names, ['渡辺'])
+        self.assertContains(self.client.get(reverse('beneficiaries:list')), 'ふりがな無し')
+
+
+class BeneficiaryDeleteTests(TestCase):
+    """退所した利用者の削除（管理者だけ・氏名の確認・関連する記録とファイルも消える）"""
+
+    def setUp(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from .models import BeneficiaryDocument
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True)
+        self.admin = StaffAccount.objects.create_user('adm', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.staff = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f)
+        self.b = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', last_name_kana='あおき',
+                                            first_name_kana='こ', date_of_birth=datetime.date(2019, 4, 1), status='inactive')
+        self.doc = BeneficiaryDocument.objects.create(beneficiary=self.b, file_name='a.pdf', file=SimpleUploadedFile('a.pdf', b'%PDF-1.4 x'))
+        from support_plans.models import SupportPlan
+        SupportPlan.objects.create(facility=self.f, beneficiary=self.b, title='第1期', created_by=self.admin)
+        from therapy.models import TherapyRecord
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.b, date=datetime.date(2026, 9, 1))
+        self.url = reverse('beneficiaries:delete', args=[self.b.pk])
+
+    def test_only_admin_and_only_inactive(self):
+        self.client.login(username='st', password='pw12345678')
+        res = self.client.post(self.url, {'confirm_name': '青木 子', 'agree': '1'}, follow=True)
+        self.assertContains(res, '管理者だけ')
+        self.assertTrue(Beneficiary.objects.filter(pk=self.b.pk).exists())
+        self.client.login(username='adm', password='pw12345678')
+        self.b.status = 'active'
+        self.b.save()
+        res = self.client.get(self.url, follow=True)
+        self.assertContains(res, '在籍中の人は削除できません')
+        self.assertNotContains(self.client.get(reverse('beneficiaries:detail', args=[self.b.pk])), 'を削除する</a>')
+
+    def test_confirm_and_delete(self):
+        from support_plans.models import SupportPlan
+        from therapy.models import TherapyRecord
+        self.client.login(username='adm', password='pw12345678')
+        res = self.client.get(reverse('beneficiaries:detail', args=[self.b.pk]))
+        self.assertContains(res, 'この利用者を削除する')
+        res = self.client.get(self.url)
+        self.assertContains(res, '個別支援計画：1 件')
+        self.assertContains(res, '療育記録：1 件')
+        self.assertContains(res, '5 年間')
+        res = self.client.post(self.url, {'confirm_name': '青木 太郎', 'agree': '1'}, follow=True)
+        self.assertContains(res, '削除していません')
+        self.assertTrue(Beneficiary.objects.filter(pk=self.b.pk).exists())
+        storage, name = self.doc.file.storage, self.doc.file.name
+        self.assertTrue(storage.exists(name))
+        res = self.client.post(self.url, {'confirm_name': '青木　子', 'agree': '1'}, follow=True)   # 全角スペースでもよい
+        self.assertContains(res, '「青木 子」を削除しました')
+        self.assertFalse(Beneficiary.objects.filter(pk=self.b.pk).exists())
+        self.assertFalse(SupportPlan.objects.exists())
+        self.assertFalse(TherapyRecord.objects.exists())
+        self.assertFalse(storage.exists(name))

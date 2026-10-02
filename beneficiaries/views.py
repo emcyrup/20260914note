@@ -4,7 +4,7 @@ import base64
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, DetailView, CreateView, UpdateView
 from django.views import View
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.http import Http404, JsonResponse
 from django.contrib import messages
@@ -12,7 +12,7 @@ from django.db import models as db_models
 from django.conf import settings
 import anthropic
 
-from .models import Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guardian, RecipientCertificate, BeneficiaryDocument, DOCUMENT_EXTENSIONS, DOCUMENT_MAX_BYTES
+from .models import Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guardian, RecipientCertificate, BeneficiaryDocument, DOCUMENT_EXTENSIONS, DOCUMENT_MAX_BYTES, KANA_ROWS
 from .forms import BeneficiaryForm, BeneficiaryOfficeForm, GuardianForm, RecipientCertificateForm
 from facilities.context_processors import get_terms
 from config.concurrency import check_conflict
@@ -44,13 +44,101 @@ class BeneficiaryListView(LoginRequiredMixin, ListView):
         status = self.request.GET.get('status', Beneficiary.STATUS_ACTIVE)
         if status:
             qs = qs.filter(status=status)
-        return qs
+        # 50 音の行で絞る（row=か など。row=他 はふりがなの無い人）
+        row = self.request.GET.get('row', '')
+        chars = dict(KANA_ROWS).get(row)
+        if chars:
+            cond = db_models.Q()
+            for ch in chars:
+                cond |= db_models.Q(last_name_kana__startswith=ch)
+            qs = qs.filter(cond)
+        elif row == '他':
+            qs = qs.filter(last_name_kana='')
+        # 50 音順。ふりがなの無い人は最後（かなが空だと先頭に来てしまうので）
+        return qs.annotate(no_kana=db_models.Case(db_models.When(last_name_kana='', then=1), default=0,
+                                                  output_field=db_models.IntegerField())) \
+                 .order_by('no_kana', 'last_name_kana', 'first_name_kana', 'last_name', 'first_name', 'pk')
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['q'] = self.request.GET.get('q', '')
         ctx['status'] = self.request.GET.get('status', Beneficiary.STATUS_ACTIVE)
+        ctx['row'] = self.request.GET.get('row', '')
+        ctx['kana_rows'] = [r for r, _ in KANA_ROWS]
         return ctx
+
+
+# =============================================
+# 利用者の削除（退所した人だけ。管理者だけ）
+# =============================================
+RETENTION_NOTE = '障害児通所支援の記録（支援計画・サービス提供の記録など）は、サービスを終えた日から 5 年間の保存が求められています。'
+
+
+def related_counts(b):
+    """削除のときに一緒に消えるものの件数（画面で確かめてもらう）"""
+    from records.models import DailyRecord
+    rows = [
+        ('療育記録', b.therapy_records.count()),
+        ('予約', b.reservations.count()),
+        ('月の利用希望', b.monthly_requests.count()),
+        ('アセスメント・資料', b.assessments.count()),
+        ('書類・画像', b.documents.count()),
+        ('書類から分かっていること', b.knowledge.count()),
+        ('個別支援計画', b.support_plans.count()),
+        ('日誌（記録）', DailyRecord.objects.filter(beneficiary=b).count()),
+        ('来所予定', b.scheduled_visits.count()),
+        ('受給者証', b.recipient_certificates.count()),
+        ('保護者', b.guardians.count()),
+    ]
+    return [(label, n) for label, n in rows if n]
+
+
+class BeneficiaryDeleteView(LoginRequiredMixin, View):
+    """
+    退所した利用者を、関連する記録・書類ごと消す。戻せないので確認画面を挟み、管理者だけができる。
+    在籍中の人は消せない（先に「編集」で在籍状況を「退所」にする）。
+    """
+
+    def _get(self, request, pk):
+        b = get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
+        if not (request.user.is_admin or request.user.is_superuser):
+            messages.error(request, f'{get_terms(request.user.facility)["beneficiary"]}の削除は管理者だけができます。')
+            return b, redirect('beneficiaries:detail', pk=pk)
+        if b.status != Beneficiary.STATUS_INACTIVE:
+            messages.error(request, '在籍中の人は削除できません。先に「編集」で在籍状況を「退所」にしてください。')
+            return b, redirect('beneficiaries:detail', pk=pk)
+        return b, None
+
+    def get(self, request, pk):
+        b, bounce = self._get(request, pk)
+        if bounce:
+            return bounce
+        return render(request, 'beneficiaries/delete.html',
+                      {'beneficiary': b, 'counts': related_counts(b), 'retention_note': RETENTION_NOTE})
+
+    def post(self, request, pk):
+        b, bounce = self._get(request, pk)
+        if bounce:
+            return bounce
+        if request.POST.get('confirm_name', '').replace('\u3000', ' ').strip() != b.full_name.strip() \
+                or not request.POST.get('agree'):
+            messages.error(request, '氏名が合っていないか、確認の印が付いていません。削除していません。')
+            return redirect('beneficiaries:delete', pk=pk)
+        name = b.full_name
+        # ファイルは DB を消したあとに消す（途中で失敗しても DB と食い違わないように）
+        from records.models import DailyRecordPhoto
+        files = [d.file for d in b.documents.all()] + [a.file for a in b.assessments.all() if a.file] \
+            + [c.scanned_image for c in b.recipient_certificates.all() if c.scanned_image] \
+            + [ph.photo for ph in DailyRecordPhoto.objects.filter(daily_record__beneficiary=b) if ph.photo]
+        b.support_plans.all().delete()        # PROTECT なので先に消す
+        b.delete()
+        for f in files:
+            try:
+                f.storage.delete(f.name)
+            except Exception:       # ファイルが既に無いなどは無視（DB は消えている）
+                pass
+        messages.success(request, f'「{name}」を削除しました。')
+        return redirect(f"{reverse('beneficiaries:list')}?status=inactive")
 
 
 # =============================================

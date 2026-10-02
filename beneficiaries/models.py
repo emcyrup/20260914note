@@ -21,6 +21,19 @@ def _line_code_expiry():
     return timezone.now() + LINE_CODE_TTL
 
 
+def to_hiragana(s):
+    """カタカナ → ひらがな（長音・記号はそのまま）。前後の空白と全角スペースは取る"""
+    return ''.join(chr(ord(ch) - 0x60) if 0x30A1 <= ord(ch) <= 0x30F6 else ch for ch in (s or '')).replace('\u3000', ' ').strip()
+
+
+# 50 音の行（利用者一覧の絞り込み）。濁音・半濁音・小書きも同じ行に入れる
+KANA_ROWS = [
+    ('あ', 'あいうえおぁぃぅぇぉ'), ('か', 'かきくけこがぎぐげごゕゖ'), ('さ', 'さしすせそざじずぜぞ'),
+    ('た', 'たちつてとだぢづでどっ'), ('な', 'なにぬねの'), ('は', 'はひふへほばびぶべぼぱぴぷぺぽ'),
+    ('ま', 'まみむめも'), ('や', 'やゆよゃゅょ'), ('ら', 'らりるれろ'), ('わ', 'わをんゐゑゎ'),
+]
+
+
 class Beneficiary(models.Model):
     """
     利用者（子ども）の基本情報。
@@ -107,6 +120,12 @@ class Beneficiary(models.Model):
 
     def __str__(self):
         return f'{self.last_name} {self.first_name}'
+
+    def save(self, *args, **kwargs):
+        # ふりがなはひらがなにそろえる（カタカナ・全角スペース混じりでも 50 音順に並ぶように）
+        self.last_name_kana = to_hiragana(self.last_name_kana)
+        self.first_name_kana = to_hiragana(self.first_name_kana)
+        super().save(*args, **kwargs)
 
     @property
     def full_name(self):
