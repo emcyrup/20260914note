@@ -371,9 +371,71 @@ class SpeechTranscribeTests(TestCase):
         from django.urls import reverse
         with override_settings(GOOGLE_SPEECH_API_KEY='k'):
             res = self.client.get(reverse('minutes:index'))
-            self.assertContains(res, "window.VOICE_INPUT_SERVER = {url: '/ai/transcribe/'}")
+            self.assertContains(res, "window.VOICE_INPUT_SERVER = {url: '/ai/transcribe/', diarization: true}")
             self.assertContains(res, 'data-voice-speakers="mn-speakers"')      # 話者を分けるスイッチ
         with override_settings(GOOGLE_SPEECH_API_KEY=''):
             res = self.client.get(reverse('minutes:index'))
             self.assertContains(res, 'window.VOICE_INPUT_SERVER = null')
             self.assertNotContains(res, 'id="mn-speakers"')                     # キーが無ければスイッチも出ない
+
+
+class WhisperLocalTests(TestCase):
+    """サーバー内の文字起こし（faster-whisper）。モデルは偽物で、流れだけ確かめる"""
+
+    def setUp(self):
+        from facilities.models import Facility
+        from accounts.models import StaffAccount
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f)
+        self.client.login(username='ryo', password='pw12345678')
+        self.url = reverse('ai_assist:transcribe')
+
+    def wav(self, seconds=2):
+        import struct
+        pcm = b'\x00\x10' * (16000 * seconds)
+        return (b'RIFF' + struct.pack('<I', 36 + len(pcm)) + b'WAVEfmt ' + struct.pack('<IHHIIHH', 16, 1, 1, 16000, 32000, 2, 16)
+                + b'data' + struct.pack('<I', len(pcm)) + pcm)
+
+    def fake_model(self, text):
+        from types import SimpleNamespace
+        model = mock.Mock()
+        model.transcribe.return_value = ([SimpleNamespace(text=' ' + text + ' ')], SimpleNamespace(language='ja'))
+        return model
+
+    @override_settings(GOOGLE_SPEECH_API_KEY='', WHISPER_MODEL='small')
+    def test_backend_and_transcribe(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from ai_assist import speech
+        self.assertEqual((speech.backend(), speech.enabled(), speech.diarization()), ('whisper', True, False))
+        with mock.patch('ai_assist.whisper_local.load', return_value=self.fake_model('きょうは晴れ。')) as load:
+            res = self.client.post(self.url, {'audio': SimpleUploadedFile('v.wav', self.wav(), content_type='audio/wav'), 'speakers': '1'})
+            self.assertEqual(res.json()['text'], 'きょうは晴れ。')
+            kwargs = load.return_value.transcribe.call_args.kwargs
+            self.assertEqual((kwargs['language'], kwargs['beam_size'], kwargs['vad_filter']), ('ja', 2, True))
+            self.assertEqual(len(load.return_value.transcribe.call_args.args[0]), 32000)   # float32 の配列（2 秒）
+        with mock.patch('ai_assist.whisper_local.load', return_value=self.fake_model('ご視聴ありがとうございました')):
+            res = self.client.post(self.url, {'audio': SimpleUploadedFile('v.wav', self.wav(), content_type='audio/wav')})
+            self.assertEqual(res.json()['text'], '')      # 無音への決まり文句は捨てる
+
+    @override_settings(GOOGLE_SPEECH_API_KEY='k', WHISPER_MODEL='small', SPEECH_BACKEND='whisper')
+    def test_backend_choice_and_minutes_switch_buttons(self):
+        from ai_assist import speech
+        self.assertEqual(speech.backend(), 'whisper')
+        with override_settings(SPEECH_BACKEND=''):
+            self.assertEqual(speech.backend(), 'google')
+        with override_settings(GOOGLE_SPEECH_API_KEY='', WHISPER_MODEL=''):
+            self.assertEqual((speech.backend(), speech.enabled()), ('', False))
+        res = self.client.get(reverse('minutes:index'))
+        self.assertContains(res, 'id="mn-speaker-switch"')
+        self.assertContains(res, 'data-speaker="3"')
+        self.assertContains(res, 'diarization: false')
+        with override_settings(SPEECH_BACKEND='google'):
+            res = self.client.get(reverse('minutes:index'))
+            self.assertNotContains(res, 'id="mn-speaker-switch"')
+            self.assertContains(res, 'diarization: true')
+
+    @override_settings(GOOGLE_SPEECH_API_KEY='', WHISPER_MODEL='')
+    def test_disabled_message(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        res = self.client.post(self.url, {'audio': SimpleUploadedFile('v.wav', self.wav(), content_type='audio/wav')})
+        self.assertIn('WHISPER_MODEL', res.json()['error'])

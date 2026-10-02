@@ -182,6 +182,12 @@ GCP のサーバーをやめるときは、`RYOIKU_DEPLOY_HOST` と `RYOIKU_DEPL
 - Google Cloud の API キーを「IP アドレス」で制限している場合は、AWS サーバーの IP（外向きの IP。`curl -s https://api.ipify.org` で確認）を許可に足す。制限がキーの種類（Cloud Speech-to-Text API だけ）だけなら変更なし。
 - `.env` の `GOOGLE_SPEECH_API_KEY` に同じキーを入れて `bash deploy/venv-deploy.sh --restart`。
 
+**Google を使わずにサーバーの中で文字にする（Whisper）**
+- Actions → **Speech check (yours)** → Run workflow でモデル名（まず `small`）を入れて実行すると、サーバーに `faster-whisper` を入れ、モデルを取得し、テスト音 15 秒の文字起こしにかかる時間を出します（CPU 数・メモリ・時間だけ）。15 秒の音が 10 秒以内なら実用になります。遅ければ `WHISPER_THREADS` を増やす（共用サーバーなので CPU 数の半分まで）か、モデルを小さくします。
+- 使うときは `.env` に `WHISPER_MODEL=small`（必要なら `WHISPER_THREADS=2`）を入れて `bash deploy/venv-deploy.sh`（配備で `requirements-speech.txt` が入る）。`GOOGLE_SPEECH_API_KEY` は空でよい（両方あるときは `SPEECH_BACKEND=whisper`）。
+- モデルは `~/.cache/huggingface`（`WHISPER_DIR` で変更可）に残ります（small 約 250MB・medium 約 1.5GB）。サーバーから huggingface.co につながる必要があります。
+- 声で話者を分ける機能は無いので、議事録の「話者を分ける」は「話者1・2・3」のボタンで切り替える形になります。
+
 ## 8. プロバイダに依頼しておくとよいこと（開発環境と同じ）
 
 nginx の `michinote.yours.ai-labo.cloud` の server ブロックに、開発環境と同じ3点をお願いします（`deploy/nginx.example.conf` 参照。ポートは 8030）。

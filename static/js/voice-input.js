@@ -147,6 +147,7 @@
     clearInterval(a.timer);
     clearTimeout(a.retryTimer);
     keepAwake(a, false);
+    paintSwitch(a);
     if (a.server) {
       stopServer(a);
       a.btn.classList.remove('recording');
@@ -382,6 +383,19 @@
     var el = id && document.getElementById(id);
     return !!(el && el.checked && SERVER);
   }
+  // 声で話者を分けられる（Google）か。分けられないとき（Whisper）は、画面の「話者1・2・3」のボタンで切り替える
+  function byVoice() { return !!(SERVER && SERVER.diarization); }
+  function manualSpeakers(a) { return !!(a && a.speakers && !byVoice()); }
+  function switchBox(a) {
+    var id = a && a.btn.getAttribute('data-voice-speaker-switch');
+    return id ? document.getElementById(id) : null;
+  }
+  function paintSwitch(a) {
+    var box = switchBox(a);
+    if (!box) return;
+    box.classList.toggle('d-none', !(active === a && manualSpeakers(a)));
+    box.querySelectorAll('[data-speaker]').forEach(function (b) { b.classList.toggle('active', String(a.speaker) === b.getAttribute('data-speaker')); });
+  }
 
   function csrf() {
     var el = document.querySelector('[name=csrfmiddlewaretoken]');
@@ -415,7 +429,8 @@
   function showBusy(a) {
     var box = liveBox(a.target);
     if (uploads > 0) box.textContent = '文字にしています…（' + uploads + '）';
-    else if (active === a) box.textContent = a.speakers ? '録音中：話の区切り（10〜40秒）ごとに、話者を分けて文字になります' : '録音中：ひと息ごとに文字になります';
+    else if (active === a) box.textContent = manualSpeakers(a) ? '録音中：話す人が替わったら「話者」のボタンを押してください（話者' + a.speaker + '）'
+      : a.speakers ? '録音中：話の区切り（10〜40秒）ごとに、話者を分けて文字になります' : '録音中：ひと息ごとに文字になります';
     else box.textContent = '';
   }
 
@@ -425,14 +440,14 @@
     a.chunks = []; a.samples = 0; a.loud = false; a.quietRun = 0;
     if (!chunks.length) return;
     if (!loud || secs < 0.5) { log('segment ' + secs.toFixed(1) + 's ' + (loud ? 'too short' : 'silent') + ' → skip'); return; }
-    var blob = toWav(chunks, a.rate), n = ++seq;
-    log('segment #' + n + ' ' + secs.toFixed(1) + 's ' + Math.round(blob.size / 1024) + 'KB → upload' + (a.speakers ? ' speakers' : ''));
+    var blob = toWav(chunks, a.rate), n = ++seq, spk = manualSpeakers(a) ? a.speaker : 0;   // 送った時点の話者
+    log('segment #' + n + ' ' + secs.toFixed(1) + 's ' + Math.round(blob.size / 1024) + 'KB → upload' + (a.speakers ? ' speakers' + (spk ? '=' + spk : '') : ''));
     uploads++;
     showBusy(a);
     chain = chain.then(function () {
       var body = new FormData();
       body.append('audio', blob, 'voice.wav');
-      if (a.speakers) body.append('speakers', '1');
+      if (a.speakers && byVoice()) body.append('speakers', '1');
       return fetch(SERVER.url, {method: 'POST', body: body, credentials: 'same-origin', headers: {'X-CSRFToken': csrf()}})
         .then(function (r) { return r.json().catch(function () { return {error: '文字にできませんでした（' + r.status + '）。'}; }); })
         .then(function (d) {
@@ -445,7 +460,7 @@
           }
           a.errors = 0;
           log('segment #' + n + ' text=' + (d.text || '').length);
-          if (d.text) append(a, d.text);
+          if (d.text) append(a, spk ? '話者' + spk + '：' + d.text : d.text);
         })
         .catch(function () { log('segment #' + n + ' network error'); note(a.btn, '通信できず、一部が文字になりませんでした。電波の良い所でお試しください。'); });
     }).then(function () {
@@ -484,7 +499,8 @@
           if (rms > LOUD) { a.loud = true; a.lastHeard = Date.now(); }
           a.quietRun = rms < QUIET ? a.quietRun + 1 : 0;
           var secs = a.samples / a.rate;
-          var segMin = a.speakers ? SPK_MIN : SEG_MIN, segMax = a.speakers ? SPK_MAX : SEG_MAX;
+          var long = a.speakers && byVoice();        // 声で分けるときだけ長め（ボタンで切り替えるときはひと息ごと）
+          var segMin = long ? SPK_MIN : SEG_MIN, segMax = long ? SPK_MAX : SEG_MAX;
           if (secs >= segMax || (secs >= segMin && a.quietRun >= QUIET_RUN)) cut(a);
           if (Date.now() - a.lastHeard > SILENCE_MS) stop('しばらく声が聞こえなかったので止めました。続けるときはもう一度押してください。');
         };
@@ -521,7 +537,7 @@
     var a = {
       btn: btn, target: target, label: btn.innerHTML, compact: !btn.textContent.trim(),
       first: true, started: Date.now(), lastHeard: Date.now(), restarts: 0, lock: null,
-      pending: '', committed: '', lastText: '', speakers: speakersOn(btn),
+      pending: '', committed: '', lastText: '', speakers: speakersOn(btn), speaker: 1,
     };
     if (!SR && !useServer(a)) {
       note(btn, 'このブラウザは音声入力に対応していません。Chrome・Edge・Safari をお使いください。');
@@ -533,6 +549,7 @@
     a.timer = setInterval(function () { paint(a); }, 1000);
     note(btn, '');
     keepAwake(a, true);
+    paintSwitch(a);
     if (useServer(a)) startServer(a);
     else begin(a, 0);
   }
@@ -552,6 +569,18 @@
   };
 
   document.addEventListener('click', function (e) {
+    var sw = e.target.closest && e.target.closest('[data-speaker]');
+    if (sw && active && manualSpeakers(active) && switchBox(active) && switchBox(active).contains(sw)) {
+      e.preventDefault();
+      var n = parseInt(sw.getAttribute('data-speaker'), 10) || 1;
+      if (n !== active.speaker) {
+        if (active.chunks && active.samples) cut(active);   // ここまでの声は前の話者として送る
+        active.speaker = n;
+        log('speaker → ' + n);
+        paintSwitch(active); showBusy(active);
+      }
+      return;
+    }
     var btn = e.target.closest && e.target.closest('[data-voice-target]');
     if (!btn) return;
     e.preventDefault();

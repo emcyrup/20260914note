@@ -160,6 +160,14 @@ AI_TEXT_MODEL = config('AI_TEXT_MODEL', default='claude-opus-5')
 # 音声の文字起こし（Google Cloud Speech-to-Text）。iPhone の音声入力で使う（ai_assist/speech.py）。空なら使わない
 GOOGLE_SPEECH_API_KEY = config('GOOGLE_SPEECH_API_KEY', default='')
 GOOGLE_SPEECH_MODEL = config('GOOGLE_SPEECH_MODEL', default='latest_long')
+# サーバー内の文字起こし（faster-whisper。ai_assist/whisper_local.py）。WHISPER_MODEL を入れると Google の代わりに使う
+# （両方あるときは SPEECH_BACKEND=google / whisper で選ぶ。既定は Google があれば Google）
+SPEECH_BACKEND = config('SPEECH_BACKEND', default='')
+WHISPER_MODEL = config('WHISPER_MODEL', default='')
+WHISPER_COMPUTE = config('WHISPER_COMPUTE', default='int8')
+WHISPER_THREADS = config('WHISPER_THREADS', default=0, cast=int)
+WHISPER_BEAM = config('WHISPER_BEAM', default=2, cast=int)
+WHISPER_DIR = config('WHISPER_DIR', default='')
 # 日誌を保存したときに AI が加算を提案する（API キーが無ければ何もしない）
 AI_ADDON_SUGGESTIONS = config('AI_ADDON_SUGGESTIONS', default=True, cast=bool)
 

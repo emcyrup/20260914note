@@ -120,7 +120,7 @@
     </form>
   </div></div>
 
-  <div class="card">
+  <div class="card" id="records">
     <div class="card-body pb-2 th-list-head">
       <div class="th-card-title"><i class="bi bi-journal-text"></i>これまでの記録{% if ym %}（{{ ym }}）{% endif %}{% if date_from or date_to %}（{{ date_from|date:'n/j'|default:'' }}〜{{ date_to|date:'n/j'|default:'' }}）{% endif %}<span class="th-rec-meta">{{ records|length }} 件</span></div>
       <form method="get" class="th-filter" aria-label="記録を絞る">
@@ -303,7 +303,11 @@
         before = area.value;
         area.value = before.trim() ? before.replace(/\s+$/, '') + '\n' + data.result : data.result;
         area.rows = Math.max(4, Math.min(14, Math.ceil(area.value.length / 45) + area.value.split('\n').length));
-        show('留意点をまとめて記録の最後に足しました（' + data.length + '字' + (data.references ? '・書類から分かっていること ' + data.references + ' 件を参考' : '') + '）。内容を確かめて「追加する」を押してください。', 'info', true);
+        show('留意点をまとめて記録の最後に足しました（' + data.length + '字' + (data.references ? '・書類から分かっていること ' + data.references + ' 件を参考' : '') + '）。そのまま保存します…', 'info', false);
+        // 「追加する」を押さなくても保存する（画面の留意点も一緒に保存。直すのは「これまでの記録」から）
+        var add = function (name, value) { var h = document.createElement('input'); h.type = 'hidden'; h.name = name; h.value = value; form.appendChild(h); };
+        add('auto', '1'); add('cautions', cautions);
+        if (form.requestSubmit) form.requestSubmit(); else form.submit();
       })
       .catch(function () { show('通信できませんでした。もう一度お試しください。', 'danger', false); })
       .finally(function () { btn.disabled = false; btn.innerHTML = label; });

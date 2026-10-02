@@ -111,6 +111,8 @@ echo "code: $(git rev-parse --short HEAD) $(git log -1 --pretty=%s | cut -c1-60)
 # 2) 依存・DB・静的ファイル
 pip install --quiet --upgrade pip wheel >/dev/null 2>&1 || true
 pip install --quiet -r requirements.txt
+# .env に WHISPER_MODEL があれば、サーバー内の文字起こし（faster-whisper）も入れる
+if grep -qE '^WHISPER_MODEL=.+' .env; then pip install --quiet -r requirements-speech.txt; fi
 python manage.py migrate --noinput
 python manage.py collectstatic --noinput --clear >/dev/null
 python manage.py check --deploy --fail-level ERROR

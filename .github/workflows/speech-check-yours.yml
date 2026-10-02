@@ -1,0 +1,58 @@
+# =============================================
+# ゆあーずのサーバーで、Whisper（サーバー内の文字起こし）の速さを測る（手動実行だけ）
+#   Actions → Speech check (yours) → Run workflow → モデル名を入れる
+#   サーバーに faster-whisper を入れ、モデルをダウンロードして、テスト音の文字起こしにかかる時間を出す。
+#   出力は CPU の数・メモリ・時間だけ（音声や個人情報は出ない）。Deploy (yours) と同じ Secrets を使う。
+# =============================================
+name: Speech check (yours)
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "WHISPER_MODEL（small / medium / kotoba-tech/kotoba-whisper-v2.0-faster など）"
+        default: "small"
+        required: true
+      seconds:
+        description: "テスト音の長さ（秒）"
+        default: "15"
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: ${{ secrets.YOURS_APP_DIR || '~/michinoteyours' }}
+  VENV: ${{ secrets.YOURS_VENV || '~/env' }}
+  SSH_PORT: ${{ secrets.YOURS_DEPLOY_SSH_PORT || '22' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.YOURS_DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ env.SSH_PORT }}" -H "${{ secrets.YOURS_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Install faster-whisper and measure
+        env:
+          MODEL: ${{ github.event.inputs.model }}
+          SECONDS_IN: ${{ github.event.inputs.seconds }}
+          REMOTE_APP_DIR: ${{ env.APP_DIR }}
+          REMOTE_VENV: ${{ env.VENV }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${{ env.SSH_PORT }}" "${{ secrets.YOURS_DEPLOY_USER }}@${{ secrets.YOURS_DEPLOY_HOST }}" \
+            "MODEL='$MODEL' SECS='$SECONDS_IN' APP_DIR_IN='$REMOTE_APP_DIR' VENV_IN='$REMOTE_VENV' bash -s" <<'REMOTE'
+            set -euo pipefail
+            APP_DIR=$(eval echo "$APP_DIR_IN")
+            VENV=$(eval echo "$VENV_IN")
+            cd "$APP_DIR"
+            source "$VENV/bin/activate"
+            echo "python: $(python --version 2>&1)"
+            echo "disk: $(df -h "$HOME" | tail -1 | awk '{print $4 " free"}')"
+            pip install --quiet -r requirements-speech.txt
+            WHISPER_MODEL="$MODEL" python manage.py speech_check --seconds "${SECS:-15}"
+          REMOTE

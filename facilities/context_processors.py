@@ -1,6 +1,8 @@
 """呼び方・ロゴ・配色をすべてのテンプレートに渡す"""
 from django.conf import settings
 
+from ai_assist import speech
+
 
 DEFAULT_TERMS = {'staff': '職員', 'beneficiary': '利用者'}
 
@@ -50,7 +52,8 @@ def branding(request):
         'trial_ai': _trial_ai(facility),
         'planbook_unread': _planbook_unread(facility) if facility.is_planbook else 0,
         'pending_staff_count': _pending_staff(user, facility),
-        'speech_server': bool(settings.GOOGLE_SPEECH_API_KEY),
+        'speech_server': speech.enabled(),
+        'speech_diarization': speech.diarization(),
         'journal_sections': facility.journal_section_keys(),
         **standalone_context(),
         **developer_context(user),

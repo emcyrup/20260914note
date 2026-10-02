@@ -294,6 +294,17 @@ class ChildView(TherapyEnabledMixin, View):
                                                      status=Reservation.STATUS_CONFIRMED).first()
         TherapyRecord.objects.create(facility=facility, beneficiary=beneficiary, reservation=reservation,
                                      created_by=request.user, **fields)
+        if p.get('auto') == '1':
+            # 「留意点から記録に追記」のあとの自動保存。画面の留意点（保存前のものも）を一緒に保存する
+            profile, _ = TherapyProfile.objects.get_or_create(beneficiary=beneficiary)
+            cautions = p.get('cautions', '').strip()[:CAUTIONS_MAX]
+            if 'cautions' in p and cautions != profile.cautions:
+                profile.cautions = cautions
+                profile.save()
+            messages.success(request, f'{day:%-m/%-d} の療育記録を留意点から作って保存しました'
+                                      f'{"（留意点も保存）" if "cautions" in p else ""}。'
+                                      '直すときは下の「これまでの記録」の「直す」からできます。')
+            return redirect(f"{reverse('therapy:child', args=[pk])}#records")
         messages.success(request, f'{day:%-m/%-d} の療育記録を追加しました。')
         return back
 

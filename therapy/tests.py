@@ -70,6 +70,15 @@ class TherapyTests(TestCase):
         res = self.client.post(self.url, {'action': 'delete', 'record': rec.pk})
         self.assertFalse(TherapyRecord.objects.exists())
 
+    def test_auto_save_after_summary_keeps_cautions(self):
+        # 「留意点から記録に追記」のあとは「追加する」を押さなくても保存し、保存前の留意点も一緒に保存する
+        res = self.client.post(self.url, {'action': 'add', 'auto': '1', 'date': '2026-10-03', 'staff': self.user.pk,
+                                          'activity_1': 'トランポリン', 'body': '留意点からの文。',
+                                          'cautions': '揺れる遊びが好き。'}, follow=True)
+        self.assertContains(res, '留意点から作って保存しました（留意点も保存）')
+        self.assertEqual(TherapyRecord.objects.get(beneficiary=self.kid).body, '留意点からの文。')
+        self.assertEqual(TherapyProfile.objects.get(beneficiary=self.kid).cautions, '揺れる遊びが好き。')
+
     def test_pdf_pages_five_per_sheet(self):
         for i in range(7):
             TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date(2026, 10, 1 + i),

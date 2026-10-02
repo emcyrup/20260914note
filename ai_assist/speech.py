@@ -1,5 +1,5 @@
 """
-音声の文字起こし（Google Cloud Speech-to-Text）。
+音声の文字起こし（Google Cloud Speech-to-Text か、サーバー内の Whisper）。
 
 iPhone・iPad のブラウザの音声認識は、1ページで1回しか文字にならないことがある（2回目以降は音が届かない）。
 そのため iPhone では、画面で録った音声（16kHz・モノラルの WAV を1分未満ずつ）をサーバーに送り、ここで文字にする。
@@ -8,6 +8,8 @@ iPhone・iPad のブラウザの音声認識は、1ページで1回しか文字�
   GOOGLE_SPEECH_API_KEY  … Google Cloud の API キー（Cloud Speech-to-Text API だけに制限したもの）。空なら使わない
   GOOGLE_SPEECH_MODEL    … 認識モデル（既定 latest_long。使えないときは default でやり直す）
 音声はここで Google に送るだけで、サーバーには残さない。
+  WHISPER_MODEL          … 入れると Google の代わりにサーバーの中で文字にする（ai_assist/whisper_local.py。話者分けは無い）
+  SPEECH_BACKEND         … google / whisper。両方の設定があるときにどちらを使うか（既定は Google）
 
 話者を分ける（speakers=True）：Google の speaker diarization で、区切りの中の発言を「話者1：…」「話者2：…」の行にする。
 番号は区切り（10〜40 秒）ごとに付け直されるので、同じ人が別の番号になることがある（議事録の AI 整理で名前や役割にまとめる）。
@@ -31,8 +33,25 @@ class SpeechError(Exception):
     """画面に出せる文のエラー"""
 
 
+def backend():
+    """使う文字起こし：'google'・'whisper'・''（無し）"""
+    google = bool(getattr(settings, 'GOOGLE_SPEECH_API_KEY', ''))
+    whisper = bool((getattr(settings, 'WHISPER_MODEL', '') or '').strip())
+    want = (getattr(settings, 'SPEECH_BACKEND', '') or '').strip().lower()
+    if want == 'whisper' and whisper:
+        return 'whisper'
+    if want == 'google' and google:
+        return 'google'
+    return 'google' if google else 'whisper' if whisper else ''
+
+
 def enabled():
-    return bool(getattr(settings, 'GOOGLE_SPEECH_API_KEY', ''))
+    return bool(backend())
+
+
+def diarization():
+    """声で話者を分けられるか（Google だけ。Whisper は画面の「話者」ボタンで切り替える）"""
+    return backend() == 'google'
 
 
 def read_wav(data):
@@ -110,8 +129,17 @@ def speaker_lines(results):
 def transcribe(wav_bytes, speakers=False):
     """WAV（16kHz・モノラル・16bit）を文字にする。聞き取れなかったときは空文字。speakers=True で話者ごとの行にする"""
     if not enabled():
-        raise SpeechError('音声を文字にする設定（GOOGLE_SPEECH_API_KEY）がサーバーにありません。管理者に設定を依頼してください。')
+        raise SpeechError('音声を文字にする設定（GOOGLE_SPEECH_API_KEY か WHISPER_MODEL）がサーバーにありません。管理者に設定を依頼してください。')
     pcm = read_wav(wav_bytes)
+    if backend() == 'whisper':
+        from . import whisper_local
+        try:
+            return whisper_local.transcribe_pcm(pcm)
+        except whisper_local.WhisperError as e:
+            raise SpeechError(str(e)) from e
+        except Exception as e:      # noqa: BLE001 モデルの不具合など
+            logger.exception('Whisper の文字起こしでエラー')
+            raise SpeechError(f'音声を文字にできませんでした（{type(e).__name__}）。') from e
     model = getattr(settings, 'GOOGLE_SPEECH_MODEL', '') or 'latest_long'
     try:
         res = _recognize(pcm, model, True, speakers)
