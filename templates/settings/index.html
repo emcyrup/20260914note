@@ -233,6 +233,14 @@
           <div class="form-text">チェックを外した項目は AI が作らず、日誌の入力・表示にも出ません。AI はこの順番を優先順位として、上の項目ほど丁寧に書きます。</div>
         </div>
       </div>
+      {% if speech_server %}
+      <div class="mt-3">
+        <div class="small fw-semibold mb-1"><i class="bi bi-mic me-1"></i>音声入力でよく使う言葉</div>
+        <textarea name="speech_words" class="form-control form-control-sm" rows="3" maxlength="2000" {% if not is_admin %}disabled{% endif %}
+                  placeholder="例：感覚統合、ビジョントレーニング、モニタリング、サーキット、ABA、ペアレントトレーニング">{{ facility.speech_words }}</textarea>
+        <div class="form-text">サーバーで音声を文字にするときのヒントになります（読点や改行で区切る）。職員・利用者の名前と「やったこと」の活動名は自動で足すので、それ以外の専門用語・地名・略語などを入れてください。</div>
+      </div>
+      {% endif %}
       {% if is_admin %}
       <div class="text-end mt-3"><button class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>保存する</button></div>
       {% else %}

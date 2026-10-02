@@ -483,7 +483,7 @@
 <script src="{% static 'js/dropzone.js' %}?v=1"></script>
 <script src="{% static 'js/shrink-image.js' %}?v=1"></script>
 <script>window.VOICE_INPUT_SERVER = {% if speech_server %}{url: '{% url 'ai_assist:transcribe' %}', diarization: {{ speech_diarization|yesno:'true,false' }}}{% else %}null{% endif %};</script>
-<script src="{% static 'js/voice-input.js' %}?v=12"></script>{% endif %}
+<script src="{% static 'js/voice-input.js' %}?v=13"></script>{% endif %}
 {% block extra_js %}{% endblock %}
 
 {% if user.is_authenticated and user.ui_theme != 'simple' and not reservation_only %}

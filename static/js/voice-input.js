@@ -363,7 +363,9 @@
   // 話者を分けるときは、区切りの中でしか同じ人と分からないので長め（10〜40 秒）にする。
   // iPhone のブラウザの音声認識は、1ページで1回しか文字にならないことがあるため
   var SERVER = window.VOICE_INPUT_SERVER || null;
-  var SEG_MIN = (cfg.segMinSec || 3), SEG_MAX = (cfg.segMaxSec || 15);
+  // サーバーが Whisper（声で話者を分けられない）のときは、前後の文脈が長いほど正しく聞き取れるので区切りを少し長めにする
+  var WHISPER = !!(SERVER && !SERVER.diarization);
+  var SEG_MIN = (cfg.segMinSec || (WHISPER ? 5 : 3)), SEG_MAX = (cfg.segMaxSec || (WHISPER ? 20 : 15));
   var SPK_MIN = (cfg.speakersMinSec || 10), SPK_MAX = (cfg.speakersMaxSec || 40);
   var LOUD = 0.015, QUIET = 0.008, QUIET_RUN = 6;       // 音の大きさ（RMS）のめやす。QUIET_RUN は 4096 サンプルの塊の数（6 ≒ 0.5 秒）
   var uploads = 0, chain = Promise.resolve(), waitingSubmit = null;

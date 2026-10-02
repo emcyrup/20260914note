@@ -6,7 +6,7 @@ Google Cloud Speech-to-Text の代わり。公開モデル（Whisper 系）を `
                      kotoba-tech/kotoba-whisper-v2.0-faster（日本語向け・約 1.5GB）。空なら使わない
   WHISPER_COMPUTE  … 計算の精度（既定 int8。CPU 向け）
   WHISPER_THREADS  … 使う CPU のスレッド数（既定 0 = CPU 数と 4 の小さいほう。共用サーバーを占有しない）
-  WHISPER_BEAM     … 探索の幅（既定 2。大きいほど精度が上がるが遅い）
+  WHISPER_BEAM     … 探索の幅（既定 5。小さくすると速いが精度は下がる）
   WHISPER_DIR      … モデルを置く場所（既定は faster-whisper の既定 ~/.cache/huggingface）
 モデルは最初に使うときにダウンロードされ（huggingface.co）、以後はサーバーに残る。
 `python manage.py speech_check` で、読み込みと文字起こしにかかる時間を測れる。
@@ -100,14 +100,15 @@ def _audio(pcm):
     return np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
 
 
-def transcribe_pcm(pcm, language='ja'):
+def transcribe_pcm(pcm, language='ja', prompt=''):
     """16kHz・モノラル・16bit の PCM を文字にする。聞き取れなければ空文字"""
     audio = _audio(pcm)
     model = load()
     t = time.monotonic()
     with _one_at_a_time():
         segments, _info = model.transcribe(
-            audio, language=language, beam_size=int(getattr(settings, 'WHISPER_BEAM', 2) or 2),
+            audio, language=language, beam_size=int(getattr(settings, 'WHISPER_BEAM', 5) or 5),
+            initial_prompt=prompt or None,      # この分野の言葉・事業所の名前や活動名（固有名詞の聞き取りを助ける）
             vad_filter=True, condition_on_previous_text=False, without_timestamps=True,
         )
         text = ''.join((s.text or '').strip() for s in segments)

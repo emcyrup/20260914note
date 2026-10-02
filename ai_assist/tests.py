@@ -413,7 +413,8 @@ class WhisperLocalTests(TestCase):
             res = self.client.post(self.url, {'audio': SimpleUploadedFile('v.wav', self.wav(), content_type='audio/wav'), 'speakers': '1'})
             self.assertEqual(res.json()['text'], 'きょうは晴れ。')
             kwargs = load.return_value.transcribe.call_args.kwargs
-            self.assertEqual((kwargs['language'], kwargs['beam_size'], kwargs['vad_filter']), ('ja', 2, True))
+            self.assertEqual((kwargs['language'], kwargs['beam_size'], kwargs['vad_filter']), ('ja', 5, True))
+            self.assertIn('療育、放課後等デイサービス', kwargs['initial_prompt'])
             self.assertEqual(len(load.return_value.transcribe.call_args.args[0]), 32000)   # float32 の配列（2 秒）
         with mock.patch('ai_assist.whisper_local._audio', side_effect=lambda pcm: [0.0] * (len(pcm) // 2)), \
                 mock.patch('ai_assist.whisper_local.load', return_value=self.fake_model('ご視聴ありがとうございました')):
@@ -436,6 +437,36 @@ class WhisperLocalTests(TestCase):
             res = self.client.get(reverse('minutes:index'))
             self.assertNotContains(res, 'id="mn-speaker-switch"')
             self.assertContains(res, 'diarization: true')
+
+    @override_settings(GOOGLE_SPEECH_API_KEY='', WHISPER_MODEL='small')
+    def test_prompt_has_facility_words_names_and_activities(self):
+        import datetime
+        from django.core.cache import cache
+        from accounts.models import StaffAccount
+        from beneficiaries.models import Beneficiary
+        from therapy.models import TherapyRecord
+        from ai_assist import speech
+        cache.clear()
+        self.f.use_therapy_record = True
+        self.f.speech_words = '感覚統合、ビジョントレーニング\nサーキット'
+        self.f.save()
+        StaffAccount.objects.filter(username='ryo').update(display_name='土田')
+        kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        Beneficiary.objects.create(facility=self.f, last_name='退所', first_name='済', date_of_birth=datetime.date(2019, 4, 1), status='inactive')
+        TherapyRecord.objects.create(facility=self.f, beneficiary=kid, date=datetime.date(2026, 9, 1), activities=['トランポリン', 'ウレタン棒'])
+        p = speech.speech_prompt(self.f)
+        for w in ('感覚統合', 'ビジョントレーニング', 'サーキット', '土田', '青木子', 'トランポリン', 'ウレタン棒'):
+            self.assertIn(w, p)
+        self.assertNotIn('退所済', p)                 # 退所した人の名前は入れない
+        self.assertLessEqual(len(p), speech.PROMPT_MAX)
+        self.assertEqual(speech.speech_prompt(None), speech.PROMPT_BASE)
+        # 設定画面で言葉を直せる（管理者）
+        StaffAccount.objects.filter(username='ryo').update(role=StaffAccount.ROLE_ADMIN)
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, 'name="speech_words"')
+        self.client.post(reverse('facilities:feature_settings'), {'journal_sections': ['reaction'], 'speech_words': 'ペアトレ、ABA'})
+        self.f.refresh_from_db()
+        self.assertEqual(self.f.speech_words, 'ペアトレ、ABA')
 
     @override_settings(GOOGLE_SPEECH_API_KEY='', WHISPER_MODEL='')
     def test_disabled_message(self):
