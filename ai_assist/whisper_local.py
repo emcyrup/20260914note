@@ -94,10 +94,15 @@ def _one_at_a_time():
             fcntl.flock(f, fcntl.LOCK_UN)
 
 
+def _audio(pcm):
+    """16bit の PCM → -1〜1 の float32 配列（faster-whisper が受け取る形）"""
+    import numpy as np
+    return np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+
+
 def transcribe_pcm(pcm, language='ja'):
     """16kHz・モノラル・16bit の PCM を文字にする。聞き取れなければ空文字"""
-    import numpy as np
-    audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+    audio = _audio(pcm)
     model = load()
     t = time.monotonic()
     with _one_at_a_time():

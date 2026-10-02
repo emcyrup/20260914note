@@ -407,13 +407,16 @@ class WhisperLocalTests(TestCase):
         from django.core.files.uploadedfile import SimpleUploadedFile
         from ai_assist import speech
         self.assertEqual((speech.backend(), speech.enabled(), speech.diarization()), ('whisper', True, False))
-        with mock.patch('ai_assist.whisper_local.load', return_value=self.fake_model('きょうは晴れ。')) as load:
+        # numpy は faster-whisper と一緒に入る（CI には無い）ので、配列への変換は置き換える
+        with mock.patch('ai_assist.whisper_local._audio', side_effect=lambda pcm: [0.0] * (len(pcm) // 2)), \
+                mock.patch('ai_assist.whisper_local.load', return_value=self.fake_model('きょうは晴れ。')) as load:
             res = self.client.post(self.url, {'audio': SimpleUploadedFile('v.wav', self.wav(), content_type='audio/wav'), 'speakers': '1'})
             self.assertEqual(res.json()['text'], 'きょうは晴れ。')
             kwargs = load.return_value.transcribe.call_args.kwargs
             self.assertEqual((kwargs['language'], kwargs['beam_size'], kwargs['vad_filter']), ('ja', 2, True))
             self.assertEqual(len(load.return_value.transcribe.call_args.args[0]), 32000)   # float32 の配列（2 秒）
-        with mock.patch('ai_assist.whisper_local.load', return_value=self.fake_model('ご視聴ありがとうございました')):
+        with mock.patch('ai_assist.whisper_local._audio', side_effect=lambda pcm: [0.0] * (len(pcm) // 2)), \
+                mock.patch('ai_assist.whisper_local.load', return_value=self.fake_model('ご視聴ありがとうございました')):
             res = self.client.post(self.url, {'audio': SimpleUploadedFile('v.wav', self.wav(), content_type='audio/wav')})
             self.assertEqual(res.json()['text'], '')      # 無音への決まり文句は捨てる
 
