@@ -72,10 +72,11 @@
       {% if b.pending %}<span class="text-muted">未入力 {{ b.pending }}</span>{% endif %}
     </div>
     {% for r in b.reservations %}
-    <div class="db-row{% if r.attendance %} {{ r.attendance }}{% endif %}">
+    <div class="db-row{% if r.attendance %} {{ r.attendance }}{% endif %}{% if r.pair_names %} pair-ng{% endif %}">
       <div class="db-time">{{ r.time_label }}</div>
       <div class="db-name">
         {% if r.beneficiary_id %}<a href="{% url 'therapy:child' r.beneficiary_id %}?date={{ r.date|date:'Y-m-d' }}{% if r.start_time %}&time={{ r.start_time|time:'H:i' }}{% endif %}" class="text-decoration-none text-reset" title="療育記録を書く">{{ r.display_name }}</a>{% else %}{{ r.display_name }}{% endif %}
+        {% if r.pair_names %}<span class="badge text-bg-danger ms-1" style="font-size:.65rem;">組み合わせNG：{{ r.pair_names|join:'・' }}</span>{% endif %}
         {% if r.note %}<span class="note">{{ r.note }}</span>{% endif %}
       </div>
       <form method="post" class="db-att" title="実績">

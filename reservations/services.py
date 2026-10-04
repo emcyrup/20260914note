@@ -217,14 +217,47 @@ def pair_conflicts(beneficiary, day, exclude_pk=None):
     return sorted({r.beneficiary.full_name for r in qs})
 
 
+# 職員側の操作（職員の画面・スタッフのグループ・月間予定表の割り当て）だけ組み合わせで止める。
+# 保護者からの申し込み（入力ページ・LINE）は止めずに受け、職員の画面で赤く示す（pair_names）
 STAFF_SOURCES = (Reservation.SOURCE_STAFF, Reservation.SOURCE_GROUP, Reservation.SOURCE_REQUEST)
 
 
-def pair_error(day, who, names, show_names=True):
-    """組み合わせで入れられないときの文。保護者に見せるとき（show_names=False）は相手の名前を出さない"""
-    if show_names:
-        return ReservationError(f'{jp_date(day)} は {who} さんと同じ日にできない {"・".join(names)} さんの予約があるため入れられません。')
-    return ReservationError(f'{jp_date(day)} は、ほかのご利用との組み合わせの都合でお受けできません。別の日をお選びください。')
+def pair_error(day, who, names):
+    """組み合わせで入れられないときの文（職員向け）"""
+    return ReservationError(f'{jp_date(day)} は {who} さんと同じ日にできない {"・".join(names)} さんの予約があるため入れられません。')
+
+
+def pair_map(facility, names=False):
+    """同じ日にできない利用者の組み合わせ：{利用者ID: {相手のID…}}（names=True なら相手の名前のリスト）。在籍中だけ"""
+    from beneficiaries.models import Beneficiary
+    out = {}
+    rows = (Beneficiary.cannot_pair.through.objects
+            .filter(from_beneficiary__facility=facility, to_beneficiary__status=Beneficiary.STATUS_ACTIVE,
+                    from_beneficiary__status=Beneficiary.STATUS_ACTIVE)
+            .select_related('to_beneficiary').order_by('to_beneficiary__last_name_kana', 'to_beneficiary__first_name_kana'))
+    for row in rows:
+        if names:
+            out.setdefault(row.from_beneficiary_id, []).append(row.to_beneficiary.full_name)
+        else:
+            out.setdefault(row.from_beneficiary_id, set()).add(row.to_beneficiary_id)
+    return out
+
+
+def mark_pairs(facility, reservations):
+    """
+    画面用：それぞれの予約に pair_names（同じ日に入っている「同じ日にできない利用者」の名前）を付ける。
+    渡す予約には、その日の有効な予約がぜんぶ入っていること（日の画面・月間予定表・きょうの予定）
+    """
+    reservations = list(reservations)
+    pairs = pair_map(facility)
+    by_day = {}
+    for r in reservations:
+        if r.is_active and r.beneficiary_id:
+            by_day.setdefault(r.date, []).append(r)
+    for r in reservations:
+        mine = pairs.get(r.beneficiary_id, ()) if (r.is_active and r.beneficiary_id) else ()
+        r.pair_names = sorted({o.display_name for o in by_day.get(r.date, []) if o.beneficiary_id in mine}) if mine else []
+    return reservations
 
 
 def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STAFF, customer=None,
@@ -262,9 +295,10 @@ def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STA
         raise ReservationError(f'{jp_date(day)} の {who} さんの予約はすでにあります。')
     if is_closed(facility, day, setting):
         raise ReservationError(f'{jp_date(day)} は休業日のため予約を受け付けられません。')
-    names = pair_conflicts(beneficiary, day)
-    if names:
-        raise pair_error(day, who, names, show_names=source in STAFF_SOURCES)
+    if source in STAFF_SOURCES:
+        names = pair_conflicts(beneficiary, day)
+        if names:
+            raise pair_error(day, who, names)
 
     customer = customer or (customer_for(facility, beneficiary) if beneficiary is not None else None)
     st = day_state(facility, day, setting)

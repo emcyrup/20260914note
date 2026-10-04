@@ -179,8 +179,8 @@ class DayView(ReservationEnabledMixin, View):
         facility = request.user.facility
         setting = services.get_setting(facility)
         state = services.day_state(facility, d, setting)
-        rows = (Reservation.objects.filter(facility=facility, date=d)
-                .select_related('beneficiary', 'customer').order_by('status', 'created_at'))
+        rows = services.mark_pairs(facility, Reservation.objects.filter(facility=facility, date=d)
+                                   .select_related('beneficiary', 'customer').order_by('status', 'created_at'))
         taken = {r.beneficiary_id for r in rows if r.is_active}
         candidates = [b for b in Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE)
                       if b.pk not in taken]
@@ -621,6 +621,10 @@ class LineView(ReservationEnabledMixin, View):
                 messages.error(request, str(e))
                 return back
             note = f'{services.jp_date(d)} {beneficiary.full_name} {res.get_status_display()}'
+            pair = services.pair_conflicts(beneficiary, d, exclude_pk=res.pk)
+            if pair:
+                messages.warning(request, f'{services.jp_date(d)} には、{beneficiary.full_name} さんと同じ日にできない '
+                                          f'{"・".join(pair)} さんの予約があります（日の画面に赤く出ます）。')
         entry.status = LineInbox.STATUS_DONE
         entry.handled_at, entry.handled_by, entry.result_note = timezone.now(), request.user, note[:200]
         entry.redact()

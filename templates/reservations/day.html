@@ -53,7 +53,8 @@
     <div class="row-list-item rsv-item">
       <div class="d-flex align-items-center gap-2 flex-wrap">
         {% if r.start_time %}<span class="badge text-bg-light border">{{ r.time_label }}</span>{% endif %}
-        <span class="fw-bold">{{ r.display_name }}</span>
+        <span class="fw-bold{% if r.pair_names %} text-danger{% endif %}">{{ r.display_name }}</span>
+        {% if r.pair_names %}<span class="badge text-bg-danger" title="同じ日にできない利用者が同じ日に入っています">組み合わせNG：{{ r.pair_names|join:'・' }}</span>{% endif %}
         {% if therapy and r.beneficiary_id %}<a href="{% url 'therapy:child' r.beneficiary_id %}?date={{ r.date|date:'Y-m-d' }}{% if r.start_time %}&time={{ r.start_time|time:'H:i' }}{% endif %}" class="small" title="療育記録を書く"><i class="bi bi-pencil-square"></i></a>{% endif %}
         {% if r.status == 'confirmed' %}<span class="badge text-bg-success">予約</span>{% else %}<span class="badge text-bg-warning">キャンセル待ち</span>{% endif %}
         {% if r.is_guest %}<span class="badge text-bg-secondary">台帳に未登録</span>{% endif %}

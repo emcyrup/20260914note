@@ -1403,10 +1403,19 @@ class CannotPairTests(TestCase):
         with self.assertRaises(services.ReservationError) as cm:
             services.create_reservation(self.f, self.a, self.day, start_time=11)
         self.assertIn('木村 空 さんの予約があるため', str(cm.exception))
-        with self.assertRaises(services.ReservationError) as cm:         # 保護者向けには相手の名前を出さない
-            services.create_reservation(self.f, self.a, self.day, start_time=11, source=Reservation.SOURCE_LINE)
-        self.assertNotIn('木村', str(cm.exception))
-        self.assertIn('組み合わせの都合', str(cm.exception))
+        # 保護者からの申し込み（LINE・入力ページ）は止めずに受け、職員の画面で赤く示す
+        ra_line, _ = services.create_reservation(self.f, self.a, self.day, start_time=11, source=Reservation.SOURCE_LINE)
+        self.assertEqual(ra_line.status, Reservation.STATUS_CONFIRMED)
+        res = self.client.get(reverse('reservations:day', args=[2026, 10, 6]))
+        self.assertContains(res, '組み合わせNG：木村 空')
+        self.assertContains(res, '組み合わせNG：青木 子')
+        res = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))
+        self.assertContains(res, 'ms-box pair')
+        self.assertContains(res, '組み合わせNG：木村 空 さんと同じ日')
+        res = self.client.get(reverse('reservations:daily_board') + '?d=2026-10-06')
+        self.assertContains(res, 'pair-ng')
+        services.cancel_reservation(ra_line, notify=False)
+        self.assertNotContains(self.client.get(reverse('reservations:day', args=[2026, 10, 6])), '組み合わせNG')
         services.create_reservation(self.f, self.c, self.day, start_time=11)             # 関係のない人は入れる
         ra, _ = services.create_reservation(self.f, self.a, self.day2, start_time=10)
         with self.assertRaises(services.ReservationError):
@@ -1421,7 +1430,7 @@ class CannotPairTests(TestCase):
         res = self.client.post(reverse('reservations:day', args=[2026, 10, 6]),
                                {'action': 'add', 'beneficiary': self.a.pk, 'start_time': '11'}, follow=True)
         self.assertContains(res, '同じ日にできない')
-        self.assertEqual(Reservation.objects.filter(beneficiary=self.a, date=self.day).count(), 0)
+        self.assertEqual(Reservation.objects.filter(beneficiary=self.a, date=self.day, status__in=Reservation.ACTIVE_STATUSES).count(), 0)
 
     def test_assign_month_keeps_pairs_apart(self):
         for kid in (self.a, self.b):

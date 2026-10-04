@@ -176,19 +176,7 @@ def request_rows(facility, year, month, setting=None):
     return rows
 
 
-def pair_map(facility, names=False):
-    """同じ日にできない利用者の組み合わせ：{利用者ID: {相手のID…}}（names=True なら相手の名前のリスト）。在籍中だけ"""
-    out = {}
-    rows = (Beneficiary.cannot_pair.through.objects
-            .filter(from_beneficiary__facility=facility, to_beneficiary__status=Beneficiary.STATUS_ACTIVE,
-                    from_beneficiary__status=Beneficiary.STATUS_ACTIVE)
-            .select_related('to_beneficiary').order_by('to_beneficiary__last_name_kana', 'to_beneficiary__first_name_kana'))
-    for row in rows:
-        if names:
-            out.setdefault(row.from_beneficiary_id, []).append(row.to_beneficiary.full_name)
-        else:
-            out.setdefault(row.from_beneficiary_id, set()).add(row.to_beneficiary_id)
-    return out
+pair_map = services.pair_map
 
 
 # ---------------------------------------------------------------- 割り当て
@@ -446,7 +434,7 @@ def month_schedule(facility, year, month, setting=None):
     hours = setting.all_slot_hours()
     by_slot = {}
     waiting = {}
-    for res in month_reservations(facility, year, month, statuses=Reservation.ACTIVE_STATUSES):
+    for res in services.mark_pairs(facility, month_reservations(facility, year, month, statuses=Reservation.ACTIVE_STATUSES)):
         key = (res.date, res.hour)
         if res.status == Reservation.STATUS_CONFIRMED:
             by_slot.setdefault(key, []).append(res)
@@ -583,8 +571,8 @@ def day_board(facility, day, setting=None):
     setting = setting or services.get_setting(facility)
     lo, hi = day - datetime.timedelta(days=14), day + datetime.timedelta(days=14)
     closed = services.closed_dates(facility, lo, hi)
-    rows = list(Reservation.objects.filter(facility=facility, date=day, status__in=Reservation.ACTIVE_STATUSES)
-                .select_related('beneficiary', 'customer').order_by('start_time', 'created_at'))
+    rows = services.mark_pairs(facility, Reservation.objects.filter(facility=facility, date=day, status__in=Reservation.ACTIVE_STATUSES)
+                               .select_related('beneficiary', 'customer').order_by('start_time', 'created_at'))
     confirmed = [r for r in rows if r.status == Reservation.STATUS_CONFIRMED]
     counts = {k: sum(1 for r in confirmed if r.attendance == k) for k, _ in Reservation.ATT_CHOICES}
     def step(d, delta):
