@@ -203,6 +203,30 @@ def parse_hour(value):
 
 
 @transaction.atomic
+def pair_conflicts(beneficiary, day, exclude_pk=None):
+    """
+    その日に、この利用者と「同じ日にできない」利用者の有効な予約があれば、その名前のリスト（無ければ空）。
+    利用者情報の「同じ日にできない利用者」（Beneficiary.cannot_pair）から
+    """
+    if beneficiary is None:
+        return []
+    qs = Reservation.objects.filter(facility_id=beneficiary.facility_id, date=day, status__in=Reservation.ACTIVE_STATUSES,
+                                    beneficiary__in=beneficiary.cannot_pair.all()).select_related('beneficiary')
+    if exclude_pk:
+        qs = qs.exclude(pk=exclude_pk)
+    return sorted({r.beneficiary.full_name for r in qs})
+
+
+STAFF_SOURCES = (Reservation.SOURCE_STAFF, Reservation.SOURCE_GROUP, Reservation.SOURCE_REQUEST)
+
+
+def pair_error(day, who, names, show_names=True):
+    """組み合わせで入れられないときの文。保護者に見せるとき（show_names=False）は相手の名前を出さない"""
+    if show_names:
+        return ReservationError(f'{jp_date(day)} は {who} さんと同じ日にできない {"・".join(names)} さんの予約があるため入れられません。')
+    return ReservationError(f'{jp_date(day)} は、ほかのご利用との組み合わせの都合でお受けできません。別の日をお選びください。')
+
+
 def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STAFF, customer=None,
                        note='', guest_name='', start_time=None, notify=True):
     """
@@ -238,6 +262,9 @@ def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STA
         raise ReservationError(f'{jp_date(day)} の {who} さんの予約はすでにあります。')
     if is_closed(facility, day, setting):
         raise ReservationError(f'{jp_date(day)} は休業日のため予約を受け付けられません。')
+    names = pair_conflicts(beneficiary, day)
+    if names:
+        raise pair_error(day, who, names, show_names=source in STAFF_SOURCES)
 
     customer = customer or (customer_for(facility, beneficiary) if beneficiary is not None else None)
     st = day_state(facility, day, setting)
@@ -323,6 +350,10 @@ def move_reservation(res, new_day, note=None, base='', start_time=None, notify=T
             beneficiary=res.beneficiary, date=new_day,
             status__in=Reservation.ACTIVE_STATUSES).exclude(pk=res.pk).exists():
         raise ReservationError(f'{jp_date(new_day)} の {res.display_name} さんの予約はすでにあります。')
+    if new_day != old_day:
+        names = pair_conflicts(res.beneficiary, new_day, exclude_pk=res.pk)
+        if names:
+            raise pair_error(new_day, res.display_name, names)
 
     st = day_state(facility, new_day, setting)
     if setting.slot_mode:
@@ -375,6 +406,9 @@ def link_reservation(res, beneficiary):
     if Reservation.objects.filter(beneficiary=beneficiary, date=res.date,
                                   status__in=Reservation.ACTIVE_STATUSES).exclude(pk=res.pk).exists():
         raise ReservationError(f'{jp_date(res.date)} の {beneficiary.full_name} さんの予約はすでにあります。')
+    names = pair_conflicts(beneficiary, res.date, exclude_pk=res.pk)
+    if names:
+        raise pair_error(res.date, beneficiary.full_name, names)
     res.beneficiary = beneficiary
     res.guest_name = ''
     if res.customer_id is None:
@@ -410,14 +444,15 @@ def promote_waitlist(facility, day, setting=None):
         st = day_state(facility, day, setting)
         if st['remaining'] <= 0:
             break
-        waiting = (Reservation.objects.filter(facility=facility, date=day, status=Reservation.STATUS_WAITLIST)
-                   .order_by('created_at', 'pk'))
+        waiting = [w for w in Reservation.objects.filter(facility=facility, date=day, status=Reservation.STATUS_WAITLIST)
+                   .order_by('created_at', 'pk')
+                   if not pair_conflicts(w.beneficiary, day, exclude_pk=w.pk)]     # 組み合わせで入れない人は飛ばす
         if setting.slot_mode:
             # 空きのある枠のキャンセル待ちだけを、申し込み順に
             open_hours = {x['hour'] for x in st['open_slots']}
             nxt = next((w for w in waiting if w.hour in open_hours), None)
         else:
-            nxt = waiting.first()
+            nxt = waiting[0] if waiting else None
         if nxt is None:
             break
         nxt.status = Reservation.STATUS_CONFIRMED

@@ -16,7 +16,7 @@ class BeneficiaryForm(forms.ModelForm):
             'weekday_thu', 'weekday_fri', 'weekday_sat',
             'notes', 'status',
             'postal_code', 'address', 'mobile_phone', 'home_phone', 'school_name', 'grade',
-            'admission_date', 'discharge_date', 'has_prior_records',
+            'admission_date', 'discharge_date', 'has_prior_records', 'cannot_pair',
         ]
         widgets = {
             'date_of_birth': forms.DateInput(attrs={'type': 'date'}),
@@ -28,6 +28,17 @@ class BeneficiaryForm(forms.ModelForm):
             'last_name': '姓', 'first_name': '名',
             'last_name_kana': '姓（かな）', 'first_name_kana': '名（かな）',
         }
+
+    def __init__(self, *args, facility=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 「同じ日にできない利用者」は同じ事業所の在籍中の人から（自分は除く）。事業所が分からなければ選べない
+        if facility is None and self.instance.pk:
+            facility = self.instance.facility
+        qs = Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE) if facility else Beneficiary.objects.none()
+        if self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+        self.fields['cannot_pair'].queryset = qs.order_by('last_name_kana', 'first_name_kana')
+        self.fields['cannot_pair'].required = False
 
 
 class GuardianForm(forms.ModelForm):

@@ -155,6 +155,7 @@ def request_rows(facility, year, month, setting=None):
             if res.attendance == Reservation.ATT_ATTENDED:
                 attended[res.beneficiary_id] = attended.get(res.beneficiary_id, 0) + 1
     rows = []
+    pairs = pair_map(facility, names=True)
     for b in Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE):
         req = requests.get(b.pk)
         done = confirmed.get(b.pk, 0)
@@ -165,6 +166,7 @@ def request_rows(facility, year, month, setting=None):
             'slots': req.slot_count(setting) if req else 0,
             # NG 児童：利用希望に「来られない日」がある子（予定を動かすときに、その日に入れないよう注意する）
             'ng_days': req.ng_days() if req and req.is_ng_mode else [],
+            'pair_names': pairs.get(b.pk, []),
             'confirmed': done, 'remaining': max(desired - done, 0), 'attended': attended.get(b.pk, 0),
             'granted': cert.granted_days if cert else None,
             'granted_left': (cert.granted_days - done) if cert and cert.granted_days else None,
@@ -172,6 +174,21 @@ def request_rows(facility, year, month, setting=None):
     # 用紙の出ている人を先に、残りが多い順
     rows.sort(key=lambda r: (r['request'] is None, -r['remaining'], r['beneficiary'].last_name_kana))
     return rows
+
+
+def pair_map(facility, names=False):
+    """同じ日にできない利用者の組み合わせ：{利用者ID: {相手のID…}}（names=True なら相手の名前のリスト）。在籍中だけ"""
+    out = {}
+    rows = (Beneficiary.cannot_pair.through.objects
+            .filter(from_beneficiary__facility=facility, to_beneficiary__status=Beneficiary.STATUS_ACTIVE,
+                    from_beneficiary__status=Beneficiary.STATUS_ACTIVE)
+            .select_related('to_beneficiary').order_by('to_beneficiary__last_name_kana', 'to_beneficiary__first_name_kana'))
+    for row in rows:
+        if names:
+            out.setdefault(row.from_beneficiary_id, []).append(row.to_beneficiary.full_name)
+        else:
+            out.setdefault(row.from_beneficiary_id, set()).add(row.to_beneficiary_id)
+    return out
 
 
 # ---------------------------------------------------------------- 割り当て
@@ -255,6 +272,7 @@ def assign_month(facility, year, month, setting=None, base='', notify=True, only
             target[req.pk].extend((day, h) for h in req.wish_hours(day, setting))
 
     made_for = {}
+    pairs = pair_map(facility)      # 同じ日にできない組み合わせ：相手の予約日には入れない
 
     def run(candidates):
         progress = True
@@ -264,8 +282,9 @@ def assign_month(facility, year, month, setting=None, base='', notify=True, only
                            key=lambda r: (len(taken.get(r.beneficiary_id, ())), len(candidates[r.pk]), r.pk))
             for req in order:
                 days_taken = taken.setdefault(req.beneficiary_id, set())
+                blocked = set().union(*(taken.get(b, set()) for b in pairs.get(req.beneficiary_id, ())))
                 options = [(d, h) for d, h in candidates[req.pk]
-                           if d not in days_taken and used.get((d, h), 0) < setting.slot_capacity]
+                           if d not in days_taken and d not in blocked and used.get((d, h), 0) < setting.slot_capacity]
                 if not options:
                     continue
                 # 日にちは間があく順、同じ日の中では早い時刻から（午前から詰める）
@@ -385,6 +404,11 @@ def swap_reservations(res_a, res_b):
         if _other_on_day(res_b, res_a.date):
             raise services.ReservationError(
                 f'{services.jp_date(res_a.date)} には {res_b.display_name} さんのほかの予約があります。')
+        # 同じ日にできない利用者（入れ替える相手の予約は動くので除く）
+        for res, day, other in ((res_a, res_b.date, res_b), (res_b, res_a.date, res_a)):
+            names = [n for n in services.pair_conflicts(res.beneficiary, day, exclude_pk=other.pk)]
+            if names:
+                raise services.pair_error(day, res.display_name, names)
     res_a.date, res_a.start_time = b_slot
     res_b.date, res_b.start_time = a_slot
     res_a.save(update_fields=['date', 'start_time', 'updated_at'])

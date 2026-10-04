@@ -110,6 +110,9 @@ class Beneficiary(models.Model):
     status = models.CharField(
         max_length=10, choices=STATUS_CHOICES, default=STATUS_ACTIVE, verbose_name='在籍状況'
     )
+    # 同じ日に一緒にできない利用者（相性など）。片方に入れればもう片方にも付く（対称）。
+    # 予約を作る・動かす・月間予定表を組むときに、同じ日に入れない（reservations/services.py の pair_conflicts）
+    cannot_pair = models.ManyToManyField('self', blank=True, symmetrical=True, verbose_name='同じ日にできない利用者')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -134,6 +137,10 @@ class Beneficiary(models.Model):
     @property
     def full_name_kana(self):
         return f'{self.last_name_kana} {self.first_name_kana}'
+
+    def pair_names(self):
+        """同じ日にできない利用者の名前（在籍中だけ）"""
+        return [b.full_name for b in self.cannot_pair.filter(status=self.STATUS_ACTIVE).order_by('last_name_kana', 'first_name_kana')]
 
     @property
     def latest_certificate(self):

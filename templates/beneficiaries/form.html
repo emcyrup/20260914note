@@ -146,6 +146,20 @@
       </div>
     </div>
 
+    {% if form.fields.cannot_pair.queryset %}
+    <div class="card mb-4">
+      <div class="card-body">
+        <h6 class="card-title fw-bold mb-1">同じ日にできない{{ terms.beneficiary }}</h6>
+        <div class="small text-muted mb-2">印を付けた人とは、予約も月間予定表も同じ日に入れません（相手の側にも同じ印が付きます）。</div>
+        <div class="border rounded p-2" style="max-height:200px;overflow:auto;">
+          {% for b in form.fields.cannot_pair.queryset %}
+          <label class="form-check form-check-inline small mb-1"><input type="checkbox" class="form-check-input" name="cannot_pair" value="{{ b.pk }}" {% if b.pk in pair_ids %}checked{% endif %}>{{ b.full_name }}</label>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     <!-- ボタン -->
     <div class="d-flex gap-2">
       <button type="submit" class="btn btn-primary px-4">

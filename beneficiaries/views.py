@@ -194,7 +194,9 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
         ctx['guardian_form'] = GuardianForm()
         ctx['certificate_form'] = RecipientCertificateForm()
         # 編集モーダル用に現在の利用者データをセットしたフォームを渡す
-        ctx['edit_form'] = BeneficiaryForm(instance=b)
+        ctx['edit_form'] = BeneficiaryForm(instance=b, facility=b.facility)
+        ctx['pair_names'] = b.pair_names()
+        ctx['pair_ids'] = set(b.cannot_pair.values_list('pk', flat=True))
         # 曜日チェックボックス用（フィールド名と表示名のペア）
         ctx['edit_weekdays'] = [
             ('weekday_mon', '月'), ('weekday_tue', '火'), ('weekday_wed', '水'),
@@ -226,6 +228,9 @@ class BeneficiaryCreateView(LoginRequiredMixin, CreateView):
     form_class = BeneficiaryForm
     template_name = 'beneficiaries/form.html'
 
+    def get_form_kwargs(self):
+        return {**super().get_form_kwargs(), 'facility': self.request.user.facility}
+
     def form_valid(self, form):
         # 施設を自動でセット（手入力させない）
         form.instance.facility = self.request.user.facility
@@ -253,6 +258,14 @@ class BeneficiaryUpdateView(LoginRequiredMixin, UpdateView):
 
     def get_queryset(self):
         return Beneficiary.objects.filter(facility=self.request.user.facility)
+
+    def get_form_kwargs(self):
+        return {**super().get_form_kwargs(), 'facility': self.request.user.facility}
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['pair_ids'] = set(self.object.cannot_pair.values_list('pk', flat=True)) if self.object else set()
+        return ctx
 
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()

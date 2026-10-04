@@ -167,7 +167,7 @@
         </div>
         {% for r in rows %}
         <div class="row-list-item ms-users small{% if facility.is_ryoiku %} with-att{% endif %}">
-          <div><a href="{% url 'reservations:monthly_request_edit' year month r.beneficiary.pk %}">{{ r.beneficiary.full_name }}</a>{% if r.ng_days %} <span class="badge text-bg-danger" style="font-size:.6rem;" title="NG児童：来られない日 {% for d in r.ng_days %}{{ d|date:'n/j' }}{% if not forloop.last %}・{% endif %}{% endfor %}">NG</span>{% endif %}</div>
+          <div><a href="{% url 'reservations:monthly_request_edit' year month r.beneficiary.pk %}">{{ r.beneficiary.full_name }}</a>{% if r.ng_days %} <span class="badge text-bg-danger" style="font-size:.6rem;" title="NG児童：来られない日 {% for d in r.ng_days %}{{ d|date:'n/j' }}{% if not forloop.last %}・{% endif %}{% endfor %}">NG</span>{% endif %}{% if r.pair_names %} <span class="badge text-bg-warning" style="font-size:.6rem;" title="同じ日にできない：{{ r.pair_names|join:'・' }}">組</span>{% endif %}</div>
           <div>{% if r.request %}{{ r.desired }}{% else %}—{% endif %}</div>
           <div>{{ r.confirmed }}</div>
           {% if facility.is_ryoiku %}<div>{% if r.attended %}<span class="ms-att attended">{{ r.attended }}</span>{% else %}0{% endif %}</div>{% endif %}
