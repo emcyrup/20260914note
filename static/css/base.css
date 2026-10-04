@@ -998,6 +998,19 @@ textarea.form-control {
 /* =============================================
    レスポンシブ — スマートフォン（〜640px）
    ============================================= */
+/* 見出し・本文・ボタンが <form> に包まれているモーダルでは、form を縦の flex にしないと本文が縮まず、下のボタンが画面の外に出る */
+.modal-dialog-scrollable .modal-content > form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+.modal-dialog-scrollable .modal-content > form > .modal-body {
+  overflow-y: auto;
+  min-height: 0;
+}
+
 @media (max-width: 640px) {
   /* メインサイドバーをスライドドロワー化 */
   .sidebar {
@@ -1173,8 +1186,20 @@ textarea.form-control {
   .modal-dialog.modal-xl {
     max-width: calc(100vw - 12px);
   }
+  /* 見出し・本文・ボタンを画面の高さ（iPhone はアドレスバーを除いた svh）に収める。本文だけがスクロールする */
+  .modal-dialog-scrollable {
+    height: calc(100svh - 12px);
+    max-height: calc(100svh - 12px);
+  }
+  .modal-dialog-scrollable .modal-content {
+    max-height: 100%;
+  }
   .modal-dialog-scrollable .modal-body {
-    max-height: calc(100svh - 140px);
+    max-height: none;
+    min-height: 0;
+  }
+  .modal-footer {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
   }
 
   /* テーブルフォントサイズ調整 */
