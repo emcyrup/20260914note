@@ -55,9 +55,9 @@ jobs:
             awk '
               /^\[[0-9]{4}-[0-9]{2}-[0-9]{2} .*\] \[ERROR\]/ { d=substr($1,2,10); u=$NF; gsub(/[0-9]+/, "N", u); gsub(/[A-Za-z0-9_:-]{20,}/, "…", u); last=d " " u; next }
               /^Traceback/ { intb=1; loc=""; when=last; next }
-              intb && /^  File "/ { if ($0 ~ /site-packages|<frozen|\/usr\/lib\//) next; f=$0; sub(/^  File "([^"]*\/)?([^"\/]+\/)?/, "  File \"", f); sub(/^  File "/, "", f); sub(/",? line /, ":", f); sub(/, in /, " ", f); loc=f; next }
+              intb && /^  File "/ { if ($0 ~ /site-packages|<frozen|\/usr\/lib\//) next; f=$0; sub(/^  File "/, "", f); sub(/",? line /, ":", f); sub(/, in /, " ", f); n=split(f, p, "/"); if (n>1) f=p[n-1] "/" p[n]; loc=f; next }
               intb && /^[A-Za-z_.]+(Error|Exception)/ { e=$0; sub(/:.*/, "", e); if (e ~ /Error$/ && $0 ~ /Errno/) e=e " [Errno]"; else if (e=="TypeError"||e=="AttributeError"||e=="KeyError"||e=="ValueError") { m=$0; sub(/^[^:]*: /, "", m); gsub(/'"'"'[^'"'"']*'"'"'/, "'"'"'…'"'"'", m); e=e ": " substr(m,1,90) } print when "  " loc " → " e; intb=0 }
             ' error.log 2>/dev/null | sort | uniq -c | sort -k2 | tail -40 || true
             echo "== 5xx の応答（access.log、直近 ${DAYS:-7} 日）"
-            awk -v s="$since" '{ if ($4 ~ /^\[/) { split($4, a, "[/:\\[]"); m["Jan"]="01";m["Feb"]="02";m["Mar"]="03";m["Apr"]="04";m["May"]="05";m["Jun"]="06";m["Jul"]="07";m["Aug"]="08";m["Sep"]="09";m["Oct"]="10";m["Nov"]="11";m["Dec"]="12"; d=a[4] "-" m[a[3]] "-" a[2]; if (d>=s && $9 ~ /^5/) c[d " " $9]++ } } END { for (k in c) print k, c[k]; if (!length(c)) print "なし" }' | sort access.log 2>/dev/null || true
+            awk -v s="$since" '{ if ($4 ~ /^\[/) { split($4, a, "[/:\\[]"); m["Jan"]="01";m["Feb"]="02";m["Mar"]="03";m["Apr"]="04";m["May"]="05";m["Jun"]="06";m["Jul"]="07";m["Aug"]="08";m["Sep"]="09";m["Oct"]="10";m["Nov"]="11";m["Dec"]="12"; d=a[4] "-" m[a[3]] "-" a[2]; if (d>=s && $9 ~ /^5/) c[d " " $9]++ } } END { for (k in c) print k, c[k]; if (!length(c)) print "なし" }' access.log 2>/dev/null | sort || true
           REMOTE
