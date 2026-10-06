@@ -54,7 +54,7 @@ jobs:
             echo "== どこで起きたか（Traceback ごとに、最後のファイル・行・関数と例外の種類。パスや値は出さない）"
             awk '
               /^Traceback/ { intb=1; loc=""; next }
-              intb && /^  File "/ { f=$0; sub(/^  File "[^"]*\//, "", f); sub(/",? line /, ":", f); sub(/, in /, " ", f); loc=f; next }
+              intb && /^  File "/ { if ($0 ~ /site-packages|<frozen|\/usr\/lib\//) next; f=$0; sub(/^  File "[^"]*\//, "", f); sub(/",? line /, ":", f); sub(/, in /, " ", f); loc=f; next }
               intb && /^[A-Za-z_.]+(Error|Exception)/ { e=$0; sub(/:.*/, "", e); if (e ~ /Error$/ && $0 ~ /Errno/) e=e " [Errno]"; else if (e=="TypeError"||e=="AttributeError"||e=="KeyError"||e=="ValueError") { m=$0; sub(/^[^:]*: /, "", m); gsub(/'"'"'[^'"'"']*'"'"'/, "'"'"'…'"'"'", m); e=e ": " substr(m,1,90) } print loc " → " e; intb=0 }
             ' error.log 2>/dev/null | sort | uniq -c | sort -rn | head -20 || true
             echo "== 5xx の応答（access.log、直近 ${DAYS:-7} 日）"
