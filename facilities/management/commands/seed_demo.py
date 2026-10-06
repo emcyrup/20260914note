@@ -195,6 +195,10 @@ class Command(BaseCommand):
         bens.delete()
         StaffMemo.objects.filter(facility=facility, content__in=MEMOS).delete()
         self._reset_reservations(facility)
+        # 送迎・配車のサンプル（送迎の設定・配車は利用者・予約の削除で一緒に消える）
+        from transport.models import Driver, Vehicle
+        Vehicle.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()
+        Driver.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()
         self.stdout.write(f'サンプル利用者 {n} 名と関連データを削除しました')
 
     def _reset_reservations(self, facility):
@@ -413,7 +417,84 @@ class Command(BaseCommand):
         if facility.use_therapy_record:
             counts.update(self._create_therapy(facility, beneficiaries, staff, today, rng))
 
+        # --- 送迎・配車と 5領域アセスメント（施設設定で使う施設だけ。オウル）---
+        if getattr(facility, 'use_transport', False):
+            counts.update(self._create_transport(facility, beneficiaries, today, rng))
+        if getattr(facility, 'use_dev_assessment', False):
+            counts.update(self._create_dev_assessments(facility, beneficiaries, staff, today, rng))
+
         return counts
+
+    # ------------------------------------------------------------------
+    def _create_transport(self, facility, beneficiaries, today, rng):
+        """送迎・配車のサンプル：車両 2 台・運転手 2 人・利用者ごとの送迎の設定・きょうの配車の一部"""
+        from transport.models import DIRECTION_DROPOFF, DIRECTION_PICKUP, Driver, TransportAssignment, TransportProfile, Vehicle
+        drivers = [Driver.objects.get_or_create(facility=facility, name=name, defaults={'note': SAMPLE_MARK, 'order': i})[0]
+                   for i, name in enumerate(['佐藤 運転手', '鈴木 運転手'])]
+        vehicles = [
+            Vehicle.objects.get_or_create(facility=facility, name='ハイエース（白）',
+                                          defaults={'capacity': 6, 'plate': '白', 'default_driver': drivers[0], 'note': SAMPLE_MARK, 'order': 0})[0],
+            Vehicle.objects.get_or_create(facility=facility, name='軽ワゴン',
+                                          defaults={'capacity': 3, 'plate': '銀', 'default_driver': drivers[1],
+                                                    'note': f'チャイルドシート 1 つ {SAMPLE_MARK}', 'order': 1})[0],
+        ]
+        places = ['南小学校', '北小学校', '中央こども園', '自宅']
+        n_profiles = 0
+        for i, b in enumerate(beneficiaries):
+            if i % 5 == 4:          # 5 人に 1 人は送迎なし
+                continue
+            TransportProfile.objects.update_or_create(beneficiary=b, defaults={
+                'pickup': True, 'pickup_place': b.school_name or places[i % len(places)],
+                'pickup_time': datetime.time(14, 30 + 5 * (i % 4)),
+                'dropoff': i % 3 != 2, 'dropoff_place': '自宅', 'dropoff_time': datetime.time(17, 0 + 10 * (i % 3)),
+                'default_vehicle': vehicles[i % 2], 'note': 'チャイルドシート' if i % 4 == 0 else '',
+            })
+            n_profiles += 1
+        # きょうの確定した予約の 2 件だけ、配車表でその日の変更を入れておく（時刻を変える・送りなし）
+        n_assign = 0
+        if facility.use_reservation:
+            from reservations.models import Reservation
+            todays = list(Reservation.objects.filter(facility=facility, date=today, status=Reservation.STATUS_CONFIRMED,
+                                                     beneficiary__isnull=False).order_by('start_time', 'pk')[:2])
+            for k, r in enumerate(todays):
+                if k == 0:
+                    TransportAssignment.objects.update_or_create(reservation=r, direction=DIRECTION_PICKUP, defaults={
+                        'time': datetime.time(14, 45), 'place': '南小学校 正門', 'note': '先生に声かけ', 'vehicle': vehicles[0], 'driver': drivers[0]})
+                else:
+                    TransportAssignment.objects.update_or_create(reservation=r, direction=DIRECTION_DROPOFF, defaults={'skip': True, 'note': '保護者が迎えに来る'})
+                n_assign += 1
+        return {'車両': len(vehicles), '運転手': len(drivers), '送迎の設定': n_profiles, 'きょうの配車の変更': n_assign}
+
+    # ------------------------------------------------------------------
+    def _create_dev_assessments(self, facility, beneficiaries, staff, today, rng):
+        """5領域アセスメントのサンプル：先頭 4 人に 2 枚ずつ（半年前と先月。評価が少し上がる）"""
+        from beneficiaries.models import DevelopmentAssessment as DA
+        nows = {
+            'health': ['食事は自分で食べる。着替えはボタンに時間がかかる。', '着替えは手順表を見ながら自分でできるようになった。'],
+            'motor': ['走ると転びやすい。はさみは一回切り。', 'バランスボールで姿勢を保てる時間が延びた。はさみで線に沿って切れる。'],
+            'cognition': ['活動の切り替えに時間がかかる。', 'タイマーと絵カードで見通しを持てると切り替えられる。'],
+            'language': ['二語文で要求できる。質問には単語で答える。', '三語文が増えた。「なんで？」の質問が出てきた。'],
+            'social': ['大人とは関われるが、友だちとは並行遊びが中心。', '友だちと順番を守ってボールを転がし合える。'],
+        }
+        goals = {
+            'health': '着替えの手順表を使い、自分で最後までできることを増やす', 'motor': '粗大運動の遊びで体幹を育て、はさみの連続切りへ',
+            'cognition': '絵カードで予定を示し、終わりの合図で切り替える', 'language': '遊びの中で三語文をモデルで示す',
+            'social': '小集団の遊びで順番とルールを経験する',
+        }
+        n = 0
+        for i, b in enumerate(beneficiaries[:4]):
+            base = {k: 2 + ((i + j) % 3) for j, (k, _) in enumerate(DA.DOMAINS)}
+            for when, step in ((today - datetime.timedelta(days=180), 0), (today - datetime.timedelta(days=30), 1)):
+                domains = {k: {'rating': min(5, base[k] + step), 'now': nows[k][step], 'goal': goals[k]} for k, _ in DA.DOMAINS}
+                DA.objects.create(
+                    beneficiary=b, date=when, assessed_by=staff, created_by=staff, interviewed_with='保護者（母）', domains=domains,
+                    strengths=['電車が好き。数字に強い。', '歌とダンスが好き。', '絵本をよく覚えている。', '工作が得意。'][i % 4],
+                    concerns=['大きな音が苦手。', '初めての場所で固まる。', '負けると泣いてしまう。', '偏食が強い。'][i % 4],
+                    wishes_child='友だちと遊びたい', wishes_family='集団に慣れてほしい。就学に向けて見通しを持って動けるように。',
+                    summary='視覚的な手がかりを増やし、見通しを持って活動に取り組めるようにする。' + ('前回より切り替えが早くなった。' if step else ''),
+                )
+                n += 1
+        return {'5領域アセスメント': n}
 
     # ------------------------------------------------------------------
     def _create_planbook(self, facility, beneficiaries, staff, today):

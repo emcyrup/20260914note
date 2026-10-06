@@ -70,6 +70,23 @@ class SeedDemoCommandTests(TestCase):
         self.assertEqual(StaffMemo.objects.filter(facility=self.facility).count(), 4)
         self.assertIn('サンプルデータを投入しました', out.getvalue())
 
+    def test_transport_and_dev_assessment_samples_when_enabled(self):
+        from beneficiaries.models import DevelopmentAssessment
+        from transport.models import Driver, TransportProfile, Vehicle
+        self.facility.layout = Facility.LAYOUT_RYOIKU
+        self.facility.use_reservation = self.facility.use_transport = self.facility.use_dev_assessment = True
+        self.facility.save()
+        out = StringIO()
+        call_command('seed_demo', stdout=out)
+        self.assertEqual(Vehicle.objects.filter(facility=self.facility).count(), 2)
+        self.assertEqual(Driver.objects.filter(facility=self.facility).count(), 2)
+        self.assertGreater(TransportProfile.objects.filter(beneficiary__facility=self.facility).count(), 3)
+        self.assertEqual(DevelopmentAssessment.objects.filter(beneficiary__facility=self.facility).count(), 8)
+        self.assertIn('5領域アセスメント', out.getvalue())
+        call_command('seed_demo', '--reset', stdout=StringIO())
+        self.assertEqual(Vehicle.objects.filter(facility=self.facility).count(), 2)       # 消して入れ直すので同じ数
+        self.assertEqual(DevelopmentAssessment.objects.filter(beneficiary__facility=self.facility).count(), 8)
+
     def test_refuses_to_seed_twice_without_reset(self):
         call_command('seed_demo', stdout=StringIO())
         with self.assertRaises(CommandError):

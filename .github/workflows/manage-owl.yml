@@ -120,11 +120,12 @@ jobs:
               create_facility)
                 args=(create_facility "$FACILITY_NAME" --admin "$ADMIN_USERNAME" --password "$(openssl rand -base64 18)" --preset ryoiku)
                 [ -n "$COPY_FROM" ] && args+=(--copy-settings-from "$COPY_FROM")
-                [ "$WITH_DEMO" = "true" ] && args+=(--demo)
                 python manage.py "${args[@]}"
                 set_password
-                # オウルは送迎・配車と 5領域アセスメントを使う（施設設定 → 使う機能 と同じ）
-                FACILITY_NAME="$FACILITY_NAME" python manage.py shell -c "import os; from facilities.models import Facility; f = Facility.objects.filter(name=os.environ['FACILITY_NAME']).order_by('-pk').first(); f.use_transport = True; f.use_dev_assessment = True; f.save(update_fields=['use_transport', 'use_dev_assessment']); print('送迎・配車と 5領域アセスメントを使う設定にしました:', f.pk, f.name)"
+                # オウルは送迎・配車と 5領域アセスメントを使う（施設設定 → 使う機能 と同じ）。サンプルデータはそのあとで入れる（送迎・5領域の見本も入る）
+                fid=$(FACILITY_NAME="$FACILITY_NAME" python manage.py shell -c "import os; from facilities.models import Facility; f = Facility.objects.filter(name=os.environ['FACILITY_NAME']).order_by('-pk').first(); f.use_transport = True; f.use_dev_assessment = True; f.save(update_fields=['use_transport', 'use_dev_assessment']); print(f.pk)")
+                echo "送迎・配車と 5領域アセスメントを使う設定にしました: 施設 ID $fid"
+                [ "$WITH_DEMO" = "true" ] && python manage.py seed_demo --facility "$fid"
                 ;;
               set_password)
                 set_password ;;
