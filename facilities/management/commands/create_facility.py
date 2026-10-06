@@ -25,6 +25,31 @@ from facilities.services import COPY_FIELDS, create_facility  # noqa: F401  (COP
 TRIAL_AI_LIMIT = 20   # お試しの AI を使える回数（1回あたり数十円 → 20回で 500 円ほど）
 
 
+# 予約の設定で、ほかの事業所から写してよい項目（公開アドレス・LINE グループ・署名は写さない）
+RESERVATION_COPY_FIELDS = [
+    'capacity', 'allow_waitlist', 'closed_weekdays', 'auto_send', 'public_calendar', 'public_booking', 'public_request',
+    'booking_from_days', 'booking_until_days', 'notify_vacancy', 'booking_mode', 'group_auto_apply',
+    'slot_mode', 'slot_capacity', 'slot_minutes', 'weekday_first_hour', 'weekday_last_hour',
+    'holiday_first_hour', 'holiday_last_hour', 'break_hours',
+]
+
+
+def copy_reservation_setting(src, facility):
+    """予約の設定（枠・時間・休業曜日・受付の決まり）を src の事業所から写す。署名は新しい事業所名にする"""
+    from reservations.models import ReservationSetting
+    from reservations.services import get_setting
+    src_setting = ReservationSetting.objects.filter(facility=src).first()
+    if src_setting is None:
+        return None
+    setting = get_setting(facility)
+    for f in RESERVATION_COPY_FIELDS:
+        if hasattr(src_setting, f):
+            setattr(setting, f, getattr(src_setting, f))
+    setting.signature = facility.name
+    setting.save()
+    return setting
+
+
 def apply_ryoiku_preset(facility):
     """療育の事業所（発達支援ルーム　ゆあーず）の設定：時間枠の予約と療育記録"""
     from reservations.services import get_setting
@@ -105,6 +130,8 @@ class Command(BaseCommand):
                 apply_ryoiku_preset(facility)
                 self.stdout.write('療育の事業所の設定にしました：予約管理（時間枠 1枠45分・1枠3人・平日10〜18時・土日祝9〜17時・'
                                   '月木休）と療育記録を使います')
+            if src is not None and getattr(src, 'use_reservation', False) and copy_reservation_setting(src, facility):
+                self.stdout.write(f'予約の設定（枠・時間・休業曜日・受付の決まり）も「{src.name}」から写しました')
             self.stdout.write(self.style.SUCCESS(f'施設「{facility.name}」を作成しました（ID {facility.pk}）'))
             if not o.get('no_default_tags'):
                 self.stdout.write('標準の活動タグ・支援内容タグを入れました')

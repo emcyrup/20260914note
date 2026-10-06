@@ -370,6 +370,25 @@ class CreateFacilityCommandTests(TestCase):
         res = self.client.get(reverse('beneficiaries:list'))
         self.assertContains(res, '園児')
 
+    def test_ryoiku_copy_brings_reservation_setting_and_speech_words(self):
+        from reservations.services import get_setting
+        src = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_reservation=True, use_therapy_record=True,
+                                      layout=Facility.LAYOUT_RYOIKU, speech_words='感覚統合、ABA')
+        ss = get_setting(src)
+        ss.slot_mode, ss.slot_capacity, ss.closed_weekdays, ss.weekday_first_hour, ss.public_booking = True, 2, [2], 11, False
+        ss.signature = 'ゆあーず'
+        ss.save()
+        out = StringIO()
+        call_command('create_facility', '児童発達支援センター　オウル', '--admin', 'owl', '--password', 'pw12345678',
+                     '--copy-settings-from', str(src.pk), '--preset', 'ryoiku', stdout=out)
+        f = Facility.objects.get(name='児童発達支援センター　オウル')
+        self.assertEqual((f.layout, f.use_reservation, f.use_therapy_record, f.speech_words), ('ryoiku', True, True, '感覚統合、ABA'))
+        s = get_setting(f)
+        self.assertEqual((s.slot_mode, s.slot_capacity, s.closed_weekdays, s.weekday_first_hour, s.public_booking), (True, 2, [2], 11, False))
+        self.assertEqual(s.signature, '児童発達支援センター　オウル')       # 署名と公開アドレスは写さない
+        self.assertNotEqual(s.public_token, ss.public_token)
+        self.assertIn('予約の設定', out.getvalue())
+
 
 class AddonDefaultsLoadTests(TestCase):
     """標準の加算マスタの合わせ込み：追加・名前の付け替え・単位数の更新・無効化"""

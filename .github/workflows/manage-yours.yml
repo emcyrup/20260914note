@@ -43,6 +43,10 @@ on:
         description: "施設 ID（seed_demo・seed_demo_reset。空なら事業所が1つのときだけ自動）"
         type: string
         default: ""
+      copy_from:
+        description: "設定を写す元の施設 ID（create_facility。例：ゆあーずの ID。空なら写さない）"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -84,6 +88,7 @@ jobs:
           ADMIN_PASSWORD: ${{ inputs.admin_password }}
           WITH_DEMO: ${{ inputs.with_demo }}
           FACILITY_ID: ${{ inputs.facility_id }}
+          COPY_FROM: ${{ inputs.copy_from }}
           REMOTE_APP_DIR: ${{ env.APP_DIR }}
           REMOTE_VENV: ${{ env.VENV }}
         run: |
@@ -96,8 +101,8 @@ jobs:
           fi
           # 秘密の値はコマンド行に出さず、ssh の標準入力（スクリプトの先頭）で渡す
           {
-            printf 'TASK=%q\nFACILITY_NAME=%q\nADMIN_USERNAME=%q\nADMIN_PASSWORD=%q\nWITH_DEMO=%q\nFACILITY_ID=%q\nAPP_DIR_IN=%q\nVENV_IN=%q\n' \
-              "$TASK" "$FACILITY_NAME" "$ADMIN_USERNAME" "$ADMIN_PASSWORD" "$WITH_DEMO" "$FACILITY_ID" "$REMOTE_APP_DIR" "$REMOTE_VENV"
+            printf 'TASK=%q\nFACILITY_NAME=%q\nADMIN_USERNAME=%q\nADMIN_PASSWORD=%q\nWITH_DEMO=%q\nFACILITY_ID=%q\nCOPY_FROM=%q\nAPP_DIR_IN=%q\nVENV_IN=%q\n' \
+              "$TASK" "$FACILITY_NAME" "$ADMIN_USERNAME" "$ADMIN_PASSWORD" "$WITH_DEMO" "$FACILITY_ID" "$COPY_FROM" "$REMOTE_APP_DIR" "$REMOTE_VENV"
             cat <<'REMOTE'
             set -euo pipefail
             export ADMIN_USERNAME ADMIN_PASSWORD
@@ -113,6 +118,7 @@ jobs:
             case "$TASK" in
               create_facility)
                 args=(create_facility "$FACILITY_NAME" --admin "$ADMIN_USERNAME" --password "$(openssl rand -base64 18)" --preset ryoiku)
+                [ -n "$COPY_FROM" ] && args+=(--copy-settings-from "$COPY_FROM")
                 [ "$WITH_DEMO" = "true" ] && args+=(--demo)
                 python manage.py "${args[@]}"
                 set_password
