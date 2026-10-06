@@ -12,10 +12,11 @@ from django.db import models as db_models
 from django.conf import settings
 import anthropic
 
-from .models import Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guardian, RecipientCertificate, BeneficiaryDocument, DOCUMENT_EXTENSIONS, DOCUMENT_MAX_BYTES, KANA_ROWS
+from .models import Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guardian, RecipientCertificate, BeneficiaryDocument, DOCUMENT_EXTENSIONS, DOCUMENT_MAX_BYTES, KANA_ROWS, DevelopmentAssessment
 from .forms import BeneficiaryForm, BeneficiaryOfficeForm, GuardianForm, RecipientCertificateForm
 from facilities.context_processors import get_terms
 from config.concurrency import check_conflict
+from config.pdf import pdf_or_html
 
 
 # =============================================
@@ -213,6 +214,12 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
                 ctx['recent_therapy'] = list(b.therapy_records.filter(date__in=days).select_related('staff')
                                              .order_by('-date', '-time', '-pk'))
             ctx['therapy_total'] = b.therapy_records.count()
+        # 5領域アセスメント（評価シート）と送迎の設定（施設設定で使うにした事業所だけ。オウル）
+        ctx['dev_assessments'] = (list(b.development_assessments.select_related('assessed_by'))
+                                  if self.request.user.facility.use_dev_assessment else [])
+        if self.request.user.facility.use_transport:
+            from transport.views import profile_context
+            ctx.update(profile_context(b))
         # 個別支援計画（進行中のものを先頭に）
         plans = list(b.support_plans.select_related('manager'))
         ctx['support_plans'] = plans
@@ -852,3 +859,97 @@ class KnowledgeToggleView(ImportRyoikuMixin, View):
         k.save(update_fields=['use_in_ai', 'updated_at'])
         messages.success(request, f'「{k.label}」を療育記録の AI で{"参考にします" if k.use_in_ai else "使わないようにしました"}。')
         return redirect(f"{reverse('beneficiaries:detail', args=[beneficiary.pk])}#knowledge")
+
+
+# =============================================
+# 5領域アセスメント（評価シート。施設設定で「5領域アセスメントを使う」にした事業所）
+# =============================================
+class DevAssessmentMixin(LoginRequiredMixin):
+    def dispatch(self, request, *args, **kwargs):
+        facility = getattr(request.user, 'facility', None)
+        if request.user.is_authenticated and not (facility is not None and facility.use_dev_assessment):
+            messages.info(request, 'この事業所では5領域アセスメントを使わない設定になっています（施設設定の「使う機能」で変えられます）。')
+            return redirect('facilities:dashboard')
+        return super().dispatch(request, *args, **kwargs)
+
+
+def _age_on(birth, day):
+    if not birth:
+        return None
+    return day.year - birth.year - ((day.month, day.day) < (birth.month, birth.day))
+
+
+def _sheet_or_404(request, beneficiary_pk, sheet_pk):
+    b = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+    a = get_object_or_404(b.development_assessments.select_related('assessed_by', 'created_by'), pk=sheet_pk) if sheet_pk else None
+    return b, a
+
+
+class DevAssessmentFormView(DevAssessmentMixin, View):
+    """5領域アセスメントを新しく作る・直す。?copy=1 で前回の内容を写して始める"""
+    template_name = 'beneficiaries/dev_assessment_form.html'
+
+    def get(self, request, beneficiary_pk, sheet_pk=None):
+        b, a = _sheet_or_404(request, beneficiary_pk, sheet_pk)
+        latest = b.development_assessments.order_by('-date', '-pk').first()
+        if a is None:
+            a = DevelopmentAssessment(beneficiary=b, date=datetime.date.today(), assessed_by=request.user)
+            if request.GET.get('copy') and latest:
+                a.domains = latest.domains
+                a.interviewed_with = latest.interviewed_with
+                for f in ('strengths', 'concerns', 'wishes_child', 'wishes_family', 'summary'):
+                    setattr(a, f, getattr(latest, f))
+            previous = latest
+        else:
+            previous = a.previous()
+        return render(request, self.template_name, {
+            'beneficiary': b, 'sheet': a, 'previous': previous, 'rows': a.rows(previous),
+            'ratings': DevelopmentAssessment.RATINGS, 'age': _age_on(b.date_of_birth, a.date),
+            'text_fields': [(f, DevelopmentAssessment._meta.get_field(f).verbose_name)
+                            for f in ('strengths', 'concerns', 'wishes_child', 'wishes_family', 'summary')],
+        })
+
+    def post(self, request, beneficiary_pk, sheet_pk=None):
+        b, a = _sheet_or_404(request, beneficiary_pk, sheet_pk)
+        p = request.POST
+        if a is not None:
+            conflict = check_conflict(request, a)
+            if conflict:
+                messages.error(request, conflict)
+                return redirect('beneficiaries:dev_assessment_edit', beneficiary_pk, a.pk)
+        try:
+            date = datetime.date.fromisoformat(p.get('date') or '')
+        except ValueError:
+            messages.error(request, '実施日を入れてください。')
+            return redirect(request.get_full_path())
+        if a is None:
+            a = DevelopmentAssessment(beneficiary=b, assessed_by=request.user, created_by=request.user)
+        a.date = date
+        a.interviewed_with = (p.get('interviewed_with') or '').strip()[:100]
+        a.domains = DevelopmentAssessment.domains_from_post(p)
+        for f in ('strengths', 'concerns', 'wishes_child', 'wishes_family', 'summary'):
+            setattr(a, f, (p.get(f) or '').strip()[:DevelopmentAssessment.TEXT_MAX])
+        a.save()
+        messages.success(request, f'{b.full_name} さんの5領域アセスメント（{a.date:%-m月%-d日}）を保存しました。')
+        return redirect('beneficiaries:dev_assessment_edit', beneficiary_pk, a.pk)
+
+
+class DevAssessmentPdfView(DevAssessmentMixin, View):
+    """5領域アセスメントの A4 の用紙（PDF。?fmt=html で画面）"""
+
+    def get(self, request, beneficiary_pk, sheet_pk):
+        b, a = _sheet_or_404(request, beneficiary_pk, sheet_pk)
+        previous = a.previous()
+        return pdf_or_html(request, 'beneficiaries/pdf/dev_assessment.html', {
+            'facility': request.user.facility, 'beneficiary': b, 'sheet': a, 'previous': previous, 'rows': a.rows(previous),
+            'ratings': DevelopmentAssessment.RATINGS, 'age': _age_on(b.date_of_birth, a.date),
+        }, f'5領域アセスメント_{b.full_name}_{a.date:%Y%m%d}')
+
+
+class DevAssessmentDeleteView(DevAssessmentMixin, View):
+    def post(self, request, beneficiary_pk, sheet_pk):
+        b, a = _sheet_or_404(request, beneficiary_pk, sheet_pk)
+        label = f'{a.date:%-m月%-d日}'
+        a.delete()
+        messages.success(request, f'{b.full_name} さんの5領域アセスメント（{label}）を削除しました。')
+        return redirect(f"{reverse('beneficiaries:detail', args=[b.pk])}#dev-assessments")

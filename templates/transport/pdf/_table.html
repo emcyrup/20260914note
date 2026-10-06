@@ -1,0 +1,20 @@
+<h2>{{ dlabel }}<span class="n">{{ active }} 人</span></h2>
+{% if counts %}<div class="cnt">{% for c in counts %}<span class="{% if c.over %}over{% endif %}">{{ c.vehicle.name }} {{ c.count }}人{% if c.vehicle.capacity %}／{{ c.vehicle.capacity }}{% endif %}</span>{% if not forloop.last %}　{% endif %}{% endfor %}</div>{% endif %}
+<table class="tr">
+  <colgroup><col style="width:9%"><col style="width:17%"><col style="width:24%"><col style="width:14%"><col style="width:12%"><col style="width:24%"></colgroup>
+  <thead><tr><th>時刻</th><th>利用者</th><th>場所</th><th>車両</th><th>運転手</th><th>備考・注意</th></tr></thead>
+  <tbody>
+  {% for x in rows %}{% if not x.skip %}
+  <tr>
+    <td class="c">{{ x.time|time:'G:i'|default:'' }}</td>
+    <td>{{ x.beneficiary.full_name }}</td>
+    <td>{{ x.place }}</td>
+    <td class="c">{% if x.vehicle %}{{ x.vehicle.name }}{% endif %}</td>
+    <td class="c">{% if x.driver %}{{ x.driver.name }}{% endif %}</td>
+    <td>{{ x.note }}{% if x.profile_note %}{% if x.note %}　{% endif %}<span class="note">※{{ x.profile_note }}</span>{% endif %}</td>
+  </tr>
+  {% endif %}{% empty %}
+  <tr><td colspan="6" class="empty">この日に{{ dlabel }}のある人はいません。</td></tr>
+  {% endfor %}
+  </tbody>
+</table>

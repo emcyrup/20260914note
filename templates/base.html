@@ -191,6 +191,13 @@
         </a>
       </li>
       {% endif %}
+      {% if features.transport %}
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'transport' %}active{% endif %}" href="{% url 'transport:day' %}" title="その日の迎え・送りの一覧（配車表）。車両・運転手の登録もここから">
+          <i class="bi bi-truck"></i><span>送迎・配車</span>
+        </a>
+      </li>
+      {% endif %}
       <li>
         <a class="sidebar-nav-item {% if rm.app_name == 'minutes' %}active{% endif %}" href="{% url 'minutes:index' %}" target="_blank" rel="noopener" title="別のタブで開きます">
           <i class="bi bi-mic"></i><span>議事録 <i class="bi bi-box-arrow-up-right" style="font-size:0.7em;opacity:0.7;"></i></span>

@@ -98,6 +98,7 @@
   <div class="small db-links text-muted">
     <a href="{% url 'reservations:day' b.date.year b.date.month b.date.day %}">この日の予約（追加・変更・取り消し）</a>
     <a href="{% url 'reservations:monthly_schedule' b.date.year b.date.month %}">月間予定表</a>
+    {% if features.transport %}<a href="{% url 'transport:day' %}?d={{ b.date|date:'Y-m-d' }}">この日の配車表（迎え・送り）</a>{% endif %}
     <a href="{% url 'reservations:daily_log_pdf' b.date.year b.date.month %}?from={{ b.date|date:'Y-m-d' }}&to={{ b.date|date:'Y-m-d' }}&inline=1" target="_blank">この日の業務日誌（PDF）</a>
     <div class="mt-1">名前を押すと療育記録を書けます。実績の選択は、月間予定表の「実績を入れる」と同じものです。</div>
   </div>

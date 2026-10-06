@@ -28,5 +28,9 @@ urlpatterns = [
     path('<int:beneficiary_pk>/knowledge/read/', views.KnowledgeReadView.as_view(), name='knowledge_read'),
     path('<int:beneficiary_pk>/knowledge/<int:pk>/', views.KnowledgeReviewView.as_view(), name='knowledge_review'),
     path('<int:beneficiary_pk>/knowledge/<int:pk>/toggle/', views.KnowledgeToggleView.as_view(), name='knowledge_toggle'),
+    path('<int:beneficiary_pk>/sheets/new/', views.DevAssessmentFormView.as_view(), name='dev_assessment_create'),
+    path('<int:beneficiary_pk>/sheets/<int:sheet_pk>/', views.DevAssessmentFormView.as_view(), name='dev_assessment_edit'),
+    path('<int:beneficiary_pk>/sheets/<int:sheet_pk>/pdf/', views.DevAssessmentPdfView.as_view(), name='dev_assessment_pdf'),
+    path('<int:beneficiary_pk>/sheets/<int:sheet_pk>/delete/', views.DevAssessmentDeleteView.as_view(), name='dev_assessment_delete'),
     path('guardians/<int:guardian_pk>/regenerate-line-code/', views.RegenerateLineCodeView.as_view(), name='regenerate_line_code'),
 ]

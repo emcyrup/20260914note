@@ -1,0 +1,50 @@
+<div class="tr-card">
+  <div class="tr-card-h">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <div class="t"><i class="bi {% if direction == 'pickup' %}bi-box-arrow-in-right{% else %}bi-box-arrow-right{% endif %} me-1"></i>{{ dlabel }}</div>
+      <span class="badge text-bg-secondary">{{ active }} 人</span>
+    </div>
+    <div class="tr-cnt d-flex gap-1 flex-wrap">
+      {% for c in counts %}<span class="badge {% if c.over %}text-bg-danger{% else %}text-bg-light border{% endif %}" title="{% if c.over %}乗れる人数（{{ c.vehicle.capacity }}）を超えています{% elif c.vehicle.capacity %}乗れる人数 {{ c.vehicle.capacity }}{% endif %}">{{ c.vehicle.name }} {{ c.count }}{% if c.vehicle.capacity %}/{{ c.vehicle.capacity }}{% endif %}</span>{% endfor %}
+    </div>
+  </div>
+  {% if rows %}
+  <div class="table-responsive">
+  <table class="tr-table">
+    <thead><tr><th style="width:120px;">時刻</th><th>利用者</th><th>場所</th><th style="width:150px;">車両</th><th style="width:150px;">運転手</th><th>備考</th><th style="width:56px;">なし</th></tr></thead>
+    <tbody>
+    {% for x in rows %}
+    <tr class="{% if x.skip %}skip{% endif %}">
+      <td><input type="hidden" name="present_{{ x.key }}" value="1"><input type="time" name="time_{{ x.key }}" class="form-control" value="{{ x.time|time:'H:i' }}" aria-label="時刻"></td>
+      <td class="tr-who">
+        <a href="{% url 'beneficiaries:detail' x.beneficiary.pk %}#transport" class="tr-name">{{ x.beneficiary.full_name }}</a>
+        {% if x.reservation.start_time %}<span class="small text-muted ms-1">予約 {{ x.reservation.time_label }}</span>{% endif %}
+        {% if x.added %}<span class="badge text-bg-info ms-1">この日だけ</span>{% endif %}
+        {% if x.profile_note %}<div class="tr-pnote"><i class="bi bi-exclamation-triangle me-1"></i>{{ x.profile_note }}</div>{% endif %}
+      </td>
+      <td><input type="text" name="place_{{ x.key }}" class="form-control" maxlength="200" value="{{ x.place }}" placeholder="場所"></td>
+      <td>
+        <select name="vehicle_{{ x.key }}" class="form-select" aria-label="車両">
+          <option value="">－</option>
+          {% for v in vehicles %}<option value="{{ v.pk }}" {% if x.vehicle_id == v.pk %}selected{% endif %}>{{ v.name }}</option>{% endfor %}
+          {% if x.vehicle and not x.vehicle.is_active %}<option value="{{ x.vehicle.pk }}" selected>{{ x.vehicle.name }}（使っていない）</option>{% endif %}
+        </select>
+      </td>
+      <td>
+        <select name="driver_{{ x.key }}" class="form-select" aria-label="運転手">
+          <option value="">－</option>
+          {% for d in drivers %}<option value="{{ d.pk }}" {% if x.driver_id == d.pk %}selected{% endif %}>{{ d.name }}</option>{% endfor %}
+          {% if x.driver and not x.driver.is_active %}<option value="{{ x.driver.pk }}" selected>{{ x.driver.name }}（退職）</option>{% endif %}
+        </select>
+      </td>
+      <td><input type="text" name="note_{{ x.key }}" class="form-control" maxlength="200" value="{{ x.note }}" placeholder="備考"></td>
+      <td class="text-center tr-skip"><label class="d-inline-flex align-items-center gap-1 mb-0"><input type="checkbox" class="form-check-input" name="skip_{{ x.key }}" {% if x.skip %}checked{% endif %} title="この日は{{ dlabel }}なし"><span class="tr-skip-l">この日は{{ dlabel }}なし</span></label></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="tr-others">この日に{{ dlabel }}のある人はいません。</div>
+  {% endif %}
+</div>

@@ -89,6 +89,10 @@ class Facility(models.Model):
                                           help_text='1日の枠・キャンセル待ち・公式LINEからの申し込みを扱います。')
     use_therapy_record = models.BooleanField(default=False, verbose_name='療育記録を使う',
                                              help_text='利用者ごとの留意点と、1回ごとの療育の記録（やったこと①〜⑤・担当・本文）。用紙と同じ形で印刷できます。')
+    use_transport = models.BooleanField(default=False, verbose_name='送迎・配車を使う',
+                                        help_text='車両と運転手を登録し、利用者ごとの送迎（迎え・送り・場所）から日ごとの配車表を作ります。')
+    use_dev_assessment = models.BooleanField(default=False, verbose_name='5領域アセスメントを使う',
+                                             help_text='健康・生活／運動・感覚／認知・行動／言語・コミュニケーション／人間関係・社会性の5領域を5段階で評価する用紙。利用者情報から作り、A4で印刷できます。')
     # ログイン画面の「職員として新しく登録」で使うコード（空なら受け付けない）。登録した人は管理者が承認するまでログインできない
     staff_signup_code = models.CharField(max_length=12, blank=True, db_index=True, verbose_name='職員登録コード')
     # 「お試し」の機能（記録の AI・支援計画の AI）を使える回数。0 なら制限なし。使った回数は trial_ai_used

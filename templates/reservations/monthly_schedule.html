@@ -72,6 +72,7 @@
       <a href="{% url 'reservations:monthly_requests' year month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-list-check me-1"></i>利用希望</a>
       <button type="button" class="btn btn-outline-primary btn-sm" id="ms-swap-toggle"><i class="bi bi-arrow-left-right me-1"></i>入れ替え・移動</button>
       {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_board' %}?d={{ today|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm" title="きょうの担当と予定を1画面で（スマートフォン向け）"><i class="bi bi-phone me-1"></i>きょうの予定</a>{% endif %}
+      {% if features.transport %}<a href="{% url 'transport:day' %}?d={{ today|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm" title="きょうの迎え・送りの一覧（配車表）"><i class="bi bi-truck me-1"></i>配車表</a>{% endif %}
       {% if facility.is_ryoiku %}<button type="button" class="btn btn-outline-success btn-sm" id="ms-att-toggle" title="名前を押して 来た・欠席・キャンセル を入れます。業務日誌の「実績」欄に印字されます"><i class="bi bi-check2-square me-1"></i>実績を入れる</button>{% endif %}
       <button type="button" class="btn btn-outline-secondary btn-sm" id="ms-fit-toggle" title="1 か月をひと目で見る（枠の箱を横に並べ、右の一覧をたたむ）"><i class="bi bi-arrows-angle-contract me-1"></i>全体を見る</button>
       <div class="btn-group">

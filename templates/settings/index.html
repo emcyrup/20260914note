@@ -189,6 +189,14 @@
             <input type="checkbox" class="form-check-input" name="use_therapy_record" id="use_therapy_record" {% if facility.use_therapy_record %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_therapy_record">療育記録（留意点・やったこと①〜⑤・担当・本文。用紙と同じ形で印刷）</label>
           </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="use_transport" id="use_transport" {% if facility.use_transport %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="use_transport">送迎・配車（車両・運転手の登録、利用者ごとの送迎の設定、日ごとの配車表と印刷）</label>
+          </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="use_dev_assessment" id="use_dev_assessment" {% if facility.use_dev_assessment %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="use_dev_assessment">5領域アセスメント（健康・生活／運動・感覚／認知・行動／言語・コミュニケーション／人間関係・社会性を5段階で評価する用紙。A4で印刷）</label>
+          </div>
           <div class="form-text">使わない機能はメニューやボタンから消えます。記録は消えないので、あとから戻せます。</div>
           {% if trial_ai.limit and not is_developer %}
           <div class="alert alert-info small py-1 px-2 mt-2 mb-0">「お試し」の機能の AI は <b>{{ trial_ai.limit }} 回</b>まで使えます（使った回数 {{ trial_ai.used }}・あと {{ trial_ai.remaining }} 回）。</div>

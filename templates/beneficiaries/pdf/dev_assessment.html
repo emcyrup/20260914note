@@ -1,0 +1,60 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}5領域アセスメント {{ beneficiary.full_name }}{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'beneficiaries:dev_assessment_edit' beneficiary.pk sheet.pk %}">用紙の編集へ戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .da-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 6px; font-size: 10px; }
+  .da-head .fac { color: #444; }
+  table.info td, table.info th { font-size: 10px; padding: 3px 5px; }
+  table.info th { width: 70px; white-space: nowrap; }
+  table.dom th, table.dom td { font-size: 9.5px; padding: 4px 5px; }
+  table.dom .c { text-align: center; vertical-align: middle; }
+  .scale { white-space: nowrap; letter-spacing: 1px; }
+  .scale span { display: inline-block; width: 14px; height: 14px; line-height: 13px; text-align: center; border: 1px solid #777; border-radius: 50%; margin: 0 1px; font-size: 9px; }
+  .scale span.on { background: #333; color: #fff; border-color: #333; font-weight: 700; }
+  .prev { font-size: 8px; color: #555; }
+  .boxes td { font-size: 9.5px; padding: 4px 5px; height: 48px; }
+  .boxes th { font-size: 9.5px; width: 110px; }
+  .legend { font-size: 8.5px; color: #444; margin-top: 5px; }
+  .legend b { display: inline-block; width: 1.4em; }
+</style>
+<h1>5領域アセスメント</h1>
+<div class="da-head">
+  <div class="fac">{{ facility.name }}</div>
+  <div>実施日　{{ sheet.date|date:'Y年n月j日' }}　　評価者　{{ sheet.assessed_by|default:'　　　　' }}</div>
+</div>
+<table class="info" style="margin-bottom:6px;">
+  <tr>
+    <th>氏名</th><td style="width:34%;">{{ beneficiary.full_name }}{% if beneficiary.full_name_kana|length > 1 %}　<span class="small">（{{ beneficiary.full_name_kana }}）</span>{% endif %}</td>
+    <th>生年月日</th><td>{{ beneficiary.date_of_birth|date:'Y年n月j日' }}{% if age is not None %}（{{ age }}歳）{% endif %}</td>
+  </tr>
+  <tr>
+    <th>学校・学年</th><td>{{ beneficiary.school_name }}{% if beneficiary.grade %}　{{ beneficiary.get_grade_display }}{% endif %}</td>
+    <th>聞き取り</th><td>{{ sheet.interviewed_with }}</td>
+  </tr>
+</table>
+<table class="dom">
+  <colgroup><col style="width:17%"><col style="width:13%"><col style="width:35%"><col style="width:35%"></colgroup>
+  <thead><tr><th>領域</th><th>評価{% if previous %}<br><span class="prev">（下は前回 {{ previous.date|date:'Y/n/j' }}）</span>{% endif %}</th><th>いまの様子</th><th>支援の方針・目標</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr>
+    <td><b>{{ r.label }}</b><div class="small muted">{{ r.hint }}</div></td>
+    <td class="c">
+      <div class="scale">{% for v, label in ratings %}<span class="{% if r.rating == v %}on{% endif %}">{{ v }}</span>{% endfor %}</div>
+      {% if r.rating_label %}<div class="small">{{ r.rating_label }}</div>{% endif %}
+      {% if previous %}<div class="prev">前回：{{ r.prev|default:'－' }}</div>{% endif %}
+    </td>
+    <td>{{ r.now }}</td>
+    <td>{{ r.goal }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<div class="legend">評価の目安：{% for v, label in ratings %}<b>{{ v }}</b>{{ label }}　{% endfor %}</div>
+<table class="boxes" style="margin-top:6px;">
+  <tr><th>本人の強み・好きなこと</th><td>{{ sheet.strengths }}</td><th>気になること・課題</th><td>{{ sheet.concerns }}</td></tr>
+  <tr><th>本人の希望</th><td>{{ sheet.wishes_child }}</td><th>家族の希望</th><td>{{ sheet.wishes_family }}</td></tr>
+  <tr><th>まとめ・支援の方向性</th><td colspan="3" style="height:70px;">{{ sheet.summary }}</td></tr>
+</table>
+{% endblock %}

@@ -1,0 +1,125 @@
+{% extends 'base.html' %}
+{% load concurrency %}
+
+{% block title %}5領域アセスメント — {{ beneficiary.full_name }}{% endblock %}
+{% block page_title %}5領域アセスメント{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .da-card { background: var(--sheet, #fff); border: 1px solid var(--line, #e5e1d8); border-radius: var(--radius, 14px); padding: 14px 16px; margin-bottom: 12px; }
+  .da-title { font-weight: 700; font-size: 1rem; color: var(--lake-text, #2f4f58); }
+  .da-hint { font-size: 0.8rem; color: #8a8378; }
+  .da-scale .btn { min-width: 44px; font-weight: 700; }
+  .da-scale-labels { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; font-size: 0.72rem; color: #6b6257; max-width: 560px; }
+  .da-prev { font-size: 0.8rem; color: #6b6257; }
+  .da-legend { font-size: 0.8rem; color: #6b6257; }
+  .da-legend b { display: inline-block; min-width: 1.2em; }
+  textarea.form-control { font-size: 0.92rem; line-height: 1.6; }
+  .th-voice.recording { background: #c0392b; color: #fff; border-color: #c0392b; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 980px;">
+  <nav class="small mb-2"><a href="{% url 'beneficiaries:list' %}">{{ terms.beneficiary }}情報</a> › <a href="{% url 'beneficiaries:detail' beneficiary.pk %}#dev-assessments">{{ beneficiary.full_name }}</a> › 5領域アセスメント</nav>
+
+  <form method="post" {% if sheet.pk %}data-concurrency="dev_assessment:{{ sheet.pk }}"{% endif %}>
+    {% csrf_token %}{% if sheet.pk %}{% version_field sheet %}{% endif %}
+    <div class="da-card">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <div>
+          <div class="da-title">{{ beneficiary.full_name }}{% if beneficiary.full_name_kana|length > 1 %} <span class="small text-muted">（{{ beneficiary.full_name_kana }}）</span>{% endif %}</div>
+          <div class="da-hint">{{ beneficiary.date_of_birth|date:'Y年n月j日' }}生{% if age is not None %}（実施日に {{ age }} 歳）{% endif %}{% if beneficiary.school_name %}・{{ beneficiary.school_name }}{% endif %}{% if beneficiary.grade %} {{ beneficiary.get_grade_display }}{% endif %}</div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+          {% if sheet.pk %}
+          <a href="{% url 'beneficiaries:dev_assessment_pdf' beneficiary.pk sheet.pk %}?inline=1" target="_blank" class="btn btn-sm btn-outline-secondary" title="A4 の用紙（PDF）を開きます"><i class="bi bi-printer me-1"></i>印刷（PDF）</a>
+          {% else %}<span class="badge text-bg-warning align-self-center">まだ保存していません</span>{% endif %}
+          <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button>
+        </div>
+      </div>
+      <div class="row g-2 mt-2">
+        <div class="col-6 col-md-3">
+          <label class="form-label small mb-0" for="da-date">実施日</label>
+          <input type="date" id="da-date" name="date" class="form-control form-control-sm" value="{{ sheet.date|date:'Y-m-d' }}" required>
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label small mb-0">評価者</label>
+          <div class="form-control form-control-sm bg-light">{{ sheet.assessed_by|default:user }}</div>
+        </div>
+        <div class="col-12 col-md-6">
+          <label class="form-label small mb-0" for="da-with">聞き取りの相手</label>
+          <input type="text" id="da-with" name="interviewed_with" class="form-control form-control-sm" maxlength="100" value="{{ sheet.interviewed_with }}" placeholder="保護者（母）・学校の先生 など">
+        </div>
+      </div>
+      <div class="da-legend mt-2">評価の目安：{% for v, label in ratings %}<b>{{ v }}</b> {{ label }}{% if not forloop.last %}　{% endif %}{% endfor %}</div>
+    </div>
+
+    {% for r in rows %}
+    <div class="da-card">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <div>
+          <div class="da-title">{{ forloop.counter }}. {{ r.label }}</div>
+          <div class="da-hint">{{ r.hint }}</div>
+        </div>
+        {% if r.prev %}<div class="da-prev">前回：<b>{{ r.prev }}</b>（{{ previous.date|date:'Y/n/j' }}）</div>{% endif %}
+      </div>
+      <div class="da-scale btn-group mt-2" role="group" aria-label="{{ r.label }}の評価">
+        {% for v, label in ratings %}
+        <input type="radio" class="btn-check" name="rating_{{ r.key }}" id="rt-{{ r.key }}-{{ v }}" value="{{ v }}" {% if r.rating == v %}checked{% endif %}>
+        <label class="btn btn-outline-primary btn-sm" for="rt-{{ r.key }}-{{ v }}" title="{{ label }}">{{ v }}</label>
+        {% endfor %}
+        <input type="radio" class="btn-check" name="rating_{{ r.key }}" id="rt-{{ r.key }}-0" value="" {% if not r.rating %}checked{% endif %}>
+        <label class="btn btn-outline-secondary btn-sm" for="rt-{{ r.key }}-0" title="評価しない">－</label>
+      </div>
+      <div class="da-scale-labels mt-1">{% for v, label in ratings %}<div>{{ label }}</div>{% endfor %}</div>
+      <div class="row g-2 mt-1">
+        <div class="col-md-6">
+          <div class="d-flex justify-content-between align-items-center">
+            <label class="form-label small mb-0" for="now-{{ r.key }}">いまの様子</label>
+            <button type="button" class="th-voice btn btn-sm btn-outline-secondary py-0" data-voice-target="now-{{ r.key }}" title="音声で入力（もう一度押すと止まる）"><i class="bi bi-mic"></i></button>
+          </div>
+          <textarea id="now-{{ r.key }}" name="now_{{ r.key }}" class="form-control" rows="3" maxlength="4000">{{ r.now }}</textarea>
+        </div>
+        <div class="col-md-6">
+          <div class="d-flex justify-content-between align-items-center">
+            <label class="form-label small mb-0" for="goal-{{ r.key }}">支援の方針・目標</label>
+            <button type="button" class="th-voice btn btn-sm btn-outline-secondary py-0" data-voice-target="goal-{{ r.key }}" title="音声で入力（もう一度押すと止まる）"><i class="bi bi-mic"></i></button>
+          </div>
+          <textarea id="goal-{{ r.key }}" name="goal_{{ r.key }}" class="form-control" rows="3" maxlength="4000">{{ r.goal }}</textarea>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+
+    <div class="da-card">
+      <div class="da-title mb-2">全体</div>
+      <div class="row g-2">
+        {% for name, label in text_fields %}
+        <div class="{% if name == 'summary' %}col-12{% else %}col-md-6{% endif %}">
+          <div class="d-flex justify-content-between align-items-center">
+            <label class="form-label small mb-0" for="f-{{ name }}">{{ label }}</label>
+            <button type="button" class="th-voice btn btn-sm btn-outline-secondary py-0" data-voice-target="f-{{ name }}" title="音声で入力（もう一度押すと止まる）"><i class="bi bi-mic"></i></button>
+          </div>
+          <textarea id="f-{{ name }}" name="{{ name }}" class="form-control" rows="{% if name == 'summary' %}4{% else %}3{% endif %}" maxlength="4000">{% if name == 'strengths' %}{{ sheet.strengths }}{% elif name == 'concerns' %}{{ sheet.concerns }}{% elif name == 'wishes_child' %}{{ sheet.wishes_child }}{% elif name == 'wishes_family' %}{{ sheet.wishes_family }}{% else %}{{ sheet.summary }}{% endif %}</textarea>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+      <a href="{% url 'beneficiaries:detail' beneficiary.pk %}#dev-assessments" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>{{ terms.beneficiary }}情報へ戻る</a>
+      <div class="d-flex gap-2">
+        {% if sheet.pk %}<a href="{% url 'beneficiaries:dev_assessment_pdf' beneficiary.pk sheet.pk %}?inline=1" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>印刷（PDF）</a>{% endif %}
+        <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button>
+      </div>
+    </div>
+  </form>
+  {% if sheet.pk %}
+  <form method="post" action="{% url 'beneficiaries:dev_assessment_delete' beneficiary.pk sheet.pk %}" class="text-end mb-4" onsubmit="return confirm('{{ sheet.date|date:'Y/n/j' }} の5領域アセスメントを削除します。戻せません。よろしいですか？');">
+    {% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>この用紙を削除する</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+
+{% block title %}配車表 {{ day|date:'n月j日' }}{% endblock %}
+{% block page_title %}配車表{% endblock %}
+{% block nav_transport %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .tr-card { background: var(--sheet, #fff); border: 1px solid var(--line, #e5e1d8); border-radius: var(--radius, 14px); margin-bottom: 14px; overflow: hidden; }
+  .tr-card-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line, #e5e1d8); }
+  .tr-card-h .t { font-weight: 700; font-size: 1.05rem; color: var(--lake-text, #2f4f58); }
+  .tr-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  .tr-table th { font-size: 0.75rem; color: #8a8378; font-weight: 600; padding: 6px 8px; white-space: nowrap; border-bottom: 1px solid var(--line, #e5e1d8); }
+  .tr-table td { padding: 5px 6px; border-bottom: 1px solid #f0ece4; vertical-align: middle; }
+  .tr-table tr.skip td { opacity: 0.5; }
+  .tr-table input[type=time] { width: 108px; }
+  .tr-table .form-control, .tr-table .form-select { font-size: 0.88rem; padding: 3px 6px; }
+  .tr-name { font-weight: 700; text-decoration: none; color: inherit; white-space: nowrap; }
+  .tr-pnote { font-size: 0.75rem; color: #b45309; }
+  .tr-cnt .badge { font-weight: 600; }
+  .tr-others { padding: 8px 14px; font-size: 0.85rem; color: #6b6257; background: #faf8f3; }
+  .tr-skip-l { display: none; }
+  .tr-nav .btn, .tr-date { white-space: nowrap; }
+  @media (max-width: 768px) {
+    /* スマートフォンでは 1 人を 1 枚のカードのように縦に並べる */
+    .tr-table, .tr-table tbody { display: block; }
+    .tr-table thead { display: none; }
+    .tr-table tr { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line, #e5e1d8); }
+    .tr-table td { display: block; padding: 0; border: 0; }
+    .tr-table td.tr-who { grid-column: 1 / -1; order: -1; }
+    .tr-table td:nth-child(3), .tr-table td:nth-child(6) { grid-column: 1 / -1; }
+    .tr-table td.tr-skip { grid-column: 1 / -1; text-align: left; font-size: 0.85rem; }
+    .tr-skip-l { display: inline; }
+    .tr-table input[type=time] { width: 100%; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <div class="btn-group tr-nav">
+        <a href="?d={{ prev_day|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm" title="前の日"><i class="bi bi-chevron-left"></i></a>
+        <a href="{% url 'transport:day' %}" class="btn btn-outline-secondary btn-sm">きょう</a>
+        <a href="?d={{ next_day|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm" title="次の日"><i class="bi bi-chevron-right"></i></a>
+      </div>
+      <form method="get"><input type="date" name="d" class="form-control form-control-sm" value="{{ day|date:'Y-m-d' }}" onchange="this.form.submit()" aria-label="日付"></form>
+      <div class="fw-bold fs-6 tr-date">{{ day|date:'n月j日' }}（{{ weekday }}）</div>
+    </div>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <a href="{% url 'transport:day_pdf' %}?d={{ day|date:'Y-m-d' }}&inline=1" target="_blank" class="btn btn-sm btn-outline-secondary" title="A4 の配車表（PDF）を開きます"><i class="bi bi-printer me-1"></i>印刷（PDF）</a>
+      <a href="{% url 'transport:vehicles' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-truck me-1"></i>車両・運転手</a>
+      {% if features.reservation %}<a href="{% url 'reservations:day' day.year day.month day.day %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-calendar-check me-1"></i>この日の予約</a>{% endif %}
+    </div>
+  </div>
+
+  {% if not vehicles %}
+  <div class="alert alert-info small py-2">車両がまだ登録されていません。<a href="{% url 'transport:vehicles' %}">車両・運転手</a>から登録すると、行ごとに選べます。</div>
+  {% endif %}
+
+  <form method="post">
+    {% csrf_token %}<input type="hidden" name="action" value="save"><input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}">
+    {% for direction, dlabel in directions %}
+    {% if direction == 'pickup' %}{% with rows=board.pickup counts=board.counts.pickup active=board.pickup_active %}{% include 'transport/_day_table.html' %}{% endwith %}
+    {% else %}{% with rows=board.dropoff counts=board.counts.dropoff active=board.dropoff_active %}{% include 'transport/_day_table.html' %}{% endwith %}{% endif %}
+    {% endfor %}
+    <div class="d-flex justify-content-end gap-2 mb-3">
+      <button class="btn btn-primary"><i class="bi bi-check2 me-1"></i>この日の配車を保存</button>
+    </div>
+  </form>
+
+  {% if board.others.pickup or board.others.dropoff %}
+  <div class="tr-card">
+    <div class="tr-card-h"><div class="t" style="font-size:0.95rem;">この日だけ送迎を足す</div><div class="small text-muted">送迎の設定が無い（またはその向きが無い）人を、この日だけ配車表に入れます</div></div>
+    <div class="p-3 d-flex flex-wrap gap-3">
+      {% for direction, dlabel in directions %}
+      {% if direction == 'pickup' %}{% with others=board.others.pickup %}{% include 'transport/_day_add.html' %}{% endwith %}
+      {% else %}{% with others=board.others.dropoff %}{% include 'transport/_day_add.html' %}{% endwith %}{% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  <div class="small text-muted mb-4">予約（確定）のある利用者のうち、利用者情報の「送迎」で迎え・送りありにした人が並びます。時刻・場所・車両・運転手の空欄は、送迎の設定といつもの車両の運転手から入ります。「なし」にするとその日は送迎しない人として印刷からも外れます。</div>
+</div>
+{% endblock %}

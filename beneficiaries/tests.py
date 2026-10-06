@@ -982,3 +982,112 @@ class BeneficiaryDeleteTests(TestCase):
         self.assertFalse(SupportPlan.objects.exists())
         self.assertFalse(TherapyRecord.objects.exists())
         self.assertFalse(storage.exists(name))
+
+
+class DevelopmentAssessmentTests(TestCase):
+    """5領域アセスメント（評価シート。施設設定で使うにした事業所）"""
+
+    def setUp(self):
+        import datetime
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        self.f = Facility.objects.create(name='児童発達支援センター　オウル', layout=Facility.LAYOUT_RYOIKU, use_dev_assessment=True)
+        self.user = StaffAccount.objects.create_user('owl', password='pw12345678', facility=self.f,
+                                                     role=StaffAccount.ROLE_STAFF, display_name='大和')
+        self.client.login(username='owl', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', last_name_kana='あおき',
+                                              first_name_kana='こ', date_of_birth=datetime.date(2019, 4, 1), school_name='南小学校')
+        self.detail = reverse('beneficiaries:detail', args=[self.kid.pk])
+        self.new_url = reverse('beneficiaries:dev_assessment_create', args=[self.kid.pk])
+
+    def post_data(self, **over):
+        data = {'date': '2026-10-07', 'interviewed_with': '保護者（母）',
+                'rating_health': '4', 'now_health': '食事は自分で食べる。', 'goal_health': '着替えの手順表を使う',
+                'rating_motor': '3', 'rating_cognition': '2', 'now_cognition': '切り替えに時間がかかる',
+                'rating_language': '', 'rating_social': '5',
+                'strengths': '電車が好き', 'concerns': '大きな音が苦手', 'wishes_child': '友だちと遊びたい',
+                'wishes_family': '集団に慣れてほしい', 'summary': '視覚的な手がかりを増やす'}
+        data.update(over)
+        return data
+
+    def test_disabled_hides_section_and_redirects(self):
+        self.f.use_dev_assessment = False
+        self.f.save()
+        res = self.client.get(self.detail)
+        self.assertNotContains(res, 'id="dev-assessments"')
+        res = self.client.get(self.new_url)
+        self.assertRedirects(res, reverse('facilities:dashboard'))
+
+    def test_create_edit_print_delete(self):
+        from .models import DevelopmentAssessment
+        res = self.client.get(self.detail)
+        self.assertContains(res, 'id="dev-assessments"')
+        self.assertContains(res, '新しく作る')
+        self.assertNotContains(res, '前回を写して作る')
+        res = self.client.get(self.new_url)
+        self.assertContains(res, '健康・生活')
+        self.assertContains(res, '人間関係・社会性')
+        self.assertContains(res, 'まだ保存していません')
+        self.assertContains(res, 'data-voice-target="now-health"')
+        res = self.client.post(self.new_url, self.post_data())
+        a = DevelopmentAssessment.objects.get()
+        self.assertRedirects(res, reverse('beneficiaries:dev_assessment_edit', args=[self.kid.pk, a.pk]))
+        self.assertEqual((a.assessed_by, a.created_by, a.interviewed_with), (self.user, self.user, '保護者（母）'))
+        self.assertEqual(a.rating('health'), 4)
+        self.assertIsNone(a.rating('language'))
+        self.assertEqual(a.domains['cognition']['now'], '切り替えに時間がかかる')
+        self.assertEqual([v for _, v in a.rating_marks], [4, 3, 2, None, 5])
+        # 一覧に評価の印が出る。印刷（画面表示）には評価・様子・まとめが出る
+        res = self.client.get(self.detail)
+        self.assertContains(res, '2026年10月7日')
+        self.assertContains(res, '前回を写して作る')
+        res = self.client.get(reverse('beneficiaries:dev_assessment_pdf', args=[self.kid.pk, a.pk]) + '?fmt=html')
+        self.assertContains(res, '5領域アセスメント')
+        self.assertContains(res, '青木 子')
+        self.assertContains(res, '（7歳）')          # 2019/4/1 生まれ → 2026/10/7 に 7 歳
+        self.assertContains(res, '食事は自分で食べる。')
+        self.assertContains(res, '視覚的な手がかりを増やす')
+        self.assertContains(res, '<span class="on">4</span>')
+        # 直す（評価を変える）。版の確認もする
+        edit = reverse('beneficiaries:dev_assessment_edit', args=[self.kid.pk, a.pk])
+        res = self.client.get(edit)
+        self.assertContains(res, 'value="2026-10-07"')
+        self.assertContains(res, 'id="rt-health-4" value="4" checked')
+        self.client.post(edit, self.post_data(rating_health='5', summary='更新した'))
+        a.refresh_from_db()
+        self.assertEqual((a.rating('health'), a.summary), (5, '更新した'))
+        res = self.client.post(edit, dict(self.post_data(summary='古い画面から'), version='2000-01-01T00:00:00'), follow=True)
+        a.refresh_from_db()
+        self.assertEqual(a.summary, '更新した')
+        self.assertContains(res, '保存')          # 競合のメッセージ（ほかの人が保存…）が出る
+        # 削除
+        res = self.client.post(reverse('beneficiaries:dev_assessment_delete', args=[self.kid.pk, a.pk]))
+        self.assertRedirects(res, self.detail + '#dev-assessments')
+        self.assertFalse(DevelopmentAssessment.objects.exists())
+
+    def test_copy_previous_and_previous_column(self):
+        from .models import DevelopmentAssessment
+        self.client.post(self.new_url, self.post_data(date='2026-04-01'))
+        first = DevelopmentAssessment.objects.get()
+        res = self.client.get(self.new_url + '?copy=1')
+        self.assertContains(res, '電車が好き')
+        self.assertContains(res, 'id="rt-health-4" value="4" checked')
+        self.assertContains(res, '前回：<b>4</b>')
+        self.client.post(self.new_url, self.post_data(date='2026-10-07', rating_health='5'))
+        second = DevelopmentAssessment.objects.exclude(pk=first.pk).get()
+        self.assertEqual(second.previous(), first)
+        self.assertIsNone(first.previous())
+        res = self.client.get(reverse('beneficiaries:dev_assessment_pdf', args=[self.kid.pk, second.pk]) + '?fmt=html')
+        self.assertContains(res, '前回：4')
+        self.assertContains(res, '2026/4/1')
+
+    def test_bad_date_and_other_facility(self):
+        from facilities.models import Facility
+        from .models import DevelopmentAssessment
+        res = self.client.post(self.new_url, self.post_data(date='bad'), follow=True)
+        self.assertContains(res, '実施日を入れてください')
+        self.assertFalse(DevelopmentAssessment.objects.exists())
+        g = Facility.objects.create(name='ほか', layout=Facility.LAYOUT_RYOIKU, use_dev_assessment=True)
+        other = Beneficiary.objects.create(facility=g, last_name='他', first_name='人', date_of_birth=datetime.date(2019, 4, 1))
+        res = self.client.get(reverse('beneficiaries:dev_assessment_create', args=[other.pk]))
+        self.assertEqual(res.status_code, 404)

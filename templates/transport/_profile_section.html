@@ -1,0 +1,54 @@
+{% load concurrency %}
+<div class="col-12" id="transport">
+  <div class="info-card">
+    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+      <div>
+        <div class="section-title mb-0">送迎</div>
+        <div class="small text-muted">迎え・送りのある・なしと場所、いつもの車両。日ごとの配車表はここから作られ、その日だけの変更は配車表で直せます。</div>
+      </div>
+      <a href="{% url 'transport:day' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-truck me-1"></i>きょうの配車表</a>
+    </div>
+    <form method="post" action="{% url 'transport:profile' beneficiary.pk %}" class="row g-2" {% if transport_profile.pk %}data-concurrency="transport_profile:{{ transport_profile.pk }}" data-concurrency-lazy{% endif %}>
+      {% csrf_token %}{% if transport_profile.pk %}{% version_field transport_profile %}{% endif %}
+      <div class="col-md-6">
+        <div class="form-check">
+          <input type="checkbox" class="form-check-input" name="pickup" id="tp-pickup" {% if transport_profile.pickup %}checked{% endif %}>
+          <label class="form-check-label fw-semibold" for="tp-pickup">迎えあり</label>
+        </div>
+        <div class="input-group input-group-sm mt-1">
+          <span class="input-group-text">場所</span>
+          <input type="text" name="pickup_place" class="form-control" maxlength="200" value="{{ transport_profile.pickup_place }}" placeholder="○○小学校・自宅 など">
+          <span class="input-group-text">目安</span>
+          <input type="time" name="pickup_time" class="form-control" style="max-width:120px;" value="{{ transport_profile.pickup_time|time:'H:i' }}">
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="form-check">
+          <input type="checkbox" class="form-check-input" name="dropoff" id="tp-dropoff" {% if transport_profile.dropoff %}checked{% endif %}>
+          <label class="form-check-label fw-semibold" for="tp-dropoff">送りあり</label>
+        </div>
+        <div class="input-group input-group-sm mt-1">
+          <span class="input-group-text">場所</span>
+          <input type="text" name="dropoff_place" class="form-control" maxlength="200" value="{{ transport_profile.dropoff_place }}" placeholder="自宅・学童 など">
+          <span class="input-group-text">目安</span>
+          <input type="time" name="dropoff_time" class="form-control" style="max-width:120px;" value="{{ transport_profile.dropoff_time|time:'H:i' }}">
+        </div>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-0" for="tp-vehicle">いつもの車両</label>
+        <select name="default_vehicle" id="tp-vehicle" class="form-select form-select-sm">
+          <option value="">－</option>
+          {% for v in transport_vehicles %}<option value="{{ v.pk }}" {% if transport_profile.default_vehicle_id == v.pk %}selected{% endif %}>{{ v.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-8">
+        <label class="form-label small mb-0" for="tp-note">送迎の注意</label>
+        <input type="text" name="note" id="tp-note" class="form-control form-control-sm" maxlength="200" value="{{ transport_profile.note }}" placeholder="チャイルドシート・酔いやすい・引き渡しの相手 など">
+      </div>
+      <div class="col-12 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="small text-muted">{% if beneficiary.address %}住所：{{ beneficiary.address }}{% else %}住所は基本情報の編集で入れられます{% endif %}</div>
+        <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>送迎の設定を保存</button>
+      </div>
+    </form>
+  </div>
+</div>

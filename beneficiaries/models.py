@@ -516,3 +516,102 @@ class KnowledgeChunk(models.Model):
 
     class Meta:
         ordering = ['knowledge', 'index']
+
+
+class DevelopmentAssessment(models.Model):
+    """
+    5領域のアセスメント（評価シート）。
+    こども家庭庁のガイドラインにある 5 領域（健康・生活／運動・感覚／認知・行動／言語・コミュニケーション／人間関係・社会性）
+    ごとに、いまの様子を 5 段階で評価し、様子と支援の方針を書く。本人・家族の希望とまとめを添えて A4 で印刷できる。
+    支援計画の前のアセスメントや、半年ごとの見直しに使う（支援計画の AI アセスメント support_plans.Assessment とは別）。
+    """
+    DOMAINS = [
+        ('health', '健康・生活'),
+        ('motor', '運動・感覚'),
+        ('cognition', '認知・行動'),
+        ('language', '言語・コミュニケーション'),
+        ('social', '人間関係・社会性'),
+    ]
+    DOMAIN_HINTS = {
+        'health': '健康状態・生活リズム・食事・排せつ・着替え・身の回りのこと',
+        'motor': '姿勢・粗大運動（走る・跳ぶ）・微細運動（はさみ・鉛筆）・感覚の過敏や鈍さ',
+        'cognition': '注意・集中・見通し・ルールの理解・数や文字・気持ちの切り替え・行動のコントロール',
+        'language': '言葉の理解・話す・伝える・やりとり・絵カードやジェスチャーなどの手段',
+        'social': '大人や友だちとの関わり・集団への参加・順番やルール・自己理解・情緒の安定',
+    }
+    RATINGS = [
+        (1, '全面的な支援が必要'),
+        (2, '多くの支援が必要'),
+        (3, '一部の支援・声かけが必要'),
+        (4, '見守りがあればできる'),
+        (5, 'ひとりでできる'),
+    ]
+    RATING_LABELS = dict(RATINGS)
+    TEXT_MAX = 4000
+
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='development_assessments',
+                                    verbose_name='利用者')
+    date = models.DateField(verbose_name='実施日')
+    assessed_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='+', verbose_name='評価者')
+    interviewed_with = models.CharField(max_length=100, blank=True, verbose_name='聞き取りの相手',
+                                        help_text='保護者（母）・学校の先生など')
+    # {領域キー: {'rating': 1〜5 か None, 'now': いまの様子, 'goal': 支援の方針}}
+    domains = models.JSONField(default=dict, blank=True, verbose_name='領域ごとの評価')
+    strengths = models.TextField(blank=True, verbose_name='本人の強み・好きなこと・得意なこと')
+    concerns = models.TextField(blank=True, verbose_name='気になること・課題')
+    wishes_child = models.TextField(blank=True, verbose_name='本人の希望')
+    wishes_family = models.TextField(blank=True, verbose_name='家族の希望')
+    summary = models.TextField(blank=True, verbose_name='まとめ・支援の方向性')
+    created_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='+', verbose_name='作成者')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '5領域アセスメント'
+        verbose_name_plural = '5領域アセスメント'
+        ordering = ['-date', '-pk']
+
+    def __str__(self):
+        return f'{self.beneficiary.full_name} {self.date} 5領域アセスメント'
+
+    def rating(self, key):
+        v = (self.domains or {}).get(key, {}).get('rating')
+        return v if v in self.RATING_LABELS else None
+
+    def rows(self, previous=None):
+        """画面・印刷用：領域ごとの dict（key, label, hint, rating, rating_label, now, goal, prev＝前回の評価）"""
+        out = []
+        for key, label in self.DOMAINS:
+            d = (self.domains or {}).get(key, {})
+            r = self.rating(key)
+            out.append({'key': key, 'label': label, 'hint': self.DOMAIN_HINTS[key], 'rating': r,
+                        'rating_label': self.RATING_LABELS.get(r, ''), 'now': d.get('now', ''), 'goal': d.get('goal', ''),
+                        'prev': previous.rating(key) if previous else None})
+        return out
+
+    @property
+    def rating_marks(self):
+        """一覧に出す短い形：[('健康・生活', 3), ...]（未評価は None）"""
+        return [(label, self.rating(key)) for key, label in self.DOMAINS]
+
+    @classmethod
+    def domains_from_post(cls, post):
+        """フォームの rating_<key>・now_<key>・goal_<key> を domains の形にする"""
+        out = {}
+        for key, _ in cls.DOMAINS:
+            try:
+                r = int(post.get(f'rating_{key}') or 0)
+            except (TypeError, ValueError):
+                r = 0
+            out[key] = {'rating': r if r in cls.RATING_LABELS else None,
+                        'now': (post.get(f'now_{key}') or '').strip()[:cls.TEXT_MAX],
+                        'goal': (post.get(f'goal_{key}') or '').strip()[:cls.TEXT_MAX]}
+        return out
+
+    def previous(self):
+        """この用紙の前に作った用紙（前回の評価を並べて見るため）"""
+        return (DevelopmentAssessment.objects.filter(beneficiary_id=self.beneficiary_id)
+                .filter(models.Q(date__lt=self.date) | models.Q(date=self.date, pk__lt=self.pk or 0))
+                .order_by('-date', '-pk').first())

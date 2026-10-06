@@ -20,6 +20,7 @@
       <a href="{% url 'reservations:calendar_month' date.year date.month %}" class="btn btn-outline-secondary btn-sm">カレンダーへ</a>
       <a href="{% url 'reservations:day' next_day.year next_day.month next_day.day %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-right"></i></a>
     </div>
+    {% if features.transport %}<a href="{% url 'transport:day' %}?d={{ date|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm" title="この日の迎え・送りの一覧（配車表）"><i class="bi bi-truck me-1"></i>配車表</a>{% endif %}
     <div>
       {% if state.closed %}
         <span class="badge text-bg-secondary">休業日（枠0）</span>
