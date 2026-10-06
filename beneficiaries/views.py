@@ -950,7 +950,7 @@ class DevAssessmentPdfView(DevAssessmentMixin, View):
         return pdf_or_html(request, 'beneficiaries/pdf/dev_assessment.html', {
             'facility': request.user.facility, 'beneficiary': b, 'sheet': a, 'previous': previous, 'rows': rows,
             'ratings': DevelopmentAssessment.RATINGS, 'age': _age_on(b.date_of_birth, a.date),
-            'radar': sheet_plan.radar_svg(rows, size=190) if any(r['rating'] for r in rows) else '',
+            'radar': sheet_plan.radar_svg(rows, size=150, short=True) if any(r['rating'] for r in rows) else '',
         }, f'5領域アセスメント_{b.full_name}_{a.date:%Y%m%d}')
 
 

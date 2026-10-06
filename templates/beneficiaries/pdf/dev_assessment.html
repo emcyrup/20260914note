@@ -7,7 +7,8 @@
   .da-head .fac { color: #444; }
   table.info td, table.info th { font-size: 10px; padding: 3px 5px; }
   table.info th { width: 70px; white-space: nowrap; }
-  table.dom th, table.dom td { font-size: 9.5px; padding: 4px 5px; }
+  table.dom th, table.dom td { font-size: 9.5px; padding: 4px 5px; white-space: normal; }
+  table.dom td.c { white-space: normal; }
   table.dom .c { text-align: center; vertical-align: middle; }
   .scale { white-space: nowrap; letter-spacing: 1px; }
   .scale span { display: inline-block; width: 14px; height: 14px; line-height: 13px; text-align: center; border: 1px solid #777; border-radius: 50%; margin: 0 1px; font-size: 9px; }
@@ -24,7 +25,7 @@
   <div>実施日　{{ sheet.date|date:'Y年n月j日' }}　　評価者　{{ sheet.assessed_by|default:'　　　　' }}</div>
 </div>
 {% if radar %}<div style="float:right;margin:-4px 0 4px 8px;">{{ radar }}</div>{% endif %}
-<table class="info" style="margin-bottom:6px;{% if radar %}width:calc(100% - 335px);{% endif %}">
+<table class="info" style="margin-bottom:6px;{% if radar %}width:calc(100% - 225px);{% endif %}">
   <tr>
     <th>氏名</th><td style="width:34%;">{{ beneficiary.full_name }}{% if beneficiary.full_name_kana|length > 1 %}　<span class="small">（{{ beneficiary.full_name_kana }}）</span>{% endif %}</td>
     <th>生年月日</th><td>{{ beneficiary.date_of_birth|date:'Y年n月j日' }}{% if age is not None %}（{{ age }}歳）{% endif %}</td>

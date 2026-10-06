@@ -18,13 +18,13 @@ from django.utils.safestring import mark_safe
 from support_plans.models import PlanGoal, SupportPlan
 
 
-def radar_svg(rows, size=220, with_labels=True):
-    """rows は DevelopmentAssessment.rows()。評価の無い領域は中心（0）に置く"""
+def radar_svg(rows, size=220, with_labels=True, short=False):
+    """rows は DevelopmentAssessment.rows()。評価の無い領域は中心（0）に置く。short なら領域名を 2 文字（PDF の右上用）"""
     n = len(rows)
     if n < 3:
         return ''
     # 左右の領域名がはみ出さないように、横長の画面にする
-    width = int(size * 1.7) if with_labels else size
+    width = (size + (60 if short else 230)) if with_labels else size        # 領域名が収まる余白（「言語・コミュニケーション」）
     cx, cy = width / 2, size / 2
     r = size * (0.36 if with_labels else 0.44)
 
@@ -58,7 +58,7 @@ def radar_svg(rows, size=220, with_labels=True):
             x, y = pt(i, 5.6)
             anchor = 'middle' if abs(x - cx) < 6 else ('start' if x > cx else 'end')
             dy = 4 if abs(y - cy) < 6 else (12 if y > cy else -4)
-            label = escape(row['label']).replace('・', '・')
+            label = escape(row['label'][:2] if short else row['label'])
             out.append(f'<text x="{x:.1f}" y="{y + dy:.1f}" font-size="9.5" fill="#3b3732" text-anchor="{anchor}">{label}</text>')
     out.append('</svg>')
     return mark_safe(''.join(out))
