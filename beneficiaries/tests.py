@@ -1157,3 +1157,73 @@ class SheetToPlanTests(TestCase):
         res = self.client.post(url, {'plan': plan.pk}, follow=True)
         self.assertContains(res, 'ステップ3（担当者会議）以降に進んでいる')
         self.assertEqual(plan.goals.count(), 4)
+
+
+class DevelopmentTestTests(TestCase):
+    """発達検査の結果（入力・推移・AI の下書き）"""
+
+    def setUp(self):
+        import datetime
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        self.f = Facility.objects.create(name='児童発達支援センター　オウル', layout=Facility.LAYOUT_RYOIKU, use_daily_ops=True)
+        self.user = StaffAccount.objects.create_user('owl', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.login(username='owl', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2021, 4, 1))
+
+    def test_create_edit_chart(self):
+        import datetime
+        from .models import DevelopmentTest
+        url = reverse('beneficiaries:dev_test_create', args=[self.kid.pk])
+        res = self.client.get(url)
+        self.assertContains(res, '姿勢・運動（P-M）')        # 新版K式の標準の領域
+        self.assertContains(res, 'の書類から読み取る')
+        res = self.client.post(url, {'test': 'kshiki', 'test_other': '新版K式2020', 'date': '2026-04-01', 'examiner': 'クリニック',
+                                     'ca_y': '5', 'ca_m': '0', 'oa_y': '3', 'oa_m': '9', 'overall_quotient': '75',
+                                     'r0_label': '姿勢・運動（P-M）', 'r0_y': '4', 'r0_m': '0', 'r0_q': '80',
+                                     'r1_label': '言語・社会（L-S）', 'r1_y': '3', 'r1_m': '6', 'r1_q': '70', 'r2_label': '', 'note': '所見'})
+        t = DevelopmentTest.objects.get()
+        self.assertRedirects(res, reverse('beneficiaries:detail', args=[self.kid.pk]) + '#dev-tests')
+        self.assertEqual((t.test_name, t.ca_months, t.overall_age_months, t.overall_quotient, t.ca_label),
+                         ('新版K式発達検査', 60, 45, 75, '5歳0か月'))
+        self.assertEqual(t.results, [{'label': '姿勢・運動（P-M）', 'age_months': 48, 'quotient': 80},
+                                     {'label': '言語・社会（L-S）', 'age_months': 42, 'quotient': 70}])
+        DevelopmentTest.objects.create(beneficiary=self.kid, test='kshiki', date=datetime.date(2026, 10, 1), overall_quotient=82,
+                                       results=[{'label': '言語・社会（L-S）', 'age_months': 48, 'quotient': 78}])
+        res = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
+        self.assertContains(res, 'id="dev-tests"')
+        self.assertContains(res, '発達検査の指数の推移')
+        self.assertContains(res, '<polyline')
+        self.assertContains(res, '全体 3歳9か月・75')
+        # 直す・消す
+        edit = reverse('beneficiaries:dev_test_edit', args=[self.kid.pk, t.pk])
+        res = self.client.get(edit)
+        self.assertContains(res, 'value="新版K式2020"')
+        self.client.post(edit, {'test': 'kshiki', 'date': '2026-04-02', 'overall_quotient': '76', 'r0_label': 'A', 'r0_q': '1'})
+        t.refresh_from_db()
+        self.assertEqual((t.date, t.overall_quotient, t.ca_months, t.results), (datetime.date(2026, 4, 2), 76, None, [{'label': 'A', 'age_months': None, 'quotient': 1}]))
+        self.client.post(reverse('beneficiaries:dev_test_delete', args=[self.kid.pk, t.pk]))
+        self.assertEqual(DevelopmentTest.objects.count(), 1)
+
+    def test_ai_read_prefills_form(self):
+        from unittest import mock
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from .models import BeneficiaryDocument
+        doc = BeneficiaryDocument.objects.create(beneficiary=self.kid, file=SimpleUploadedFile('kekka.pdf', b'%PDF-1.4'), file_name='kekka.pdf')
+        data = {'test': 'enjoji', 'test_other': '', 'date': '2026-09-01', 'examiner': '発達センター', 'ca_months': 65,
+                'overall_age_months': None, 'overall_quotient': None, 'note': '所見の要点', 'test_name': '遠城寺式',
+                'results': [{'label': '移動運動', 'age_months': 50, 'quotient': None}]}
+        with mock.patch('beneficiaries.dev_tests.read_test', return_value=data):
+            res = self.client.post(reverse('beneficiaries:dev_test_read', args=[self.kid.pk]), {'source': f'doc:{doc.pk}'}, follow=True)
+        self.assertContains(res, 'AI が「書類：kekka.pdf」から読み取った下書きです')
+        self.assertContains(res, 'value="2026-09-01"')
+        self.assertContains(res, 'value="移動運動"')
+        self.assertContains(res, 'value="発達センター"')
+
+    def test_normalize(self):
+        from .dev_tests import normalize
+        d = normalize({'test': 'x', 'test_name': '独自の検査', 'date': 'bad', 'examiner': '', 'ca_months': -1, 'overall_age_months': 30,
+                       'overall_quotient': -1, 'results': [{'label': ' 運動 ', 'age_months': -1, 'quotient': 90}, {'label': '', 'age_months': 1, 'quotient': 1}], 'note': ''})
+        self.assertEqual((d['test'], d['test_other'], d['date'], d['ca_months'], d['overall_age_months'], d['overall_quotient']),
+                         ('other', '独自の検査', '', None, 30, None))
+        self.assertEqual(d['results'], [{'label': '運動', 'age_months': None, 'quotient': 90}])

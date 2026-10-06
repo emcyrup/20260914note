@@ -1,0 +1,29 @@
+<form method="post" class="dl-card" id="form">
+  {% csrf_token %}{% if g %}<input type="hidden" name="pk" value="{{ g.pk }}">{% endif %}
+  <div class="dl-h mb-2">{% if g %}「{{ g.name }}」を直す{% else %}クラスを作る{% endif %}</div>
+  <div class="row g-2">
+    <div class="col-md-4"><label class="form-label small mb-0">クラス名</label><input type="text" name="name" class="form-control form-control-sm" maxlength="50" value="{{ g.name|default:'' }}" placeholder="ひよこ組・午前の小集団 など" required></div>
+    <div class="col-md-3"><label class="form-label small mb-0">いつもの開始時刻</label><input type="time" name="start_time" class="form-control form-control-sm" value="{{ g.start_time|time:'H:i' }}"></div>
+    <div class="col-md-3"><label class="form-label small mb-0">色</label>
+      <select name="color" class="form-select form-select-sm">{% for c, label in colors %}<option value="{{ c }}" {% if g.color == c %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="col-md-2"><label class="form-label small mb-0">並び順</label><input type="number" name="order" class="form-control form-control-sm" min="0" max="999" value="{{ g.order|default:0 }}"></div>
+    <div class="col-12"><label class="form-label small mb-0">活動する曜日</label>
+      <div>{% for i, w in week %}<label class="me-3"><input type="checkbox" name="weekdays" value="{{ i }}" {% if i in g.weekdays %}checked{% endif %}> {{ w }}</label>{% endfor %}</div></div>
+    <div class="col-12"><label class="form-label small mb-0">メンバー（在籍中の利用者）</label>
+      <div class="mem-list">{% for c in children %}<label class="small"><input type="checkbox" name="members" value="{{ c.pk }}" {% if g and c in g.members.all %}checked{% endif %}> {{ c.full_name }}</label>{% endfor %}</div></div>
+    <div class="col-12"><label class="form-label small mb-0">メモ</label><input type="text" name="note" class="form-control form-control-sm" maxlength="200" value="{{ g.note|default:'' }}"></div>
+    <div class="col-12 d-flex justify-content-between align-items-center flex-wrap gap-2">
+      {% if g %}<label class="small"><input type="checkbox" name="is_active" {% if g.is_active %}checked{% endif %}> 使っている</label>{% else %}<span></span>{% endif %}
+      <div class="d-flex gap-2">
+        {% if g %}<a href="{% url 'daily:groups' %}" class="btn btn-sm btn-outline-secondary">やめる</a>{% endif %}
+        <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>{% if g %}保存する{% else %}作る{% endif %}</button>
+      </div>
+    </div>
+  </div>
+</form>
+{% if g %}
+<form method="post" class="text-end mb-4" onsubmit="return confirm('クラス「{{ g.name|escapejs }}」を削除します。週間の計画と記録も消えます（療育記録に写したものは残ります）。よろしいですか？');">
+  {% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="pk" value="{{ g.pk }}">
+  <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>このクラスを削除する</button>
+</form>
+{% endif %}

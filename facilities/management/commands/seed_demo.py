@@ -201,6 +201,8 @@ class Command(BaseCommand):
         Driver.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()
         from surveys.models import SelfEvaluation, Survey
         SelfEvaluation.objects.filter(facility=facility, summary__contains=SAMPLE_MARK).delete()
+        from daily.models import ClassGroup
+        ClassGroup.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()      # 健康の記録・注意・発達検査は利用者と一緒に消える
         Survey.objects.filter(facility=facility, intro__contains=SAMPLE_MARK).delete()
         self.stdout.write(f'サンプル利用者 {n} 名と関連データを削除しました')
 
@@ -427,8 +429,92 @@ class Command(BaseCommand):
             counts.update(self._create_dev_assessments(facility, beneficiaries, staff, today, rng))
         if getattr(facility, 'use_survey', False):
             counts.update(self._create_surveys(facility, staff, today, rng))
+        if getattr(facility, 'use_daily_ops', False):
+            counts.update(self._create_daily(facility, beneficiaries, staff, today, rng))
 
         return counts
+
+    # ------------------------------------------------------------------
+    def _create_daily(self, facility, beneficiaries, staff, today, rng):
+        """毎日の運営の見本：クラス 2 つ（今週の計画と、過ぎた日の記録）、健康の記録（ここ 5 日の予約・在籍の子）、健康の注意、発達検査"""
+        from beneficiaries.models import DevelopmentTest
+        from daily.models import ClassGroup, GroupSession, HealthLog, HealthProfile
+        from daily.views import apply_to_therapy, day_children, monday_of
+        half = max(1, len(beneficiaries) // 2)
+        groups = [
+            ClassGroup.objects.create(facility=facility, name='ひよこ組', color='#c0703b', weekdays=[0, 2, 4], start_time=datetime.time(10, 0),
+                                      note=SAMPLE_MARK, order=0),
+            ClassGroup.objects.create(facility=facility, name='うさぎ組', color='#6a8f3c', weekdays=[1, 3], start_time=datetime.time(13, 30),
+                                      note=SAMPLE_MARK, order=1),
+        ]
+        groups[0].members.set(beneficiaries[:half])
+        groups[1].members.set(beneficiaries[half:])
+        plans = [
+            ('友だちと順番を守って遊ぶ', ['朝の会（名前呼び）', 'サーキット遊び', 'ボール転がし', '手遊び歌', '帰りの会'], 'マット・平均台・ボール'),
+            ('手指を使って遊ぶ', ['朝の会', '粘土あそび', 'シール貼り', '絵本の読み聞かせ', '帰りの会'], '粘土・シール・絵本'),
+            ('見通しを持って活動を切り替える', ['朝の会（スケジュール確認）', '感触あそび', 'リズム遊び', 'おやつ', '帰りの会'], 'スケジュール表・タイマー・楽器'),
+        ]
+        bodies = ['サーキットでは平均台を一人で渡れる子が増えた。待つ場面ではタイマーを見せると座って待てた。',
+                  '粘土は丸める・伸ばすを楽しんだ。シール貼りは線の上に貼ることに挑戦した。',
+                  'スケジュール表で次の活動を確かめてから移動できた。リズム遊びでは太鼓を順番に叩けた。']
+        monday = monday_of(today)
+        n_sessions = n_applied = 0
+        for g in groups:
+            for k, wd in enumerate(g.weekdays):
+                d = monday + datetime.timedelta(days=wd)
+                aim, acts, mats = plans[(k + g.order) % len(plans)]
+                s = GroupSession.objects.create(group=g, date=d, start_time=g.start_time, aim=aim, activities=acts, materials=mats,
+                                                staff_name=str(staff) if staff else '', created_by=staff)
+                n_sessions += 1
+                if d < today:
+                    members = list(g.members.all())
+                    s.body = bodies[(k + g.order) % len(bodies)]
+                    s.present = [m.pk for m in members]
+                    if members:
+                        s.notes = {str(members[0].pk): '自分から友だちにボールを渡せた。'}
+                    s.save()
+                    if facility.use_therapy_record and s.present:
+                        apply_to_therapy(s, staff)
+                        n_applied += 1
+        # 健康の注意（2 人）
+        HealthProfile.objects.update_or_create(beneficiary=beneficiaries[0], defaults={'allergies': '卵・乳（除去食）', 'other': SAMPLE_MARK})
+        if len(beneficiaries) > 2:
+            HealthProfile.objects.update_or_create(beneficiary=beneficiaries[2], defaults={'medications': '昼食後に抗てんかん薬（保護者から預かる）', 'seizure': '発作時は横向きに寝かせて時間を計る', 'other': SAMPLE_MARK})
+        # 健康の記録（ここ 5 日。きょうは半分だけ）
+        n_logs = 0
+        meals = ['all', 'all', 'most', 'half', 'little']
+        moods = ['good', 'good', 'normal', 'tired']
+        for back in range(4, -1, -1):
+            d = today - datetime.timedelta(days=back)
+            kids = day_children(facility, d) or [(b, None) for b in beneficiaries[:4]]     # 予約の無い日は見本の 4 人
+            for i, (b, _t) in enumerate(kids):
+                if back == 0 and i % 2:
+                    continue
+                temp = rng.choice(['36.4', '36.6', '36.8', '36.5', '37.0', '36.7'])
+                if back == 2 and i == 0:
+                    temp = '37.6'
+                HealthLog.objects.update_or_create(beneficiary=b, date=d, defaults={
+                    'facility': facility, 'temp_arrival': temp, 'meal': rng.choice(meals), 'urine': rng.choice([1, 2, 3]),
+                    'stool': rng.choice([0, 0, 1]), 'nap_minutes': rng.choice([None, 30, 45, 60]), 'mood': rng.choice(moods),
+                    'note': f'お迎えまで元気に過ごしました。{SAMPLE_MARK}' if i == 0 else SAMPLE_MARK,
+                    'handed_to': rng.choice(['母', '父', '送迎']), 'recorded_by': staff})
+                n_logs += 1
+        # 発達検査（2 人。半年前と最近）
+        n_tests = 0
+        for i, b in enumerate(beneficiaries[:2]):
+            for back, step in ((200, 0), (20, 1)):
+                d = today - datetime.timedelta(days=back)
+                ca = (d.year - b.date_of_birth.year) * 12 + d.month - b.date_of_birth.month
+                base = [70, 78, 65] if i == 0 else [85, 80, 74]
+                qs = [q + step * rng.choice([3, 5, 6]) for q in base]
+                DevelopmentTest.objects.create(
+                    beneficiary=b, test='kshiki', test_other='新版K式発達検査2020', date=d, examiner='こども発達クリニック',
+                    ca_months=ca, overall_quotient=round(sum(qs) / 3), overall_age_months=round(ca * sum(qs) / 300),
+                    results=[{'label': lab, 'age_months': round(ca * q / 100), 'quotient': q} for lab, q in zip(DevelopmentTest.DOMAINS['kshiki'], qs)],
+                    note=f'言語・社会の領域にゆっくりさがみられる。{SAMPLE_MARK}', created_by=staff)
+                n_tests += 1
+        return {'クラス': len(groups), 'クラスの活動（今週）': n_sessions, '療育記録に写した活動': n_applied,
+                '健康の記録': n_logs, '発達検査': n_tests}
 
     # ------------------------------------------------------------------
     def _create_surveys(self, facility, staff, today, rng):

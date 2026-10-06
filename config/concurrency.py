@@ -48,6 +48,9 @@ KINDS = {
     'transport_profile': ('transport.TransportProfile', 'beneficiary__facility'),
     'survey':           ('surveys.Survey', 'facility'),
     'self_evaluation':  ('surveys.SelfEvaluation', 'facility'),
+    'group_session':    ('daily.GroupSession', 'group__facility'),
+    'health_profile':   ('daily.HealthProfile', 'beneficiary__facility'),
+    'dev_test':         ('beneficiaries.DevelopmentTest', 'beneficiary__facility'),
 }
 UNSAVED_KEY = 'unsaved_edits'
 STEP_KINDS = {1: 'assessment', 2: 'plan_draft', 3: 'staff_meeting', 4: 'consent', 5: 'monitoring'}

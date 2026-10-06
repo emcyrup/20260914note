@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block title %}{{ group.name }} 週間の活動計画{% endblock %}
+{% block page_title %}{{ group.name }}（週間の計画）{% endblock %}
+{% block extra_css %}{% include 'daily/_style.html' %}
+<style>
+  .wk { display: grid; grid-template-columns: repeat(6, minmax(150px, 1fr)); gap: 8px; }
+  .wk-day { background: var(--sheet, #fff); border: 1px solid var(--line, #e5e1d8); border-radius: 12px; padding: 8px; }
+  .wk-day.off { background: #f7f5f0; opacity: .75; }
+  .wk-day.today { outline: 2px solid {{ group.color }}; }
+  .wk-head { display: flex; justify-content: space-between; align-items: center; font-weight: 700; margin-bottom: 4px; }
+  .wk-day .form-control { font-size: 0.82rem; padding: 3px 6px; margin-bottom: 4px; }
+  .wk-lbl { font-size: 0.7rem; color: #8a8378; margin-top: 2px; }
+  @media (max-width: 992px) { .wk { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 576px) { .wk { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1300px;">
+  <nav class="small mb-2"><a href="{% url 'daily:groups' %}">クラスの活動</a> › {{ group.name }}</nav>
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+    <div class="d-flex align-items-center gap-2">
+      <div class="btn-group">
+        <a href="?d={{ prev|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-left"></i></a>
+        <a href="?" class="btn btn-sm btn-outline-secondary text-nowrap">今週</a>
+        <a href="?d={{ next|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-right"></i></a>
+      </div>
+      <div class="fw-bold text-nowrap"><span class="dl-dot" style="background:{{ group.color }};"></span> {{ monday|date:'n月j日' }}〜の週</div>
+    </div>
+    <a href="{% url 'daily:group_week_pdf' group.pk %}?d={{ monday|date:'Y-m-d' }}&inline=1" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>週間の計画を印刷（A4 横）</a>
+  </div>
+  <div class="small text-muted mb-2">メンバー：{% for m in members %}{{ m.full_name }}{% if not forloop.last %}・{% endif %}{% empty %}（まだいません）{% endfor %}</div>
+  <form method="post">
+    {% csrf_token %}<input type="hidden" name="d" value="{{ monday|date:'Y-m-d' }}">
+    <div class="wk">
+      {% for d in days %}
+      {% with key=d.date|date:'Y-m-d' s=d.session %}
+      <div class="wk-day {% if not d.meets %}off{% endif %} {% if d.date == today %}today{% endif %}">
+        <input type="hidden" name="present_{{ key }}" value="1">
+        <div class="wk-head"><span>{{ d.date|date:'n/j' }}（{{ d.weekday }}）</span>
+          <a href="{% url 'daily:session' group.pk key %}" class="btn btn-sm {% if s.applied_at %}btn-success{% elif s.has_record %}btn-outline-success{% else %}btn-outline-secondary{% endif %} py-0" title="その日の記録">{% if s.applied_at %}<i class="bi bi-check2-circle"></i> 写した{% elif s.has_record %}記録あり{% else %}記録{% endif %}</a></div>
+        <div class="wk-lbl">ねらい</div>
+        <input type="text" name="aim_{{ key }}" class="form-control" maxlength="200" value="{{ s.aim|default:'' }}">
+        <div class="wk-lbl">活動</div>
+        {% for i in activity_range %}<input type="text" name="act_{{ key }}" class="form-control" maxlength="60" value="{% for a in s.activity_list %}{% if forloop.counter0 == i %}{{ a }}{% endif %}{% endfor %}" placeholder="{{ forloop.counter }}">{% endfor %}
+        <div class="wk-lbl">準備物</div>
+        <input type="text" name="materials_{{ key }}" class="form-control" maxlength="300" value="{{ s.materials|default:'' }}">
+        <div class="wk-lbl">担当</div>
+        <input type="text" name="staff_{{ key }}" class="form-control" maxlength="100" value="{{ s.staff_name|default:'' }}">
+      </div>
+      {% endwith %}
+      {% endfor %}
+    </div>
+    <div class="d-flex justify-content-end mt-3 mb-4"><button class="btn btn-primary"><i class="bi bi-check2 me-1"></i>この週の計画を保存</button></div>
+  </form>
+</div>
+{% endblock %}

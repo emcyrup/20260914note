@@ -33,5 +33,9 @@ urlpatterns = [
     path('<int:beneficiary_pk>/sheets/<int:sheet_pk>/pdf/', views.DevAssessmentPdfView.as_view(), name='dev_assessment_pdf'),
     path('<int:beneficiary_pk>/sheets/<int:sheet_pk>/to-plan/', views.DevAssessmentToPlanView.as_view(), name='dev_assessment_to_plan'),
     path('<int:beneficiary_pk>/sheets/<int:sheet_pk>/delete/', views.DevAssessmentDeleteView.as_view(), name='dev_assessment_delete'),
+    path('<int:beneficiary_pk>/tests/new/', views.DevTestFormView.as_view(), name='dev_test_create'),
+    path('<int:beneficiary_pk>/tests/read/', views.DevTestReadView.as_view(), name='dev_test_read'),
+    path('<int:beneficiary_pk>/tests/<int:test_pk>/', views.DevTestFormView.as_view(), name='dev_test_edit'),
+    path('<int:beneficiary_pk>/tests/<int:test_pk>/delete/', views.DevTestDeleteView.as_view(), name='dev_test_delete'),
     path('guardians/<int:guardian_pk>/regenerate-line-code/', views.RegenerateLineCodeView.as_view(), name='regenerate_line_code'),
 ]

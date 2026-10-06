@@ -615,3 +615,84 @@ class DevelopmentAssessment(models.Model):
         return (DevelopmentAssessment.objects.filter(beneficiary_id=self.beneficiary_id)
                 .filter(models.Q(date__lt=self.date) | models.Q(date=self.date, pk__lt=self.pk or 0))
                 .order_by('-date', '-pk').first())
+
+
+class DevelopmentTest(models.Model):
+    """
+    発達検査・知能検査の結果（新版K式・遠城寺式・KIDS・WISC など）。
+    検査ごとの領域の発達年齢（か月）と指数（DQ・IQ など）を持ち、利用者情報で推移をグラフにする。
+    検査結果の書類（アセスメント・資料や書類・画像）は AI で読み取って下書きにできる（beneficiaries/dev_tests.py）。
+    """
+    TESTS = [
+        ('kshiki', '新版K式発達検査'),
+        ('enjoji', '遠城寺式乳幼児分析的発達検査'),
+        ('kids', 'KIDS 乳幼児発達スケール'),
+        ('tsumori', '津守・稲毛式乳幼児精神発達診断'),
+        ('tanaka', '田中ビネー知能検査'),
+        ('wisc', 'WISC（ウィスク）'),
+        ('wppsi', 'WPPSI（ウィプシ）'),
+        ('other', 'その他'),
+    ]
+    TEST_LABELS = dict(TESTS)
+    # 検査ごとの標準の領域（画面の初期の行）
+    DOMAINS = {
+        'kshiki': ['姿勢・運動（P-M）', '認知・適応（C-A）', '言語・社会（L-S）'],
+        'enjoji': ['移動運動', '手の運動', '基本的習慣', '対人関係', '発語', '言語理解'],
+        'kids': ['運動', '操作', '理解言語', '表出言語', '概念', '対子ども社会性', '対成人社会性', 'しつけ', '食事'],
+        'tsumori': ['運動', '探索・操作', '社会', '食事・排泄・生活習慣', '理解・言語'],
+        'tanaka': [],
+        'wisc': ['言語理解', '視空間', '流動性推理', 'ワーキングメモリー', '処理速度'],
+        'wppsi': ['言語理解', '知覚推理', '処理速度'],
+        'other': [],
+    }
+    QUOTIENT_LABEL = {'wisc': 'IQ・指標得点', 'wppsi': 'IQ・指標得点', 'tanaka': 'IQ'}
+
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='development_tests', verbose_name='利用者')
+    test = models.CharField(max_length=10, choices=TESTS, default='kshiki', verbose_name='検査')
+    test_other = models.CharField(max_length=60, blank=True, verbose_name='検査名（その他）')
+    date = models.DateField(verbose_name='検査日')
+    examiner = models.CharField(max_length=100, blank=True, verbose_name='実施した機関・検査者')
+    ca_months = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name='生活年齢（か月）')
+    overall_age_months = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name='全体の発達年齢（か月）')
+    overall_quotient = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name='全体の指数（DQ・IQ）')
+    # [{'label': '認知・適応（C-A）', 'age_months': 30, 'quotient': 85}, …]
+    results = models.JSONField(default=list, blank=True, verbose_name='領域ごとの結果')
+    note = models.TextField(blank=True, verbose_name='所見・メモ')
+    source_label = models.CharField(max_length=200, blank=True, verbose_name='読み取った書類')
+    created_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '発達検査'
+        verbose_name_plural = '発達検査'
+        ordering = ['-date', '-pk']
+
+    def __str__(self):
+        return f'{self.beneficiary.full_name} {self.date} {self.test_name}'
+
+    @property
+    def test_name(self):
+        return self.test_other if self.test == 'other' and self.test_other else self.TEST_LABELS.get(self.test, '')
+
+    @property
+    def quotient_label(self):
+        return self.QUOTIENT_LABEL.get(self.test, 'DQ（発達指数）')
+
+    @staticmethod
+    def age_label(months):
+        if months is None or months == '':
+            return ''
+        months = int(months)
+        return f'{months // 12}歳{months % 12}か月'
+
+    @property
+    def ca_label(self):
+        return self.age_label(self.ca_months)
+
+    @property
+    def overall_age_label(self):
+        return self.age_label(self.overall_age_months)
+
+    def result_rows(self):
+        return [dict(r, age_label=self.age_label(r.get('age_months'))) for r in (self.results or [])]

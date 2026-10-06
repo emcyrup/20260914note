@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+{% load concurrency %}
+{% block title %}発達検査の結果 — {{ beneficiary.full_name }}{% endblock %}
+{% block page_title %}発達検査の結果{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+{% block extra_css %}
+<style>
+  .dt-card { background: var(--sheet, #fff); border: 1px solid var(--line, #e5e1d8); border-radius: var(--radius, 14px); padding: 14px 16px; margin-bottom: 12px; }
+  .dt-h { font-weight: 700; color: var(--lake-text, #2f4f58); }
+  .age { display: flex; gap: 4px; align-items: center; }
+  .age input { width: 64px; }
+  .dt-rows .form-control { font-size: 0.88rem; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 860px;">
+  <nav class="small mb-2"><a href="{% url 'beneficiaries:list' %}">{{ terms.beneficiary }}情報</a> › <a href="{% url 'beneficiaries:detail' beneficiary.pk %}#dev-tests">{{ beneficiary.full_name }}</a> › 発達検査の結果</nav>
+
+  {% if not test.pk %}
+  <div class="dt-card">
+    <div class="dt-h mb-1"><i class="bi bi-magic me-1"></i>検査結果の書類から読み取る</div>
+    {% if sources %}
+    <form method="post" action="{% url 'beneficiaries:dev_test_read' beneficiary.pk %}" class="d-flex gap-2 flex-wrap align-items-center" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='読み取り中…（30秒ほど）';">
+      {% csrf_token %}
+      <select name="source" class="form-select form-select-sm" style="max-width:420px;">{% for v, label in sources %}<option value="{{ v }}">{{ label }}</option>{% endfor %}</select>
+      <button class="btn btn-sm btn-outline-primary" {% if not ai_ready %}disabled title="AI を使う設定がサーバーにありません"{% endif %}><i class="bi bi-magic me-1"></i>AI で数値を読み取る</button>
+    </form>
+    <div class="small text-muted mt-1">利用者情報に取り込んだ検査結果の PDF・写真から、検査名・検査日・発達年齢・指数を読み取って下に入れます。保存する前に書類と見比べてください。</div>
+    {% else %}
+    <div class="small text-muted">利用者情報の「書類・画像」か「アセスメント・資料」に検査結果の PDF・写真を取り込むと、ここから AI で読み取れます。手で入れることもできます。</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <form method="post" class="dt-card" {% if test.pk %}data-concurrency="dev_test:{{ test.pk }}"{% endif %}>
+    {% csrf_token %}{% if test.pk %}{% version_field test %}{% endif %}
+    {% if from_ai %}<div class="alert alert-warning small py-1 px-2">AI が「{{ test.source_label }}」から読み取った下書きです。数値を書類と見比べてください（まだ保存していません）。</div>{% endif %}
+    <input type="hidden" name="source_label" value="{{ test.source_label }}">
+    <div class="row g-2">
+      <div class="col-md-5"><label class="form-label small mb-0">検査</label>
+        <select name="test" id="dtTest" class="form-select form-select-sm">{% for k, v in tests %}<option value="{{ k }}" {% if test.test == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+      <div class="col-md-4"><label class="form-label small mb-0">検査名（その他・版など）</label><input type="text" name="test_other" class="form-control form-control-sm" maxlength="60" value="{{ test.test_other }}" placeholder="例：新版K式2020"></div>
+      <div class="col-md-3"><label class="form-label small mb-0">検査日</label><input type="date" name="date" class="form-control form-control-sm" value="{{ test.date|date:'Y-m-d' }}" required></div>
+      <div class="col-md-6"><label class="form-label small mb-0">実施した機関・検査者</label><input type="text" name="examiner" class="form-control form-control-sm" maxlength="100" value="{{ test.examiner }}"></div>
+      <div class="col-md-6"><label class="form-label small mb-0">生活年齢（検査日の年齢）</label>
+        <div class="age"><input type="number" name="ca_y" min="0" max="30" class="form-control form-control-sm" value="{{ ca.0 }}">歳<input type="number" name="ca_m" min="0" max="11" class="form-control form-control-sm" value="{{ ca.1 }}">か月</div></div>
+      <div class="col-md-6"><label class="form-label small mb-0">全体の発達年齢（精神年齢）</label>
+        <div class="age"><input type="number" name="oa_y" min="0" max="30" class="form-control form-control-sm" value="{{ oa.0 }}">歳<input type="number" name="oa_m" min="0" max="11" class="form-control form-control-sm" value="{{ oa.1 }}">か月</div></div>
+      <div class="col-md-6"><label class="form-label small mb-0">全体の指数（DQ・IQ）</label><input type="number" name="overall_quotient" min="0" max="250" class="form-control form-control-sm" style="max-width:120px;" value="{{ test.overall_quotient|default_if_none:'' }}"></div>
+    </div>
+    <div class="dt-h mt-3 mb-1" style="font-size:0.95rem;">領域ごとの結果</div>
+    <div class="small text-muted mb-1">検査の種類を選び直すと、空いている行に標準の領域名が入ります。</div>
+    <div class="dt-rows">
+      <div class="row g-1 small text-muted"><div class="col-5">領域</div><div class="col-4">発達年齢</div><div class="col-3">指数</div></div>
+      {% for r in rows %}
+      <div class="row g-1 mb-1 align-items-center">
+        <div class="col-5"><input type="text" name="r{{ forloop.counter0 }}_label" class="form-control form-control-sm dt-label" maxlength="40" value="{{ r.label }}"></div>
+        <div class="col-4"><div class="age"><input type="number" name="r{{ forloop.counter0 }}_y" min="0" max="30" class="form-control form-control-sm" value="{{ r.y }}">歳<input type="number" name="r{{ forloop.counter0 }}_m" min="0" max="11" class="form-control form-control-sm" value="{{ r.m }}">月</div></div>
+        <div class="col-3"><input type="number" name="r{{ forloop.counter0 }}_q" min="0" max="250" class="form-control form-control-sm" value="{{ r.quotient|default_if_none:'' }}"></div>
+      </div>
+      {% endfor %}
+    </div>
+    <label class="form-label small mb-0 mt-2">所見・メモ</label>
+    <textarea name="note" class="form-control form-control-sm" rows="3" maxlength="4000">{{ test.note }}</textarea>
+    <div class="d-flex justify-content-between mt-3">
+      <a href="{% url 'beneficiaries:detail' beneficiary.pk %}#dev-tests" class="btn btn-sm btn-outline-secondary">戻る</a>
+      <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button>
+    </div>
+  </form>
+  {% if test.pk %}
+  <form method="post" action="{% url 'beneficiaries:dev_test_delete' beneficiary.pk test.pk %}" class="text-end mb-4" onsubmit="return confirm('この検査結果を削除します。よろしいですか？');">
+    {% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>削除する</button>
+  </form>
+  {% endif %}
+</div>
+{{ domains|json_script:"dtDomains" }}
+<script>
+(function () {
+  var sel = document.getElementById('dtTest'), domains = JSON.parse(document.getElementById('dtDomains').textContent);
+  sel.addEventListener('change', function () {
+    var names = domains[sel.value] || [], inputs = document.querySelectorAll('.dt-label');
+    var empty = Array.prototype.every.call(inputs, function (i) { return !i.value.trim() || Object.values(domains).some(function (l) { return l.indexOf(i.value) >= 0; }); });
+    if (!empty) return;     // 自分で入れた領域名があるときは変えない
+    inputs.forEach(function (inp, k) { inp.value = names[k] || ''; });
+  });
+})();
+</script>
+{% endblock %}

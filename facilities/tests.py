@@ -74,7 +74,7 @@ class SeedDemoCommandTests(TestCase):
         from beneficiaries.models import DevelopmentAssessment
         from transport.models import Driver, TransportProfile, Vehicle
         self.facility.layout = Facility.LAYOUT_RYOIKU
-        self.facility.use_reservation = self.facility.use_transport = self.facility.use_dev_assessment = self.facility.use_survey = True
+        self.facility.use_reservation = self.facility.use_transport = self.facility.use_dev_assessment = self.facility.use_survey = self.facility.use_daily_ops = True
         self.facility.save()
         out = StringIO()
         call_command('seed_demo', stdout=out)
@@ -87,10 +87,17 @@ class SeedDemoCommandTests(TestCase):
         self.assertEqual(Survey.objects.filter(facility=self.facility).count(), 2)
         self.assertEqual(SurveyResponse.objects.filter(survey__facility=self.facility).count(), 11)
         self.assertEqual(SelfEvaluation.objects.filter(facility=self.facility).count(), 1)
+        from beneficiaries.models import DevelopmentTest
+        from daily.models import ClassGroup, GroupSession, HealthLog
+        self.assertEqual(ClassGroup.objects.filter(facility=self.facility).count(), 2)
+        self.assertEqual(GroupSession.objects.filter(group__facility=self.facility).count(), 5)
+        self.assertGreater(HealthLog.objects.filter(facility=self.facility).count(), 0)
+        self.assertEqual(DevelopmentTest.objects.filter(beneficiary__facility=self.facility).count(), 4)
         call_command('seed_demo', '--reset', stdout=StringIO())
         self.assertEqual(Vehicle.objects.filter(facility=self.facility).count(), 2)       # 消して入れ直すので同じ数
         self.assertEqual(DevelopmentAssessment.objects.filter(beneficiary__facility=self.facility).count(), 8)
         self.assertEqual(Survey.objects.filter(facility=self.facility).count(), 2)
+        self.assertEqual(ClassGroup.objects.filter(facility=self.facility).count(), 2)
 
     def test_refuses_to_seed_twice_without_reset(self):
         call_command('seed_demo', stdout=StringIO())

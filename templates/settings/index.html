@@ -201,6 +201,10 @@
             <input type="checkbox" class="form-check-input" name="use_survey" id="use_survey" {% if facility.use_survey %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_survey">アンケート・自己評価（保護者評価アンケートの回収と集計、事業所の自己評価、公表用の PDF。ガイドラインの年 1 回の評価・公表）</label>
           </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="use_daily_ops" id="use_daily_ops" {% if facility.use_daily_ops %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="use_daily_ops">毎日の運営（クラスの週間の活動計画と記録・健康と生活の記録と引き渡しカード・発達検査の推移）</label>
+          </div>
           <div class="form-text">使わない機能はメニューやボタンから消えます。記録は消えないので、あとから戻せます。</div>
           {% if trial_ai.limit and not is_developer %}
           <div class="alert alert-info small py-1 px-2 mt-2 mb-0">「お試し」の機能の AI は <b>{{ trial_ai.limit }} 回</b>まで使えます（使った回数 {{ trial_ai.used }}・あと {{ trial_ai.remaining }} 回）。</div>

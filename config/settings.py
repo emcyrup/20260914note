@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'minutes',
     'transport',
     'surveys',
+    'daily',
 ]
 
 MIDDLEWARE = [

@@ -363,6 +363,39 @@
     {% include 'transport/_profile_section.html' %}
     {% endif %}
 
+    {% if features.daily %}
+    <!-- 発達検査の結果の推移と健康の注意（毎日の運営） -->
+    <div class="col-12" id="dev-tests">
+      <div class="info-card">
+        <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+          <div>
+            <div class="section-title mb-0">発達検査の結果</div>
+            <div class="small text-muted">新版K式・遠城寺式・KIDS・WISC などの発達年齢と指数を残し、推移を見られます。検査結果の書類から AI で読み取ることもできます。</div>
+          </div>
+          <div class="d-flex gap-2">
+            <a href="{% url 'daily:health_child' beneficiary.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-thermometer-half me-1"></i>健康の記録・注意</a>
+            <a href="{% url 'beneficiaries:dev_test_create' beneficiary.pk %}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>結果を入れる</a>
+          </div>
+        </div>
+        {% for a in health_alerts %}<div class="small fw-semibold" style="color:#b42318;"><i class="bi bi-exclamation-triangle me-1"></i>{{ a }}</div>{% endfor %}
+        {% if dev_test_chart %}<div class="mb-2 mt-1">{{ dev_test_chart }}</div>{% endif %}
+        {% for t in dev_tests %}
+        <div class="py-2 {% if not forloop.first %}border-top{% endif %} d-flex justify-content-between align-items-start gap-2 flex-wrap">
+          <div class="min-w-0">
+            <a href="{% url 'beneficiaries:dev_test_edit' beneficiary.pk t.pk %}" class="fw-semibold text-decoration-none">{{ t.date|date:'Y年n月j日' }}　{{ t.test_name }}</a>
+            <span class="small text-muted ms-1">{% if t.ca_label %}生活年齢 {{ t.ca_label }}{% endif %}{% if t.examiner %}・{{ t.examiner }}{% endif %}</span>
+            <div class="small mt-1">
+              {% if t.overall_quotient or t.overall_age_label %}<span class="badge text-bg-primary me-1">全体 {% if t.overall_age_label %}{{ t.overall_age_label }}{% endif %}{% if t.overall_quotient %}・{{ t.overall_quotient }}{% endif %}</span>{% endif %}
+              {% for r in t.result_rows %}<span class="badge text-bg-light border me-1">{{ r.label }}{% if r.age_label %} {{ r.age_label }}{% endif %}{% if r.quotient %}・{{ r.quotient }}{% endif %}</span>{% endfor %}
+            </div>
+          </div>
+          <a href="{% url 'beneficiaries:dev_test_edit' beneficiary.pk t.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil"></i></a>
+        </div>
+        {% empty %}<p class="text-muted small mb-0">まだありません。</p>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
     {% if features.dev_assessment %}
     <!-- 5領域アセスメント（評価シート） -->
     <div class="col-12" id="dev-assessments">

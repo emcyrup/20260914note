@@ -220,6 +220,15 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
         if self.request.user.facility.use_transport:
             from transport.views import profile_context
             ctx.update(profile_context(b))
+        # 発達検査の推移と健康の注意（毎日の運営を使う事業所）
+        if getattr(self.request.user.facility, 'use_daily_ops', False):
+            from . import dev_tests
+            from daily.models import HealthProfile
+            tests = list(b.development_tests.all())
+            ctx['dev_tests'] = tests
+            ctx['dev_test_chart'] = dev_tests.trend_svg(tests)
+            hp = HealthProfile.objects.filter(beneficiary=b).first()
+            ctx['health_alerts'] = hp.alerts if hp else []
         # 個別支援計画（進行中のものを先頭に）
         plans = list(b.support_plans.select_related('manager'))
         ctx['support_plans'] = plans
@@ -985,3 +994,131 @@ class DevAssessmentToPlanView(DevAssessmentMixin, View):
             return redirect('beneficiaries:dev_assessment_edit', beneficiary_pk, a.pk)
         messages.success(request, sheet_plan.import_message(a, plan, result))
         return redirect('support_plans:step', pk=plan.pk, n=plan.current_step)
+
+
+# =============================================
+# 発達検査の結果（毎日の運営を使う事業所）
+# =============================================
+class DailyOpsMixin(LoginRequiredMixin):
+    def dispatch(self, request, *args, **kwargs):
+        facility = getattr(request.user, 'facility', None)
+        if request.user.is_authenticated and not (facility is not None and facility.use_daily_ops):
+            messages.info(request, 'この事業所では「毎日の運営」を使わない設定になっています（施設設定の「使う機能」で変えられます）。')
+            return redirect('facilities:dashboard')
+        return super().dispatch(request, *args, **kwargs)
+
+
+DEV_TEST_SESSION = 'dev_test_draft'
+
+
+def _readable_sources(b):
+    """AI で読み取れる書類（書類・画像と、アセスメント・資料の書類）"""
+    from . import knowledge as kn
+    out = []
+    for d in b.documents.order_by('-created_at')[:30]:
+        if kn.is_readable(d.file_name or d.file.name):
+            out.append((f'doc:{d.pk}', f'書類：{d.label}'))
+    for a in b.assessments.exclude(file='').order_by('-date')[:30]:
+        if kn.is_readable(a.file_name or a.file.name):
+            out.append((f'asm:{a.pk}', f'アセスメント・資料：{a.title}（{a.date:%Y/%-m/%-d}）'))
+    return out
+
+
+class DevTestFormView(DailyOpsMixin, View):
+    template_name = 'beneficiaries/dev_test_form.html'
+
+    def _get(self, request, beneficiary_pk, test_pk):
+        from .models import DevelopmentTest
+        b = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        t = get_object_or_404(b.development_tests, pk=test_pk) if test_pk else DevelopmentTest(beneficiary=b, date=datetime.date.today())
+        return b, t
+
+    def get(self, request, beneficiary_pk, test_pk=None):
+        from .models import DevelopmentTest
+        b, t = self._get(request, beneficiary_pk, test_pk)
+        draft = request.session.pop(DEV_TEST_SESSION, None) if not test_pk else None
+        if draft and draft.get('beneficiary') == b.pk:
+            d = draft['data']
+            t.test, t.test_other, t.examiner, t.note = d['test'], d['test_other'], d['examiner'], d['note']
+            t.ca_months, t.overall_age_months, t.overall_quotient, t.results = d['ca_months'], d['overall_age_months'], d['overall_quotient'], d['results']
+            t.source_label = draft.get('source', '')
+            if d.get('date'):
+                t.date = datetime.date.fromisoformat(d['date'])
+        elif not t.pk:
+            kind = request.GET.get('test') if request.GET.get('test') in DevelopmentTest.TEST_LABELS else 'kshiki'
+            t.test = kind
+            t.results = [{'label': lab, 'age_months': None, 'quotient': None} for lab in DevelopmentTest.DOMAINS[kind]]
+            if b.date_of_birth:
+                bd, today = b.date_of_birth, datetime.date.today()
+                t.ca_months = (today.year - bd.year) * 12 + today.month - bd.month - (1 if today.day < bd.day else 0)
+        rows = t.result_rows()
+        rows += [{'label': '', 'age_months': None, 'quotient': None}] * max(0, 6 - len(rows))
+        rows = [dict(r, y=(r['age_months'] // 12 if r.get('age_months') is not None else ''),
+                     m=(r['age_months'] % 12 if r.get('age_months') is not None else '')) for r in rows][:12]
+        split = lambda v: ('', '') if v is None else (v // 12, v % 12)
+        return render(request, self.template_name, {
+            'beneficiary': b, 'test': t, 'rows': rows, 'tests': DevelopmentTest.TESTS, 'domains': DevelopmentTest.DOMAINS,
+            'ca': split(t.ca_months), 'oa': split(t.overall_age_months), 'sources': _readable_sources(b),
+            'ai_ready': bool(settings.ANTHROPIC_API_KEY), 'from_ai': bool(draft),
+        })
+
+    def post(self, request, beneficiary_pk, test_pk=None):
+        from . import dev_tests
+        b, t = self._get(request, beneficiary_pk, test_pk)
+        if t.pk:
+            conflict = check_conflict(request, t)
+            if conflict:
+                messages.error(request, conflict)
+                return redirect('beneficiaries:dev_test_edit', b.pk, t.pk)
+        else:
+            t.created_by = request.user
+        error = dev_tests.read_form(t, request.POST)
+        if error:
+            messages.error(request, error)
+            return redirect(request.get_full_path())
+        t.save()
+        messages.success(request, f'{t.test_name}（{t.date:%Y/%-m/%-d}）の結果を保存しました。')
+        return redirect(f"{reverse('beneficiaries:detail', args=[b.pk])}#dev-tests")
+
+
+class DevTestReadView(DailyOpsMixin, View):
+    """書類を AI で読み取り、検査結果の入力画面に下書きを入れる"""
+
+    def post(self, request, beneficiary_pk):
+        from . import dev_tests, knowledge
+        b = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        kind, _, pk = (request.POST.get('source') or '').partition(':')
+        if kind == 'doc':
+            src = get_object_or_404(b.documents, pk=to_int_safe(pk))
+            file_field, name, label = src.file, src.file_name or src.file.name, f'書類：{src.label}'
+        elif kind == 'asm':
+            src = get_object_or_404(b.assessments, pk=to_int_safe(pk))
+            file_field, name, label = src.file, src.file_name or src.file.name, f'アセスメント・資料：{src.title}'
+        else:
+            messages.error(request, '読み取る書類を選んでください。')
+            return redirect('beneficiaries:dev_test_create', b.pk)
+        try:
+            data = dev_tests.read_test(b, file_field, name)
+        except knowledge.ReadError as e:
+            messages.error(request, str(e))
+            return redirect('beneficiaries:dev_test_create', b.pk)
+        request.session[DEV_TEST_SESSION] = {'beneficiary': b.pk, 'data': data, 'source': label}
+        messages.info(request, f'「{label}」を読み取りました。数値を書類と見比べて、直してから保存してください。')
+        return redirect('beneficiaries:dev_test_create', b.pk)
+
+
+def to_int_safe(v):
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return -1
+
+
+class DevTestDeleteView(DailyOpsMixin, View):
+    def post(self, request, beneficiary_pk, test_pk):
+        b = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        t = get_object_or_404(b.development_tests, pk=test_pk)
+        label = f'{t.test_name}（{t.date:%Y/%-m/%-d}）'
+        t.delete()
+        messages.success(request, f'{label}を削除しました。')
+        return redirect(f"{reverse('beneficiaries:detail', args=[b.pk])}#dev-tests")

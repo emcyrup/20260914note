@@ -198,6 +198,18 @@
         </a>
       </li>
       {% endif %}
+      {% if features.daily %}
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'daily' and rm.url_name|slice:':6' != 'health' %}active{% endif %}" href="{% url 'daily:groups' %}" title="クラス（小集団）の週間の活動計画と、当日の記録">
+          <i class="bi bi-people-fill"></i><span>クラスの活動</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'daily' and rm.url_name|slice:':6' == 'health' %}active{% endif %}" href="{% url 'daily:health' %}" title="体温・食事・排せつ・午睡・服薬と、お迎えのときの引き渡しカード">
+          <i class="bi bi-thermometer-half"></i><span>健康の記録</span>
+        </a>
+      </li>
+      {% endif %}
       {% if features.survey %}
       <li>
         <a class="sidebar-nav-item {% if rm.app_name == 'surveys' %}active{% endif %}" href="{% url 'surveys:index' %}" title="保護者評価アンケートの回収・集計と事業所の自己評価、公表用の PDF">
