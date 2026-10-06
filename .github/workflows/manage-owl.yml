@@ -8,6 +8,7 @@
 #   - list            : 事業所の一覧を表示する
 #   - delete_facility : 利用者・予約の無い事業所を、職員アカウント・設定ごと消す（facility_id）
 #   - error_log       : サーバーのエラーログの末尾（技術的な行だけ。日本語と長い数字は伏せる）を表示する
+#   - enable_features : 送迎・配車・5領域アセスメント・アンケート（自己評価）を使う設定にする（facility_id）
 #   - set_media_root  : .env の MEDIA_ROOT を ~/michinoteowl/media に直して Gunicorn を再起動する（写真・書類が 500 になるとき）
 #
 # パスワードは入力欄（admin_password）に入れる。ログには出ない（マスクし、サーバーへは環境変数で渡す）。
@@ -23,7 +24,7 @@ on:
         type: choice
         required: true
         default: list
-        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, error_log, set_media_root]
+        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, error_log, set_media_root, enable_features]
       facility_name:
         description: "事業所名（create_facility）"
         type: string
@@ -138,6 +139,9 @@ jobs:
               list)
                 python manage.py shell -c "from facilities.models import Facility; [print(f.pk, f.name, '| 型:', f.layout, '| 予約:', f.use_reservation, '| 療育記録:', f.use_therapy_record, '| お試しAI:', f.trial_ai_used, '/', f.trial_ai_limit) for f in Facility.objects.order_by('pk')] or print('事業所はまだありません')"
                 python manage.py shell -c "from accounts.models import StaffAccount; [print(' 職員:', u.username, '|', u.facility_id, '|', u.get_role_display()) for u in StaffAccount.objects.order_by('pk')]" ;;
+              enable_features)
+                [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください"; exit 1; }
+                FACILITY_ID="$FACILITY_ID" python manage.py shell -v 0 -c "import os; from facilities.models import Facility; f = Facility.objects.get(pk=os.environ['FACILITY_ID']); f.use_transport = f.use_dev_assessment = f.use_survey = True; f.save(update_fields=['use_transport', 'use_dev_assessment', 'use_survey']); print('送迎・配車・5領域アセスメント・アンケート（自己評価）を使う設定にしました:', f.pk, f.name)" ;;
               delete_facility)
                 [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください"; exit 1; }
                 python manage.py delete_facility "$FACILITY_ID" --yes ;;
