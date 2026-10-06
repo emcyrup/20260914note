@@ -389,6 +389,22 @@ class CreateFacilityCommandTests(TestCase):
         self.assertNotEqual(s.public_token, ss.public_token)
         self.assertIn('予約の設定', out.getvalue())
 
+    def test_delete_facility_only_when_empty(self):
+        from beneficiaries.models import Beneficiary
+        f = Facility.objects.create(name='間違えて作った')
+        StaffAccount.objects.create_user('tmp_admin', password='pw12345678', facility=f, role=StaffAccount.ROLE_ADMIN)
+        with self.assertRaises(CommandError):                       # --yes が無い
+            call_command('delete_facility', str(f.pk), stdout=StringIO())
+        b = Beneficiary.objects.create(facility=f, last_name='青木', first_name='子', date_of_birth='2019-04-01')
+        with self.assertRaises(CommandError):                       # 利用者がいる
+            call_command('delete_facility', str(f.pk), '--yes', stdout=StringIO())
+        b.delete()
+        out = StringIO()
+        call_command('delete_facility', str(f.pk), '--yes', stdout=out)
+        self.assertIn('消しました', out.getvalue())
+        self.assertFalse(Facility.objects.filter(pk=f.pk).exists())
+        self.assertFalse(StaffAccount.objects.filter(username='tmp_admin').exists())
+
 
 class AddonDefaultsLoadTests(TestCase):
     """標準の加算マスタの合わせ込み：追加・名前の付け替え・単位数の更新・無効化"""

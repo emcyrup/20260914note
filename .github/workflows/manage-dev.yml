@@ -1,6 +1,6 @@
 # =============================================
-# 「発達支援ルーム　ゆあーず」AWS 共用サーバーでの管理コマンド（Actions の画面から実行する）
-#   Deploy (yours) と同じ Secrets（YOURS_*）で SSH し、~/michinoteyours の manage.py を実行する
+# 開発環境（st-michinotedemo）AWS 共用サーバーでの管理コマンド（Actions の画面から実行する）
+#   Deploy (dev) と同じ Secrets（DEV_*）で SSH し、~/michinotedemo の manage.py を実行する
 #   - create_facility : 事業所「発達支援ルーム　ゆあーず」と管理者を作る（--preset ryoiku。サンプルデータも入れられる）
 #   - set_password    : 管理者（職員）のパスワードを設定する
 #   - seed_demo       : サンプルデータを入れる／入れ直す（--reset）
@@ -8,12 +8,12 @@
 #   - list            : 事業所の一覧を表示する
 #   - delete_facility : 利用者・予約の無い事業所を、職員アカウント・設定ごと消す（facility_id）
 #   - error_log       : サーバーのエラーログの末尾（技術的な行だけ。日本語と長い数字は伏せる）を表示する
-#   - set_media_root  : .env の MEDIA_ROOT を ~/michinoteyours/media に直して Gunicorn を再起動する（写真・書類が 500 になるとき）
+#   - set_media_root  : .env の MEDIA_ROOT を ~/michinotedemo/media に直して Gunicorn を再起動する（写真・書類が 500 になるとき）
 #
 # パスワードは入力欄（admin_password）に入れる。ログには出ない（マスクし、サーバーへは環境変数で渡す）。
 # このリポジトリは公開なので、ログに秘密の値を出さないこと。
 # =============================================
-name: Manage (yours)
+name: Manage (dev)
 
 on:
   workflow_dispatch:
@@ -27,11 +27,11 @@ on:
       facility_name:
         description: "事業所名（create_facility）"
         type: string
-        default: "発達支援ルーム　ゆあーず"
+        default: "児童発達支援センター　オウル"
       admin_username:
         description: "管理者のユーザー名（create_facility・set_password）"
         type: string
-        default: ryoiku
+        default: owl
       admin_password:
         description: "パスワード（create_facility・set_password。空なら create_facility はランダムな仮のパスワードにし、あとで set_password で設定する）"
         type: string
@@ -53,33 +53,33 @@ permissions:
   contents: read
 
 env:
-  APP_DIR: ${{ secrets.YOURS_APP_DIR || '~/michinoteyours' }}
-  VENV: ${{ secrets.YOURS_VENV || '~/env' }}
-  SSH_PORT: ${{ secrets.YOURS_DEPLOY_SSH_PORT || '22' }}
+  APP_DIR: ${{ secrets.DEV_APP_DIR || '~/michinotedemo' }}
+  VENV: ${{ secrets.DEV_VENV || '~/env' }}
+  SSH_PORT: ${{ secrets.DEV_DEPLOY_SSH_PORT || '22' }}
 
 jobs:
   manage:
     runs-on: ubuntu-latest
     concurrency:
-      group: deploy-yours
+      group: deploy-dev
       cancel-in-progress: false
     steps:
       - name: Check secrets
         env:
-          HOST: ${{ secrets.YOURS_DEPLOY_HOST }}
-          USER: ${{ secrets.YOURS_DEPLOY_USER }}
-          KEY: ${{ secrets.YOURS_DEPLOY_SSH_KEY }}
+          HOST: ${{ secrets.DEV_DEPLOY_HOST }}
+          USER: ${{ secrets.DEV_DEPLOY_USER }}
+          KEY: ${{ secrets.DEV_DEPLOY_SSH_KEY }}
         run: |
           if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ]; then
-            echo "YOURS_DEPLOY_HOST / YOURS_DEPLOY_USER / YOURS_DEPLOY_SSH_KEY が未登録です（docs/DEPLOY_AWS_YOURS.md 6）"; exit 1
+            echo "DEV_DEPLOY_HOST / DEV_DEPLOY_USER / DEV_DEPLOY_SSH_KEY が未登録です（docs/DEPLOY_AWS_DEV.md）"; exit 1
           fi
 
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ secrets.YOURS_DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          printf '%s\n' "${{ secrets.DEV_DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "${{ env.SSH_PORT }}" -H "${{ secrets.YOURS_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -p "${{ env.SSH_PORT }}" -H "${{ secrets.DEV_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Run manage.py on the server
         env:
@@ -146,7 +146,7 @@ jobs:
                 done
                 echo "== 空き容量 =="; df -h "$APP_DIR" /tmp 2>/dev/null | tail -n 2; du -sh media 2>/dev/null ;;
               set_media_root)
-                target="$HOME/michinoteyours/media"
+                target="$HOME/michinotedemo/media"
                 mkdir -p "$target"
                 if grep -q '^MEDIA_ROOT=' .env; then sed -i "s#^MEDIA_ROOT=.*#MEDIA_ROOT=$target#" .env; else echo "MEDIA_ROOT=$target" >> .env; fi
                 echo "MEDIA_ROOT を $target にしました"
@@ -154,4 +154,4 @@ jobs:
               *) echo "unknown task: $TASK"; exit 1 ;;
             esac
           REMOTE
-          } | ssh -i ~/.ssh/deploy_key -p "${{ env.SSH_PORT }}" "${{ secrets.YOURS_DEPLOY_USER }}@${{ secrets.YOURS_DEPLOY_HOST }}" bash -s
+          } | ssh -i ~/.ssh/deploy_key -p "${{ env.SSH_PORT }}" "${{ secrets.DEV_DEPLOY_USER }}@${{ secrets.DEV_DEPLOY_HOST }}" bash -s
