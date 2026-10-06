@@ -27,6 +27,9 @@ urlpatterns = [
     path('therapy/', include('therapy.urls')),
     path('minutes/', include('minutes.urls')),
     path('transport/', include('transport.urls')),
+    path('surveys/', include('surveys.urls')),
+    # 保護者・職員のアンケートの回答ページ（ログインなし。アドレスそのものが合い言葉）
+    path('anketo/', include('surveys.public_urls')),
     # 顧客向けの予定表（ログインなし。アドレスそのものが合い言葉）
     path('yoyaku/', include('reservations.public_urls')),
     path('esignatures/', include('esignatures.urls')),

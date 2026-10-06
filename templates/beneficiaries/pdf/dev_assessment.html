@@ -23,7 +23,8 @@
   <div class="fac">{{ facility.name }}</div>
   <div>実施日　{{ sheet.date|date:'Y年n月j日' }}　　評価者　{{ sheet.assessed_by|default:'　　　　' }}</div>
 </div>
-<table class="info" style="margin-bottom:6px;">
+{% if radar %}<div style="float:right;margin:-4px 0 4px 8px;">{{ radar }}</div>{% endif %}
+<table class="info" style="margin-bottom:6px;{% if radar %}width:calc(100% - 335px);{% endif %}">
   <tr>
     <th>氏名</th><td style="width:34%;">{{ beneficiary.full_name }}{% if beneficiary.full_name_kana|length > 1 %}　<span class="small">（{{ beneficiary.full_name_kana }}）</span>{% endif %}</td>
     <th>生年月日</th><td>{{ beneficiary.date_of_birth|date:'Y年n月j日' }}{% if age is not None %}（{{ age }}歳）{% endif %}</td>
@@ -33,7 +34,7 @@
     <th>聞き取り</th><td>{{ sheet.interviewed_with }}</td>
   </tr>
 </table>
-<table class="dom">
+<table class="dom" style="clear:both;">
   <colgroup><col style="width:17%"><col style="width:13%"><col style="width:35%"><col style="width:35%"></colgroup>
   <thead><tr><th>領域</th><th>評価{% if previous %}<br><span class="prev">（下は前回 {{ previous.date|date:'Y/n/j' }}）</span>{% endif %}</th><th>いまの様子</th><th>支援の方針・目標</th></tr></thead>
   <tbody>

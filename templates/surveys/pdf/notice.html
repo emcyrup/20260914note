@@ -1,0 +1,26 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}{{ survey.title }} ご案内{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'surveys:detail' survey.pk %}">アンケートへ戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .nt { max-width: 640px; margin: 0 auto; font-size: 12px; line-height: 1.8; }
+  .nt h1 { font-size: 20px; letter-spacing: .1em; margin: 10px 0 14px; }
+  .nt .intro { white-space: pre-wrap; margin-bottom: 14px; }
+  .nt .qr { text-align: center; margin: 18px 0 8px; }
+  .nt .qr svg { width: 180px; height: 180px; }
+  .nt .url { font-family: monospace; font-size: 10.5px; word-break: break-all; text-align: center; border: 1px solid #999; padding: 6px 8px; border-radius: 6px; }
+  .nt .fac { text-align: right; font-size: 11px; margin-top: 18px; }
+  .nt .note { font-size: 10px; color: #555; margin-top: 10px; }
+</style>
+<div class="nt">
+  <h1>{{ survey.title }}のお願い</h1>
+  <div>保護者の皆さま</div>
+  <div class="intro">{{ survey.intro }}</div>
+  {% if survey.closes_on %}<div><b>回答期限：{{ survey.closes_on|date:'Y年n月j日' }}</b></div>{% endif %}
+  <div>スマートフォンのカメラで下の QR コードを読み取るか、アドレスを入力して回答ページを開いてください。</div>
+  <div class="qr">{{ qr }}</div>
+  <div class="url">{{ url }}</div>
+  <div class="note">※ 回答は無記名です。集計した結果と改善の内容は、事業所のホームページや会報でお知らせします。<br>※ インターネットでの回答が難しい方は、職員にお申し出ください。紙の用紙をお渡しします。</div>
+  <div class="fac">{{ facility.name }}</div>
+</div>
+{% endblock %}

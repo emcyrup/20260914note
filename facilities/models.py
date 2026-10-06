@@ -93,6 +93,8 @@ class Facility(models.Model):
                                         help_text='車両と運転手を登録し、利用者ごとの送迎（迎え・送り・場所）から日ごとの配車表を作ります。')
     use_dev_assessment = models.BooleanField(default=False, verbose_name='5領域アセスメントを使う',
                                              help_text='健康・生活／運動・感覚／認知・行動／言語・コミュニケーション／人間関係・社会性の5領域を5段階で評価する用紙。利用者情報から作り、A4で印刷できます。')
+    use_survey = models.BooleanField(default=False, verbose_name='アンケート・自己評価を使う',
+                                     help_text='保護者評価アンケート（ログインなしの回答ページ・LINE や QR で配る・集計）と事業所の自己評価、公表用の PDF。ガイドラインで年 1 回の実施と公表が求められているもの。')
     # ログイン画面の「職員として新しく登録」で使うコード（空なら受け付けない）。登録した人は管理者が承認するまでログインできない
     staff_signup_code = models.CharField(max_length=12, blank=True, db_index=True, verbose_name='職員登録コード')
     # 「お試し」の機能（記録の AI・支援計画の AI）を使える回数。0 なら制限なし。使った回数は trial_ai_used

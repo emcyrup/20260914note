@@ -110,6 +110,23 @@
           </details>
           {% endif %}
 
+          {% if dev_sheets and not readonly %}
+          <form method="post" action="{% url 'beneficiaries:dev_assessment_to_plan' plan.beneficiary.pk dev_sheets.0.pk %}" id="sheetImportForm" class="p-3 rounded-3 mb-3" style="background: var(--paper);">
+            {% csrf_token %}<input type="hidden" name="plan" value="{{ plan.pk }}">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+              <div>
+                <div class="fw-bold"><i class="bi bi-clipboard2-pulse me-1"></i>5領域アセスメントから取り込む</div>
+                <div class="small text-muted">{% if n == 1 %}用紙の領域ごとの様子・強み・課題を「心身の状況」に、本人と家族の希望を「希望する生活」に入れます（空いている欄だけ）。{% else %}用紙の領域ごとの「支援の方針・目標」を短期目標として足し、まとめを方針に、希望を意向に入れます（空いている欄だけ。同じ文の目標は足しません）。{% endif %}</div>
+              </div>
+              <div class="d-flex gap-2 align-items-center">
+                <select class="form-select form-select-sm" style="width:auto;" onchange="document.getElementById('sheetImportForm').action=this.value;">
+                  {% for sh in dev_sheets %}<option value="{% url 'beneficiaries:dev_assessment_to_plan' plan.beneficiary.pk sh.pk %}">{{ sh.date|date:'Y/n/j' }}{% if sh.assessed_by %}（{{ sh.assessed_by }}）{% endif %}</option>{% endfor %}
+                </select>
+                <button class="btn btn-sm btn-primary"><i class="bi bi-box-arrow-in-down me-1"></i>取り込む</button>
+              </div>
+            </div>
+          </form>
+          {% endif %}
           {% if n == 1 and not readonly %}
           <div class="p-3 rounded-3 mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2" style="background: var(--paper);">
             <div>

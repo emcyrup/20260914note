@@ -48,7 +48,7 @@ def branding(request):
         'features': {'billing': facility.use_billing, 'schedule': facility.use_schedule, 'line': facility.use_line,
                      'reservation': facility.use_reservation, 'form_set': facility.form_set,
                      'planbook': facility.is_planbook, 'therapy': facility.use_therapy_record,
-                     'transport': facility.use_transport, 'dev_assessment': facility.use_dev_assessment,
+                     'transport': facility.use_transport, 'dev_assessment': facility.use_dev_assessment, 'survey': facility.use_survey,
                      'ryoiku': facility.is_ryoiku},
         'trial_ai': _trial_ai(facility),
         'planbook_unread': _planbook_unread(facility) if facility.is_planbook else 0,

@@ -54,6 +54,16 @@
         </div>
       </div>
       <div class="da-legend mt-2">評価の目安：{% for v, label in ratings %}<b>{{ v }}</b> {{ label }}{% if not forloop.last %}　{% endif %}{% endfor %}</div>
+      {% if radar %}
+      <div class="d-flex align-items-center gap-3 flex-wrap mt-2">
+        <div style="max-width:100%;overflow:hidden;">{{ radar }}</div>
+        <div class="small text-muted">
+          <div><span style="display:inline-block;width:14px;height:14px;background:rgba(78,125,137,.28);border:2px solid #4e7d89;vertical-align:middle;"></span> 今回（保存した評価）</div>
+          {% if previous %}<div class="mt-1"><span style="display:inline-block;width:14px;height:14px;background:rgba(140,130,120,.18);border:1.5px dashed #8a8279;vertical-align:middle;"></span> 前回（{{ previous.date|date:'Y/n/j' }}）</div>{% endif %}
+          <div class="mt-1">評価を変えて保存すると図も変わります。</div>
+        </div>
+      </div>
+      {% endif %}
     </div>
 
     {% for r in rows %}
@@ -117,6 +127,24 @@
     </div>
   </form>
   {% if sheet.pk %}
+  <div class="da-card" id="to-plan">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div>
+        <div class="da-title"><i class="bi bi-diagram-3 me-1"></i>個別支援計画へ取り込む</div>
+        <div class="da-hint">
+          {% if plan %}いまの計画：「{{ plan.title }}」（ステップ{{ plan.current_step }}）。
+            {% if plan.current_step == 1 %}領域ごとの様子・強み・課題を「心身の状況」に、希望を「希望する生活」に入れます（空いている欄だけ）。
+            {% elif plan.current_step == 2 %}領域ごとの「支援の方針・目標」を短期目標として足し、まとめを方針に、希望を意向に入れます（空いている欄だけ）。
+            {% else %}ステップ3 以降に進んでいるため取り込めません。目標を変えるときは計画のステップ2 を開き直してください。{% endif %}
+          {% else %}まだ計画が無いので、新しい計画を作ってステップ1（アセスメント）に用紙の内容を入れます。{% endif %}
+        </div>
+      </div>
+      <form method="post" action="{% url 'beneficiaries:dev_assessment_to_plan' beneficiary.pk sheet.pk %}">
+        {% csrf_token %}{% if plan %}<input type="hidden" name="plan" value="{{ plan.pk }}">{% endif %}
+        <button class="btn btn-sm btn-outline-primary" {% if plan and not plan_importable %}disabled{% endif %}><i class="bi bi-box-arrow-in-right me-1"></i>{% if plan %}計画に取り込む{% else %}新しい計画を作って取り込む{% endif %}</button>
+      </form>
+    </div>
+  </div>
   <form method="post" action="{% url 'beneficiaries:dev_assessment_delete' beneficiary.pk sheet.pk %}" class="text-end mb-4" onsubmit="return confirm('{{ sheet.date|date:'Y/n/j' }} の5領域アセスメントを削除します。戻せません。よろしいですか？');">
     {% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>この用紙を削除する</button>
   </form>

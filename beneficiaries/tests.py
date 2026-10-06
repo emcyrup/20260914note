@@ -1091,3 +1091,69 @@ class DevelopmentAssessmentTests(TestCase):
         other = Beneficiary.objects.create(facility=g, last_name='他', first_name='人', date_of_birth=datetime.date(2019, 4, 1))
         res = self.client.get(reverse('beneficiaries:dev_assessment_create', args=[other.pk]))
         self.assertEqual(res.status_code, 404)
+
+
+class SheetToPlanTests(TestCase):
+    """5領域アセスメント → 個別支援計画、レーダーチャート"""
+
+    def setUp(self):
+        import datetime
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        from .models import DevelopmentAssessment
+        self.f = Facility.objects.create(name='児童発達支援センター　オウル', layout=Facility.LAYOUT_RYOIKU, use_dev_assessment=True)
+        self.user = StaffAccount.objects.create_user('owl', password='pw12345678', facility=self.f,
+                                                     role=StaffAccount.ROLE_STAFF, display_name='大和')
+        self.client.login(username='owl', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        doms = {k: {'rating': i + 1, 'now': f'{label}の様子', 'goal': f'{label}の目標'} for i, (k, label) in enumerate(DevelopmentAssessment.DOMAINS)}
+        doms['social']['goal'] = ''
+        self.sheet = DevelopmentAssessment.objects.create(beneficiary=self.kid, date=datetime.date(2026, 10, 1), assessed_by=self.user,
+                                                          interviewed_with='母', domains=doms, strengths='電車が好き',
+                                                          wishes_child='遊びたい', wishes_family='集団に慣れてほしい', summary='見通しを持てるように')
+
+    def test_radar_svg_on_page_and_pdf(self):
+        from .sheet_plan import radar_svg
+        svg = radar_svg(self.sheet.rows())
+        self.assertIn('<polygon', svg)
+        self.assertIn('健康・生活', svg)
+        res = self.client.get(reverse('beneficiaries:dev_assessment_edit', args=[self.kid.pk, self.sheet.pk]))
+        self.assertContains(res, 'class="da-radar"')
+        self.assertContains(res, '新しい計画を作って取り込む')
+        res = self.client.get(reverse('beneficiaries:dev_assessment_pdf', args=[self.kid.pk, self.sheet.pk]) + '?fmt=html')
+        self.assertContains(res, 'class="da-radar"')
+
+    def test_import_creates_plan_fills_assessment_then_goals(self):
+        from support_plans.models import PlanGoal, SupportPlan
+        url = reverse('beneficiaries:dev_assessment_to_plan', args=[self.kid.pk, self.sheet.pk])
+        res = self.client.post(url, follow=True)
+        plan = SupportPlan.objects.get(beneficiary=self.kid)
+        self.assertEqual((plan.title, plan.current_step, plan.manager), ('第1期 個別支援計画', 1, self.user))
+        a = plan.get_step(1)
+        self.assertIn('【健康・生活】評価 1（全面的な支援が必要）', a.condition)
+        self.assertIn('電車が好き', a.condition)
+        self.assertEqual(a.wishes, '本人：遊びたい\n家族：集団に慣れてほしい')
+        self.assertEqual((a.interview_date, a.interviewed_with, a.interviewer), (self.sheet.date, '母', self.user))
+        self.assertContains(res, '心身の状況・希望する生活・面談日・面談相手 を埋めました')
+        self.assertContains(res, '5領域アセスメントから取り込む')        # ステップ画面にも取り込みの箱
+        # ステップ2 では目標として入る（同じ文は二重にしない）
+        plan.current_step = 2
+        plan.save()
+        res = self.client.post(url, {'plan': plan.pk}, follow=True)
+        goals = list(plan.goals.order_by('order'))
+        self.assertEqual(len(goals), 4)                                 # 社会性は目標が空なので入らない
+        self.assertEqual(goals[0].content, '健康・生活：健康・生活の目標')
+        self.assertEqual(goals[0].goal_type, PlanGoal.TYPE_SHORT)
+        self.assertIn('いまの様子（2026/10/1 の5領域アセスメント・評価 1）：健康・生活の様子', goals[0].support_content)
+        self.assertEqual(goals[0].target_date, self.sheet.date + datetime.timedelta(days=182))
+        self.assertEqual(plan.get_step(2).policy, '見通しを持てるように')
+        self.assertContains(res, '短期目標を 4 件足しました')
+        res = self.client.post(url, {'plan': plan.pk}, follow=True)
+        self.assertEqual(plan.goals.count(), 4)
+        self.assertContains(res, '同じ文の目標 4 件はそのままです')
+        # ステップ3 以降は取り込めない
+        plan.current_step = 3
+        plan.save()
+        res = self.client.post(url, {'plan': plan.pk}, follow=True)
+        self.assertContains(res, 'ステップ3（担当者会議）以降に進んでいる')
+        self.assertEqual(plan.goals.count(), 4)

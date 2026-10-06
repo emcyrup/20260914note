@@ -124,8 +124,8 @@ jobs:
                 set_password
                 # オウルは送迎・配車と 5領域アセスメントを使う（施設設定 → 使う機能 と同じ）。サンプルデータはそのあとで入れる（送迎・5領域の見本も入る）
                 # shell は「N objects imported automatically」を出すので -v 0 にし、最後の行だけを施設 ID として受け取る
-                fid=$(FACILITY_NAME="$FACILITY_NAME" python manage.py shell -v 0 -c "import os; from facilities.models import Facility; f = Facility.objects.filter(name=os.environ['FACILITY_NAME']).order_by('-pk').first(); f.use_transport = True; f.use_dev_assessment = True; f.save(update_fields=['use_transport', 'use_dev_assessment']); print(f.pk)" | tail -n 1)
-                echo "送迎・配車と 5領域アセスメントを使う設定にしました: 施設 ID $fid"
+                fid=$(FACILITY_NAME="$FACILITY_NAME" python manage.py shell -v 0 -c "import os; from facilities.models import Facility; f = Facility.objects.filter(name=os.environ['FACILITY_NAME']).order_by('-pk').first(); f.use_transport = True; f.use_dev_assessment = True; f.use_survey = True; f.save(update_fields=['use_transport', 'use_dev_assessment', 'use_survey']); print(f.pk)" | tail -n 1)
+                echo "送迎・配車・5領域アセスメント・アンケート（自己評価）を使う設定にしました: 施設 ID $fid"
                 [ "$WITH_DEMO" = "true" ] && python manage.py seed_demo --facility "$fid"
                 ;;
               set_password)

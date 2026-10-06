@@ -161,6 +161,8 @@ class PlanStepView(PlanMixin, View):
             from datetime import timedelta
             ctx['draft_start'] = date.today() - timedelta(days=91)
             ctx['draft_end'] = date.today()
+        if self.n in (SupportPlan.STEP_ASSESSMENT, SupportPlan.STEP_DRAFT) and getattr(plan.facility, 'use_dev_assessment', False):
+            ctx['dev_sheets'] = list(plan.beneficiary.development_assessments.order_by('-date', '-pk')[:5])
         if self.n == SupportPlan.STEP_MEETING:
             ctx['goals'] = plan.goals.all()
         if self.n == SupportPlan.STEP_CONSENT:

@@ -1,0 +1,51 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% load survey_extras %}
+{% block title %}{{ ev.fiscal_label }} 自己評価結果{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'surveys:self_edit' ev.pk %}">自己評価へ戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .hd { display: flex; justify-content: space-between; align-items: flex-end; font-size: 10px; margin-bottom: 6px; }
+  table.rs th, table.rs td { font-size: 9px; padding: 3px 4px; }
+  table.rs td.sec { background: #eef1f5; font-weight: 700; }
+  table.rs .pct { font-size: 8px; color: #555; }
+  table.rs .cm { font-size: 8.5px; color: #333; }
+  table.rs .imp { font-size: 8.5px; color: #1d4e89; margin-top: 2px; }
+  table.se th, table.se td { font-size: 9px; padding: 3px 4px; }
+  table.se td.sec { background: #eef1f5; font-weight: 700; }
+  .mark { font-size: 11px; }
+  .free { font-size: 9px; margin-top: 6px; }
+  .free div { border-bottom: 1px dotted #999; padding: 2px 0; }
+</style>
+<h1>事業所における自己評価結果（公表）</h1>
+<div class="hd">
+  <div>{{ ev.fiscal_label }}　{{ ev.get_service_display }}　事業所名：{{ facility.name }}</div>
+  <div>{% if ev.published_on %}公表日 {{ ev.published_on|date:'Y年n月j日' }}{% else %}作成日 {{ today|date:'Y年n月j日' }}{% endif %}</div>
+</div>
+<table class="se">
+  <colgroup><col style="width:24px"><col><col style="width:26px"><col style="width:26px"><col style="width:25%"><col style="width:27%"></colgroup>
+  <thead><tr><th>No</th><th>チェック項目</th><th>はい</th><th>いいえ</th><th>工夫している点</th><th>課題や改善すべき点を踏まえた改善内容又は改善目標</th></tr></thead>
+  <tbody>
+  {% for i in ev.items %}
+  {% ifchanged i.section %}<tr><td colspan="6" class="sec">{{ i.section }}</td></tr>{% endifchanged %}
+  <tr>
+    <td class="c">{{ i.no }}</td><td>{{ i.text }}</td>
+    <td class="c mark">{% if i.result == 'yes' %}○{% endif %}</td><td class="c mark">{% if i.result == 'no' %}○{% endif %}</td>
+    <td>{{ i.strength }}</td><td>{{ i.improvement }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if guardian_summary %}
+<div class="pb"></div>
+<h1>保護者等からの事業所評価の集計結果（公表）</h1>
+<div class="hd"><div>{{ ev.fiscal_label }}　事業所名：{{ facility.name }}</div><div>回答 {{ guardian_summary.n }} 件</div></div>
+{% with summary=guardian_summary survey=ev.guardian_survey %}{% include 'surveys/pdf/_rows.html' %}{% endwith %}
+{% if guardian_summary.free %}
+<div class="lbl">ご意見・ご要望</div>
+<div class="free">{% for t in guardian_summary.free %}<div>{{ t }}</div>{% endfor %}</div>
+{% endif %}
+{% endif %}
+<div class="lbl">総括（事業所全体としての評価と改善の方向）</div>
+<div class="box" style="min-height:80px;">{{ ev.summary }}</div>
+{% if ev.publish_note %}<div class="small muted" style="margin-top:4px;">公表の方法：{{ ev.publish_note }}</div>{% endif %}
+{% endblock %}

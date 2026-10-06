@@ -199,6 +199,9 @@ class Command(BaseCommand):
         from transport.models import Driver, Vehicle
         Vehicle.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()
         Driver.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()
+        from surveys.models import SelfEvaluation, Survey
+        SelfEvaluation.objects.filter(facility=facility, summary__contains=SAMPLE_MARK).delete()
+        Survey.objects.filter(facility=facility, intro__contains=SAMPLE_MARK).delete()
         self.stdout.write(f'サンプル利用者 {n} 名と関連データを削除しました')
 
     def _reset_reservations(self, facility):
@@ -422,8 +425,41 @@ class Command(BaseCommand):
             counts.update(self._create_transport(facility, beneficiaries, today, rng))
         if getattr(facility, 'use_dev_assessment', False):
             counts.update(self._create_dev_assessments(facility, beneficiaries, staff, today, rng))
+        if getattr(facility, 'use_survey', False):
+            counts.update(self._create_surveys(facility, staff, today, rng))
 
         return counts
+
+    # ------------------------------------------------------------------
+    def _create_surveys(self, facility, staff, today, rng):
+        """アンケートの見本：今年度の保護者評価（回答 8 件）と従業者評価（回答 3 件）、自己評価（途中まで）"""
+        from surveys.models import SelfEvaluation, Survey, SurveyResponse, fiscal_label, fiscal_year_of
+        from surveys.questions import default_questions
+        year = fiscal_year_of(today)
+        service = Survey.SERVICE_JIHATSU if '児童発達支援' in facility.name else Survey.SERVICE_HOUDAY
+        g = Survey.objects.create(facility=facility, kind=Survey.KIND_GUARDIAN, service=service, fiscal_year=year,
+                                  title=f'{fiscal_label(year)} 保護者評価', intro=f'よりよい支援のため、ご意見をお聞かせください。{SAMPLE_MARK}',
+                                  questions=default_questions(Survey.KIND_GUARDIAN, service), closes_on=today + datetime.timedelta(days=14), created_by=staff)
+        st = Survey.objects.create(facility=facility, kind=Survey.KIND_STAFF, service=service, fiscal_year=year,
+                                   title=f'{fiscal_label(year)} 従業者評価', intro=f'日頃の支援を振り返って答えてください。{SAMPLE_MARK}',
+                                   questions=default_questions(Survey.KIND_STAFF, service), closes_on=today + datetime.timedelta(days=14), created_by=staff)
+        g_comments = {3: 'もう少し広いと安心です', 8: '季節の行事が楽しみです', 13: '連絡帳で様子が分かり助かっています', 22: '送迎の時間が分かると助かります'}
+        frees = ['いつもありがとうございます。', '送迎がとても助かっています。', '保護者同士で話せる機会があるとうれしいです。']
+        for i in range(8):
+            answers = {str(q['no']): rng.choices(['yes', 'neutral', 'no', 'unknown'], weights=[7, 2, 0.5, 1.5])[0] for q in g.questions}
+            comments = {str(no): c for no, c in g_comments.items() if rng.random() < 0.3}
+            SurveyResponse.objects.create(survey=g, answers=answers, comments=comments, free_text=frees[i] if i < len(frees) else '')
+        for i in range(3):
+            answers = {str(q['no']): rng.choices(['yes', 'no'], weights=[8, 2])[0] for q in st.questions}
+            comments = {'1': '＋部屋を活動ごとに区切って使っている'} if i == 0 else ({'9': '研修に出る時間がとりにくい'} if i == 1 else {})
+            SurveyResponse.objects.create(survey=st, answers=answers, comments=comments)
+        ev = SelfEvaluation.objects.create(facility=facility, fiscal_year=year, service=service, guardian_survey=g, staff_survey=st,
+                                           summary=f'保護者からは活動や連絡に高い評価をいただいた。職員の研修時間の確保と保護者同士の交流の機会づくりを来年度の改善目標とする。{SAMPLE_MARK}',
+                                           created_by=staff)
+        ev.seed_items()
+        ev.fill_from_staff()
+        ev.save()
+        return {'アンケート（保護者評価・従業者評価）': 2, 'アンケートの回答': 11, '自己評価': 1}
 
     # ------------------------------------------------------------------
     def _create_transport(self, facility, beneficiaries, today, rng):

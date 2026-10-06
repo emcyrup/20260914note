@@ -74,7 +74,7 @@ class SeedDemoCommandTests(TestCase):
         from beneficiaries.models import DevelopmentAssessment
         from transport.models import Driver, TransportProfile, Vehicle
         self.facility.layout = Facility.LAYOUT_RYOIKU
-        self.facility.use_reservation = self.facility.use_transport = self.facility.use_dev_assessment = True
+        self.facility.use_reservation = self.facility.use_transport = self.facility.use_dev_assessment = self.facility.use_survey = True
         self.facility.save()
         out = StringIO()
         call_command('seed_demo', stdout=out)
@@ -83,9 +83,14 @@ class SeedDemoCommandTests(TestCase):
         self.assertGreater(TransportProfile.objects.filter(beneficiary__facility=self.facility).count(), 3)
         self.assertEqual(DevelopmentAssessment.objects.filter(beneficiary__facility=self.facility).count(), 8)
         self.assertIn('5領域アセスメント', out.getvalue())
+        from surveys.models import SelfEvaluation, Survey, SurveyResponse
+        self.assertEqual(Survey.objects.filter(facility=self.facility).count(), 2)
+        self.assertEqual(SurveyResponse.objects.filter(survey__facility=self.facility).count(), 11)
+        self.assertEqual(SelfEvaluation.objects.filter(facility=self.facility).count(), 1)
         call_command('seed_demo', '--reset', stdout=StringIO())
         self.assertEqual(Vehicle.objects.filter(facility=self.facility).count(), 2)       # 消して入れ直すので同じ数
         self.assertEqual(DevelopmentAssessment.objects.filter(beneficiary__facility=self.facility).count(), 8)
+        self.assertEqual(Survey.objects.filter(facility=self.facility).count(), 2)
 
     def test_refuses_to_seed_twice_without_reset(self):
         call_command('seed_demo', stdout=StringIO())

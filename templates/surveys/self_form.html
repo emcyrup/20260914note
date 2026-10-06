@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+{% load concurrency survey_extras %}
+
+{% block title %}{{ ev.fiscal_label }} 自己評価{% endblock %}
+{% block page_title %}自己評価（総括）{% endblock %}
+{% block nav_surveys %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .sv-card { background: var(--sheet, #fff); border: 1px solid var(--line, #e5e1d8); border-radius: var(--radius, 14px); padding: 14px 16px; margin-bottom: 14px; }
+  .sv-h { font-weight: 700; font-size: 1rem; color: var(--lake-text, #2f4f58); }
+  .se-table { width: 100%; font-size: 0.86rem; border-collapse: collapse; }
+  .se-table th, .se-table td { padding: 6px 6px; border-bottom: 1px solid #f0ece4; vertical-align: top; }
+  .se-table th { font-size: 0.75rem; color: #8a8378; font-weight: 600; white-space: nowrap; }
+  .se-sec td { background: #faf8f3; font-weight: 700; font-size: 0.82rem; color: var(--lake-text, #2f4f58); }
+  .se-table textarea { font-size: 0.82rem; min-width: 160px; }
+  .se-agg { font-size: 0.75rem; color: #6b6257; white-space: nowrap; }
+  .se-cm { font-size: 0.76rem; color: #6b6257; white-space: pre-wrap; }
+  @media (max-width: 768px) { .se-table, .se-table tbody, .se-table tr, .se-table td { display: block; } .se-table thead { display: none; } .se-table tr { border-bottom: 2px solid var(--line, #e5e1d8); padding: 8px 0; } .se-table td { border: 0; padding: 3px 0; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <nav class="small mb-2"><a href="{% url 'surveys:index' %}">アンケート・自己評価</a> › {{ ev.fiscal_label }} 自己評価（{{ ev.get_service_display }}）</nav>
+
+  <div class="sv-card">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+      <div>
+        <div class="sv-h">{{ ev.fiscal_label }} 事業所の自己評価（{{ ev.get_service_display }}）</div>
+        <div class="small text-muted">従業者評価の集計を見ながら項目ごとに「はい・いいえ」と工夫・改善を書き、保護者評価の設問ごとに改善目標を書き、総括を入れます。公表用の PDF には、集計結果（人数・割合・ご意見）と改善内容・総括が載ります。</div>
+      </div>
+      <a href="{% url 'surveys:self_pdf' ev.pk %}?inline=1" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>公表用の PDF</a>
+    </div>
+    <form method="post" class="d-flex gap-2 align-items-end flex-wrap mt-3">
+      {% csrf_token %}<input type="hidden" name="action" value="relink">{% version_field ev %}
+      <div><label class="form-label small mb-0">保護者評価</label>
+        <select name="guardian_survey" class="form-select form-select-sm"><option value="">（無し）</option>{% for s in surveys %}{% if s.is_guardian %}<option value="{{ s.pk }}" {% if ev.guardian_survey_id == s.pk %}selected{% endif %}>{{ s.title }}</option>{% endif %}{% endfor %}</select></div>
+      <div><label class="form-label small mb-0">従業者評価</label>
+        <select name="staff_survey" class="form-select form-select-sm"><option value="">（無し）</option>{% for s in surveys %}{% if not s.is_guardian %}<option value="{{ s.pk }}" {% if ev.staff_survey_id == s.pk %}selected{% endif %}>{{ s.title }}</option>{% endif %}{% endfor %}</select></div>
+      <button class="btn btn-sm btn-outline-secondary">結びつけ直す（項目を更新）</button>
+      <button class="btn btn-sm btn-outline-primary" name="action" value="fill" {% if not ev.staff_survey_id %}disabled{% endif %}><i class="bi bi-magic me-1"></i>従業者評価の集計から結果を入れる</button>
+    </form>
+  </div>
+
+  <form method="post" data-concurrency="self_evaluation:{{ ev.pk }}">
+    {% csrf_token %}{% version_field ev %}
+    <div class="sv-card">
+      <div class="sv-h mb-2">1. 事業所の自己評価{% if staff_summary %}<span class="small fw-normal text-muted ms-2">従業者評価 {{ staff_summary.n }} 件の集計を右に表示</span>{% endif %}</div>
+      <div class="table-responsive">
+      <table class="se-table">
+        <thead><tr><th style="width:30px;">No</th><th>項目</th><th>はい／いいえ</th><th>工夫している点</th><th>課題や改善すべき点を踏まえた改善内容・改善目標</th></tr></thead>
+        <tbody>
+        {% for i in items %}
+        {% ifchanged i.section %}<tr class="se-sec"><td colspan="5">{{ i.section }}</td></tr>{% endifchanged %}
+        <tr>
+          <td>{{ i.no }}</td>
+          <td>{{ i.text }}
+            {% if i.agg %}<div class="se-agg">職員：はい {{ i.agg.counts.yes }}・いいえ {{ i.agg.counts.no }}</div>{% for c in i.agg.comments %}<div class="se-cm">・{{ c }}</div>{% endfor %}{% endif %}</td>
+          <td class="text-nowrap">
+            <label class="me-2"><input type="radio" name="i{{ i.no }}_result" value="yes" {% if i.result == 'yes' %}checked{% endif %}> はい</label>
+            <label><input type="radio" name="i{{ i.no }}_result" value="no" {% if i.result == 'no' %}checked{% endif %}> いいえ</label>
+          </td>
+          <td><textarea name="i{{ i.no }}_strength" class="form-control form-control-sm" rows="2" maxlength="2000">{{ i.strength }}</textarea></td>
+          <td><textarea name="i{{ i.no }}_improvement" class="form-control form-control-sm" rows="2" maxlength="2000">{{ i.improvement }}</textarea></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+    <div class="sv-card">
+      <div class="sv-h mb-2">2. 保護者評価への改善目標{% if guardian_summary %}<span class="small fw-normal text-muted ms-2">保護者評価 {{ guardian_summary.n }} 件の集計</span>{% else %}<span class="small fw-normal text-muted ms-2">保護者評価のアンケートを結びつけると集計が出ます</span>{% endif %}</div>
+      <div class="table-responsive">
+      <table class="se-table">
+        <thead><tr><th style="width:30px;">No</th><th>設問</th><th>はい</th><th>どちらとも</th><th>いいえ</th><th>わからない</th><th>改善目標等</th></tr></thead>
+        <tbody>
+        {% for i in gitems %}
+        {% ifchanged i.section %}<tr class="se-sec"><td colspan="7">{{ i.section }}</td></tr>{% endifchanged %}
+        <tr>
+          <td>{{ i.no }}</td>
+          <td>{{ i.text }}{% if i.agg %}{% for c in i.agg.comments %}<div class="se-cm">・{{ c }}</div>{% endfor %}{% endif %}</td>
+          {% if i.agg %}<td class="text-center">{{ i.agg.counts.yes }}</td><td class="text-center">{{ i.agg.counts.neutral }}</td><td class="text-center">{{ i.agg.counts.no }}</td><td class="text-center">{{ i.agg.counts.unknown }}</td>{% else %}<td colspan="4" class="text-center text-muted">－</td>{% endif %}
+          <td><textarea name="g{{ i.no }}_improvement" class="form-control form-control-sm" rows="2" maxlength="2000">{{ i.improvement }}</textarea></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% if guardian_summary and guardian_summary.free %}
+      <div class="small fw-bold mt-2">保護者からのご意見・ご要望</div>
+      {% for t in guardian_summary.free %}<div class="se-cm border-top py-1">{{ t }}</div>{% endfor %}
+      {% endif %}
+    </div>
+
+    <div class="sv-card">
+      <div class="sv-h mb-2">3. 総括と公表</div>
+      <label class="form-label small mb-0" for="summary">総括（事業所全体としての評価と改善の方向。公表用の PDF の最後に載ります）</label>
+      <textarea id="summary" name="summary" class="form-control" rows="6" maxlength="8000">{{ ev.summary }}</textarea>
+      <div class="row g-2 mt-1">
+        <div class="col-md-4"><label class="form-label small mb-0">公表日</label><input type="date" name="published_on" class="form-control form-control-sm" value="{{ ev.published_on|date:'Y-m-d' }}"></div>
+        <div class="col-md-8"><label class="form-label small mb-0">公表の方法（ホームページの URL・会報の号など）</label><input type="text" name="publish_note" class="form-control form-control-sm" maxlength="200" value="{{ ev.publish_note }}"></div>
+      </div>
+      <div class="d-flex justify-content-end gap-2 mt-3">
+        <a href="{% url 'surveys:self_pdf' ev.pk %}?inline=1" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>公表用の PDF</a>
+        <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -902,11 +902,16 @@ class DevAssessmentFormView(DevAssessmentMixin, View):
             previous = latest
         else:
             previous = a.previous()
+        from . import sheet_plan
+        rows = a.rows(previous)
+        plan = sheet_plan.current_plan(b) if a.pk else None
         return render(request, self.template_name, {
-            'beneficiary': b, 'sheet': a, 'previous': previous, 'rows': a.rows(previous),
+            'beneficiary': b, 'sheet': a, 'previous': previous, 'rows': rows,
             'ratings': DevelopmentAssessment.RATINGS, 'age': _age_on(b.date_of_birth, a.date),
             'text_fields': [(f, DevelopmentAssessment._meta.get_field(f).verbose_name)
                             for f in ('strengths', 'concerns', 'wishes_child', 'wishes_family', 'summary')],
+            'radar': sheet_plan.radar_svg(rows) if any(r['rating'] for r in rows) else '',
+            'plan': plan, 'plan_importable': bool(plan and plan.current_step <= 2),
         })
 
     def post(self, request, beneficiary_pk, sheet_pk=None):
@@ -940,9 +945,12 @@ class DevAssessmentPdfView(DevAssessmentMixin, View):
     def get(self, request, beneficiary_pk, sheet_pk):
         b, a = _sheet_or_404(request, beneficiary_pk, sheet_pk)
         previous = a.previous()
+        from . import sheet_plan
+        rows = a.rows(previous)
         return pdf_or_html(request, 'beneficiaries/pdf/dev_assessment.html', {
-            'facility': request.user.facility, 'beneficiary': b, 'sheet': a, 'previous': previous, 'rows': a.rows(previous),
+            'facility': request.user.facility, 'beneficiary': b, 'sheet': a, 'previous': previous, 'rows': rows,
             'ratings': DevelopmentAssessment.RATINGS, 'age': _age_on(b.date_of_birth, a.date),
+            'radar': sheet_plan.radar_svg(rows, size=190) if any(r['rating'] for r in rows) else '',
         }, f'5領域アセスメント_{b.full_name}_{a.date:%Y%m%d}')
 
 
@@ -953,3 +961,27 @@ class DevAssessmentDeleteView(DevAssessmentMixin, View):
         a.delete()
         messages.success(request, f'{b.full_name} さんの5領域アセスメント（{label}）を削除しました。')
         return redirect(f"{reverse('beneficiaries:detail', args=[b.pk])}#dev-assessments")
+
+
+class DevAssessmentToPlanView(DevAssessmentMixin, View):
+    """用紙を個別支援計画に取り込む（plan を指定しなければ、終了していない一番新しい計画。無ければ新しく作る）"""
+
+    def post(self, request, beneficiary_pk, sheet_pk):
+        from support_plans.models import SupportPlan
+        from . import sheet_plan
+        b, a = _sheet_or_404(request, beneficiary_pk, sheet_pk)
+        plan_id = request.POST.get('plan')
+        if plan_id:
+            plan = get_object_or_404(SupportPlan, pk=plan_id, beneficiary=b, facility=request.user.facility)
+        else:
+            plan = sheet_plan.current_plan(b)
+            if plan is None:
+                plan = sheet_plan.new_plan(b, request.user)
+                messages.info(request, f'{b.full_name} さんの「{plan.title}」を新しく作りました。')
+        try:
+            result = sheet_plan.import_sheet(a, plan)
+        except ValueError as e:
+            messages.error(request, str(e))
+            return redirect('beneficiaries:dev_assessment_edit', beneficiary_pk, a.pk)
+        messages.success(request, sheet_plan.import_message(a, plan, result))
+        return redirect('support_plans:step', pk=plan.pk, n=plan.current_step)
