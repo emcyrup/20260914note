@@ -17,6 +17,10 @@ on:
         description: "テスト音の長さ（秒）"
         default: "15"
         required: false
+      threads:
+        description: "WHISPER_THREADS（空なら .env の値。CPU 数の半分くらいまで）"
+        default: ""
+        required: false
 
 permissions:
   contents: read
@@ -41,11 +45,12 @@ jobs:
         env:
           MODEL: ${{ github.event.inputs.model }}
           SECONDS_IN: ${{ github.event.inputs.seconds }}
+          THREADS: ${{ github.event.inputs.threads }}
           REMOTE_APP_DIR: ${{ env.APP_DIR }}
           REMOTE_VENV: ${{ env.VENV }}
         run: |
           ssh -i ~/.ssh/deploy_key -p "${{ env.SSH_PORT }}" "${{ secrets.YOURS_DEPLOY_USER }}@${{ secrets.YOURS_DEPLOY_HOST }}" \
-            "MODEL='$MODEL' SECS='$SECONDS_IN' APP_DIR_IN='$REMOTE_APP_DIR' VENV_IN='$REMOTE_VENV' bash -s" <<'REMOTE'
+            "MODEL='$MODEL' SECS='$SECONDS_IN' THREADS='$THREADS' APP_DIR_IN='$REMOTE_APP_DIR' VENV_IN='$REMOTE_VENV' bash -s" <<'REMOTE'
             set -euo pipefail
             APP_DIR=$(eval echo "$APP_DIR_IN")
             VENV=$(eval echo "$VENV_IN")
@@ -54,5 +59,6 @@ jobs:
             echo "python: $(python --version 2>&1)"
             echo "disk: $(df -h "$HOME" | tail -1 | awk '{print $4 " free"}')"
             pip install --quiet -r requirements-speech.txt
+            if [ -n "${THREADS:-}" ]; then export WHISPER_THREADS="$THREADS"; fi
             WHISPER_MODEL="$MODEL" SPEECH_BACKEND=whisper python manage.py speech_check --seconds "${SECS:-15}"
           REMOTE
