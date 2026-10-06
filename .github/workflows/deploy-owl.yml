@@ -1,0 +1,149 @@
+# =============================================
+# 「児童発達支援センター　オウル」を AWS 共用サーバー（ゆあーずと同じサーバー）へデプロイ
+#   https://michinote.owl.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 0.0.0.0:8034
+#   置き場所 ~/michinoteowl、DB michinoteowl（ユーザー ai_labo_dbuser）。venv（~/env）はゆあーずと共用
+#   ブランチ ryoiku への push（ゆあーずと同じ push で両方に配備される）、または Actions から手動実行（任意のブランチ）
+#   サーバー側は deploy/venv-deploy.sh が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行う
+#   手順は docs/DEPLOY_AWS_OWL.md
+#
+# GitHub Secrets：同じサーバーなので YOURS_*（Deploy (yours) のもの）をそのまま使う。別にしたいときだけ OWL_* を登録する
+#   OWL_DEPLOY_HOST / OWL_DEPLOY_USER / OWL_DEPLOY_SSH_KEY / OWL_DEPLOY_SSH_PORT（無ければ YOURS_*）
+#   OWL_APP_DIR（既定 ~/michinoteowl）、OWL_VENV（無ければ YOURS_VENV、既定 ~/env）
+#   OWL_HEALTH_URL（既定 https://michinote.owl.ai-labo.cloud/healthz/）
+#
+# 初回：サーバーに ~/michinoteowl/.env が無ければ deploy/.env.owl-aws.example から作る。
+#   SECRET_KEY はサーバー上で生成し、DB_PASSWORD・ANTHROPIC_API_KEY・音声（Whisper）の設定は ~/michinoteyours/.env から写す
+#   （同じ DB ユーザー・同じサーバー。値はログに出ない）。以後の配備では .env を上書きしない
+# =============================================
+name: Deploy (owl)
+
+on:
+  push:
+    branches: [ryoiku]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: ${{ secrets.OWL_APP_DIR || '~/michinoteowl' }}
+  VENV: ${{ secrets.OWL_VENV || secrets.YOURS_VENV || '~/env' }}
+  SSH_PORT: ${{ secrets.OWL_DEPLOY_SSH_PORT || secrets.YOURS_DEPLOY_SSH_PORT || '22' }}
+  HEALTH_URL: ${{ secrets.OWL_HEALTH_URL || 'https://michinote.owl.ai-labo.cloud/healthz/' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
+      - run: pip install -r requirements.txt
+      - name: Django check & tests
+        env:
+          SECRET_KEY: ci-only-secret-key
+          DEBUG: "True"
+          DJANGO_ALLOWED_HOSTS: localhost
+        run: |
+          python manage.py check
+          python manage.py test --noinput
+      - name: Check deploy secrets
+        id: check
+        env:
+          HOST: ${{ secrets.OWL_DEPLOY_HOST || secrets.YOURS_DEPLOY_HOST }}
+          USER: ${{ secrets.OWL_DEPLOY_USER || secrets.YOURS_DEPLOY_USER }}
+          KEY: ${{ secrets.OWL_DEPLOY_SSH_KEY || secrets.YOURS_DEPLOY_SSH_KEY }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ]; then
+            echo "SSH の Secrets（OWL_DEPLOY_* または YOURS_DEPLOY_*）が未登録のため、配備はスキップします（docs/DEPLOY_AWS_OWL.md 参照）"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    needs: test
+    if: needs.test.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      # ゆあーずと venv（~/env）を共用するので、Deploy (yours)・Manage (yours) と同じ列に並べて同時に pip を動かさない
+      group: deploy-yours
+      cancel-in-progress: false
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.OWL_DEPLOY_SSH_KEY || secrets.YOURS_DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ env.SSH_PORT }}" -H "${{ secrets.OWL_DEPLOY_HOST || secrets.YOURS_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Checkout, prepare .env (first time only), migrate, restart gunicorn
+        env:
+          SHA: ${{ github.sha }}
+          REPO_URL: https://github.com/${{ github.repository }}.git
+          REMOTE_APP_DIR: ${{ env.APP_DIR }}
+          REMOTE_VENV: ${{ env.VENV }}
+          YOURS_APP_DIR: ${{ secrets.YOURS_APP_DIR || '~/michinoteyours' }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${{ env.SSH_PORT }}" "${{ secrets.OWL_DEPLOY_USER || secrets.YOURS_DEPLOY_USER }}@${{ secrets.OWL_DEPLOY_HOST || secrets.YOURS_DEPLOY_HOST }}" \
+            "SHA='$SHA' REPO_URL='$REPO_URL' APP_DIR_IN='$REMOTE_APP_DIR' VENV_IN='$REMOTE_VENV' YOURS_DIR_IN='$YOURS_APP_DIR' bash -s" <<'REMOTE'
+            set -euo pipefail
+            APP_DIR=$(eval echo "$APP_DIR_IN")
+            VENV=$(eval echo "$VENV_IN")
+            YOURS_DIR=$(eval echo "$YOURS_DIR_IN")
+            if [ ! -d "$APP_DIR/.git" ]; then
+              git clone --quiet "$REPO_URL" "$APP_DIR"
+            fi
+            cd "$APP_DIR"
+            git fetch --quiet origin
+            # 配備先コミットのスクリプトと .env の雛形を先に取り出してから実行する
+            git checkout --quiet "$SHA" -- deploy/venv-deploy.sh deploy/.env.owl-aws.example
+            if [ ! -f .env ]; then
+              echo ".env が無いので雛形から作ります（SECRET_KEY は生成。秘密の値はゆあーずの .env から写す。値は表示しない）"
+              cp deploy/.env.owl-aws.example .env
+              chmod 600 .env
+              key=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))")
+              sed -i "s#^SECRET_KEY=.*#SECRET_KEY=$key#" .env
+              sed -i "s#^MEDIA_ROOT=.*#MEDIA_ROOT=$APP_DIR/media#" .env
+              if [ -f "$YOURS_DIR/.env" ]; then
+                for k in DB_PASSWORD ANTHROPIC_API_KEY AI_TEXT_MODEL AI_PLAN_MODEL GOOGLE_SPEECH_API_KEY SPEECH_BACKEND WHISPER_MODEL WHISPER_THREADS WHISPER_BEAM WHISPER_COMPUTE; do
+                  line=$(grep -E "^$k=." "$YOURS_DIR/.env" | head -n 1 || true)
+                  [ -n "$line" ] || continue
+                  if grep -qE "^#?$k=" .env; then
+                    # 雛形の同じ行（コメントアウト含む）を置き換える。値に # や & があっても壊れないように区切りを使わない方法で書く
+                    python3 - "$k" "$line" <<'PY'
+          import re, sys
+          k, line = sys.argv[1], sys.argv[2]
+          p = '.env'
+          s = open(p, encoding='utf-8').read()
+          s, n = re.subn(r'(?m)^#?' + re.escape(k) + r'=.*$', lambda m: line, s, count=1)
+          open(p, 'w', encoding='utf-8').write(s)
+          PY
+                  else
+                    printf '%s\n' "$line" >> .env
+                  fi
+                  echo "  $k: ゆあーずの .env から写しました"
+                done
+              else
+                echo "  注意: $YOURS_DIR/.env が無いため DB_PASSWORD などは空です。サーバーで .env を直してください"
+              fi
+            fi
+            APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh "$SHA"
+          REMOTE
+
+      - name: Health check (public URL)
+        run: |
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${{ env.HEALTH_URL }}" || true)
+            case "$code" in 200) echo "healthy ($code)"; exit 0;; esac
+            echo "waiting... ($code)"; sleep 5
+          done
+          echo "health check failed"; exit 1

@@ -3,6 +3,7 @@
 # 共用サーバー（sudo なし・Docker なし・venv＋Gunicorn）へのデプロイ／起動スクリプト
 #   例: AWS 開発環境 https://st-michinotedemo.ai-labo.cloud/ → Gunicorn 0.0.0.0:8029（~/michinotedemo）
 #       ゆあーず       https://michinote.yours.ai-labo.cloud/  → Gunicorn 0.0.0.0:8030（~/michinoteyours）
+#       オウル         https://michinote.owl.ai-labo.cloud/    → Gunicorn 0.0.0.0:8034（~/michinoteowl）
 #
 # 使い方（サーバー上で）
 #   bash ~/michinotedemo/deploy/venv-deploy.sh            # 現在のブランチの最新に更新して再起動
@@ -95,7 +96,7 @@ case "${1:-}" in
   --restart) restart; exit 0 ;;
 esac
 
-test -f .env || { echo "ERROR: $APP_DIR/.env がありません。deploy/.env.dev-aws.example（ゆあーずは deploy/.env.yours-aws.example）を元に作成してください"; exit 1; }
+test -f .env || { echo "ERROR: $APP_DIR/.env がありません。deploy/.env.dev-aws.example（ゆあーずは deploy/.env.yours-aws.example、オウルは deploy/.env.owl-aws.example）を元に作成してください"; exit 1; }
 
 # 1) コード更新
 git fetch --quiet origin
