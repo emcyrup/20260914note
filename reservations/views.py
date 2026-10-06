@@ -357,7 +357,9 @@ class CustomerListView(ReservationEnabledMixin, View):
     """顧客台帳（予約の連絡先）"""
     template_name = 'reservations/customers.html'
 
-    def get(self, request):
+    def get(self, request, pk=None):
+        if pk is not None:          # 保存・削除の URL を直接開いたとき（POST 専用）は一覧へ
+            return redirect('reservations:customers')
         facility = request.user.facility
         customers = list(Customer.objects.filter(facility=facility).prefetch_related('children'))
         for c in customers:
