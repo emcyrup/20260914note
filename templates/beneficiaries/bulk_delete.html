@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}{{ terms.beneficiary }}をまとめて削除{% endblock %}
+{% block page_title %}{{ terms.beneficiary }}をまとめて削除{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width:760px;">
+  <a href="{{ next|default:'/users/' }}" class="small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>一覧に戻る</a>
+  <h5 class="fw-bold mt-2 mb-3"><i class="bi bi-trash me-2 text-danger"></i>{{ people|length }} 名を削除する</h5>
+
+  <div class="alert alert-danger">
+    <div class="fw-bold mb-1">この操作は戻せません。</div>
+    次の{{ terms.beneficiary }}と、それぞれの療育記録・予約・書類などがすべて消えます（写真・PDF などのファイルも消えます）。
+    <ul class="mb-0 mt-2">
+      {% for b, counts in people %}
+      <li><b>{{ b.full_name }}</b>（{{ b.get_status_display }}{% if b.status == 'active' %}・<span class="text-danger fw-bold">在籍中</span>{% endif %}）{% if counts %}：{% for label, n in counts %}{{ label }} {{ n }} 件{% if not forloop.last %}・{% endif %}{% endfor %}{% else %}：関連する記録なし{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% if active_count %}
+  <div class="alert alert-danger small"><i class="bi bi-exclamation-octagon me-1"></i><b>在籍中の人が {{ active_count }} 名入っています。</b>まちがえて登録した場合などに削除してください。辞めた子は「退所」「卒業」にしておく方法もあります。</div>
+  {% endif %}
+  <div class="alert alert-warning small"><i class="bi bi-exclamation-triangle me-1"></i>{{ retention_note }} 辞めてから 5 年たっていない場合は、削除せず「退所」か「卒業」にしておくことをおすすめします。</div>
+
+  <form method="post" action="{% url 'beneficiaries:bulk' %}">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="delete"><input type="hidden" name="confirm" value="1"><input type="hidden" name="next" value="{{ next }}">
+    {% for b, counts in people %}<input type="hidden" name="ids" value="{{ b.pk }}">{% endfor %}
+    <div class="mb-3">
+      <label class="form-label small fw-semibold" for="confirm_text">確認のため「削除」と入れてください</label>
+      <input type="text" name="confirm_text" id="confirm_text" class="form-control" autocomplete="off" required style="max-width:200px;">
+    </div>
+    <div class="form-check mb-3">
+      <input class="form-check-input" type="checkbox" name="agree" value="1" id="agree" required>
+      <label class="form-check-label small" for="agree">記録の保存期間を確かめたうえで、{{ people|length }} 名を削除します</label>
+    </div>
+    <button class="btn btn-danger"><i class="bi bi-trash me-1"></i>{{ people|length }} 名を削除する</button>
+    <a href="{{ next|default:'/users/' }}" class="btn btn-outline-secondary ms-2">やめる</a>
+  </form>
+</div>
+{% endblock %}

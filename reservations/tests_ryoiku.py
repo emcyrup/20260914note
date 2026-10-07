@@ -1586,3 +1586,34 @@ class ScheduleListTests(TestCase):
         self.assertContains(res, 'ms-drop-menu')
         pdf = self.client.get(reverse('reservations:monthly_schedule_pdf', args=[2026, 10]) + '?fmt=html')
         self.assertNotContains(pdf, 'ゼロ 子')
+
+
+class ScheduleSideTableTests(TestCase):
+    """右の一覧の数字：確定＝予約の回数（欠席・キャンセルは除く）、あと n＝希望に足りない回数、残＝契約（支給量）−確定"""
+
+    def setUp(self):
+        from beneficiaries.models import RecipientCertificate
+        self.f, self.s = ryoiku()
+        self.user = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        self.a = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2018, 1, 1))
+        RecipientCertificate.objects.create(beneficiary=self.a, granted_days=10, valid_from=datetime.date(2026, 4, 1),
+                                            valid_until=datetime.date(2027, 3, 31))
+
+    def test_numbers(self):
+        monthly.save_request(self.f, self.a, 2026, 10, 4, {'2026-10-06': [10], '2026-10-07': [10], '2026-10-09': [10]})
+        monthly.assign_month(self.f, 2026, 10, self.s, notify=False)        # 3 回しか入らない
+        res = Reservation.objects.filter(beneficiary=self.a).order_by('date').first()
+        monthly.set_attendance(res, Reservation.ATT_ABSENT)
+        row = next(r for r in monthly.request_rows(self.f, 2026, 10, self.s) if r['beneficiary'].pk == self.a.pk)
+        self.assertEqual((row['desired'], row['confirmed'], row['used'], row['absent'], row['short'], row['contract_left']),
+                         (4, 3, 2, 1, 1, 8))
+        totals = monthly.row_totals(monthly.schedule_rows([row]))
+        self.assertEqual((totals['used'], totals['short'], totals['contract_left'], totals['granted']), (2, 1, 8, 10))
+        page = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10])).content.decode()
+        side = page.split('id="ms-side"')[1]
+        self.assertIn('あと1', side)
+        self.assertIn('欠席・キャンセル 1 回は数えない', side)
+        self.assertIn('契約（支給量）10 − 確定 2', side)
+        self.assertIn('ms-fit', page)                      # 全体表示は画面いっぱい（左メニュー・上の帯を消す）
+        self.assertIn('requestFullscreen', page)

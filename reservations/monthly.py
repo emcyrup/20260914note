@@ -149,11 +149,14 @@ def request_rows(facility, year, month, setting=None):
     requests = {r.beneficiary_id: r for r in MonthlyRequest.objects.filter(facility=facility, year=year, month=month)}
     confirmed = {}
     attended = {}
+    absent = {}      # 実績が欠席・キャンセルの予約（利用の回数に数えない）
     for res in month_reservations(facility, year, month):
         if res.beneficiary_id:
             confirmed[res.beneficiary_id] = confirmed.get(res.beneficiary_id, 0) + 1
             if res.attendance == Reservation.ATT_ATTENDED:
                 attended[res.beneficiary_id] = attended.get(res.beneficiary_id, 0) + 1
+            elif res.attendance in (Reservation.ATT_ABSENT, Reservation.ATT_CANCELLED):
+                absent[res.beneficiary_id] = absent.get(res.beneficiary_id, 0) + 1
     rows = []
     pairs = pair_map(facility, names=True)
     for b in Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE):
@@ -161,8 +164,14 @@ def request_rows(facility, year, month, setting=None):
         done = confirmed.get(b.pk, 0)
         desired = req.desired_count if req else 0
         cert = b.latest_certificate
+        used = done - absent.get(b.pk, 0)          # 利用（欠席・キャンセルを除いた予約）
+        granted = cert.granted_days if cert and cert.granted_days else None
         rows.append({
             'beneficiary': b, 'request': req, 'desired': desired,
+            # 月間予定表の右の一覧：確定＝利用（欠席・キャンセルを除く）、残＝契約（支給量）−利用、足りない＝希望−確定
+            'used': used, 'absent': absent.get(b.pk, 0),
+            'short': max(desired - done, 0), 'over': max(done - desired, 0) if req else 0,
+            'contract_left': (granted - used) if granted is not None else None,
             'slots': req.slot_count(setting) if req else 0,
             # NG 児童：利用希望に「来られない日」がある子（予定を動かすときに、その日に入れないよう注意する）
             'ng_days': req.ng_days() if req and req.is_ng_mode else [],
@@ -195,10 +204,14 @@ def schedule_rows(rows):
 
 
 def row_totals(rows):
-    """右の一覧の合計（希望・確定・来・残・契約）"""
+    """右の一覧の合計（希望・確定（利用）・来・残（契約−利用）・契約）。残と契約は支給量の登録がある人だけで足す"""
+    with_cert = [r for r in rows if r.get('contract_left') is not None]
     return {'people': len(rows), 'desired': sum(r['desired'] for r in rows), 'confirmed': sum(r['confirmed'] for r in rows),
+            'used': sum(r.get('used', r['confirmed']) for r in rows), 'absent': sum(r.get('absent', 0) for r in rows),
             'attended': sum(r['attended'] for r in rows), 'remaining': sum(r['remaining'] for r in rows),
-            'granted': sum(r['granted'] or 0 for r in rows)}
+            'short': sum(r.get('short', 0) for r in rows),
+            'contract_left': sum(r['contract_left'] for r in with_cert) if with_cert else None,
+            'granted': sum(r['granted'] for r in with_cert) if with_cert else None}
 
 
 # ---------------------------------------------------------------- 割り当て

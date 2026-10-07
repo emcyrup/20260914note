@@ -34,6 +34,9 @@
   .ms-drop-ok { outline: 2px dashed var(--color-primary); outline-offset: -2px; background: var(--color-primary-bg) !important; }
   .ms-total { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: .85rem; background: rgba(255,255,255,.7); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
   .ms-sum { font-weight: 700; background: rgba(243,239,231,.9); }
+  .ms-short { display: block; font-size: .62rem; color: var(--color-danger); font-weight: 700; line-height: 1.1; white-space: nowrap; }
+  .ms-over { display: block; font-size: .62rem; color: #8a6d1f; line-height: 1.1; }
+  body.ms-fit .ms-short, body.ms-fit .ms-over { display: inline; margin-left: 1px; }
   #ms-drop-menu { position: absolute; z-index: 1060; display: none; background: #fff; border: 1px solid #cfc8bb; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.15); padding: 6px; max-width: 260px; }
   #ms-drop-menu .t { font-size: .78rem; font-weight: 600; margin-bottom: 4px; }
   #ms-drop-menu button { display: block; width: 100%; margin-top: 3px; }
@@ -78,6 +81,20 @@
   body.ms-fit .ms-users > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
   body.ms-fit .ms-users > div:first-child { text-align: left; }
   body.ms-fit .ms-users .badge { display: none; }
+  .ms-show-fit { display: none; }
+  /* 全体表示は画面いっぱい：左のメニュー・上の帯・お知らせ・ほかのボタンを消し、箱の高さを画面の高さに合わせる（--ms-bh） */
+  body.ms-fit .sidebar, body.ms-fit .topbar, body.ms-fit .flash-messages, body.ms-fit .ai-chat-fab { display: none !important; }
+  body.ms-fit .main-area { margin-left: 0 !important; }
+  body.ms-fit .page-content { padding: 4px 8px !important; max-width: none !important; }
+  body.ms-fit .page-content > .px-2 { padding: 0 !important; }
+  body.ms-fit .ms-show-fit { display: inline; }
+  body.ms-fit #ms-toolbar { margin-bottom: 4px !important; gap: 4px !important; }
+  body.ms-fit #ms-toolbar .btn { padding: 1px 8px; font-size: .74rem; }
+  body.ms-fit .ms-total { margin-bottom: 4px !important; }
+  body.ms-fit .row.g-3 { --bs-gutter-x: 8px; --bs-gutter-y: 4px; }
+  body.ms-fit .ms-week { margin-bottom: 3px; }
+  body.ms-fit .ms-box { height: var(--ms-bh, 14px); line-height: var(--ms-bh, 14px); font-size: calc(var(--ms-bh, 14px) * 0.72); }
+  body.ms-fit .ms-week th.time { line-height: 1; }
   @media (min-width: 992px) {
     body.ms-fit #ms-main { flex: 0 0 calc(100% - 250px); max-width: calc(100% - 250px); }
     body.ms-fit #ms-side { flex: 0 0 250px; max-width: 250px; position: sticky; top: 8px; align-self: flex-start; max-height: calc(100vh - 16px); overflow-y: auto; }
@@ -87,25 +104,25 @@
 
 {% block content %}
 <div class="px-2">
-  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2" id="ms-toolbar">
     <div class="btn-group">
       <a href="{% url 'reservations:monthly_schedule' prev_year prev_month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left"></i></a>
-      <a href="{% url 'reservations:calendar_month' year month %}" class="btn btn-outline-secondary btn-sm">カレンダーへ</a>
+      <a href="{% url 'reservations:calendar_month' year month %}" class="btn btn-outline-secondary btn-sm"><span class="ms-hide-fit">カレンダーへ</span><span class="ms-show-fit">{{ year }}年{{ month }}月</span></a>
       <a href="{% url 'reservations:monthly_schedule' next_year next_month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-right"></i></a>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-      <a href="{% url 'reservations:monthly_requests' year month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-list-check me-1"></i>利用希望</a>
+      <a href="{% url 'reservations:monthly_requests' year month %}" class="btn btn-outline-secondary btn-sm ms-hide-fit"><i class="bi bi-list-check me-1"></i>利用希望</a>
       <button type="button" class="btn btn-outline-primary btn-sm" id="ms-swap-toggle"><i class="bi bi-arrow-left-right me-1"></i>入れ替え・移動</button>
-      {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_board' %}?d={{ today|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm" title="きょうの担当と予定を1画面で（スマートフォン向け）"><i class="bi bi-phone me-1"></i>きょうの予定</a>{% endif %}
-      {% if features.transport %}<a href="{% url 'transport:day' %}?d={{ today|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm" title="きょうの迎え・送りの一覧（配車表）"><i class="bi bi-truck me-1"></i>配車表</a>{% endif %}
+      {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_board' %}?d={{ today|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm ms-hide-fit" title="きょうの担当と予定を1画面で（スマートフォン向け）"><i class="bi bi-phone me-1"></i>きょうの予定</a>{% endif %}
+      {% if features.transport %}<a href="{% url 'transport:day' %}?d={{ today|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm ms-hide-fit" title="きょうの迎え・送りの一覧（配車表）"><i class="bi bi-truck me-1"></i>配車表</a>{% endif %}
       {% if facility.is_ryoiku %}<button type="button" class="btn btn-outline-success btn-sm" id="ms-att-toggle" title="名前を押して 来た・欠席・キャンセル を入れます。業務日誌の「実績」欄に印字されます"><i class="bi bi-check2-square me-1"></i>実績を入れる</button>{% endif %}
       <button type="button" class="btn btn-outline-secondary btn-sm" id="ms-fit-toggle" title="1 か月をひと目で見る（枠の箱を横に並べて小さくし、右の一覧は数字だけ並べる）"><i class="bi bi-arrows-angle-contract me-1"></i>全体を見る</button>
-      <div class="btn-group">
+      <div class="btn-group ms-hide-fit">
         <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?inline=1" class="btn btn-outline-secondary btn-sm" target="_blank" title="A3 横 1 枚の PDF を開きます（日付の下にその日の担当）。A4 の用紙に印刷すると縮小されて 1 枚に収まります"><i class="bi bi-printer me-1"></i>印刷（A3）</a>
         <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?paper=a4&inline=1" class="btn btn-outline-secondary btn-sm" target="_blank" title="A4 横 1 枚の PDF を開きます">A4</a>
       </div>
-      {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_log_pdf' year month %}?inline=1" class="btn btn-outline-secondary btn-sm" target="_blank" title="1日ごとの予定表（時間・氏名・提供形態・実績・備考）の PDF を開きます。A4 1枚に4日ぶん。右上に「その日の担当」"><i class="bi bi-journal-text me-1"></i>業務日誌（4日/枚）</a>{% endif %}
-      <form method="post" action="{% url 'reservations:monthly_requests' year month %}"
+      {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_log_pdf' year month %}?inline=1" class="btn btn-outline-secondary btn-sm ms-hide-fit" target="_blank" title="1日ごとの予定表（時間・氏名・提供形態・実績・備考）の PDF を開きます。A4 1枚に4日ぶん。右上に「その日の担当」"><i class="bi bi-journal-text me-1"></i>業務日誌（4日/枚）</a>{% endif %}
+      <form method="post" action="{% url 'reservations:monthly_requests' year month %}" class="ms-hide-fit"
             onsubmit="return confirm('{{ month }}月の利用希望から予約を割り当てます。\nすでに確定している予約は残し、希望回数に足りないぶんだけ足します。よろしいですか？');">
         {% csrf_token %}
         <button class="btn btn-primary btn-sm"><i class="bi bi-magic me-1"></i>利用希望から割り当てる</button>
@@ -150,8 +167,8 @@
     <span><i class="bi bi-calendar-check me-1"></i>{{ month }}月の予約 合計 <strong>{{ schedule.total }}</strong> 件</span>
     {% if facility.is_ryoiku %}<span>来た <strong>{{ schedule.total_attended }}</strong></span>{% endif %}
     <span>空き枠 <strong>{{ schedule.total_free }}</strong></span>
-    {% if row_totals.people %}<span>利用する人 <strong>{{ row_totals.people }}</strong> 名・希望の合計 <strong>{{ row_totals.desired }}</strong> 回{% if row_totals.remaining %}・残り <strong class="text-danger">{{ row_totals.remaining }}</strong> 回{% endif %}</span>{% endif %}
-    <span class="text-muted d-none d-md-inline"><i class="bi bi-arrows-move me-1"></i>名前はドラッグで動かせます（名前に重ねると入れ替え、きょうだいに重ねると1枠にまとめる、「＋」に置くと移動）</span>
+    {% if row_totals.people %}<span>利用する人 <strong>{{ row_totals.people }}</strong> 名・希望の合計 <strong>{{ row_totals.desired }}</strong> 回{% if row_totals.short %}・希望に足りない <strong class="text-danger">{{ row_totals.short }}</strong> 回{% endif %}{% if row_totals.absent %}・欠席・キャンセル <strong>{{ row_totals.absent }}</strong> 回{% endif %}</span>{% endif %}
+    <span class="text-muted d-none d-md-inline ms-hide-fit"><i class="bi bi-arrows-move me-1"></i>名前はドラッグで動かせます（名前に重ねると入れ替え、きょうだいに重ねると1枠にまとめる、「＋」に置くと移動）</span>
   </div>
 
   <div class="row g-3">
@@ -195,7 +212,7 @@
         </tbody>
       </table>
       {% endfor %}
-      <div class="small text-muted">
+      <div class="small text-muted ms-hide-fit">
         網掛けはお休み（{{ schedule.closed_text|default:'なし' }}）とその日に無い時刻。1枠 {{ schedule.capacity }} 人。
         「＋」を押すと、その日の画面でその枠に追加できます。名前を押すと、その日の画面で変更・取消ができます。
         名前は<strong>ドラッグで動かせます</strong>（ほかの名前に重ねると入れ替え、きょうだいの名前に重ねると「きょうだいで1枠」にまとめるか入れ替えるかを選べ、「＋」に置くとその枠へ移動）。「入れ替え・移動」ボタンでは、名前を順に押して同じことができます（タブレット向け）。青い箱はきょうだいで1枠にまとめた日です。<br>
@@ -205,15 +222,15 @@
     <div class="col-lg-3" id="ms-side">
       <div class="card">
         <div class="row-list-item row-list-head ms-users small{% if facility.is_ryoiku %} with-att{% endif %}">
-          <div>{{ terms.beneficiary }}</div><div>希望</div><div>確定</div>{% if facility.is_ryoiku %}<div title="実績が「来た」の回数">来</div>{% endif %}<div>残</div><div>契約</div>
+          <div>{{ terms.beneficiary }}</div><div>希望</div><div title="その月の予約の回数（欠席・キャンセルは数えない）">確定</div>{% if facility.is_ryoiku %}<div title="実績が「来た」の回数">来</div>{% endif %}<div title="契約（支給量）−確定">残</div><div title="受給者証の支給量（日/月）">契約</div>
         </div>
         {% for r in rows %}
         <div class="row-list-item ms-users small{% if facility.is_ryoiku %} with-att{% endif %}">
           <div><a href="{% url 'reservations:monthly_request_edit' year month r.beneficiary.pk %}">{{ r.beneficiary.full_name }}</a>{% if r.ng_days %} <span class="badge text-bg-danger" style="font-size:.6rem;" title="NG児童：来られない日 {% for d in r.ng_days %}{{ d|date:'n/j' }}{% if not forloop.last %}・{% endif %}{% endfor %}">NG</span>{% endif %}{% if r.pair_names %} <span class="badge text-bg-warning" style="font-size:.6rem;" title="同じ時間にできない：{{ r.pair_names|join:'・' }}">組</span>{% endif %}{% if r.same_name %} <span class="badge text-bg-secondary" style="font-size:.6rem;" title="同じ名前の{{ terms.beneficiary }}が2人以上います（生年月日 {{ r.beneficiary.date_of_birth|date:'Y/n/j' }}）。二重に登録しているなら、利用者情報で片方を削除してください">同名</span>{% endif %}</div>
           <div>{% if r.request %}{{ r.desired }}{% else %}—{% endif %}</div>
-          <div>{{ r.confirmed }}</div>
+          <div title="確定した予約 {{ r.confirmed }} 回{% if r.absent %}（うち欠席・キャンセル {{ r.absent }} 回は数えない）{% endif %}{% if r.short %}／希望まであと {{ r.short }} 回{% elif r.over %}／希望より {{ r.over }} 回多い{% endif %}">{{ r.used }}{% if r.short %}<span class="ms-short">あと{{ r.short }}</span>{% elif r.over %}<span class="ms-over">+{{ r.over }}</span>{% endif %}</div>
           {% if facility.is_ryoiku %}<div>{% if r.attended %}<span class="ms-att attended">{{ r.attended }}</span>{% else %}0{% endif %}</div>{% endif %}
-          <div>{% if r.request and r.remaining %}<span class="text-danger fw-bold">{{ r.remaining }}</span>{% elif r.request %}0{% else %}—{% endif %}</div>
+          <div title="契約（支給量）{{ r.granted|default:'—' }} − 確定 {{ r.used }}">{% if r.contract_left is None %}—{% elif r.contract_left < 0 %}<span class="text-danger fw-bold">{{ r.contract_left }}</span>{% else %}{{ r.contract_left }}{% endif %}</div>
           <div>{% if r.granted %}{{ r.granted }}{% else %}—{% endif %}</div>
         </div>
         {% empty %}
@@ -221,11 +238,11 @@
         {% endfor %}
         {% if rows %}
         <div class="row-list-item ms-users small{% if facility.is_ryoiku %} with-att{% endif %} ms-sum" title="合計（希望 0 回で予約の無い子は出していません）">
-          <div>合計 {{ row_totals.people }} 名</div><div>{{ row_totals.desired }}</div><div>{{ row_totals.confirmed }}</div>{% if facility.is_ryoiku %}<div>{{ row_totals.attended }}</div>{% endif %}<div>{% if row_totals.remaining %}<span class="text-danger">{{ row_totals.remaining }}</span>{% else %}0{% endif %}</div><div>{{ row_totals.granted|default:'—' }}</div>
+          <div>合計 {{ row_totals.people }} 名</div><div>{{ row_totals.desired }}</div><div title="{% if row_totals.absent %}欠席・キャンセル {{ row_totals.absent }} 回は数えない{% endif %}{% if row_totals.short %}／希望まであと {{ row_totals.short }} 回{% endif %}">{{ row_totals.used }}{% if row_totals.short %}<span class="ms-short">あと{{ row_totals.short }}</span>{% endif %}</div>{% if facility.is_ryoiku %}<div>{{ row_totals.attended }}</div>{% endif %}<div>{% if row_totals.contract_left is None %}—{% else %}{{ row_totals.contract_left }}{% endif %}</div><div>{{ row_totals.granted|default:'—' }}</div>
         </div>
         {% endif %}
       </div>
-      <div class="small text-muted mt-1">希望 0 回で予約の無い子は出しません。</div>
+      <div class="small text-muted mt-1 ms-hide-fit">確定＝その月の予約の回数（欠席・キャンセルにした回は数えない）。「あと n」は希望の回数に足りない回数、「+n」は希望より多い回数。残＝契約（受給者証の支給量）−確定。希望 0 回で予約の無い子は出しません。</div>
 
       {% if facility.is_ryoiku %}
       <div class="card mt-3 ms-hide-fit" id="dayStaff">
@@ -283,15 +300,39 @@
   // 全体表示（1 か月をひと目で）。選んだ状態はこの端末に覚える
   (function () {
     var btn = document.getElementById('ms-fit-toggle');
+    function fitHeight() {
+      // 全体表示のとき、すべての週が画面の高さに収まるよう、箱の高さを決める（9〜22px）
+      if (!body.classList.contains('ms-fit')) { body.style.removeProperty('--ms-bh'); return; }
+      var tables = document.querySelectorAll('.ms-week');
+      if (!tables.length) return;
+      body.style.setProperty('--ms-bh', '14px');
+      var rows = 0, heads = 0;
+      tables.forEach(function (t) { rows += t.tBodies[0].rows.length; heads += t.tHead.offsetHeight + 3; });
+      var top = tables[0].getBoundingClientRect().top + window.scrollY;
+      var avail = window.innerHeight - top - 6 - heads;
+      var h = Math.max(9, Math.min(22, Math.floor(avail / rows) - 1));
+      body.style.setProperty('--ms-bh', h + 'px');
+    }
+    window.addEventListener('resize', fitHeight);
+    document.addEventListener('fullscreenchange', function () { setTimeout(fitHeight, 50); });
     function apply(on) {
       body.classList.toggle('ms-fit', on);
+      setTimeout(fitHeight, 0);
       btn.innerHTML = on ? '<i class="bi bi-arrows-angle-expand me-1"></i>ふつうの表示' : '<i class="bi bi-arrows-angle-contract me-1"></i>全体を見る';
       try { localStorage.setItem('ms-fit', on ? '1' : ''); } catch (e) {}
     }
     var saved = false;
     try { saved = localStorage.getItem('ms-fit') === '1'; } catch (e) {}
     apply(saved);
-    btn.addEventListener('click', function () { apply(!body.classList.contains('ms-fit')); });
+    btn.addEventListener('click', function () {
+      var on = !body.classList.contains('ms-fit');
+      apply(on);
+      // できればブラウザの上の帯も消す（全画面。Esc で戻る。対応していないブラウザではそのまま）
+      try {
+        if (on && document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(function () {});
+        if (!on && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () {});
+      } catch (e) {}
+    });
   })();
   // 実績を入れるモード（ゆあーず）
   var attToggle = document.getElementById('ms-att-toggle'), attMenu = document.getElementById('ms-att-menu'), attForm = document.getElementById('ms-att-form');

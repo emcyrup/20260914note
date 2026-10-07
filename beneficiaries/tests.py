@@ -1309,3 +1309,66 @@ class DevelopmentTestTests(TestCase):
         self.assertEqual((d['test'], d['test_other'], d['date'], d['ca_months'], d['overall_age_months'], d['overall_quotient']),
                          ('other', '独自の検査', '', None, 30, None))
         self.assertEqual(d['results'], [{'label': '運動', 'age_months': None, 'quotient': 90}])
+
+
+class BeneficiaryListBulkTests(TestCase):
+    """利用者一覧から：1人ずつの在籍状況・削除への導線、まとめて在籍状況を変える・まとめて削除（管理者だけ・確認あり）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True)
+        self.admin = StaffAccount.objects.create_user('adm', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.staff = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f)
+        mk = lambda last, kana: Beneficiary.objects.create(facility=self.f, last_name=last, first_name='子', last_name_kana=kana,
+                                                            date_of_birth=datetime.date(2019, 4, 1))
+        self.a, self.b, self.c = mk('青木', 'あおき'), mk('井上', 'いのうえ'), mk('上田', 'うえだ')
+        other = Facility.objects.create(name='ほか', layout=Facility.LAYOUT_RYOIKU)
+        self.x = Beneficiary.objects.create(facility=other, last_name='他', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        self.url = reverse('beneficiaries:bulk')
+        self.lst = reverse('beneficiaries:list')
+
+    def test_row_menu_and_bulk_status(self):
+        self.client.login(username='st', password='pw12345678')
+        res = self.client.get(self.lst)
+        self.assertContains(res, 'name="ids" value="%d"' % self.a.pk)
+        self.assertContains(res, 'formaction="%s"' % reverse('beneficiaries:status', args=[self.a.pk]))
+        self.assertNotContains(res, 'value="delete"')               # 削除は管理者だけ
+        # 1人ずつ（一覧から）：一覧に戻る
+        res = self.client.post(reverse('beneficiaries:status', args=[self.a.pk]), {'status': 'inactive', 'next': self.lst})
+        self.assertRedirects(res, self.lst)
+        self.a.refresh_from_db()
+        self.assertEqual(self.a.status, 'inactive')
+        # まとめて卒業（別の事業所の人は混ぜても変わらない）
+        res = self.client.post(self.url, {'action': 'graduated', 'ids': [self.b.pk, self.c.pk, self.x.pk], 'next': self.lst}, follow=True)
+        self.assertContains(res, '2 名を「卒業」にしました')
+        self.assertEqual(set(Beneficiary.objects.filter(status='graduated').values_list('pk', flat=True)), {self.b.pk, self.c.pk})
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.discharge_date, datetime.date.today())
+        res = self.client.post(self.url, {'action': 'active', 'ids': [self.b.pk]}, follow=True)
+        self.b.refresh_from_db()
+        self.assertEqual((self.b.status, self.b.discharge_date), ('active', None))
+        res = self.client.post(self.url, {'action': 'graduated'}, follow=True)
+        self.assertContains(res, '印を付けてから')
+        # スタッフはまとめて削除できない
+        res = self.client.post(self.url, {'action': 'delete', 'ids': [self.a.pk]}, follow=True)
+        self.assertContains(res, '管理者だけ')
+        self.assertTrue(Beneficiary.objects.filter(pk=self.a.pk).exists())
+
+    def test_bulk_delete_with_confirmation(self):
+        from therapy.models import TherapyRecord
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.a, date=datetime.date(2026, 9, 1))
+        self.client.login(username='adm', password='pw12345678')
+        self.assertContains(self.client.get(self.lst), 'value="delete"')
+        res = self.client.post(self.url, {'action': 'delete', 'ids': [self.a.pk, self.b.pk, self.x.pk]})
+        self.assertContains(res, '2 名を削除する')
+        self.assertContains(res, '療育記録 1 件')
+        self.assertContains(res, '在籍中の人が 2 名')
+        self.assertNotContains(res, '他 子')
+        res = self.client.post(self.url, {'action': 'delete', 'confirm': '1', 'ids': [self.a.pk, self.b.pk], 'confirm_text': 'さくじょ', 'agree': '1'}, follow=True)
+        self.assertContains(res, '削除していません')
+        self.assertEqual(Beneficiary.objects.filter(facility=self.f).count(), 3)
+        res = self.client.post(self.url, {'action': 'delete', 'confirm': '1', 'ids': [self.a.pk, self.b.pk, self.x.pk],
+                                          'confirm_text': '削除', 'agree': '1'}, follow=True)
+        self.assertContains(res, '2 名を削除しました')
+        self.assertEqual(list(Beneficiary.objects.filter(facility=self.f)), [self.c])
+        self.assertTrue(Beneficiary.objects.filter(pk=self.x.pk).exists())
+        self.assertFalse(TherapyRecord.objects.exists())

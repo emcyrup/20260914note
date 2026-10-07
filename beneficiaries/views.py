@@ -71,6 +71,7 @@ class BeneficiaryListView(LoginRequiredMixin, ListView):
         ctx['status_tabs'] = [(value, label, counts.get(value, 0)) for value, label in Beneficiary.STATUS_CHOICES] \
             + [('', '全員', sum(counts.values()))]
         ctx['can_delete'] = self.request.user.is_admin or self.request.user.is_superuser
+        ctx['status_choices'] = Beneficiary.STATUS_CHOICES
         return ctx
 
 
@@ -97,6 +98,43 @@ def related_counts(b):
         ('保護者', b.guardians.count()),
     ]
     return [(label, n) for label, n in rows if n]
+
+
+def delete_beneficiary(b):
+    """利用者を関連する記録・書類ごと消す。ファイルは DB を消したあとに消す（途中で失敗しても DB と食い違わないように）"""
+    from records.models import DailyRecordPhoto
+    files = [d.file for d in b.documents.all()] + [a.file for a in b.assessments.all() if a.file] \
+        + [c.scanned_image for c in b.recipient_certificates.all() if c.scanned_image] \
+        + [ph.photo for ph in DailyRecordPhoto.objects.filter(daily_record__beneficiary=b) if ph.photo]
+    b.support_plans.all().delete()        # PROTECT なので先に消す
+    b.delete()
+    for f in files:
+        try:
+            f.storage.delete(f.name)
+        except Exception:       # ファイルが既に無いなどは無視（DB は消えている）
+            pass
+
+
+def set_status(b, status):
+    """在籍状況を変える。退所・卒業にすると退所日が空なら今日、在籍中に戻すと退所日を消す"""
+    b.status = status
+    fields = ['status', 'updated_at']
+    if status in Beneficiary.LEFT_STATUSES and not b.discharge_date:
+        b.discharge_date = datetime.date.today()
+        fields.append('discharge_date')
+    elif status == Beneficiary.STATUS_ACTIVE and b.discharge_date:
+        b.discharge_date = None
+        fields.append('discharge_date')
+    b.save(update_fields=fields)
+
+
+def _back_to(request, default):
+    """next（同じサイトの中だけ）があればそこへ、なければ default へ戻る"""
+    from django.utils.http import url_has_allowed_host_and_scheme
+    nxt = request.POST.get('next') or request.GET.get('next') or ''
+    if nxt and url_has_allowed_host_and_scheme(nxt, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+        return redirect(nxt)
+    return redirect(default)
 
 
 class BeneficiaryDeleteView(LoginRequiredMixin, View):
@@ -128,18 +166,7 @@ class BeneficiaryDeleteView(LoginRequiredMixin, View):
             messages.error(request, '氏名が合っていないか、確認の印が付いていません。削除していません。')
             return redirect('beneficiaries:delete', pk=pk)
         name, status = b.full_name, b.status
-        # ファイルは DB を消したあとに消す（途中で失敗しても DB と食い違わないように）
-        from records.models import DailyRecordPhoto
-        files = [d.file for d in b.documents.all()] + [a.file for a in b.assessments.all() if a.file] \
-            + [c.scanned_image for c in b.recipient_certificates.all() if c.scanned_image] \
-            + [ph.photo for ph in DailyRecordPhoto.objects.filter(daily_record__beneficiary=b) if ph.photo]
-        b.support_plans.all().delete()        # PROTECT なので先に消す
-        b.delete()
-        for f in files:
-            try:
-                f.storage.delete(f.name)
-            except Exception:       # ファイルが既に無いなどは無視（DB は消えている）
-                pass
+        delete_beneficiary(b)
         messages.success(request, f'「{name}」を削除しました。')
         return redirect(f"{reverse('beneficiaries:list')}?status={status}")
 
@@ -150,22 +177,62 @@ class BeneficiaryStatusView(LoginRequiredMixin, View):
     def post(self, request, pk):
         b = get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
         status = request.POST.get('status')
+        back = reverse('beneficiaries:detail', args=[pk])
         if status not in dict(Beneficiary.STATUS_CHOICES):
             messages.error(request, '在籍状況を選んでください。')
-            return redirect('beneficiaries:detail', pk=pk)
-        b.status = status
-        fields = ['status', 'updated_at']
-        if status in Beneficiary.LEFT_STATUSES and not b.discharge_date:
-            b.discharge_date = datetime.date.today()
-            fields.append('discharge_date')
-        elif status == Beneficiary.STATUS_ACTIVE and b.discharge_date:
-            b.discharge_date = None
-            fields.append('discharge_date')
-        b.save(update_fields=fields)
+            return _back_to(request, back)
+        set_status(b, status)
         messages.success(request, f'{b.full_name} さんを「{b.get_status_display()}」にしました。'
                          + ('一覧の在籍中には出なくなります（「' + b.get_status_display() + '」の見出しで見られます）。'
                             if status in Beneficiary.LEFT_STATUSES else ''))
-        return redirect('beneficiaries:detail', pk=pk)
+        return _back_to(request, back)
+
+
+class BeneficiaryBulkView(LoginRequiredMixin, View):
+    """
+    利用者一覧で印を付けた人をまとめて：action が在籍状況（active・inactive・graduated）なら切り替え、
+    delete なら確認画面（管理者だけ）→ 確認の文字「削除」と印で、関連する記録ごと消す
+    """
+
+    def _selected(self, request):
+        ids = [int(x) for x in request.POST.getlist('ids') if str(x).isdigit()]
+        return list(Beneficiary.objects.filter(facility=request.user.facility, pk__in=ids)
+                    .order_by('last_name_kana', 'first_name_kana', 'pk'))
+
+    def post(self, request):
+        back = reverse('beneficiaries:list')
+        people = self._selected(request)
+        action = request.POST.get('action', '')
+        if not people:
+            messages.error(request, '一覧の左の四角に印を付けてから選んでください。')
+            return _back_to(request, back)
+        if action in dict(Beneficiary.STATUS_CHOICES):
+            for b in people:
+                set_status(b, action)
+            label = dict(Beneficiary.STATUS_CHOICES)[action]
+            messages.success(request, f'{len(people)} 名を「{label}」にしました：' + '、'.join(b.full_name for b in people[:10])
+                             + (f' ほか {len(people) - 10} 名' if len(people) > 10 else '') + '。')
+            return _back_to(request, back)
+        if action == 'delete':
+            if not (request.user.is_admin or request.user.is_superuser):
+                messages.error(request, f'{get_terms(request.user.facility)["beneficiary"]}の削除は管理者だけができます。')
+                return _back_to(request, back)
+            if request.POST.get('confirm') != '1':
+                return render(request, 'beneficiaries/bulk_delete.html', {
+                    'people': [(b, related_counts(b)) for b in people], 'retention_note': RETENTION_NOTE,
+                    'active_count': sum(1 for b in people if b.status == Beneficiary.STATUS_ACTIVE),
+                    'next': request.POST.get('next', '')})
+            if request.POST.get('confirm_text', '').strip() != '削除' or not request.POST.get('agree'):
+                messages.error(request, '確認の文字「削除」が入っていないか、確認の印が付いていません。削除していません。')
+                return _back_to(request, back)
+            names = [b.full_name for b in people]
+            for b in people:
+                delete_beneficiary(b)
+            messages.success(request, f'{len(names)} 名を削除しました：' + '、'.join(names[:10])
+                             + (f' ほか {len(names) - 10} 名' if len(names) > 10 else '') + '。')
+            return _back_to(request, back)
+        messages.error(request, '操作を選んでください。')
+        return _back_to(request, back)
 
 
 # =============================================
