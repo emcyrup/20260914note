@@ -21,10 +21,24 @@
   .ms-box.empty:hover { background: var(--color-primary-bg); color: var(--color-primary); }
   .ms-box.wait { color: #8a6d1f; background: #fff7df; }
   .ms-box.over { color: var(--color-danger); }
-  .ms-box.pair { color: #b02a37; background: #fde2e2; font-weight: 600; }      /* 同じ日にできない利用者が同じ日に入っている */
+  .ms-box.pair { color: #b02a37; background: #fde2e2; font-weight: 600; }      /* 同じ時間にできない利用者が同じ時間枠に入っている */
   .ms-count { font-weight: 400; font-size: 0.68rem; color: #6b6257; }
-  body.ms-swap .ms-box[data-res], body.ms-swap .ms-box.empty[data-date] { cursor: pointer; }
-  body.ms-swap .ms-box[data-res]:hover { background: #fff2cc; }
+  .ms-free { margin-left: 3px; color: #2f7d4e; }
+  .ms-wk { font-weight: 400; font-size: 0.62rem; color: #6b6257; white-space: nowrap; }
+  .ms-box.grp { background: #e3f1f7; }
+  .ms-nm { color: inherit; text-decoration: none; }
+  .ms-nm.pair { color: #b02a37; font-weight: 600; }
+  .ms-sep { color: #8aa; }
+  [draggable="true"][data-res] { cursor: grab; }
+  .ms-dragging { opacity: .45; }
+  .ms-drop-ok { outline: 2px dashed var(--color-primary); outline-offset: -2px; background: var(--color-primary-bg) !important; }
+  .ms-total { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: .85rem; background: rgba(255,255,255,.7); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  .ms-sum { font-weight: 700; background: rgba(243,239,231,.9); }
+  #ms-drop-menu { position: absolute; z-index: 1060; display: none; background: #fff; border: 1px solid #cfc8bb; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.15); padding: 6px; max-width: 260px; }
+  #ms-drop-menu .t { font-size: .78rem; font-weight: 600; margin-bottom: 4px; }
+  #ms-drop-menu button { display: block; width: 100%; margin-top: 3px; }
+  body.ms-swap [data-res], body.ms-swap .ms-box.empty[data-date] { cursor: pointer; }
+  body.ms-swap [data-res]:hover { background: #fff2cc; }
   body.ms-swap .ms-box.empty[data-date] { color: #8fb8a3; }
   .ms-box.picked { background: var(--color-primary) !important; color: #fff !important; font-weight: 600; }
   #ms-swap-bar { display: none; }
@@ -38,8 +52,8 @@
   .ms-att { display: inline-block; min-width: 1.1em; margin-right: 2px; font-weight: 700; text-align: center; }
   .ms-att.attended { color: #2f7d4e; } .ms-att.absent { color: var(--color-danger); } .ms-att.cancelled { color: #8a8378; }
   .ms-box.absent, .ms-box.cancelled { color: #8a8378; text-decoration: line-through; }
-  body.ms-att .ms-box[data-res] { cursor: pointer; }
-  body.ms-att .ms-box[data-res]:hover { background: #e3f3ea; }
+  body.ms-att [data-res] { cursor: pointer; }
+  body.ms-att [data-res]:hover { background: #e3f3ea; }
   #ms-att-bar { display: none; } body.ms-att #ms-att-bar { display: block; }
   #ms-att-menu { position: absolute; z-index: 1050; display: none; background: #fff; border: 1px solid #cfc8bb; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.15); padding: 6px; }
   #ms-att-menu .t { font-size: .78rem; font-weight: 600; margin-bottom: 4px; white-space: nowrap; }
@@ -53,10 +67,21 @@
   body.ms-fit .ms-box { float: left; box-sizing: border-box; width: calc(100% / var(--cap, 3)); height: 16px; line-height: 16px; padding: 0 1px; font-size: 0.6rem; word-spacing: -3px; text-overflow: clip; border-bottom: 0; border-right: 1px dotted #ddd6c9; }
   body.ms-fit .ms-box:last-child { border-right: 0; }
   body.ms-fit .ms-box.wait, body.ms-fit .ms-box.over { float: none; clear: both; display: block; width: auto; border-right: 0; }
-  body.ms-fit #ms-main { flex: 0 0 100%; max-width: 100%; }
-  body.ms-fit #ms-side { display: none; }
-  body.ms-fit .ms-count { font-size: 0.6rem; }
-  body.ms-fit .ms-count:not(.ms-staff) { display: none; }
+  body.ms-fit .ms-box { height: 14px; line-height: 14px; font-size: 0.56rem; }
+  body.ms-fit .ms-week th { line-height: 1.15; }
+  body.ms-fit .ms-count { font-size: 0.58rem; }
+  body.ms-fit .ms-staff { display: none; }
+  body.ms-fit .ms-hide-fit { display: none; }
+  body.ms-fit .ms-total { font-size: .78rem; padding: 3px 8px; }
+  body.ms-fit .ms-users { font-size: .68rem; padding: 1px 6px; grid-template-columns: 1fr repeat(4, 26px); gap: 2px; }
+  body.ms-fit .ms-users.with-att { grid-template-columns: 1fr repeat(5, 26px); }
+  body.ms-fit .ms-users > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+  body.ms-fit .ms-users > div:first-child { text-align: left; }
+  body.ms-fit .ms-users .badge { display: none; }
+  @media (min-width: 992px) {
+    body.ms-fit #ms-main { flex: 0 0 calc(100% - 250px); max-width: calc(100% - 250px); }
+    body.ms-fit #ms-side { flex: 0 0 250px; max-width: 250px; position: sticky; top: 8px; align-self: flex-start; max-height: calc(100vh - 16px); overflow-y: auto; }
+  }
 </style>
 {% endblock %}
 
@@ -74,7 +99,7 @@
       {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_board' %}?d={{ today|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm" title="きょうの担当と予定を1画面で（スマートフォン向け）"><i class="bi bi-phone me-1"></i>きょうの予定</a>{% endif %}
       {% if features.transport %}<a href="{% url 'transport:day' %}?d={{ today|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm" title="きょうの迎え・送りの一覧（配車表）"><i class="bi bi-truck me-1"></i>配車表</a>{% endif %}
       {% if facility.is_ryoiku %}<button type="button" class="btn btn-outline-success btn-sm" id="ms-att-toggle" title="名前を押して 来た・欠席・キャンセル を入れます。業務日誌の「実績」欄に印字されます"><i class="bi bi-check2-square me-1"></i>実績を入れる</button>{% endif %}
-      <button type="button" class="btn btn-outline-secondary btn-sm" id="ms-fit-toggle" title="1 か月をひと目で見る（枠の箱を横に並べ、右の一覧をたたむ）"><i class="bi bi-arrows-angle-contract me-1"></i>全体を見る</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="ms-fit-toggle" title="1 か月をひと目で見る（枠の箱を横に並べて小さくし、右の一覧は数字だけ並べる）"><i class="bi bi-arrows-angle-contract me-1"></i>全体を見る</button>
       <div class="btn-group">
         <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?inline=1" class="btn btn-outline-secondary btn-sm" target="_blank" title="A3 横 1 枚の PDF を開きます（日付の下にその日の担当）。A4 の用紙に印刷すると縮小されて 1 枚に収まります"><i class="bi bi-printer me-1"></i>印刷（A3）</a>
         <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?paper=a4&inline=1" class="btn btn-outline-secondary btn-sm" target="_blank" title="A4 横 1 枚の PDF を開きます">A4</a>
@@ -94,6 +119,12 @@
     <span class="text-muted">続けて別の名前を押すと2人の枠を入れ替え、「＋」を押すとその空き枠へ移します。
     保護者へのお知らせは積みません（送信待ちの「ご利用日が決まりました」は書き直します）。</span>
     <button type="button" class="btn btn-sm btn-outline-secondary ms-2 py-0" id="ms-swap-cancel">やめる</button>
+  </div>
+  <div id="ms-drop-menu">
+    <div class="t"></div>
+    <button type="button" class="btn btn-sm btn-info" data-act="join">きょうだいで1枠にまとめる</button>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-act="swap">入れ替える</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" data-act="">やめる</button>
   </div>
   <form method="post" action="{% url 'reservations:monthly_schedule_swap' year month %}" id="ms-swap-form" class="d-none">
     {% csrf_token %}
@@ -115,15 +146,23 @@
   </div>
   {% endif %}
 
+  <div class="ms-total mb-2" id="ms-total">
+    <span><i class="bi bi-calendar-check me-1"></i>{{ month }}月の予約 合計 <strong>{{ schedule.total }}</strong> 件</span>
+    {% if facility.is_ryoiku %}<span>来た <strong>{{ schedule.total_attended }}</strong></span>{% endif %}
+    <span>空き枠 <strong>{{ schedule.total_free }}</strong></span>
+    {% if row_totals.people %}<span>利用する人 <strong>{{ row_totals.people }}</strong> 名・希望の合計 <strong>{{ row_totals.desired }}</strong> 回{% if row_totals.remaining %}・残り <strong class="text-danger">{{ row_totals.remaining }}</strong> 回{% endif %}</span>{% endif %}
+    <span class="text-muted d-none d-md-inline"><i class="bi bi-arrows-move me-1"></i>名前はドラッグで動かせます（名前に重ねると入れ替え、きょうだいに重ねると1枠にまとめる、「＋」に置くと移動）</span>
+  </div>
+
   <div class="row g-3">
     <div class="col-lg-9" id="ms-main">
       {% for week in schedule.weeks %}
       <table class="ms-week" style="--cap: {{ schedule.capacity }};">
         <thead><tr>
-          <th class="time"></th>
+          <th class="time"><span class="ms-wk" title="この週の予約の合計">計{{ week.count }}</span></th>
           {% for d in week.days %}
           <th class="{% if d.is_sunday %}sun{% elif d.is_saturday %}sat{% endif %}{% if d.closed %} closed{% endif %}">
-            {% if d.in_month %}{{ d.date|date:'j' }}日({{ d.date|date:'D' }}){% if d.holiday %}<div class="ms-count text-danger">{{ d.holiday }}</div>{% elif d.closed %}<div class="ms-count">お休み</div>{% else %}<div class="ms-count">{{ d.count }} 名{% if d.attended %}<span class="ms-att attended ms-1" title="来た">来{{ d.attended }}</span>{% endif %}</div>{% endif %}{% if d.staff %}<div class="ms-count ms-staff" title="その日の担当">{{ d.staff }}</div>{% endif %}{% endif %}
+            {% if d.in_month %}{{ d.date|date:'j' }}日({{ d.date|date:'D' }}){% if d.holiday %}<div class="ms-count text-danger">{{ d.holiday }}</div>{% elif d.closed %}<div class="ms-count">お休み</div>{% else %}<div class="ms-count">{{ d.count }} 名{% if d.free %}<span class="ms-free" title="空いている枠">空{{ d.free }}</span>{% endif %}{% if d.attended %}<span class="ms-att attended ms-1" title="来た">来{{ d.attended }}</span>{% endif %}</div>{% endif %}{% if d.staff %}<div class="ms-count ms-staff" title="その日の担当">{{ d.staff }}</div>{% endif %}{% endif %}
           </th>
           {% endfor %}
         </tr></thead>
@@ -140,7 +179,8 @@
                 {% else %}
                 <td>
                   {% for r in s.boxes %}
-                    {% if r %}<a class="ms-box{% if r.attendance %} {{ r.attendance }}{% endif %}{% if r.pair_names %} pair{% endif %}" data-res="{{ r.pk }}" data-name="{{ r.display_name }}" data-att="{{ r.attendance }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}" title="{{ r.display_name }} {{ r.time_label }}{% if r.attendance %}（{{ r.get_attendance_display }}）{% endif %}{% if r.pair_names %} ／組み合わせNG：{{ r.pair_names|join:'・' }} さんと同じ日{% endif %}">{% if r.attendance %}<span class="ms-att {{ r.attendance }}">{{ r.attendance_mark }}</span>{% endif %}{{ r.display_name }}</a>
+                    {% if r and r.sharing %}<span class="ms-box grp" title="きょうだいで1枠">{% include 'reservations/_ms_name.html' with cls='ms-nm' %}{% for o in r.sharing %}<span class="ms-sep">・</span>{% include 'reservations/_ms_name.html' with r=o cls='ms-nm' %}{% endfor %}</span>
+                    {% elif r %}{% include 'reservations/_ms_name.html' with cls='ms-box' %}
                     {% else %}<a class="ms-box empty" data-date="{{ d.date|date:'Y-m-d' }}" data-hour="{{ s.hour }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}?hour={{ s.hour }}" title="{{ d.date|date:'n/j' }} {{ s.label }} に追加">＋</a>{% endif %}
                   {% endfor %}
                   {% for r in s.over %}<a class="ms-box over" data-res="{{ r.pk }}" data-name="{{ r.display_name }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">{{ r.display_name }}（超過）</a>{% endfor %}
@@ -158,7 +198,7 @@
       <div class="small text-muted">
         網掛けはお休み（{{ schedule.closed_text|default:'なし' }}）とその日に無い時刻。1枠 {{ schedule.capacity }} 人。
         「＋」を押すと、その日の画面でその枠に追加できます。名前を押すと、その日の画面で変更・取消ができます。
-        「入れ替え・移動」で、2人の枠の入れ替えや空き枠への移動ができます。<br>
+        名前は<strong>ドラッグで動かせます</strong>（ほかの名前に重ねると入れ替え、きょうだいの名前に重ねると「きょうだいで1枠」にまとめるか入れ替えるかを選べ、「＋」に置くとその枠へ移動）。「入れ替え・移動」ボタンでは、名前を順に押して同じことができます（タブレット向け）。青い箱はきょうだいで1枠にまとめた日です。<br>
         割り当ては、時刻を指定した希望を先に、「終日」の希望はあとから<strong>その日の空いている早い時刻（午前）から詰めて</strong>入れます。○の付いていない日・時刻には入れません。
       </div>
     </div>
@@ -169,7 +209,7 @@
         </div>
         {% for r in rows %}
         <div class="row-list-item ms-users small{% if facility.is_ryoiku %} with-att{% endif %}">
-          <div><a href="{% url 'reservations:monthly_request_edit' year month r.beneficiary.pk %}">{{ r.beneficiary.full_name }}</a>{% if r.ng_days %} <span class="badge text-bg-danger" style="font-size:.6rem;" title="NG児童：来られない日 {% for d in r.ng_days %}{{ d|date:'n/j' }}{% if not forloop.last %}・{% endif %}{% endfor %}">NG</span>{% endif %}{% if r.pair_names %} <span class="badge text-bg-warning" style="font-size:.6rem;" title="同じ日にできない：{{ r.pair_names|join:'・' }}">組</span>{% endif %}</div>
+          <div><a href="{% url 'reservations:monthly_request_edit' year month r.beneficiary.pk %}">{{ r.beneficiary.full_name }}</a>{% if r.ng_days %} <span class="badge text-bg-danger" style="font-size:.6rem;" title="NG児童：来られない日 {% for d in r.ng_days %}{{ d|date:'n/j' }}{% if not forloop.last %}・{% endif %}{% endfor %}">NG</span>{% endif %}{% if r.pair_names %} <span class="badge text-bg-warning" style="font-size:.6rem;" title="同じ時間にできない：{{ r.pair_names|join:'・' }}">組</span>{% endif %}{% if r.same_name %} <span class="badge text-bg-secondary" style="font-size:.6rem;" title="同じ名前の{{ terms.beneficiary }}が2人以上います（生年月日 {{ r.beneficiary.date_of_birth|date:'Y/n/j' }}）。二重に登録しているなら、利用者情報で片方を削除してください">同名</span>{% endif %}</div>
           <div>{% if r.request %}{{ r.desired }}{% else %}—{% endif %}</div>
           <div>{{ r.confirmed }}</div>
           {% if facility.is_ryoiku %}<div>{% if r.attended %}<span class="ms-att attended">{{ r.attended }}</span>{% else %}0{% endif %}</div>{% endif %}
@@ -179,10 +219,16 @@
         {% empty %}
         <div class="text-center text-muted small py-3">まだ利用希望も予約もありません。</div>
         {% endfor %}
+        {% if rows %}
+        <div class="row-list-item ms-users small{% if facility.is_ryoiku %} with-att{% endif %} ms-sum" title="合計（希望 0 回で予約の無い子は出していません）">
+          <div>合計 {{ row_totals.people }} 名</div><div>{{ row_totals.desired }}</div><div>{{ row_totals.confirmed }}</div>{% if facility.is_ryoiku %}<div>{{ row_totals.attended }}</div>{% endif %}<div>{% if row_totals.remaining %}<span class="text-danger">{{ row_totals.remaining }}</span>{% else %}0{% endif %}</div><div>{{ row_totals.granted|default:'—' }}</div>
+        </div>
+        {% endif %}
       </div>
+      <div class="small text-muted mt-1">希望 0 回で予約の無い子は出しません。</div>
 
       {% if facility.is_ryoiku %}
-      <div class="card mt-3" id="dayStaff">
+      <div class="card mt-3 ms-hide-fit" id="dayStaff">
         <form method="post" action="{% url 'reservations:monthly_day_staff' year month %}">
           {% csrf_token %}
           <div class="card-body pb-2">
@@ -261,7 +307,7 @@
     document.addEventListener('click', function (e) {
       if (!body.classList.contains('ms-att')) return;
       if (e.target.closest('#ms-att-menu')) return;
-      var box = e.target.closest('.ms-box[data-res]');
+      var box = e.target.closest('[data-res]');
       if (!box) { hideAtt(); return; }
       e.preventDefault();
       attForm.elements.reservation.value = box.dataset.res;
@@ -274,12 +320,77 @@
     }, true);
     if (new URLSearchParams(location.search).get('mode') === 'att') body.classList.add('ms-att');
   }
+  // 名前を名前（やきょうだい）や「＋」へ：ドラッグでも、入れ替え・移動モードで順に押しても同じ
+  var dropMenu = document.getElementById('ms-drop-menu'), pending = null;
+  function isSibling(a, b) {
+    return !!a.dataset.b && (b.dataset.sibs || '').split(',').indexOf(a.dataset.b) >= 0;
+  }
+  function dropOn(src, target) {
+    if (!src || !target || src === target) return;
+    if (target.dataset.res) {
+      if (isSibling(src, target)) {
+        pending = {a: src.dataset.res, b: target.dataset.res};
+        dropMenu.querySelector('.t').textContent = src.dataset.name + ' を ' + target.dataset.name + '（' + target.dataset.when + '）に重ねました';
+        var r = target.getBoundingClientRect();
+        dropMenu.style.display = 'block';
+        dropMenu.style.left = Math.max(4, Math.min(r.left + window.scrollX, window.scrollX + document.documentElement.clientWidth - dropMenu.offsetWidth - 8)) + 'px';
+        dropMenu.style.top = (r.bottom + window.scrollY + 2) + 'px';
+        return;
+      }
+      if (confirm(src.dataset.name + '（' + src.dataset.when + '）と ' + target.dataset.name + '（' + target.dataset.when + '）を入れ替えます。よろしいですか？')) {
+        submit({action: 'swap', a: src.dataset.res, b: target.dataset.res});
+      }
+    } else if (target.dataset.date) {
+      if (confirm(src.dataset.name + ' を ' + src.dataset.when + ' から ' + target.dataset.when + ' へ移します。よろしいですか？')) {
+        submit({action: 'move', a: src.dataset.res, date: target.dataset.date, hour: target.dataset.hour});
+      }
+    }
+  }
+  dropMenu.addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    dropMenu.style.display = 'none';
+    if (b.dataset.act && pending) submit({action: b.dataset.act, a: pending.a, b: pending.b});
+    pending = null;
+  });
+  var dragSrc = null, overEl = null;
+  function clearOver() { if (overEl) overEl.classList.remove('ms-drop-ok'); overEl = null; }
+  document.addEventListener('dragstart', function (e) {
+    var a = e.target.closest && e.target.closest('[data-res]');
+    if (!a || body.classList.contains('ms-att')) { if (a) e.preventDefault(); return; }
+    dragSrc = a; a.classList.add('ms-dragging');
+    try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', a.dataset.res); } catch (err) {}
+  });
+  document.addEventListener('dragend', function () {
+    if (dragSrc) dragSrc.classList.remove('ms-dragging');
+    dragSrc = null; clearOver();
+  });
+  document.addEventListener('dragover', function (e) {
+    if (!dragSrc) return;
+    var t = e.target.closest && e.target.closest('[data-res], .ms-box.empty[data-date]');
+    if (!t || t === dragSrc) { clearOver(); return; }
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
+    if (overEl !== t) { clearOver(); overEl = t; t.classList.add('ms-drop-ok'); }
+  });
+  document.addEventListener('drop', function (e) {
+    if (!dragSrc) return;
+    var t = e.target.closest && e.target.closest('[data-res], .ms-box.empty[data-date]');
+    e.preventDefault();
+    var src = dragSrc;
+    clearOver();
+    if (t && t !== src) dropOn(src, t);
+  });
+  document.addEventListener('click', function (e) {
+    if (dropMenu.style.display === 'block' && !e.target.closest('#ms-drop-menu') && !e.target.closest('[data-res]')) { dropMenu.style.display = 'none'; pending = null; }
+  });
+
   document.getElementById('ms-swap-cancel').addEventListener('click', function () {
     body.classList.remove('ms-swap'); reset();
   });
   document.addEventListener('click', function (e) {
     if (!body.classList.contains('ms-swap')) return;
-    var box = e.target.closest('.ms-box');
+    var box = e.target.closest('[data-res], .ms-box.empty');
     if (!box) return;
     e.preventDefault();
     if (box.dataset.res) {
@@ -288,8 +399,8 @@
         msg.textContent = box.dataset.name + '（' + box.dataset.when + '）を選びました。入れ替える相手の名前か、移す先の「＋」を押してください。';
       } else if (picked === box) {
         reset();
-      } else if (confirm(picked.dataset.name + '（' + picked.dataset.when + '）と ' + box.dataset.name + '（' + box.dataset.when + '）を入れ替えます。よろしいですか？')) {
-        submit({action: 'swap', a: picked.dataset.res, b: box.dataset.res});
+      } else {
+        dropOn(picked, box);
       }
     } else if (box.dataset.date && picked) {
       if (confirm(picked.dataset.name + ' を ' + picked.dataset.when + ' から ' + box.dataset.when + ' へ移します。よろしいですか？')) {

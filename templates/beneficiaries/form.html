@@ -149,11 +149,24 @@
     {% if form.fields.cannot_pair.queryset %}
     <div class="card mb-4">
       <div class="card-body">
-        <h6 class="card-title fw-bold mb-1">同じ日にできない{{ terms.beneficiary }}</h6>
-        <div class="small text-muted mb-2">印を付けた人とは、予約も月間予定表も同じ日に入れません（相手の側にも同じ印が付きます）。</div>
+        <h6 class="card-title fw-bold mb-1">同じ時間にできない{{ terms.beneficiary }}（共演NG）</h6>
+        <div class="small text-muted mb-2">印を付けた人とは、予約も月間予定表も同じ日の同じ時間枠に入れません。時間がずれていれば同じ日でも入れられます（時間枠の無い事業所では同じ日に入れません）。相手の側にも同じ印が付きます。</div>
         <div class="border rounded p-2" style="max-height:200px;overflow:auto;">
           {% for b in form.fields.cannot_pair.queryset %}
           <label class="form-check form-check-inline small mb-1"><input type="checkbox" class="form-check-input" name="cannot_pair" value="{{ b.pk }}" {% if b.pk in pair_ids %}checked{% endif %}>{{ b.full_name }}</label>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+    {% if form.fields.siblings.queryset %}
+    <div class="card mb-4">
+      <div class="card-body">
+        <h6 class="card-title fw-bold mb-1">きょうだい</h6>
+        <div class="small text-muted mb-2">印を付けた人とは、同じ時間枠に入った日に「きょうだいで1枠にまとめる」を選べます（まとめない日はそれぞれ1枠ずつ）。相手の側にも同じ印が付きます。予約の連絡先（保護者）が同じ子は、印が無くてもきょうだいとして扱います。</div>
+        <div class="border rounded p-2" style="max-height:200px;overflow:auto;">
+          {% for b in form.fields.siblings.queryset %}
+          <label class="form-check form-check-inline small mb-1"><input type="checkbox" class="form-check-input" name="siblings" value="{{ b.pk }}" {% if b.pk in sibling_ids %}checked{% endif %}>{{ b.full_name }}</label>
           {% endfor %}
         </div>
       </div>

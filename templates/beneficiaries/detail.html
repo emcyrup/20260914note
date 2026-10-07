@@ -213,8 +213,14 @@
           </div>
           {% if pair_names %}
           <div class="col-12">
-            <div class="detail-label">同じ日にできない{{ terms.beneficiary }}</div>
-            <div class="detail-value">{% for n in pair_names %}<span class="badge text-bg-danger me-1" style="font-size:.75rem;">{{ n }}</span>{% endfor %}<span class="small text-muted ms-1">予約・月間予定表で同じ日には入りません</span></div>
+            <div class="detail-label">同じ時間にできない{{ terms.beneficiary }}（共演NG）</div>
+            <div class="detail-value">{% for n in pair_names %}<span class="badge text-bg-danger me-1" style="font-size:.75rem;">{{ n }}</span>{% endfor %}<span class="small text-muted ms-1">予約・月間予定表で同じ時間枠には入りません（時間がずれていれば同じ日でもよい）</span></div>
+          </div>
+          {% endif %}
+          {% if sibling_names %}
+          <div class="col-12">
+            <div class="detail-label">きょうだい</div>
+            <div class="detail-value">{% for n in sibling_names %}<span class="badge text-bg-info me-1" style="font-size:.75rem;">{{ n }}</span>{% endfor %}<span class="small text-muted ms-1">同じ時間枠の日は「きょうだいで1枠」にまとめられます</span></div>
           </div>
           {% endif %}
           {% if beneficiary.notes %}
@@ -757,13 +763,24 @@
           </div>
 
 
-          <!-- 同じ日にできない利用者 -->
+          <!-- 同じ時間にできない利用者（共演NG） -->
           {% if edit_form.fields.cannot_pair.queryset %}
           <div class="mb-3">
-            <label class="form-label small fw-semibold d-block">同じ日にできない{{ terms.beneficiary }} <span class="text-muted fw-normal">（印を付けた人とは、予約も月間予定表も同じ日に入れません。相手の側にも同じ印が付きます）</span></label>
+            <label class="form-label small fw-semibold d-block">同じ時間にできない{{ terms.beneficiary }}（共演NG） <span class="text-muted fw-normal">（印を付けた人とは、予約も月間予定表も同じ時間枠に入れません。時間がずれていれば同じ日でも入れられます。相手の側にも同じ印が付きます）</span></label>
             <div class="border rounded p-2" style="max-height:160px;overflow:auto;">
               {% for b in edit_form.fields.cannot_pair.queryset %}
               <label class="form-check form-check-inline small mb-1"><input type="checkbox" class="form-check-input" name="cannot_pair" value="{{ b.pk }}" {% if b.pk in pair_ids %}checked{% endif %}>{{ b.full_name }}</label>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+
+          {% if edit_form.fields.siblings.queryset %}
+          <div class="mb-3">
+            <label class="form-label small fw-semibold d-block">きょうだい <span class="text-muted fw-normal">（同じ時間枠に入った日に「きょうだいで1枠にまとめる」を選べます。まとめない日はそれぞれ1枠ずつ。相手の側にも同じ印が付きます）</span></label>
+            <div class="border rounded p-2" style="max-height:160px;overflow:auto;">
+              {% for b in edit_form.fields.siblings.queryset %}
+              <label class="form-check form-check-inline small mb-1"><input type="checkbox" class="form-check-input" name="siblings" value="{{ b.pk }}" {% if b.pk in sibling_ids %}checked{% endif %}>{{ b.full_name }}</label>
               {% endfor %}
             </div>
           </div>

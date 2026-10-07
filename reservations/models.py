@@ -296,6 +296,8 @@ class Reservation(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_CONFIRMED, verbose_name='状態')
     source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default=SOURCE_STAFF, verbose_name='入口')
     note = models.CharField(max_length=200, blank=True, verbose_name='備考')
+    # きょうだいと同じ時間枠に入るとき、1枠（1人ぶんの席）にまとめる。まとめない日は、きょうだいもそれぞれ1枠ずつ数える
+    share_seat = models.BooleanField(default=False, verbose_name='きょうだいと1枠にまとめる')
     # 実績（来た・欠席・キャンセル）。月間予定表・その日の画面で入れ、業務日誌の「実績」欄に印字する。空は未入力
     ATT_ATTENDED = 'attended'
     ATT_ABSENT = 'absent'

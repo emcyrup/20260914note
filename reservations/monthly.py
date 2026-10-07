@@ -179,6 +179,28 @@ def request_rows(facility, year, month, setting=None):
 pair_map = services.pair_map
 
 
+def schedule_rows(rows):
+    """
+    月間予定表の右の一覧に出す人：希望回数が 1 回以上か、その月に予約がある人だけ。
+    希望 0 回にした子・用紙も予約も無い子（同じ名前で二重に登録された子など）は出さない
+    """
+    out = [r for r in rows if r['desired'] or r['confirmed']]
+    names = {}
+    for r in out:
+        names.setdefault(r['beneficiary'].full_name, []).append(r)
+    for same in names.values():         # 出す人の中に同じ名前が2人以上いれば印を付ける（二重登録に気づけるように）
+        for r in same:
+            r['same_name'] = len(same) > 1
+    return out
+
+
+def row_totals(rows):
+    """右の一覧の合計（希望・確定・来・残・契約）"""
+    return {'people': len(rows), 'desired': sum(r['desired'] for r in rows), 'confirmed': sum(r['confirmed'] for r in rows),
+            'attended': sum(r['attended'] for r in rows), 'remaining': sum(r['remaining'] for r in rows),
+            'granted': sum(r['granted'] or 0 for r in rows)}
+
+
 # ---------------------------------------------------------------- 割り当て
 class AssignResult:
     def __init__(self):
@@ -236,14 +258,18 @@ def assign_month(facility, year, month, setting=None, base='', notify=True, only
     used = {}
     taken = {}
     confirmed_count = {}
+    siblings = services.sibling_map(facility)
+    slot_rows = {}
     for res in month_reservations(facility, year, month, statuses=Reservation.ACTIVE_STATUSES):
         if res.status == Reservation.STATUS_CONFIRMED:
             if res.hour is not None:
-                used[(res.date, res.hour)] = used.get((res.date, res.hour), 0) + 1
+                slot_rows.setdefault((res.date, res.hour), []).append(res)
             if res.beneficiary_id:
                 confirmed_count[res.beneficiary_id] = confirmed_count.get(res.beneficiary_id, 0) + 1
         if res.beneficiary_id:
             taken.setdefault(res.beneficiary_id, set()).add(res.date)
+    for key, rows in slot_rows.items():        # 使っている席（きょうだいで1枠にまとめたぶんは1つ）
+        used[key] = services.seat_count(rows, siblings)
 
     need = {}
     fixed = {}      # 時刻を指定した希望の枠
@@ -260,7 +286,11 @@ def assign_month(facility, year, month, setting=None, base='', notify=True, only
             target[req.pk].extend((day, h) for h in req.wish_hours(day, setting))
 
     made_for = {}
-    pairs = pair_map(facility)      # 同じ日にできない組み合わせ：相手の予約日には入れない
+    pairs = pair_map(facility)      # 同じ時間にできない組み合わせ：相手の予約と同じ日・同じ時間枠には入れない
+    slots_of = {}                   # 利用者ごとの予約の (日, 時)（時間枠の事業所なので時刻はある）
+    for res in month_reservations(facility, year, month, statuses=Reservation.ACTIVE_STATUSES):
+        if res.beneficiary_id:
+            slots_of.setdefault(res.beneficiary_id, set()).add((res.date, res.hour))
 
     def run(candidates):
         progress = True
@@ -270,9 +300,10 @@ def assign_month(facility, year, month, setting=None, base='', notify=True, only
                            key=lambda r: (len(taken.get(r.beneficiary_id, ())), len(candidates[r.pk]), r.pk))
             for req in order:
                 days_taken = taken.setdefault(req.beneficiary_id, set())
-                blocked = set().union(*(taken.get(b, set()) for b in pairs.get(req.beneficiary_id, ())))
+                blocked = set().union(*(slots_of.get(b, set()) for b in pairs.get(req.beneficiary_id, ())))
                 options = [(d, h) for d, h in candidates[req.pk]
-                           if d not in days_taken and d not in blocked and used.get((d, h), 0) < setting.slot_capacity]
+                           if d not in days_taken and (d, h) not in blocked and (d, None) not in blocked
+                           and used.get((d, h), 0) < setting.slot_capacity]
                 if not options:
                     continue
                 # 日にちは間があく順、同じ日の中では早い時刻から（午前から詰める）
@@ -291,6 +322,7 @@ def assign_month(facility, year, month, setting=None, base='', notify=True, only
                     continue
                 used[(day, hour)] = used.get((day, hour), 0) + 1
                 days_taken.add(day)
+                slots_of.setdefault(req.beneficiary_id, set()).add((day, hour))
                 need[req.pk] -= 1
                 result.made.append(res)
                 made_for.setdefault(req.pk, []).append(res)
@@ -392,20 +424,24 @@ def swap_reservations(res_a, res_b):
         if _other_on_day(res_b, res_a.date):
             raise services.ReservationError(
                 f'{services.jp_date(res_a.date)} には {res_b.display_name} さんのほかの予約があります。')
-        # 同じ日にできない利用者（入れ替える相手の予約は動くので除く）
-        for res, day, other in ((res_a, res_b.date, res_b), (res_b, res_a.date, res_a)):
-            names = [n for n in services.pair_conflicts(res.beneficiary, day, exclude_pk=other.pk)]
-            if names:
-                raise services.pair_error(day, res.display_name, names)
+    # 同じ時間にできない利用者（入れ替える相手の予約は動くので除く。自分の予約も動くので除く）
+    for res, (day, start), other in ((res_a, b_slot, res_b), (res_b, a_slot, res_a)):
+        names = services.pair_conflicts(res.beneficiary, day, exclude_pk=other.pk, start_time=start)
+        if names:
+            raise services.pair_error(day, res.display_name, names, start)
     res_a.date, res_a.start_time = b_slot
     res_b.date, res_b.start_time = a_slot
-    res_a.save(update_fields=['date', 'start_time', 'updated_at'])
-    res_b.save(update_fields=['date', 'start_time', 'updated_at'])
+    res_a.share_seat = res_b.share_seat = False     # 枠が変わるので、きょうだいとのまとめは外す
+    res_a.save(update_fields=['date', 'start_time', 'share_seat', 'updated_at'])
+    res_b.save(update_fields=['date', 'start_time', 'share_seat', 'updated_at'])
     return res_a, res_b
 
 
-def move_on_schedule(res, day, hour):
-    """月間予定表の空いている枠へ移す。保護者へのお知らせは積まない（キャンセル待ちの繰り上げはする）"""
+def move_on_schedule(res, day, hour, share_seat=False):
+    """
+    月間予定表の空いている枠へ移す。保護者へのお知らせは積まない（キャンセル待ちの繰り上げはする）。
+    share_seat=True はきょうだいの箱に重ねたとき：その枠のきょうだいと1枠にまとめる（席を増やさない）
+    """
     if res.status != Reservation.STATUS_CONFIRMED:
         raise services.ReservationError('確定している予約だけ移せます（キャンセル待ちは除く）。')
     with transaction.atomic():
@@ -416,10 +452,15 @@ def move_on_schedule(res, day, hour):
         slot = next((x for x in st.get('slots', ()) if x['hour'] == hour), None)
         if slot is None:
             raise services.ReservationError(f'{services.jp_date(day)} {hour}時 の枠はありません。')
-        mine = 1 if (res.date == day and res.hour == hour) else 0
-        if slot['confirmed'] - mine >= slot['capacity']:
+        moved = Reservation(pk=res.pk, beneficiary_id=res.beneficiary_id, share_seat=share_seat)
+        if share_seat and not any(r.beneficiary_id in st['siblings'].get(res.beneficiary_id, ())
+                                  for r in slot['confirmed_rows'] if r.pk != res.pk):
+            raise services.ReservationError(f'{services.jp_date(day)} {hour}時 の枠に {res.display_name} さんのきょうだいがいません。')
+        if not services.fits_in_slot(slot, moved, slot['capacity'], st['siblings']):
             raise services.ReservationError(f'{services.jp_date(day)} {hour}時 の枠は満員です。入れ替えを使ってください。')
-        return services.move_reservation(res, day, start_time=datetime.time(hour, 0), notify=False)
+        if res.date == day and res.hour == hour:
+            return services.set_share_seat(res, share_seat)
+        return services.move_reservation(res, day, start_time=datetime.time(hour, 0), notify=False, share_seat=share_seat)
 
 
 # ---------------------------------------------------------------- 月間予定表
@@ -434,6 +475,7 @@ def month_schedule(facility, year, month, setting=None):
     hours = setting.all_slot_hours()
     by_slot = {}
     waiting = {}
+    siblings = services.sibling_map(facility)
     for res in services.mark_pairs(facility, month_reservations(facility, year, month, statuses=Reservation.ACTIVE_STATUSES)):
         key = (res.date, res.hour)
         if res.status == Reservation.STATUS_CONFIRMED:
@@ -452,22 +494,36 @@ def month_schedule(facility, year, month, setting=None):
             slots = []
             for h in hours:
                 rows = by_slot.get((day, h), [])
-                boxes = [r for r in rows[:setting.slot_capacity]]
+                # 1つの箱が1席。きょうだいで1枠にまとめた予約は同じ箱に入れる（先頭の予約の sharing にほかの子）
+                groups = services.seat_groups(rows, siblings)
+                for g in groups:
+                    g[0].sharing = g[1:]
+                    for other in g[1:]:
+                        other.sharing = []
+                boxes = [g[0] for g in groups[:setting.slot_capacity]]
                 boxes += [None] * (setting.slot_capacity - len(boxes))
+                for r in rows:
+                    r.sibling_ids = ','.join(str(x) for x in sorted(siblings.get(r.beneficiary_id, ())))
                 slots.append({'hour': h, 'label': hour_label(h), 'active': h in day_hours,
-                              'reservations': rows, 'boxes': boxes,
+                              'reservations': rows, 'boxes': boxes, 'seats': len(groups),
                               'waiting': waiting.get((day, h), []),
-                              'over': rows[setting.slot_capacity:]})
+                              'over': [r for g in groups[setting.slot_capacity:] for r in g]})
             days.append({'date': day, 'in_month': in_month, 'closed': in_month and not day_hours,
                          'holiday': holiday_name(day) if in_month else '',
                          'is_sunday': day.weekday() == 6, 'is_saturday': day.weekday() == 5,
                          'staff': staff_of.get(day, '') if in_month else '',
                          'slots': slots, 'count': sum(len(s['reservations']) for s in slots),
+                         'free': sum(max(setting.slot_capacity - s['seats'], 0) for s in slots if s['active']),
                          'attended': sum(1 for s in slots for r in s['reservations']
                                          if r.attendance == Reservation.ATT_ATTENDED)})
         weeks.append({'days': days, 'start': week[0], 'end': week[-1]})
+    for w in weeks:
+        w['count'] = sum(d['count'] for d in w['days'] if d['in_month'])
+    in_month = [d for w in weeks for d in w['days'] if d['in_month']]
     return {'year': year, 'month': month, 'hours': hours, 'hour_labels': [hour_label(h) for h in hours],
-            'weeks': weeks, 'capacity': setting.slot_capacity, 'closed_text': setting.closed_weekdays_text}
+            'weeks': weeks, 'capacity': setting.slot_capacity, 'closed_text': setting.closed_weekdays_text,
+            'total': sum(d['count'] for d in in_month), 'total_attended': sum(d['attended'] for d in in_month),
+            'total_free': sum(d['free'] for d in in_month if not d['closed'])}
 
 
 DAILY_LOG_ROWS = 15      # 業務日誌の1日ぶんの行数（用紙に合わせる）

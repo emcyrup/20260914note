@@ -182,6 +182,12 @@ class DayView(ReservationEnabledMixin, View):
         rows = services.mark_pairs(facility, Reservation.objects.filter(facility=facility, date=d)
                                    .select_related('beneficiary', 'customer').order_by('status', 'created_at'))
         taken = {r.beneficiary_id for r in rows if r.is_active}
+        sibs = state['siblings']
+        for r in rows:      # 同じ時間枠にいるきょうだい（「きょうだいで1枠にまとめる」を選べる）
+            r.siblings_here = [o for o in rows if o.pk != r.pk and o.status == Reservation.STATUS_CONFIRMED
+                               and r.status == Reservation.STATUS_CONFIRMED and o.hour == r.hour
+                               and o.beneficiary_id in sibs.get(r.beneficiary_id, ())]
+            r.seat_shared = r.share_seat or any(o.share_seat for o in r.siblings_here)
         candidates = [b for b in Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE)
                       if b.pk not in taken]
         return render(request, self.template_name, {
@@ -273,6 +279,17 @@ class DayView(ReservationEnabledMixin, View):
                 messages.error(request, str(e))
                 return back
             messages.success(request, f'{res.display_name} さんの実績を「{res.get_attendance_display()}」にしました。')
+            return back
+
+        if action == 'share':
+            res = get_object_or_404(Reservation, pk=to_int(request.POST.get('reservation'), -1), facility=facility)
+            value = request.POST.get('value') == '1'
+            try:
+                services.set_share_seat(res, value)
+            except services.ReservationError as e:
+                messages.error(request, str(e))
+                return back
+            messages.success(request, f'{res.display_name} さんを' + ('きょうだいと1枠にまとめました。' if value else 'きょうだいと別の枠に分けました（1人1枠）。'))
             return back
 
         if action == 'link':
@@ -623,9 +640,9 @@ class LineView(ReservationEnabledMixin, View):
                 messages.error(request, str(e))
                 return back
             note = f'{services.jp_date(d)} {beneficiary.full_name} {res.get_status_display()}'
-            pair = services.pair_conflicts(beneficiary, d, exclude_pk=res.pk)
+            pair = services.pair_conflicts(beneficiary, d, exclude_pk=res.pk, start_time=res.start_time)
             if pair:
-                messages.warning(request, f'{services.jp_date(d)} には、{beneficiary.full_name} さんと同じ日にできない '
+                messages.warning(request, f'{services.jp_date(d)} {res.time_label} には、{beneficiary.full_name} さんと同じ時間にできない '
                                           f'{"・".join(pair)} さんの予約があります（日の画面に赤く出ます）。')
         entry.status = LineInbox.STATUS_DONE
         entry.handled_at, entry.handled_by, entry.result_note = timezone.now(), request.user, note[:200]
@@ -1068,7 +1085,7 @@ class MonthlyScheduleView(SlotModeMixin, View):
         rows = monthly.request_rows(facility, year, month, setting)
         return render(request, self.template_name, {
             'schedule': monthly.month_schedule(facility, year, month, setting), 'setting': setting,
-            'rows': [r for r in rows if r['request'] or r['confirmed']],
+            'rows': monthly.schedule_rows(rows), 'row_totals': monthly.row_totals(monthly.schedule_rows(rows)),
             'facility': facility, 'today': datetime.date.today(),
             'therapy': getattr(facility, 'use_therapy_record', False),
             'staff_suggestions': monthly.staff_suggestions(facility),
@@ -1255,7 +1272,8 @@ class DailyLogPdfView(RyoikuOnlyMixin, View):
 
 class MonthlyScheduleSwapView(SlotModeMixin, View):
     """
-    月間予定表の手直し。action=swap は2人の枠を入れ替え、action=move は空いている枠へ移す。
+    月間予定表の手直し（名前を押して選ぶか、ドラッグで）。action=swap は2人の枠を入れ替え、action=move は空いている枠へ移す。
+    action=join はきょうだいの箱に重ねたとき：その枠へ移して、きょうだいと1枠にまとめる。
     保護者へのお知らせは積まず、送信待ちの「ご利用日が決まりました」はいまの予約に合わせて書き直す。
     """
 
@@ -1274,6 +1292,15 @@ class MonthlyScheduleSwapView(SlotModeMixin, View):
                 msg = (f'{res_a.display_name} さんと {res_b.display_name} さんを入れ替えました'
                        f'（{services.jp_date(res_a.date)} {res_a.time_label} ⇄ '
                        f'{services.jp_date(res_b.date)} {res_b.time_label}）。')
+            elif action == 'join':
+                res_b = get_object_or_404(Reservation, pk=to_int(request.POST.get('b'), -1), facility=facility)
+                touched = [(res_a.beneficiary, res_a.date)]
+                if res_b.hour is None:
+                    messages.error(request, '時刻の無い予約とはまとめられません。')
+                    return back
+                res_a = monthly.move_on_schedule(res_a, res_b.date, res_b.hour, share_seat=True)
+                msg = (f'{res_a.display_name} さんを {services.jp_date(res_a.date)} {res_a.time_label} の '
+                       f'{res_b.display_name} さんと、きょうだいで1枠にまとめました。')
             elif action == 'move':
                 try:
                     day = datetime.date.fromisoformat(request.POST.get('date', ''))
@@ -1326,7 +1353,7 @@ class MonthlySchedulePdfView(SlotModeMixin, View):
         schedule = monthly.month_schedule(facility, year, month, setting)
         paper = 'a4' if request.GET.get('paper', '').lower() == 'a4' else 'a3'
         ctx = {'schedule': schedule, 'setting': setting,
-               'rows': [r for r in rows if r['request'] or r['confirmed']], 'facility': facility,
+               'rows': monthly.schedule_rows(rows), 'facility': facility,
                'year': year, 'month': month, 'paper': paper,
                'has_staff': any(d['staff'] for w in schedule['weeks'] for d in w['days']),
                'box_pct': 100 // max(int(schedule['capacity'] or 1), 1),

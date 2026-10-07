@@ -1370,7 +1370,7 @@ class RyoikuConflictTests(TestCase):
 
 
 class CannotPairTests(TestCase):
-    """同じ日にできない利用者の組み合わせ：予約を作る・動かす・入れ替える・月間予定表で同じ日に入れない"""
+    """同じ時間にできない利用者（共演NG）：同じ日の同じ時間枠には入れない。時間がずれていれば同じ日でも入れる"""
 
     def setUp(self):
         self.f, self.s = ryoiku()
@@ -1387,7 +1387,7 @@ class CannotPairTests(TestCase):
     def test_symmetric_and_shown_on_detail(self):
         self.assertEqual(self.b.pair_names(), ['青木 子'])
         res = self.client.get(reverse('beneficiaries:detail', args=[self.a.pk]))
-        self.assertContains(res, '同じ日にできない利用者')
+        self.assertContains(res, '同じ時間にできない利用者')
         self.assertContains(res, 'name="cannot_pair" value="%d" checked' % self.b.pk)
         # 編集で付け替えられる（相手の側にも付く）
         res = self.client.post(reverse('beneficiaries:update', args=[self.a.pk]), {
@@ -1398,38 +1398,48 @@ class CannotPairTests(TestCase):
         self.assertEqual(list(self.b.cannot_pair.all()), [])
         self.assertEqual(list(self.c.cannot_pair.all()), [self.a])
 
+    def test_same_day_other_time_is_ok(self):
+        services.create_reservation(self.f, self.b, self.day, start_time=10)
+        ra, _ = services.create_reservation(self.f, self.a, self.day, start_time=11)     # 時間がずれていればよい
+        self.assertEqual(ra.status, Reservation.STATUS_CONFIRMED)
+        self.assertNotContains(self.client.get(reverse('reservations:day', args=[2026, 10, 6])), '組み合わせNG')
+        with self.assertRaises(services.ReservationError) as cm:
+            services.move_reservation(ra, self.day, start_time=10)          # 同じ時間へは動かせない
+        self.assertIn('10:00', str(cm.exception))
+        self.assertIn('時間をずらせば入れられます', str(cm.exception))
+
     def test_create_move_link_swap_blocked(self):
         services.create_reservation(self.f, self.b, self.day, start_time=10)
         with self.assertRaises(services.ReservationError) as cm:
-            services.create_reservation(self.f, self.a, self.day, start_time=11)
+            services.create_reservation(self.f, self.a, self.day, start_time=10)
         self.assertIn('木村 空 さんの予約があるため', str(cm.exception))
         # 保護者からの申し込み（LINE・入力ページ）は止めずに受け、職員の画面で赤く示す
-        ra_line, _ = services.create_reservation(self.f, self.a, self.day, start_time=11, source=Reservation.SOURCE_LINE)
+        ra_line, _ = services.create_reservation(self.f, self.a, self.day, start_time=10, source=Reservation.SOURCE_LINE)
         self.assertEqual(ra_line.status, Reservation.STATUS_CONFIRMED)
         res = self.client.get(reverse('reservations:day', args=[2026, 10, 6]))
         self.assertContains(res, '組み合わせNG：木村 空')
         self.assertContains(res, '組み合わせNG：青木 子')
         res = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))
         self.assertContains(res, 'ms-box pair')
-        self.assertContains(res, '組み合わせNG：木村 空 さんと同じ日')
+        self.assertContains(res, '組み合わせNG：木村 空 さんと同じ時間')
         res = self.client.get(reverse('reservations:daily_board') + '?d=2026-10-06')
         self.assertContains(res, 'pair-ng')
         services.cancel_reservation(ra_line, notify=False)
         self.assertNotContains(self.client.get(reverse('reservations:day', args=[2026, 10, 6])), '組み合わせNG')
-        services.create_reservation(self.f, self.c, self.day, start_time=11)             # 関係のない人は入れる
+        services.create_reservation(self.f, self.c, self.day, start_time=10)             # 関係のない人は入れる
         ra, _ = services.create_reservation(self.f, self.a, self.day2, start_time=10)
         with self.assertRaises(services.ReservationError):
-            services.move_reservation(ra, self.day, start_time=11)
+            services.move_reservation(ra, self.day, start_time=10)
         rc = Reservation.objects.get(beneficiary=self.c)
         with self.assertRaises(services.ReservationError):
-            monthly.swap_reservations(ra, rc)      # 青木が木村の日へ移ることになる
-        guest, _ = services.create_reservation(self.f, None, self.day, guest_name='新しい子', start_time=11)
+            monthly.swap_reservations(ra, rc)      # 青木が木村と同じ日・同じ時間へ移ることになる
+        guest, _ = services.create_reservation(self.f, None, self.day, guest_name='新しい子', start_time=10)
         with self.assertRaises(services.ReservationError):
             services.link_reservation(guest, self.a)
         # 画面からも止まる
         res = self.client.post(reverse('reservations:day', args=[2026, 10, 6]),
-                               {'action': 'add', 'beneficiary': self.a.pk, 'start_time': '11'}, follow=True)
-        self.assertContains(res, '同じ日にできない')
+                               {'action': 'add', 'beneficiary': self.a.pk, 'start_time': '10'}, follow=True)
+        self.assertContains(res, '同じ時間にできない')
         self.assertEqual(Reservation.objects.filter(beneficiary=self.a, date=self.day, status__in=Reservation.ACTIVE_STATUSES).count(), 0)
 
     def test_assign_month_keeps_pairs_apart(self):
@@ -1437,9 +1447,142 @@ class CannotPairTests(TestCase):
             monthly.save_request(self.f, kid, 2026, 10, 2, {'2026-10-06': [10], '2026-10-07': [10], '2026-10-09': [10], '2026-10-10': [10]})
         result = monthly.assign_month(self.f, 2026, 10, self.s, notify=False)
         self.assertEqual((len(result.made), result.short), (4, []))      # 4 日を 2 人で分け合う
-        days_a = set(Reservation.objects.filter(beneficiary=self.a).values_list('date', flat=True))
-        days_b = set(Reservation.objects.filter(beneficiary=self.b).values_list('date', flat=True))
-        self.assertEqual(days_a & days_b, set())
+        slots_a = set(Reservation.objects.filter(beneficiary=self.a).values_list('date', 'start_time'))
+        slots_b = set(Reservation.objects.filter(beneficiary=self.b).values_list('date', 'start_time'))
+        self.assertEqual(slots_a & slots_b, set())
         rows = {r['beneficiary'].pk: r for r in monthly.request_rows(self.f, 2026, 10, self.s)}
         self.assertEqual(rows[self.a.pk]['pair_names'], ['木村 空'])
-        self.assertContains(self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10])), '同じ日にできない：木村 空')
+        self.assertContains(self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10])), '同じ時間にできない：木村 空')
+
+    def test_assign_month_same_day_other_hour(self):
+        """1日しか来られない2人でも、時間をずらして同じ日に入れる"""
+        for kid in (self.a, self.b):
+            monthly.save_request(self.f, kid, 2026, 10, 1, {'2026-10-06': [10, 11]})
+        result = monthly.assign_month(self.f, 2026, 10, self.s, notify=False)
+        self.assertEqual((len(result.made), result.short), (2, []))
+        hours = sorted(r.start_time.hour for r in Reservation.objects.filter(date=self.day))
+        self.assertEqual(hours, [10, 11])
+
+
+class SiblingSeatTests(TestCase):
+    """きょうだい：同じ時間枠の日は「きょうだいで1枠にまとめる」を選べる（まとめない日はそれぞれ1枠）"""
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        self.user = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        d = datetime.date(2018, 1, 1)
+        mk = lambda last, first, kana: Beneficiary.objects.create(facility=self.f, last_name=last, first_name=first,
+                                                                   last_name_kana=kana, date_of_birth=d)
+        self.ani, self.imo = mk('山田', '兄', 'やまだ'), mk('山田', '妹', 'やまだ')
+        self.ani.siblings.add(self.imo)
+        self.o1, self.o2, self.o3 = mk('青木', '一', 'あおき'), mk('井上', '二', 'いのうえ'), mk('上田', '三', 'うえだ')
+        self.day = datetime.date(2026, 10, 6)      # 火
+
+    def test_siblings_take_separate_seats_unless_shared(self):
+        ra, _ = services.create_reservation(self.f, self.ani, self.day, start_time=10)
+        ri, _ = services.create_reservation(self.f, self.imo, self.day, start_time=10)
+        services.create_reservation(self.f, self.o1, self.day, start_time=10)
+        r2, _ = services.create_reservation(self.f, self.o2, self.day, start_time=10)
+        self.assertEqual(r2.status, Reservation.STATUS_WAITLIST)        # まとめない日は 3 枠ぶん
+        # まとめると席が空き、キャンセル待ちが繰り上がる
+        services.set_share_seat(ri, True)
+        r2.refresh_from_db()
+        self.assertEqual(r2.status, Reservation.STATUS_CONFIRMED)
+        st = services.slot_state(self.f, self.day, 10)
+        self.assertEqual((st['confirmed'], st['seats'], st['full']), (4, 3, True))
+        # いま分けると 4 枠になってしまうので分けられない
+        with self.assertRaises(services.ReservationError):
+            services.set_share_seat(ri, False)
+        # きょうだいのいない枠ではまとめられない
+        r3, _ = services.create_reservation(self.f, self.o3, self.day, start_time=11)
+        with self.assertRaises(services.ReservationError):
+            services.set_share_seat(r3, True)
+        # 新しく入れるときに「まとめる」なら満員の枠でも入る（きょうだいがいるので席は増えない）
+        services.cancel_reservation(ra, notify=False)
+
+    def test_create_with_share_seat_and_customer_siblings(self):
+        from reservations.models import Customer
+        c = Customer.objects.create(facility=self.f, name='青木 母')
+        c.children.add(self.o1, self.o2)                                  # 連絡先が同じ子もきょうだい
+        self.assertIn(self.o2.pk, services.sibling_map(self.f)[self.o1.pk])
+        services.create_reservation(self.f, self.o1, self.day, start_time=10)
+        services.create_reservation(self.f, self.o3, self.day, start_time=10)
+        services.create_reservation(self.f, self.ani, self.day, start_time=10)
+        r2, _ = services.create_reservation(self.f, self.o2, self.day, start_time=10, share_seat=True)
+        self.assertEqual(r2.status, Reservation.STATUS_CONFIRMED)
+
+    def test_day_page_buttons_and_schedule_box(self):
+        ra, _ = services.create_reservation(self.f, self.ani, self.day, start_time=10)
+        ri, _ = services.create_reservation(self.f, self.imo, self.day, start_time=10)
+        url = reverse('reservations:day', args=[2026, 10, 6])
+        self.assertContains(self.client.get(url), 'きょうだいで1枠にまとめる')
+        res = self.client.post(url, {'action': 'share', 'reservation': ri.pk, 'value': '1'}, follow=True)
+        self.assertContains(res, 'きょうだいと1枠にまとめました')
+        self.assertContains(res, '分ける')
+        res = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))
+        self.assertContains(res, 'ms-box grp')
+        self.assertContains(res, f'data-sibs="{self.imo.pk}"')
+        res = self.client.post(url, {'action': 'share', 'reservation': ra.pk, 'value': '0'}, follow=True)
+        self.assertContains(res, '別の枠に分けました')
+        ri.refresh_from_db()
+        self.assertFalse(ri.share_seat)
+
+    def test_join_by_drop_on_sibling_and_swap_resets(self):
+        ra, _ = services.create_reservation(self.f, self.ani, self.day, start_time=10)
+        services.create_reservation(self.f, self.o1, self.day, start_time=10)
+        services.create_reservation(self.f, self.o2, self.day, start_time=10)          # 10時は満員
+        ri, _ = services.create_reservation(self.f, self.imo, self.day, start_time=11)
+        swap = reverse('reservations:monthly_schedule_swap', args=[2026, 10])
+        res = self.client.post(swap, {'action': 'move', 'a': ri.pk, 'date': '2026-10-06', 'hour': '10'}, follow=True)
+        self.assertContains(res, '満員')
+        res = self.client.post(swap, {'action': 'join', 'a': ri.pk, 'b': ra.pk}, follow=True)
+        self.assertContains(res, 'きょうだいで1枠にまとめました')
+        ri.refresh_from_db()
+        self.assertEqual((ri.start_time.hour, ri.share_seat, ri.status), (10, True, Reservation.STATUS_CONFIRMED))
+        # 兄弟でない相手には「まとめる」はできない
+        r1 = Reservation.objects.get(beneficiary=self.o1)
+        res = self.client.post(swap, {'action': 'join', 'a': r1.pk, 'b': ra.pk}, follow=True)
+        self.assertContains(res, 'きょうだいがいません')
+        # 入れ替えで枠が変わると、まとめは外れる
+        r3, _ = services.create_reservation(self.f, self.o3, self.day, start_time=11)
+        monthly.swap_reservations(ri, r3)
+        ri.refresh_from_db()
+        self.assertFalse(ri.share_seat)
+
+    def test_sibling_field_on_edit(self):
+        res = self.client.post(reverse('beneficiaries:update', args=[self.o1.pk]), {
+            'last_name': '青木', 'first_name': '一', 'date_of_birth': '2018-01-01', 'status': 'active', 'gender': 'male',
+            'siblings': [self.o2.pk]})
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(list(self.o2.siblings.all()), [self.o1])
+        self.assertContains(self.client.get(reverse('beneficiaries:detail', args=[self.o1.pk])), 'きょうだい')
+
+
+class ScheduleListTests(TestCase):
+    """月間予定表の右の一覧：希望 0 回で予約の無い子は出さない。合計を出す。ドラッグで動かせる"""
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        self.user = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        d = datetime.date(2018, 1, 1)
+        self.a = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=d)
+        self.zero = Beneficiary.objects.create(facility=self.f, last_name='ゼロ', first_name='子', date_of_birth=d)
+        self.dup = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2000, 1, 1))
+
+    def test_zero_and_duplicates_hidden_and_totals(self):
+        monthly.save_request(self.f, self.a, 2026, 10, 3, {'2026-10-06': [10], '2026-10-07': [10]})
+        monthly.save_request(self.f, self.zero, 2026, 10, 0, {})
+        monthly.assign_month(self.f, 2026, 10, self.s, notify=False)
+        res = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))
+        side = res.content.decode().split('id="ms-side"')[1]
+        self.assertNotIn('ゼロ 子', side)
+        self.assertEqual(side.count('青木 子'), 1)                    # 同じ名前の二重登録（予約なし）は出さない
+        self.assertContains(res, '合計 1 名')
+        self.assertContains(res, '予約 合計 <strong>2</strong> 件')
+        self.assertContains(res, '計2')                               # 週の合計
+        self.assertContains(res, 'draggable="true"')
+        self.assertContains(res, 'ms-drop-menu')
+        pdf = self.client.get(reverse('reservations:monthly_schedule_pdf', args=[2026, 10]) + '?fmt=html')
+        self.assertNotContains(pdf, 'ゼロ 子')

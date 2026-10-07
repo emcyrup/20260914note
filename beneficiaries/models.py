@@ -115,8 +115,11 @@ class Beneficiary(models.Model):
         max_length=10, choices=STATUS_CHOICES, default=STATUS_ACTIVE, verbose_name='在籍状況'
     )
     # 同じ日に一緒にできない利用者（相性など）。片方に入れればもう片方にも付く（対称）。
-    # 予約を作る・動かす・月間予定表を組むときに、同じ日に入れない（reservations/services.py の pair_conflicts）
-    cannot_pair = models.ManyToManyField('self', blank=True, symmetrical=True, verbose_name='同じ日にできない利用者')
+    # 予約を作る・動かす・月間予定表を組むときに、同じ日の同じ時間枠に入れない（reservations/services.py の pair_conflicts）
+    cannot_pair = models.ManyToManyField('self', blank=True, symmetrical=True, verbose_name='同じ時間にできない利用者')
+    # きょうだい。同じ時間枠に入った日は、予約ごとに「きょうだいと1枠にまとめる」（Reservation.share_seat）を選べる。
+    # 予約の連絡先（Customer）が同じ子もきょうだいとして扱う（reservations/services.py の sibling_map）
+    siblings = models.ManyToManyField('self', blank=True, symmetrical=True, verbose_name='きょうだい')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -143,7 +146,7 @@ class Beneficiary(models.Model):
         return f'{self.last_name_kana} {self.first_name_kana}'
 
     def pair_names(self):
-        """同じ日にできない利用者の名前（在籍中だけ）"""
+        """同じ時間にできない利用者の名前（在籍中だけ）"""
         return [b.full_name for b in self.cannot_pair.filter(status=self.STATUS_ACTIVE).order_by('last_name_kana', 'first_name_kana')]
 
     @property

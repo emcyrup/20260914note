@@ -55,9 +55,16 @@
       <div class="d-flex align-items-center gap-2 flex-wrap">
         {% if r.start_time %}<span class="badge text-bg-light border">{{ r.time_label }}</span>{% endif %}
         <span class="fw-bold{% if r.pair_names %} text-danger{% endif %}">{{ r.display_name }}</span>
-        {% if r.pair_names %}<span class="badge text-bg-danger" title="同じ日にできない利用者が同じ日に入っています">組み合わせNG：{{ r.pair_names|join:'・' }}</span>{% endif %}
+        {% if r.pair_names %}<span class="badge text-bg-danger" title="同じ時間にできない利用者が同じ時間枠に入っています">組み合わせNG：{{ r.pair_names|join:'・' }}</span>{% endif %}
         {% if therapy and r.beneficiary_id %}<a href="{% url 'therapy:child' r.beneficiary_id %}?date={{ r.date|date:'Y-m-d' }}{% if r.start_time %}&time={{ r.start_time|time:'H:i' }}{% endif %}" class="small" title="療育記録を書く"><i class="bi bi-pencil-square"></i></a>{% endif %}
         {% if r.status == 'confirmed' %}<span class="badge text-bg-success">予約</span>{% else %}<span class="badge text-bg-warning">キャンセル待ち</span>{% endif %}
+        {% if r.siblings_here %}
+        <form method="post" class="d-inline" title="同じ時間枠のきょうだい：{% for o in r.siblings_here %}{{ o.display_name }}{% if not forloop.last %}・{% endif %}{% endfor %}">
+          {% csrf_token %}<input type="hidden" name="action" value="share"><input type="hidden" name="reservation" value="{{ r.pk }}">
+          {% if r.seat_shared %}<input type="hidden" name="value" value="0"><span class="badge text-bg-info">きょうだいで1枠</span> <button class="btn btn-link btn-sm p-0 align-baseline">分ける</button>
+          {% else %}<input type="hidden" name="value" value="1"><button class="btn btn-outline-info btn-sm py-0">きょうだいで1枠にまとめる</button>{% endif %}
+        </form>
+        {% endif %}
         {% if r.is_guest %}<span class="badge text-bg-secondary" title="「変更」を押して台帳の{{ terms.beneficiary }}と結びつけると、療育記録を書けます">台帳に未登録</span>{% endif %}
         {% if attendance_choices and r.status == 'confirmed' %}
         <form method="post" class="d-inline-flex align-items-center gap-1 ms-1" title="実績（業務日誌の「実績」欄に印字）">

@@ -225,6 +225,8 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
         ctx['edit_form'] = BeneficiaryForm(instance=b, facility=b.facility)
         ctx['pair_names'] = b.pair_names()
         ctx['pair_ids'] = set(b.cannot_pair.values_list('pk', flat=True))
+        ctx['sibling_ids'] = set(b.siblings.values_list('pk', flat=True))
+        ctx['sibling_names'] = [s.full_name for s in b.siblings.filter(status=Beneficiary.STATUS_ACTIVE).order_by('last_name_kana', 'first_name_kana')]
         # 曜日チェックボックス用（フィールド名と表示名のペア）
         ctx['edit_weekdays'] = [
             ('weekday_mon', '月'), ('weekday_tue', '火'), ('weekday_wed', '水'),
@@ -308,6 +310,7 @@ class BeneficiaryUpdateView(LoginRequiredMixin, UpdateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['pair_ids'] = set(self.object.cannot_pair.values_list('pk', flat=True)) if self.object else set()
+        ctx['sibling_ids'] = set(self.object.siblings.values_list('pk', flat=True)) if self.object else set()
         return ctx
 
     def post(self, request, *args, **kwargs):
