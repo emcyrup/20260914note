@@ -8,6 +8,8 @@
 
 {% block extra_css %}
 <style>
+  .bd-grad { background: #7a5ea8; color: #fff; }
+  .bd-grad-btn { background: #7a5ea8; color: #fff; border-color: #7a5ea8; }
   .th-recent-item { padding: 10px 0; border-top: 1px solid var(--line); }
   .th-recent-item:first-child { border-top: 0; padding-top: 0; }
   .th-recent-head { display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap; }
@@ -117,12 +119,28 @@
         <div class="section-title">{{ terms.beneficiary }}</div>
         <h2 class="fw-bold mb-0" style="font-size:1.6rem;">{{ beneficiary.full_name }}</h2>
         <div class="text-muted small">{{ beneficiary.full_name_kana }}
-          <span class="ms-2 badge {% if beneficiary.status == 'active' %}text-bg-success{% else %}text-bg-secondary{% endif %}" style="font-size:0.7rem;">
-            {{ beneficiary.get_status_display }}
+          <span class="ms-2 badge {% if beneficiary.status == 'active' %}text-bg-success{% elif beneficiary.status == 'graduated' %}bd-grad{% else %}text-bg-secondary{% endif %}" style="font-size:0.7rem;">
+            {% if beneficiary.status == 'graduated' %}<i class="bi bi-mortarboard me-1"></i>{% endif %}{{ beneficiary.get_status_display }}{% if beneficiary.status != 'active' and beneficiary.discharge_date %}（{{ beneficiary.discharge_date|date:'Y/n/j' }}）{% endif %}
           </span>
           {% if beneficiary.is_severe %}<span class="ms-1 badge" style="background:#9a4e6c;font-size:0.7rem;">重身</span>{% endif %}
         </div>
       </div>
+    </div>
+    <div class="d-flex flex-column align-items-end gap-2">
+      {% if features.therapy %}
+      <a href="{% url 'therapy:child' beneficiary.pk %}?date={% now 'Y-m-d' %}#add" class="btn btn-primary btn-sm"><i class="bi bi-journal-medical me-1"></i>療育記録を書く（きょう）</a>
+      {% endif %}
+      <form method="post" action="{% url 'beneficiaries:status' beneficiary.pk %}" class="d-flex align-items-center gap-1 flex-wrap justify-content-end">
+        {% csrf_token %}
+        <span class="small text-muted me-1">在籍状況</span>
+        {% for value, label in status_choices %}
+        <button name="status" value="{{ value }}" class="btn btn-sm {% if beneficiary.status == value %}{% if value == 'active' %}btn-success{% elif value == 'graduated' %}bd-grad-btn active{% else %}btn-secondary{% endif %}{% else %}btn-outline-secondary{% endif %}"
+                {% if beneficiary.status == value %}disabled aria-pressed="true"{% else %}onclick="return confirm('{{ beneficiary.full_name|escapejs }} さんを「{{ label }}」にします。よろしいですか？');"{% endif %}>{% if value == 'graduated' %}<i class="bi bi-mortarboard me-1"></i>{% endif %}{{ label }}</button>
+        {% endfor %}
+      </form>
+      {% if user.is_admin or user.is_superuser %}
+      <a href="{% url 'beneficiaries:delete' beneficiary.pk %}" class="small text-danger text-decoration-none"><i class="bi bi-trash me-1"></i>この{{ terms.beneficiary }}を削除する</a>
+      {% endif %}
     </div>
   </div>
 
@@ -142,7 +160,7 @@
         {% for r in recent_therapy %}
         <div class="th-recent-item">
           <div class="th-recent-head">
-            <span class="fw-bold">{{ r.date|date:'Y年n月j日（D）' }}{% if r.time %} {{ r.time|time:'G:i' }}{% endif %}</span>
+            <span class="fw-bold">{{ r.date|date:'Y年n月j日（D）' }}{% if r.time %} {{ r.time_label }}{% endif %}</span>
             {% if r.staff_label %}<span class="text-muted small ms-2">担当 {{ r.staff_label }}</span>{% endif %}
             <a href="{% url 'therapy:child' beneficiary.pk %}?ym={{ r.date|date:'Y-m' }}#rec{{ r.pk }}" class="small ms-auto">開く</a>
           </div>
@@ -628,10 +646,10 @@
 </div>
 
 
-{% if beneficiary.status == 'inactive' and user.is_admin or beneficiary.status == 'inactive' and user.is_superuser %}
+{% if user.is_admin or user.is_superuser %}
 <div class="text-end mt-4">
   <a href="{% url 'beneficiaries:delete' beneficiary.pk %}" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>この{{ terms.beneficiary }}を削除する</a>
-  <div class="small text-muted mt-1">退所した人を、療育記録・予約・書類ごと消します（戻せません）。次の画面で確かめてから消します。</div>
+  <div class="small text-muted mt-1">辞めた子・まちがえて登録した子を、療育記録・予約・書類ごと消します（戻せません）。次の画面で確かめてから消します。残しておきたいときは、上の「在籍状況」で「退所」「卒業」にすると一覧で分けて見られます。</div>
 </div>
 {% endif %}
 

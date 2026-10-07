@@ -68,7 +68,7 @@
   </div>
 
   <div class="card mb-3"><div class="card-body">
-    <form method="post" {% if profile %}data-concurrency="therapy_profile:{{ profile.pk }}" data-concurrency-lazy{% endif %}>
+    <form method="post" class="th-save-form" {% if profile %}data-concurrency="therapy_profile:{{ profile.pk }}" data-concurrency-lazy{% endif %}>
       {% csrf_token %}<input type="hidden" name="action" value="cautions">{% if profile %}{% version_field profile %}{% endif %}
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
         <label class="th-card-title mb-0" for="cautions"><i class="bi bi-exclamation-diamond"></i>留意点</label>
@@ -77,10 +77,10 @@
                   title="音声で入力（もう一度押すと止まる）"><i class="bi bi-mic"></i> 音声入力</button>
           <button type="button" class="btn btn-sm btn-outline-primary cautions-ai" id="cautions-detail" data-mode="detail"
                   data-url="{% url 'therapy:cautions_summary' beneficiary.pk %}"
-                  title="話した内容を、場面ごとの見出し・箇条書き・まとめに詳しく整理します"><i class="bi bi-card-list"></i> 詳しくまとめる</button>
+                  title="話した言葉のまま、場面ごとの見出しと箇条書きに分けます（言いかえ・飾り・AI の見解は足しません）"><i class="bi bi-card-list"></i> 詳しくまとめる</button>
           <button type="button" class="btn btn-sm btn-outline-primary cautions-ai" id="cautions-summary" data-mode="short"
                   data-url="{% url 'therapy:cautions_summary' beneficiary.pk %}"
-                  title="入っている文をAIが短い箇条書きに整えます"><i class="bi bi-magic"></i> 短く要約</button>
+                  title="入っている言葉のまま箇条書きにします（言いよどみ・くり返しだけ除きます）"><i class="bi bi-magic"></i> 短く要約</button>
         </div>
       </div>
       <div id="cautions-voice-note" class="alert alert-warning small py-1 px-2 mb-2 d-none"></div>
@@ -96,8 +96,8 @@
       {% endif %}
       <textarea class="form-control" id="cautions" name="cautions" rows="{{ cautions_rows }}" placeholder="用紙の上の枠に書いてある、この{{ terms.beneficiary }}のときに気をつけること">{{ profile.cautions|default:'' }}</textarea>
       <div class="th-save-row">
-        <div class="form-text mb-0">用紙の上に印刷されます。話して入れたあと「詳しくまとめる」で場面ごとの見出しと箇条書きに、「短く要約」で短い箇条書きに整えます。{% if knowledge_count %}<br><i class="bi bi-journal-medical"></i> 「短く要約」と記録の「留意点から記録に追記」は、<a href="{% url 'beneficiaries:detail' beneficiary.pk %}#knowledge">書類から分かっていること</a>（{{ knowledge_count }} 件：診断書など）も参考にします。{% endif %}</div>
-        <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>留意点を保存</button>
+        <div class="form-text mb-0">用紙の上に印刷されます。話して入れたあと「詳しくまとめる」で場面ごとの見出しと箇条書きに、「短く要約」で箇条書きにします。どちらも<b>話した言葉のまま</b>使い、言いかえ・飾りの言葉・AI の見解は足しません（消すのは「えー」などの言いよどみとくり返しだけ）。{% if knowledge_count %}<br><i class="bi bi-journal-medical"></i> 「短く要約」と記録の「留意点から記録に追記」は、<a href="{% url 'beneficiaries:detail' beneficiary.pk %}#knowledge">書類から分かっていること</a>（{{ knowledge_count }} 件：診断書など）も参考にします。{% endif %}</div>
+        <button class="btn btn-sm btn-outline-secondary th-save-btn"><i class="bi bi-check2 me-1"></i>留意点を保存</button>
       </div>
     </form>
     <div class="thf mt-3" id="cautions-figure" data-url="{% url 'therapy:cautions_figure' beneficiary.pk %}">
@@ -112,11 +112,14 @@
 
   <div class="card mb-3" id="add"><div class="card-body">
     <div class="th-card-title mb-2"><i class="bi bi-plus-circle"></i>記録を追加する</div>
-    {% if copy_rec %}<div class="alert alert-info small py-1 px-2 mb-2"><i class="bi bi-files me-1"></i>{{ copy_rec.beneficiary.full_name }}さんの {{ copy_rec.date|date:'n/j' }} の記録の「やったこと」と「記録」を写しています。この{{ terms.beneficiary }}に合わせて直してから「追加する」を押してください。</div>{% endif %}
-    <form method="post" class="row g-2">
+    {% if copy_rec %}<div class="alert alert-info small py-1 px-2 mb-2"><i class="bi bi-files me-1"></i>{{ copy_rec.beneficiary.full_name }}さんの {{ copy_rec.date|date:'n/j' }} の記録の「やったこと」と「記録」を写しています。この{{ terms.beneficiary }}に合わせて直してから「保存する」を押してください。</div>{% endif %}
+    <form method="post" class="row g-2 th-save-form" data-new="1">
       {% csrf_token %}<input type="hidden" name="action" value="add">
       {% include 'therapy/_record_fields.html' with rec=None %}
-      <div class="col-12 text-end"><button class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>追加する</button></div>
+      <div class="col-12 d-flex justify-content-end align-items-center gap-2">
+        <span class="small text-muted th-save-hint">「やったこと」か「記録」を入れると保存できます</span>
+        <button class="btn btn-outline-secondary th-save-btn" disabled><i class="bi bi-check2 me-1"></i>保存する</button>
+      </div>
     </form>
   </div></div>
 
@@ -139,7 +142,7 @@
     <div class="th-rec" id="rec{{ rec.pk }}">
       <div class="th-rec-head">
         <div>
-          <span class="th-rec-date">{{ rec.date|date:'Y年n月j日' }}（{{ rec.date|date:'D' }}）</span>{% if rec.time %}<span class="th-rec-date ms-1">{{ rec.time|time:'G:i' }}</span>{% endif %}
+          <span class="th-rec-date">{{ rec.date|date:'Y年n月j日' }}（{{ rec.date|date:'D' }}）</span>{% if rec.time %}<span class="th-rec-date ms-1">{{ rec.time_label }}</span>{% endif %}
           {% if rec.staff_label %}<span class="th-rec-meta">担当 {{ rec.staff_label }}</span>{% endif %}
         </div>
         <div class="th-rec-btns">
@@ -154,7 +157,7 @@
       {% if rec.activity_list %}<div class="th-chips">{% for a in rec.activity_list %}<span class="th-chip">{{ a }}</span>{% endfor %}</div>{% endif %}
       {% if rec.body %}<div class="th-body">{{ rec.body }}</div>{% endif %}
       <div class="th-edit {% if edit_pk != rec.pk %}d-none{% endif %}" id="edit{{ rec.pk }}">
-        <form method="post" class="row g-2" data-concurrency="therapy_record:{{ rec.pk }}" data-concurrency-lazy>
+        <form method="post" class="row g-2 th-save-form" data-concurrency="therapy_record:{{ rec.pk }}" data-concurrency-lazy>
           {% csrf_token %}<input type="hidden" name="action" value="edit"><input type="hidden" name="record" value="{{ rec.pk }}">{% version_field rec %}
           {% if unsaved_record and unsaved_record.pk == rec.pk %}
           <div class="col-12"><div class="alert alert-warning small py-2 mb-0">
@@ -164,7 +167,7 @@
           </div></div>
           {% endif %}
           {% include 'therapy/_record_fields.html' with rec=rec %}
-          <div class="col-12 text-end"><button class="btn btn-sm btn-primary">保存する</button></div>
+          <div class="col-12 d-flex justify-content-end align-items-center gap-2"><span class="small text-muted th-save-hint"></span><button class="btn btn-sm btn-outline-secondary th-save-btn"><i class="bi bi-check2 me-1"></i>保存する</button></div>
         </form>
       </div>
     </div>
@@ -198,6 +201,41 @@
     var values = Array.prototype.map.call(form.querySelectorAll('input[name^="activity_"]'), function (el) { return el.value.trim(); });
     form.querySelectorAll('.th-suggest-btn').forEach(function (c) { c.classList.toggle('used', values.indexOf(c.getAttribute('data-activity')) >= 0); });
   });
+})();
+(function () {
+  // 「保存する」の色：保存できる（新しい記録は「やったこと」か「記録」が入った・直す欄と留意点は変えた）ときは緑。
+  // 音声入力や AI の書き換えは input が出ないこともあるので、少しずつ見直す
+  function state(form) {
+    var fd = new FormData(form);
+    var parts = [];
+    fd.forEach(function (v, k) { if (k !== 'csrfmiddlewaretoken') parts.push(k + '=' + v); });
+    return parts.join('&');
+  }
+  function hasContent(form) {
+    var filled = Array.prototype.some.call(form.querySelectorAll('input[name^="activity_"]'), function (el) { return el.value.trim(); });
+    var body = form.querySelector('[name="body"]');
+    var date = form.querySelector('[name="date"]');
+    return (!date || date.value) && (filled || (body && body.value.trim()));
+  }
+  var forms = Array.prototype.slice.call(document.querySelectorAll('form.th-save-form'));
+  forms.forEach(function (form) { form._thInitial = state(form); });
+  function refresh() {
+    forms.forEach(function (form) {
+      var btn = form.querySelector('.th-save-btn'), hint = form.querySelector('.th-save-hint');
+      if (!btn) return;
+      var isNew = form.dataset.new === '1';
+      var ok = isNew ? hasContent(form) : state(form) !== form._thInitial;
+      btn.classList.toggle('btn-success', !!ok);
+      btn.classList.toggle('btn-outline-secondary', !ok);
+      if (isNew) btn.disabled = !ok;
+      if (hint) hint.textContent = ok ? '保存できます' : (isNew ? '「やったこと」か「記録」を入れると保存できます' : '');
+    });
+  }
+  document.addEventListener('input', refresh);
+  document.addEventListener('change', refresh);
+  document.addEventListener('click', function () { setTimeout(refresh, 0); });
+  setInterval(refresh, 800);
+  refresh();
 })();
 </script>
 <script>

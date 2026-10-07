@@ -5,7 +5,10 @@
 </div>
 <div class="col-6 col-md-2">
   <label class="form-label small fw-semibold">時刻</label>
-  <input type="time" name="time" class="form-control form-control-sm" value="{% if rec %}{{ rec.time|time:'H:i' }}{% else %}{{ default_time }}{% endif %}">
+  <select name="time" class="form-select form-select-sm" aria-label="時刻（時）">
+    <option value="">—</option>
+    {% for h in hour_choices %}<option value="{{ h }}" {% if rec %}{% if rec.time and rec.time.hour == h %}selected{% endif %}{% elif default_hour == h %}selected{% endif %}>{{ h }}時</option>{% endfor %}
+  </select>
 </div>
 <div class="col-6 col-md-4">
   <label class="form-label small fw-semibold">担当</label>
@@ -48,13 +51,13 @@
     <label class="form-label small fw-semibold mb-0" for="record-body">記録</label>
     <button type="button" class="btn btn-sm btn-outline-primary" id="record-summary"
             data-url="{% url 'therapy:record_summary' beneficiary.pk %}"
-            title="留意点を、やったこと（①〜⑤）に照らして100〜500字にまとめ、記録の最後に足します"><i class="bi bi-magic"></i> 留意点から記録に追記</button>
+            title="留意点のうち、やったこと（①〜⑤）に関係するところを、留意点の言葉のまま記録の最後に足します"><i class="bi bi-magic"></i> 留意点から記録に追記</button>
   </div>
   <div id="record-summary-note" class="alert alert-info small py-1 px-2 mb-1 d-none">
     <span class="msg"></span>
     <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline d-none" id="record-undo">追記を取り消す</button>
   </div>
   <textarea name="body" id="record-body" class="form-control form-control-sm" rows="4" placeholder="ようすや声かけ、次回に向けて">{{ default_body }}</textarea>
-  <div class="form-text">「やったこと」を入れてから「留意点から記録に追記」を押すと、留意点を今日の活動に照らしてまとめた文（100〜500字）を最後に足します。確かめてから「追加する」を押してください。</div>
+  <div class="form-text">「やったこと」を入れてから「留意点から記録に追記」を押すと、留意点のうち今日の活動に関係するところを、<b>留意点の言葉のまま</b>（言いかえ・飾りの言葉・AI の見解は足さずに。500字まで）最後に足します。足したあとはそのまま保存します（入れ直したいときは、下の「これまでの記録」の「直す」から）。</div>
   {% endif %}
 </div>

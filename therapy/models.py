@@ -79,7 +79,10 @@ class TherapyRecord(models.Model):
 
     @property
     def time_label(self):
-        return f'{self.time.hour}時{self.time.minute:02d}分' if self.time else ''
+        """「15時」（時刻は時だけで入れる。前に分まで入れた記録は「15時30分」）"""
+        if not self.time:
+            return ''
+        return f'{self.time.hour}時' + (f'{self.time.minute:02d}分' if self.time.minute else '')
 
     @property
     def date_label(self):

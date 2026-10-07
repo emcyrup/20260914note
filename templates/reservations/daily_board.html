@@ -75,7 +75,7 @@
     <div class="db-row{% if r.attendance %} {{ r.attendance }}{% endif %}{% if r.pair_names %} pair-ng{% endif %}">
       <div class="db-time">{{ r.time_label }}</div>
       <div class="db-name">
-        {% if r.beneficiary_id %}<a href="{% url 'therapy:child' r.beneficiary_id %}?date={{ r.date|date:'Y-m-d' }}{% if r.start_time %}&time={{ r.start_time|time:'H:i' }}{% endif %}" class="text-decoration-none text-reset" title="療育記録を書く">{{ r.display_name }}</a>{% else %}{{ r.display_name }}{% endif %}
+        {% if r.beneficiary_id %}<a href="{% url 'therapy:child' r.beneficiary_id %}?date={{ r.date|date:'Y-m-d' }}{% if r.start_time %}&time={{ r.start_time|time:'H:i' }}{% endif %}#add" class="text-decoration-none text-reset" title="療育記録を書く">{{ r.display_name }} <i class="bi bi-pencil-square small text-primary"></i></a>{% else %}{{ r.display_name }} <a href="{% url 'reservations:day' r.date.year r.date.month r.date.day %}#link{{ r.pk }}" class="badge text-bg-secondary text-decoration-none" title="台帳の利用者と結びつけると療育記録を書けます">台帳に未登録</a>{% endif %}
         {% if r.pair_names %}<span class="badge text-bg-danger ms-1" style="font-size:.65rem;">組み合わせNG：{{ r.pair_names|join:'・' }}</span>{% endif %}
         {% if r.note %}<span class="note">{{ r.note }}</span>{% endif %}
       </div>
@@ -100,7 +100,7 @@
     <a href="{% url 'reservations:monthly_schedule' b.date.year b.date.month %}">月間予定表</a>
     {% if features.transport %}<a href="{% url 'transport:day' %}?d={{ b.date|date:'Y-m-d' }}">この日の配車表（迎え・送り）</a>{% endif %}
     <a href="{% url 'reservations:daily_log_pdf' b.date.year b.date.month %}?from={{ b.date|date:'Y-m-d' }}&to={{ b.date|date:'Y-m-d' }}&inline=1" target="_blank">この日の業務日誌（PDF）</a>
-    <div class="mt-1">名前を押すと療育記録を書けます。実績の選択は、月間予定表の「実績を入れる」と同じものです。</div>
+    <div class="mt-1">名前を押すと療育記録を書けます（「台帳に未登録」の人は、その日の予約の画面で台帳の{{ terms.beneficiary }}と結びつけると書けます）。実績の選択は、月間予定表の「実績を入れる」と同じものです。</div>
   </div>
 </div>
 {% endblock %}

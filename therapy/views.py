@@ -46,14 +46,24 @@ def _parse_date(value, default=None):
 
 
 def _parse_time(value):
-    value = (value or '').strip().replace('：', ':')
+    """時刻は「時」だけで持つ（「15」「15:00」「15:40」→ 15時。分は使わない）"""
+    value = (value or '').strip().replace('：', ':').replace('時', '')
     if not value:
         return None
     try:
-        h, _, m = value.partition(':')
-        return datetime.time(int(h), int(m or 0))
+        return datetime.time(int(value.partition(':')[0]))
     except ValueError:
         return None
+
+
+HOUR_CHOICES = range(7, 22)     # 療育記録の時刻（時）の選択肢
+
+
+def hour_choices(*hours):
+    """時の選択肢。範囲の外の時（前の記録など）があれば足す"""
+    out = set(HOUR_CHOICES)
+    out.update(h for h in hours if h is not None)
+    return sorted(out)
 
 
 def _activities_from_post(post):
@@ -133,12 +143,14 @@ def search_records(facility, params):
 
 
 def _todays_reservations(facility, day):
-    """その日の予約（予約管理を使う事業所）。療育記録をすぐ書けるように並べる"""
+    """その日の予約（予約管理を使う事業所）。療育記録をすぐ書けるように並べる。
+    当日に足した人も出す：キャンセル待ちでも実績が「来た」なら出し、台帳に未登録の人は「台帳と結びつける」へ案内する"""
     if not facility.use_reservation:
         return []
     from reservations.models import Reservation
-    return list(Reservation.objects.filter(facility=facility, date=day, status=Reservation.STATUS_CONFIRMED,
-                                           beneficiary__isnull=False)
+    return list(Reservation.objects.filter(facility=facility, date=day)
+                .filter(Q(status=Reservation.STATUS_CONFIRMED)
+                        | Q(status=Reservation.STATUS_WAITLIST, attendance=Reservation.ATT_ATTENDED))
                 .select_related('beneficiary').order_by('start_time', 'created_at'))
 
 
@@ -164,6 +176,7 @@ class IndexView(TherapyEnabledMixin, View):
             'day': day, 'prev_day': day - datetime.timedelta(days=1), 'next_day': day + datetime.timedelta(days=1),
             'reservations': reservations, 'children': children,
             'written_count': sum(1 for r in reservations if r.written),
+            'reserved_ids': {r.beneficiary_id for r in reservations if r.beneficiary_id},
             'today_records': (TherapyRecord.objects.filter(facility=facility, date=day)
                               .select_related('beneficiary', 'staff').order_by('time', 'pk')),
         })
@@ -209,13 +222,15 @@ class ChildView(TherapyEnabledMixin, View):
         filter_query = '&'.join(f'{k}={v}' for k, v in (('ym', ym), ('from', date_from and date_from.isoformat()),
                                                            ('to', date_to and date_to.isoformat())) if v)
         default_date = _parse_date(request.GET.get('date'), datetime.date.today())
-        default_time = request.GET.get('time', '')
+        default_t = _parse_time(request.GET.get('time'))
+        default_hour = default_t.hour if default_t else None
         return render(request, self.template_name, {
             'beneficiary': beneficiary, 'profile': profile, 'records': records, 'ym': ym, 'months': months,
             'date_from': date_from, 'date_to': date_to, 'filtered': filtered, 'filter_query': filter_query,
             'activity_suggestions': suggestions, 'activity_chips': suggestions[:ACTIVITY_CHIP_MAX],
             'staff_list': StaffAccount.objects.filter(facility=facility, is_active=True).order_by('display_name', 'username'),
-            'default_date': default_date, 'default_time': default_time,
+            'default_date': default_date, 'default_hour': default_hour,
+            'hour_choices': hour_choices(default_hour, *(r.time.hour for r in records if r.time)),
             'default_activities': list(copy_rec.activities or []) if copy_rec else [],
             'default_body': (copy_rec.body if copy_rec else ''), 'copy_rec': copy_rec,
             'activity_range': range(1, ACTIVITY_MAX + 1), 'edit_pk': to_int(request.GET.get('edit')),
@@ -267,6 +282,9 @@ class ChildView(TherapyEnabledMixin, View):
         if day is None:
             messages.error(request, '日付を入れてください。')
             return back
+        if action == 'add' and not any(_activities_from_post(p)) and not p.get('body', '').strip():
+            messages.error(request, '「やったこと」か「記録」を入れてから保存してください。')
+            return back
         staff = StaffAccount.objects.filter(facility=facility, pk=to_int(p.get('staff'), -1)).first()
         fields = {
             'date': day, 'time': _parse_time(p.get('time')), 'staff': staff,
@@ -305,7 +323,7 @@ class ChildView(TherapyEnabledMixin, View):
                                       f'{"（留意点も保存）" if "cautions" in p else ""}。'
                                       '直すときは下の「これまでの記録」の「直す」からできます。')
             return redirect(f"{reverse('therapy:child', args=[pk])}#records")
-        messages.success(request, f'{day:%-m/%-d} の療育記録を追加しました。')
+        messages.success(request, f'{day:%-m/%-d} の療育記録を保存しました。')
         return back
 
 
@@ -336,54 +354,58 @@ class PdfView(TherapyEnabledMixin, View):
         return pdf_or_html(request, 'therapy/pdf/record.html', ctx, name)
 
 
+# AI でまとめるときの共通の約束：職員の言葉をありのままに使う（言いかえ・飾り・見解で意味が変わらないように）
+AS_IS_RULES = """
+【いちばん大事なこと：ありのままに】
+- 入力の言葉をできるだけそのまま使う。言いかえない。言葉を飾らない。勝手に整えて意味を変えない
+- 入力に無いことは書かない。AI の見解・解釈・評価・助言・一般論を足さない
+- 入力に無い飾りや評価の言い回しを足さない（例：「しっかり」「積極的に」「意欲的に」「楽しそうに」「落ち着いて」「〜が見られた」
+  「〜と考えられる」「〜が大切」「成長が感じられる」「〜に留意して取り組む」など）
+- 消してよいのは「えー」「あの」などの言いよどみ、言い直し、同じことのくり返しだけ。分かりにくいところも、元の言葉のまま残す
+- 話し言葉の語尾（「〜してた」「〜みたい」など）も、意味が変わるなら直さない
+"""
+
+
 class CautionsSummaryView(TherapyEnabledMixin, View):
     """
     留意点の要約。音声入力などで話し言葉のまま入った文を、用紙に載せる短い箇条書きに整えて返す。
     画面ではテキスト欄を書き換えるだけで、保存は職員が「留意点を保存」を押して行う。
     """
 
-    SYSTEM_PROMPT = """あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
-職員が話した言葉や走り書きのメモから、その子の「留意点」（療育のときに職員が気をつけること）を作ります。
-
-【書き方（必ず守る）】
-- 1行に1項目の箇条書きにする。各行の先頭は「・」。3〜7項目、1項目は40字程度まで
-- 体言止めか「〜する」で短く書く。敬語やあいさつ、前置き、まとめの文は書かない
-- 入力にある事実だけを書く。推測や一般論、入力に無い対応方法を足さない
-- 同じ内容は1つにまとめ、「えー」「あの」などの言いよどみや言い直しは除く
-- 苦手なこと・危険につながること・配慮のしかたを先に、好きなこと・得意なことをあとに並べる
-- 常用漢字とひらがな・カタカナで書く。英語・絵文字・記号（★ ※ → など）・マークダウンは使わない
-- 人名・物の名前は入力の表記のまま
-- 【書類から分かっていること（参考）】が付いているときは、メモと関係する配慮や、安全にかかわること（服薬・発作・アレルギー・苦手な刺激など）を、
-  書類にあることとして短く足してよい（メモと同じことは1つにまとめる）。診断名を並べたり、医学的な判断を足したりしない
+    SYSTEM_PROMPT = f"""あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
+職員が話した言葉や走り書きのメモを、その子の「留意点」（療育のときに職員が気をつけること）の箇条書きにします。
+{AS_IS_RULES}
+【書き方】
+- 1行に1項目の箇条書きにする。各行の先頭は「・」。話した順・書いた順のまま並べる（並べかえない）
+- 長い文は句点（。）や読点のところで分けて別の項目にしてよい。そのとき言葉は変えない
+- 前置き・あいさつ・まとめの文は書かない
+- 英語・絵文字・記号（★ ※ → など）・マークダウンは使わない。人名・物の名前は入力の表記のまま
+- 【書類から分かっていること（参考）】が付いているときは、メモと関係する配慮や安全にかかわること（服薬・発作・アレルギー・苦手な刺激など）だけを、
+  書類の言葉のまま「（書類）」を付けて足してよい。メモと同じことは足さない。診断名を並べたり、医学的な判断を足したりしない
 - 返すのは箇条書きだけ"""
 
-    DETAIL_PROMPT = """あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
-職員が話した言葉（療育の場面のようす・気づき・その子について気をつけること）を、
-あとから読んだ職員が場面を思い浮かべられるように、**詳しく**整理して書き直します。
-
-【形（必ず守る）】
+    DETAIL_PROMPT = f"""あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
+職員が話した言葉（療育の場面のようす・気づき・その子について気をつけること）を、場面ごとに分けて書き直します。
+あとから読んだ職員が、話した人が言ったとおりに場面を思い浮かべられるようにします。
+{AS_IS_RULES}
+【形】
 【概要】
-（全体を1〜2文で）
+（話の中で全体について言ったことがあるときだけ、その言葉で1〜2文。無ければこの見出しごと書かない）
 
 【場面や活動の名前】
-・小見出し：内容を1〜3文で
-・小見出し：内容
-（場面・活動・部屋ごとに【】の見出しを分ける。話に出てきた順に並べる）
-
-【全体のまとめ】
-（全体の経過・変化を1〜3文で）
+・小見出し：話した言葉のまま
+・小見出し：話した言葉のまま
+（場面・活動・部屋ごとに【】の見出しを分ける。話に出てきた順に並べる。小見出しは話に出てきた言葉を使う）
 
 【気をつけること】
-・（話の中で職員が「気をつける」「〜するとよい」「苦手」などと言ったことだけ。無ければこの見出しごと書かない）
+・（話の中で職員が「気をつける」「〜するとよい」「苦手」などと言ったことだけ、その言葉のまま。無ければこの見出しごと書かない）
 
 【書き方】
-- 子どもの言葉・職員の声かけは「」で、話したとおりに残す（例：「出して」と模倣した）
-- 何をしたら・どうなったか（促し → 反応）が分かるように書く。回数や順番も話にあれば残す
-- 常体（〜した。〜する。）で書く。敬語・あいさつ・前置きは書かない
-- 話に無いことは足さない。推測や評価のことば（「成長が見られた」など）は、話した人が言ったときだけ書く
-- 「えー」「あの」などの言いよどみ、言い直し、同じ話のくり返しは除く
-- 常用漢字とひらがな・カタカナで書く。英語・絵文字・マークダウン（# や ** ）は使わない。見出しは【】、項目は「・」だけを使う
-- 返すのは整理した文だけ"""
+- 子どもの言葉・職員の声かけは「」で、話したとおりに残す
+- 何をしたら・どうなったか、回数や順番も、話にあればそのまま残す
+- 文末は話した言い方をなるべく残す。敬語・あいさつ・前置き・全体のまとめや感想は書かない
+- 英語・絵文字・マークダウン（# や ** ）は使わない。見出しは【】、項目は「・」だけを使う
+- 返すのは書き直した文だけ"""
 
     def post(self, request, pk):
         beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
@@ -438,36 +460,32 @@ class CautionsFigurePrintView(TherapyEnabledMixin, View):
                       {'beneficiary': beneficiary, 'profile': profile, 'fig': fig, 'facility': request.user.facility})
 
 
-RECORD_SUMMARY_MIN = 100   # 「記録」に足す文の長さ（文字）
-RECORD_SUMMARY_MAX = 500
+RECORD_SUMMARY_MAX = 500   # 「記録」に足す文の長さ（文字）の上限。短いぶんには足さない
 
 
 class RecordSummaryView(TherapyEnabledMixin, View):
     """
-    「記録を追加する」の補助。留意点を、その日のやったこと（①〜⑤）に照らして 100〜500 字の文にまとめて返す。
-    画面では「記録」の欄の末尾に足すだけで、保存は職員が「追加する」を押して行う。
+    「記録を追加する」の補助。留意点のうち、その日のやったこと（①〜⑤）に関係するところを、留意点の言葉のまま 500 字以内で返す。
+    画面では「記録」の欄の末尾に足し、そのまま保存する（あとから「直す」で直せる）。
     """
 
     SYSTEM_PROMPT = f"""あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
-その子の「留意点」（療育のときに職員が気をつけること）を、今日の「やったこと（活動）」に照らしてまとめ、
-療育記録の「記録」の欄に書く文を作ります。
-
-【内容】
-- 留意点のうち、今日の活動に関係するものを選び、どの活動でどう気をつけるかが分かるように書く
-- 活動の名前は入力の表記のまま使う（①②などの番号は付けない）
-- 今日の活動に関係しない留意点は、大事なもの（安全・体調にかかわること）だけ短く添える
+その子の「留意点」（療育のときに職員が気をつけること）から、今日の「やったこと（活動）」に関係するところを選び、
+療育記録の「記録」の欄に足す文を作ります。
+{AS_IS_RULES}
+【選び方】
+- 留意点のうち、今日の活動に関係するものを選ぶ。今日の活動に関係しないものは、安全・体調にかかわることだけ選ぶ
 - 「記録（書きかけ）」があれば読んで、そこに書いてあることは繰り返さない
 
-【書き方（必ず守る）】
-- {RECORD_SUMMARY_MIN}字以上{RECORD_SUMMARY_MAX}字以内の、です・ます を使わない文（「〜に留意して取り組む。」「〜のため、〜する。」のような常体）
-- 箇条書き・見出し・前置き・あいさつは書かない。段落は1〜3つ
-- 入力にある事実だけを使う。子どものようす・反応・できたこと・結果は入力に無いので書かない（推測しない）
-- 入力に無い対応方法や一般論を足さない。留意点が短いときは、無理に長くせず{RECORD_SUMMARY_MIN}字に近い長さでよい
-- 【書類から分かっていること（参考）】（診断書・検査結果などを職員が確かめて登録したもの）が付いているときは、
-  今日の活動に関係する配慮（感覚の特性・服薬・発作・体調など）を、留意点と合わせて使ってよい。
-  書類の内容を使うときは「〜との所見があるため」のように書類にあることとして書き、診断名を並べたり医学的な判断を加えたりしない。
-  今日の活動に関係しない書類の内容は書かない
-- 常用漢字とひらがな・カタカナで書く。英語・絵文字・記号（★ ※ → など）・マークダウンは使わない
+【書き方】
+- 1つの活動につき1段落。段落は「活動名：」で始め、その活動に関係する留意点の言葉をそのまま続ける（活動名は入力の表記のまま。①②などの番号は付けない）
+- 安全・体調にかかわることは、最後の段落に「全体：」で始めて、留意点の言葉のまま書く
+- 留意点の文と文をつなぐための言葉（「〜に留意して取り組む」「〜のため、〜する」など）や、まとめの文を足さない
+- 子どものようす・反応・できたこと・結果は入力に無いので書かない
+- 全体で{RECORD_SUMMARY_MAX}字以内。留意点が短ければ短いままでよい（長くするために言葉を足さない）
+- 【書類から分かっていること（参考）】が付いているときは、今日の活動に関係する配慮（感覚の特性・服薬・発作・体調など）だけを、
+  書類の言葉のまま「（書類）」を付けて使ってよい。診断名を並べたり医学的な判断を加えたりしない
+- 箇条書き・見出し・前置き・あいさつ・英語・絵文字・記号（★ ※ → など）・マークダウンは使わない
 - 返すのは記録に書く文だけ"""
 
     def post(self, request, pk):

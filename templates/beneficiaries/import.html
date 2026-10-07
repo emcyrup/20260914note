@@ -29,8 +29,8 @@
   <div class="card mb-3">
     <div class="card-header fw-bold"><i class="bi bi-search me-1"></i>2. 確かめる（まだ登録していません）</div>
     <div class="card-body">
-      <div class="mb-2">「{{ file_name }}」から {% if fmt == 'children' %}{{ planned|length }} 人分を読みました{% else %}{{ planned|length }} 行を読みました{% endif %}{% if fmt == 'guardian' %}（<b>保護者一覧</b>の形。1行が保護者1人で、児童は名前で台帳と照合します）{% elif fmt == 'children' %}（<b>児童一覧</b>の形。見出しなしの15列。同じお子さまの契約が複数行あれば1人にまとめ、「利用中」があれば在籍中、なければ退所にします。前のシステムの利用者番号と契約は備考に残します）{% endif %}：
-        {% if fmt == 'guardian' %}<span class="imp-update">台帳の児童に付ける {{ counts.update }}</span>・<span class="imp-create">児童も新しく作る {{ counts.create }}</span>{% else %}<span class="imp-create">新規 {{ counts.create }}</span>・<span class="imp-update">書き換え {{ counts.update }}</span>{% endif %}・<span class="imp-error">読めない行 {{ counts.error }}</span>
+      <div class="mb-2">「{{ file_name }}」から {% if fmt == 'children' %}{{ planned|length }} 人分を読みました{% else %}{{ planned|length }} 行を読みました{% endif %}{% if fmt == 'guardian' %}（<b>保護者一覧</b>の形。1行が保護者1人で、児童は名前で台帳と照合します）{% elif fmt == 'children' %}（<b>児童一覧</b>の形。同じお子さまの契約が複数行あれば1人にまとめ、「利用中」があれば在籍中、なければ退所にします。前のシステムの管理番号・契約・備考は台帳の備考に残します）{% endif %}：
+        {% if fmt == 'guardian' %}<span class="imp-update">台帳の児童に付ける {{ counts.update }}</span>・<span class="imp-create">児童も新しく作る {{ counts.create }}</span>{% else %}<span class="imp-create">新規 {{ counts.create }}</span>・<span class="imp-update">台帳にいる {{ counts.update }}</span>{% if diff_count %}（うち台帳と違う値がある {{ diff_count }}）{% endif %}{% endif %}・<span class="imp-error">読めない行 {{ counts.error }}</span>
       </div>
       <div class="table-responsive">
         <table class="table table-sm imp-plan mb-2">
@@ -40,18 +40,34 @@
             <tr>
               <td>{{ p.line }}</td>
               <td>{{ p.name }}</td>
-              <td>{% if p.action == 'create' %}<span class="imp-create">{% if fmt == 'guardian' %}児童も作る{% else %}新規{% endif %}</span>{% elif p.action == 'update' %}<span class="imp-update">{% if fmt == 'guardian' %}付ける{% else %}書き換え{% endif %}</span>{% else %}<span class="imp-error">読めない</span>{% endif %}</td>
-              <td>{{ p.detail }}</td>
+              <td>{% if p.action == 'create' %}<span class="imp-create">{% if fmt == 'guardian' %}児童も作る{% else %}新規{% endif %}</span>{% elif p.action == 'update' %}<span class="imp-update">{% if fmt == 'guardian' %}付ける{% else %}台帳にいる{% endif %}</span>{% else %}<span class="imp-error">読めない</span>{% endif %}</td>
+              <td>{{ p.detail }}
+                {% if p.fills %}<div class="small text-success mt-1"><i class="bi bi-plus-circle me-1"></i>台帳の空欄に入れる：{{ p.fills|join:'・' }}</div>{% endif %}
+                {% if p.diffs %}<div class="small mt-1"><span class="fw-semibold text-warning-emphasis"><i class="bi bi-arrow-left-right me-1"></i>台帳と違う値</span>
+                  <ul class="mb-0 ps-3">{% for label, old, new in p.diffs %}<li>{{ label }}：台帳「{{ old }}」／取り込み「{{ new }}」</li>{% endfor %}</ul></div>{% endif %}
+              </td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
-      <div class="small text-muted mb-3">読めない行は登録しません。直したいときは Excel を直して、もう一度ファイルを選んでください。「書き換え」は、同じ姓・名・生年月日の{{ terms.beneficiary }}の情報を上書きします（Excel で空の欄は変えません）。</div>
-      <form method="post" class="d-flex gap-2 flex-wrap">
+      <div class="small text-muted mb-3">読めない行は登録しません。直したいときは Excel を直して、もう一度ファイルを選んでください。「台帳にいる」は、同じ{% if fmt == 'guardian' %}名前の児童・保護者{% else %}姓・名・生年月日の{{ terms.beneficiary }}{% endif %}がすでに台帳にいる行です。</div>
+      <form method="post">
         {% csrf_token %}<input type="hidden" name="action" value="commit">{% if create_children %}<input type="hidden" name="create_children" value="1">{% endif %}
+        {% if counts.update %}
+        <div class="border rounded p-2 mb-3" style="background:rgba(255,255,255,.6);">
+          <div class="fw-semibold small mb-1">すでに台帳にいる人で、台帳と違う値があるとき</div>
+          <div class="form-check"><input class="form-check-input" type="radio" name="mode" value="keep" id="mode-keep" {% if mode != 'overwrite' %}checked{% endif %}>
+            <label class="form-check-label small" for="mode-keep"><b>台帳の値を残す</b>（台帳に入っている値は変えません）</label></div>
+          <div class="form-check"><input class="form-check-input" type="radio" name="mode" value="overwrite" id="mode-overwrite" {% if mode == 'overwrite' %}checked{% endif %}>
+            <label class="form-check-label small" for="mode-overwrite"><b>取り込んだ値で上書きする</b></label></div>
+          <div class="small text-muted mt-1">どちらを選んでも、台帳の欄が<b>空なら取り込んだ値を入れます</b>。取り込むファイル側が空の欄は何も変えません。備考への「前のシステム：…」の追記は、どちらでも足します。</div>
+        </div>
+        {% endif %}
+        <div class="d-flex gap-2 flex-wrap">
         <button class="btn btn-primary px-4" {% if not counts.create and not counts.update %}disabled{% endif %}><i class="bi bi-check2 me-1"></i>この内容で登録する</button>
         <a href="{% url 'beneficiaries:import' %}" class="btn btn-outline-secondary">やり直す</a>
+        </div>
       </form>
     </div>
   </div>
@@ -62,7 +78,7 @@
     <div class="card-body">
       <a href="{% url 'beneficiaries:import_template' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-download me-1"></i>雛形（Excel）をダウンロード</a>
       <div class="small text-muted mt-2">Excel で開いて 2 行目から入れ、そのまま .xlsx で保存します（CSV でも読めます。Shift_JIS・UTF-8・UTF-16、カンマ・タブ区切りのどれでも。見出しの上に表題の行があっても読みます）。1 行目の見出しはそのまま。使わない列は消しても、並びを変えても構いません。見出しが同じなら、手持ちの名簿からも読めます。1 回に {{ max_rows }} 行まで。</div>
-      <div class="small text-muted">同じ<b>姓・名・生年月日</b>の{{ terms.beneficiary }}がすでにいれば、その人の情報を書き換えます（空の欄は変えません）。いなければ新しく登録します。保護者の欄は「保護者 姓・名」が同じなら書き換え、受給者証は受給者証番号が同じなら書き換えます。</div>
+      <div class="small text-muted">同じ<b>姓・名・生年月日</b>の{{ terms.beneficiary }}がすでにいれば、登録のときに「台帳の値を残す」か「取り込んだ値で上書きする」かを選べます（台帳の欄が空なら、どちらでも取り込んだ値を入れます）。いなければ新しく登録します。保護者の欄は「保護者 姓・名」が同じ人、受給者証は受給者証番号が同じものを同じ扱いにします。</div>
       <details class="mt-2"><summary class="small">列の一覧と書き方（{{ columns|length }} 列）</summary>
         <div class="imp-cols mt-2">
           {% for key, label, required, help, example in columns %}
@@ -71,8 +87,9 @@
         </div>
         <div class="small text-muted mt-1">＊は必須。日付は 2019-04-01・2019/4/1・2019年4月1日 のどれでも読めます。</div>
       </details>
-      <details class="mt-2"><summary class="small">前のシステムの「児童一覧」（見出しなしの CSV）もそのまま読めます</summary>
-        <div class="small text-muted mt-2">見出しの無い15列の CSV（保護者 氏名・保護者 カナ・利用者番号・児童 氏名・児童 カナ・性別・生年月日・空欄・児童発達支援の利用状況／開始日／終了日・放課後等デイの利用状況／開始日／終了日・3つ目の利用状況）は<b>児童一覧</b>として読みます。1行が契約1件なので、同じお子さまが何行あっても1人にまとめます（「利用中」があれば在籍中、なければ退所。入所日は最初の開始日、退所日は最後の終了日）。カナはひらがなにして登録し、保護者は姓・名・ふりがなだけ付けます（続柄・電話は「保護者一覧」を後から読ませると入ります）。利用者番号と各契約は備考に「前のシステム：…」として残ります。姓だけ違う同じ名・生年月日の行があれば注意を出します。</div>
+      <details class="mt-2"><summary class="small">前のシステムの「児童一覧」の CSV もそのまま読めます</summary>
+        <div class="small mt-2"><span class="fw-semibold">見出し：</span>{{ children_headers|join:'、' }}</div>
+        <div class="small text-muted mt-1">1行目に「児童（名前）」がある表（見出しの無い15列の CSV も）は<b>児童一覧</b>として読みます。児発・放デイ・保訪それぞれの状態・利用契約日・退所日を見ます。1行が契約1件なので、同じお子さまが何行あっても1人にまとめます（「利用中」があれば在籍中、なければ退所。入所日はいちばん早い利用契約日、退所日はいちばん遅い退所日）。カナはひらがなにして登録し、保護者は姓・名・ふりがなだけ付けます（続柄・電話は「保護者一覧」を後から読ませると入ります）。管理番号と各契約、「備考」の列は、台帳の備考に「前のシステム：…」「備考：…」として残ります。姓だけ違う同じ名・生年月日の行があれば注意を出します。</div>
       </details>
       <details class="mt-2"><summary class="small">前のシステムの「保護者一覧」もそのまま読めます</summary>
         <div class="small text-muted mt-2">1行目に「保護者（名前）」がある表は<b>保護者一覧</b>として読みます（1行が保護者1人）。「児童」の欄の名前で台帳のお子さまを探し、その保護者として付けます（ふりがな・続柄・電話番号・メール・備考。住所はお子さまの住所が空のときだけ写します。連絡先の名称や請求先は「取り込んだ情報」として保護者の欄に残します）。児童が2人なら「、」で区切ります。台帳にいない児童は、下の「仮の生年月日で作る」に印を付けたときだけ作ります。</div>

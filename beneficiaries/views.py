@@ -66,6 +66,11 @@ class BeneficiaryListView(LoginRequiredMixin, ListView):
         ctx['status'] = self.request.GET.get('status', Beneficiary.STATUS_ACTIVE)
         ctx['row'] = self.request.GET.get('row', '')
         ctx['kana_rows'] = [r for r, _ in KANA_ROWS]
+        counts = dict(Beneficiary.objects.filter(facility=self.request.user.facility).values_list('status')
+                      .annotate(n=db_models.Count('pk')).values_list('status', 'n'))
+        ctx['status_tabs'] = [(value, label, counts.get(value, 0)) for value, label in Beneficiary.STATUS_CHOICES] \
+            + [('', '全員', sum(counts.values()))]
+        ctx['can_delete'] = self.request.user.is_admin or self.request.user.is_superuser
         return ctx
 
 
@@ -96,17 +101,14 @@ def related_counts(b):
 
 class BeneficiaryDeleteView(LoginRequiredMixin, View):
     """
-    退所した利用者を、関連する記録・書類ごと消す。戻せないので確認画面を挟み、管理者だけができる。
-    在籍中の人は消せない（先に「編集」で在籍状況を「退所」にする）。
+    利用者を、関連する記録・書類ごと消す（辞めた子・まちがえて登録した子）。戻せないので確認画面を挟み、管理者だけができる。
+    在籍中の人も消せるが、確認画面で「在籍中」と強く知らせる。
     """
 
     def _get(self, request, pk):
         b = get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
         if not (request.user.is_admin or request.user.is_superuser):
             messages.error(request, f'{get_terms(request.user.facility)["beneficiary"]}の削除は管理者だけができます。')
-            return b, redirect('beneficiaries:detail', pk=pk)
-        if b.status != Beneficiary.STATUS_INACTIVE:
-            messages.error(request, '在籍中の人は削除できません。先に「編集」で在籍状況を「退所」にしてください。')
             return b, redirect('beneficiaries:detail', pk=pk)
         return b, None
 
@@ -125,7 +127,7 @@ class BeneficiaryDeleteView(LoginRequiredMixin, View):
                 or not request.POST.get('agree'):
             messages.error(request, '氏名が合っていないか、確認の印が付いていません。削除していません。')
             return redirect('beneficiaries:delete', pk=pk)
-        name = b.full_name
+        name, status = b.full_name, b.status
         # ファイルは DB を消したあとに消す（途中で失敗しても DB と食い違わないように）
         from records.models import DailyRecordPhoto
         files = [d.file for d in b.documents.all()] + [a.file for a in b.assessments.all() if a.file] \
@@ -139,7 +141,31 @@ class BeneficiaryDeleteView(LoginRequiredMixin, View):
             except Exception:       # ファイルが既に無いなどは無視（DB は消えている）
                 pass
         messages.success(request, f'「{name}」を削除しました。')
-        return redirect(f"{reverse('beneficiaries:list')}?status=inactive")
+        return redirect(f"{reverse('beneficiaries:list')}?status={status}")
+
+
+class BeneficiaryStatusView(LoginRequiredMixin, View):
+    """在籍状況だけを変える（在籍中・退所・卒業）。退所・卒業にした日が退所日に無ければ今日を入れる"""
+
+    def post(self, request, pk):
+        b = get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
+        status = request.POST.get('status')
+        if status not in dict(Beneficiary.STATUS_CHOICES):
+            messages.error(request, '在籍状況を選んでください。')
+            return redirect('beneficiaries:detail', pk=pk)
+        b.status = status
+        fields = ['status', 'updated_at']
+        if status in Beneficiary.LEFT_STATUSES and not b.discharge_date:
+            b.discharge_date = datetime.date.today()
+            fields.append('discharge_date')
+        elif status == Beneficiary.STATUS_ACTIVE and b.discharge_date:
+            b.discharge_date = None
+            fields.append('discharge_date')
+        b.save(update_fields=fields)
+        messages.success(request, f'{b.full_name} さんを「{b.get_status_display()}」にしました。'
+                         + ('一覧の在籍中には出なくなります（「' + b.get_status_display() + '」の見出しで見られます）。'
+                            if status in Beneficiary.LEFT_STATUSES else ''))
+        return redirect('beneficiaries:detail', pk=pk)
 
 
 # =============================================
@@ -165,6 +191,7 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
         b = self.object
         today = datetime.date.today()
         ctx['guardians'] = b.guardians.all()
+        ctx['status_choices'] = Beneficiary.STATUS_CHOICES
         ctx['certificates'] = b.recipient_certificates.all()
         ctx['offices'] = b.offices.all()
         ctx['assessments'] = b.assessments.select_related('created_by')
@@ -734,7 +761,7 @@ class BeneficiaryImportView(ImportRyoikuMixin, View):
     def _ctx(self, request, **extra):
         from . import importer
         return {'columns': importer.COLUMNS, 'headers': importer.HEADERS, 'max_rows': importer.MAX_ROWS,
-                'guardian_headers': importer.GUARDIAN_HEADERS, **extra}
+                'guardian_headers': importer.GUARDIAN_HEADERS, 'children_headers': importer.CHILDREN_COLUMNS, **extra}
 
     def get(self, request):
         from django.shortcuts import render
@@ -746,6 +773,7 @@ class BeneficiaryImportView(ImportRyoikuMixin, View):
         from . import importer
         facility = request.user.facility
         create_children = request.POST.get('create_children') == '1'
+        mode = request.POST.get('mode') if request.POST.get('mode') in importer.MODES else importer.MODE_KEEP
         if request.POST.get('action') == 'commit':
             rows = request.session.pop(IMPORT_SESSION_KEY, None)
             if not rows:
@@ -753,12 +781,14 @@ class BeneficiaryImportView(ImportRyoikuMixin, View):
                 return redirect('beneficiaries:import')
             if importer.format_of(rows) == importer.FORMAT_GUARDIAN:
                 planned = importer.plan_guardians(facility, rows, create_children=create_children)
-                made, guardians, errors = importer.apply_guardians(facility, planned)
+                made, guardians, errors = importer.apply_guardians(facility, planned, mode=mode)
                 msg = f'保護者一覧を取り込みました：保護者 {guardians} 件（新しく作った児童 {made} 名）'
             else:
                 planned = importer.plan(facility, rows)
-                created, updated, errors = importer.apply(facility, planned)
-                msg = f'利用者を取り込みました：新規 {created} 名・書き換え {updated} 名'
+                created, updated, errors = importer.apply(facility, planned, mode=mode)
+                msg = f'利用者を取り込みました：新規 {created} 名・台帳にいた人 {updated} 名' + \
+                      ('（台帳の値を残し、空欄だけ埋めました）' if mode == importer.MODE_KEEP else '（取り込んだ値で上書きしました）') if updated else \
+                      f'利用者を取り込みました：新規 {created} 名'
             if errors:
                 msg += f'（読めなかった行 {errors} 件は登録していません）'
             messages.success(request, msg + '。')
@@ -780,8 +810,10 @@ class BeneficiaryImportView(ImportRyoikuMixin, View):
                    else importer.plan(facility, rows))
         request.session[IMPORT_SESSION_KEY] = rows
         counts = {k: sum(1 for p in planned if p['action'] == k) for k in ('create', 'update', 'error')}
+        diff_count = sum(1 for p in planned if p.get('diffs'))
         return render(request, self.template_name, self._ctx(request, planned=planned, counts=counts, file_name=f.name,
-                                                             fmt=fmt, create_children=create_children))
+                                                             fmt=fmt, create_children=create_children, diff_count=diff_count,
+                                                             mode=importer.MODE_KEEP))
 
 
 # =============================================

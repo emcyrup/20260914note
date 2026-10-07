@@ -18,8 +18,11 @@
 
   <div class="alert alert-warning small">
     <i class="bi bi-exclamation-triangle me-1"></i>{{ retention_note }}
-    退所から 5 年たっていない場合は、削除せず「退所」のままにしておくことをおすすめします（退所の人は一覧の既定では出ません。「退所」で絞ると見られます）。
+    辞めてから 5 年たっていない場合は、削除せず「退所」か「卒業」にしておくことをおすすめします（一覧の「在籍中」には出ず、「退所」「卒業」の見出しで分けて見られます）。
   </div>
+  {% if beneficiary.status == 'active' %}
+  <div class="alert alert-danger small"><i class="bi bi-exclamation-octagon me-1"></i><b>この人はいま「在籍中」です。</b>まちがえて登録した場合などに削除してください。辞めた子は、先に「退所」か「卒業」にしておく方法もあります。</div>
+  {% endif %}
 
   <form method="post">
     {% csrf_token %}

@@ -340,15 +340,17 @@ class BeneficiaryImportTests(TestCase):
         res = self.client.post(self.url, {'file': self.xlsx(rows)})
         self.assertContains(res, '2. 確かめる（まだ登録していません）')
         self.assertContains(res, '新規 1')
-        self.assertContains(res, '書き換え 1')
+        self.assertContains(res, '台帳にいる 1')
         self.assertContains(res, '読めない行 2')
         self.assertContains(res, '新しく登録します（保護者・受給者証 も）')
-        self.assertContains(res, '同じ姓・名・生年月日の利用者がいるので書き換えます')
+        self.assertContains(res, 'すでに台帳にいます')
+        self.assertContains(res, '台帳の空欄に入れる：利用予定曜日')
+        self.assertContains(res, '台帳の値を残す')
         self.assertContains(res, '姓が空です')
         self.assertContains(res, '日付を読み取れません')
         self.assertEqual(Beneficiary.objects.filter(facility=self.f).count(), 1)     # まだ登録していない
         res = self.client.post(self.url, {'action': 'commit'}, follow=True)
-        self.assertContains(res, '新規 1 名・書き換え 1 名（読めなかった行 2 件は登録していません）')
+        self.assertContains(res, '新規 1 名・台帳にいた人 1 名（台帳の値を残し、空欄だけ埋めました）（読めなかった行 2 件は登録していません）')
         self.assertEqual(Beneficiary.objects.filter(facility=self.f).count(), 2)
         taro = Beneficiary.objects.get(facility=self.f, last_name='山田')
         self.assertEqual((taro.gender, taro.address, taro.weekday_mon, taro.weekday_wed, taro.weekday_tue, taro.has_prior_records),
@@ -362,7 +364,7 @@ class BeneficiaryImportTests(TestCase):
         # もう一度同じファイル → 全部「書き換え」、件数は増えない。受給者証も増えない
         res = self.client.post(self.url, {'file': self.xlsx(rows)})
         self.assertContains(res, '新規 0')
-        self.assertContains(res, '書き換え 2')
+        self.assertContains(res, '台帳にいる 2')
         self.client.post(self.url, {'action': 'commit'})
         self.assertEqual(Beneficiary.objects.filter(facility=self.f).count(), 2)
         self.assertEqual(taro.recipient_certificates.count(), 1)
@@ -482,7 +484,7 @@ class GuardianListImportTests(TestCase):
         res = self.client.post(self.url, {'file': f, 'create_children': '1'})
         self.assertContains(res, '児童も新しく作る 1')
         self.assertContains(res, '仮の生年月日 2000-01-01 で新しく作ります')
-        res = self.client.post(self.url, {'action': 'commit', 'create_children': '1'}, follow=True)
+        res = self.client.post(self.url, {'action': 'commit', 'create_children': '1', 'mode': 'overwrite'}, follow=True)
         self.assertContains(res, '保護者 2 件（新しく作った児童 1 名）')
         jiro = Beneficiary.objects.get(facility=self.f, last_name='鈴木', first_name='次郎')
         self.assertEqual(jiro.date_of_birth.isoformat(), '2000-01-01')
@@ -587,9 +589,9 @@ class ChildrenListImportTests(TestCase):
         self.assertEqual((taro['status'], taro['admission_date'], taro['discharge_date']), ('在籍中', '2021/1/1', ''))
         self.assertEqual((taro['last_name_kana'], taro['first_name_kana'], taro['guardian_kana']), ('やまだ', 'たろう', 'やまだ はなこ'))
         self.assertEqual((taro['guardian_last_name'], taro['guardian_first_name'], taro['gender']), ('山田', '花子', '男'))
-        self.assertIn('利用者番号 000010 児童発達支援 退所 2023/4/1〜2025/3/31', taro['notes_append'])
-        self.assertIn('利用者番号 000010 放課後等デイ 利用中 2025/4/1〜', taro['notes_append'])
-        self.assertIn('利用者番号 000011 放課後等デイ 退所 2021/1/1〜2022/3/31', taro['notes_append'])
+        self.assertIn('管理番号 000010 児童発達支援 退所 2023/4/1〜2025/3/31', taro['notes_append'])
+        self.assertIn('管理番号 000010 放課後等デイ 利用中 2025/4/1〜', taro['notes_append'])
+        self.assertIn('管理番号 000011 放課後等デイ 退所 2021/1/1〜2022/3/31', taro['notes_append'])
         self.assertEqual((hana['status'], hana['admission_date'], hana['discharge_date']), ('退所', '2024/4/1', '2025/3/31'))
         self.assertIn('姓だけ違う', hana['_detail'])
         self.assertIn('佐藤 花', hana['_detail'])
@@ -602,6 +604,56 @@ class ChildrenListImportTests(TestCase):
         self.assertEqual(importer.format_of(rows), importer.FORMAT_CHILDREN)
         self.assertEqual(len(rows), 3)
         self.assertEqual(rows[0]['_line'], 2)
+
+    HEADER17 = ['保護者（名前）', '保護者（カナ）', '管理番号', '児童（名前）', '児童（カナ）', '性別', '生年月日', '備考',
+                '児発状態', '児発利用契約日', '児発退所日', '放デイ状態', '放デイ利用契約日', '放デイ退所日', '保訪状態', '保訪利用契約日', '保訪退所日']
+
+    def test_header_17_columns_with_note_and_visit_support(self):
+        """見出し付き 17 列（ゆあーずの書式）。保護者（名前）があっても保護者一覧ではなく児童一覧として読む"""
+        from . import importer
+        rows = [self.HEADER17,
+                ['山田 花子', 'ヤマダ ハナコ', '20', '山田 太郎', 'ヤマダ タロウ', '男', '2018/4/2', '卵アレルギー',
+                 '', '', '', '利用中', '2025/4/1', '', '利用中', '2025/6/1', ''],
+                ['', '', '21', '佐藤 花', 'サトウ ハナ', '女', '2019/5/5', '', '退所', '2023/4/1', '2025/3/31', '', '', '', '', '', ''],
+                ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']]
+        data = importer.rows_from_file(self.csv(rows, enc='cp932', name='児童.csv'))
+        self.assertEqual(importer.format_of(data), importer.FORMAT_CHILDREN)
+        self.assertEqual(len(data), 2)
+        taro, hana = data
+        self.assertEqual((taro['status'], taro['admission_date']), ('在籍中', '2025/4/1'))
+        self.assertIn('管理番号 20 保育所等訪問支援 利用中 2025/6/1〜', taro['notes_append'])
+        self.assertIn('備考：卵アレルギー', taro['notes_append'])
+        self.assertEqual((hana['status'], hana['discharge_date']), ('退所', '2025/3/31'))
+        self.assertNotIn('guardian_last_name', hana)
+        res = self.client.post(self.url, {'file': self.csv(rows, name='児童.csv')})
+        self.assertContains(res, '新規 2')
+        self.client.post(self.url, {'action': 'commit'})
+        taro = Beneficiary.objects.get(facility=self.f, last_name='山田')
+        self.assertIn('備考：卵アレルギー', taro.notes)
+        self.assertEqual(taro.guardians.get().full_name, '山田 花子')
+
+    def test_existing_child_keep_or_overwrite(self):
+        """台帳にいる子：違う値は「残す」「上書き」を選べる。台帳の空欄はどちらでも埋める"""
+        import datetime
+        rows = [self.HEADER17,
+                ['山田 花子', 'ヤマダ ハナコ', '20', '山田 太郎', 'ヤマダ タロウ', '男', '2018/4/2', '',
+                 '', '', '', '利用中', '2025/4/1', '', '', '', '']]
+        b = Beneficiary.objects.create(facility=self.f, last_name='山田', first_name='太郎', date_of_birth=datetime.date(2018, 4, 2),
+                                       last_name_kana='やまもと', first_name_kana='', gender='male')
+        res = self.client.post(self.url, {'file': self.csv(rows)})
+        self.assertContains(res, '台帳にいる 1')
+        self.assertContains(res, '台帳と違う値')
+        self.assertContains(res, 'ふりがな（姓）：台帳「やまもと」／取り込み「やまだ」')
+        self.assertContains(res, '台帳の空欄に入れる：ふりがな（名）')
+        self.assertContains(res, 'name="mode" value="keep"')
+        self.client.post(self.url, {'action': 'commit', 'mode': 'keep'})
+        b.refresh_from_db()
+        self.assertEqual((b.last_name_kana, b.first_name_kana, b.admission_date), ('やまもと', 'たろう', datetime.date(2025, 4, 1)))
+        self.client.post(self.url, {'file': self.csv(rows)})
+        self.client.post(self.url, {'action': 'commit', 'mode': 'overwrite'})
+        b.refresh_from_db()
+        self.assertEqual(b.last_name_kana, 'やまだ')
+        self.assertEqual(Beneficiary.objects.filter(facility=self.f).count(), 1)
 
     def test_preview_and_commit_twice(self):
         import datetime
@@ -616,7 +668,7 @@ class ChildrenListImportTests(TestCase):
         self.assertEqual((taro.status, taro.admission_date, taro.discharge_date, taro.gender),
                          ('active', datetime.date(2021, 1, 1), None, 'male'))
         self.assertEqual((taro.last_name_kana, taro.first_name_kana), ('やまだ', 'たろう'))
-        self.assertEqual(taro.notes.count('利用者番号 000010'), 2)
+        self.assertEqual(taro.notes.count('管理番号 000010'), 2)
         self.assertTrue(taro.has_prior_records)
         g = taro.guardians.get()
         self.assertEqual((g.last_name, g.first_name, g.kana, g.relation, g.is_primary), ('山田', '花子', 'やまだ はなこ', 'other', True))
@@ -625,10 +677,10 @@ class ChildrenListImportTests(TestCase):
         # もう一度読ませても増えない。備考も二重にならない
         self.client.post(self.url, {'file': self.csv(self.ROWS)})
         res = self.client.post(self.url, {'action': 'commit'}, follow=True)
-        self.assertContains(res, '書き換え 3 名')
+        self.assertContains(res, '台帳にいた人 3 名')
         self.assertEqual(Beneficiary.objects.filter(facility=self.f).count(), 3)
         taro.refresh_from_db()
-        self.assertEqual(taro.notes.count('利用者番号 000010'), 2)
+        self.assertEqual(taro.notes.count('管理番号 000010'), 2)
         self.assertEqual(taro.guardians.count(), 1)
 
     def test_standard_format_status_and_discharge(self):
@@ -949,17 +1001,47 @@ class BeneficiaryDeleteTests(TestCase):
         TherapyRecord.objects.create(facility=self.f, beneficiary=self.b, date=datetime.date(2026, 9, 1))
         self.url = reverse('beneficiaries:delete', args=[self.b.pk])
 
-    def test_only_admin_and_only_inactive(self):
+    def test_only_admin_and_active_is_warned(self):
         self.client.login(username='st', password='pw12345678')
         res = self.client.post(self.url, {'confirm_name': '青木 子', 'agree': '1'}, follow=True)
         self.assertContains(res, '管理者だけ')
         self.assertTrue(Beneficiary.objects.filter(pk=self.b.pk).exists())
+        self.assertNotContains(self.client.get(reverse('beneficiaries:detail', args=[self.b.pk])), 'を削除する</a>')
         self.client.login(username='adm', password='pw12345678')
         self.b.status = 'active'
         self.b.save()
-        res = self.client.get(self.url, follow=True)
-        self.assertContains(res, '在籍中の人は削除できません')
-        self.assertNotContains(self.client.get(reverse('beneficiaries:detail', args=[self.b.pk])), 'を削除する</a>')
+        res = self.client.get(self.url)
+        self.assertContains(res, 'この人はいま「在籍中」です')
+        res = self.client.post(self.url, {'confirm_name': '青木 子', 'agree': '1'}, follow=True)
+        self.assertContains(res, '「青木 子」を削除しました')
+        self.assertFalse(Beneficiary.objects.filter(pk=self.b.pk).exists())
+
+    def test_status_tabs_graduated_and_list_actions(self):
+        self.client.login(username='adm', password='pw12345678')
+        Beneficiary.objects.create(facility=self.f, last_name='井上', first_name='空', last_name_kana='いのうえ',
+                                   first_name_kana='そら', date_of_birth=datetime.date(2018, 4, 1))
+        res = self.client.post(reverse('beneficiaries:status', args=[self.b.pk]), {'status': 'graduated'}, follow=True)
+        self.assertContains(res, '「卒業」にしました')
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.status, 'graduated')
+        self.assertEqual(self.b.discharge_date, datetime.date.today())
+        lst = reverse('beneficiaries:list')
+        res = self.client.get(lst)
+        self.assertContains(res, '井上 空')
+        self.assertNotContains(res, '青木 子')
+        self.assertContains(res, '卒業 <span')
+        self.assertContains(res, reverse('therapy:child', args=[Beneficiary.objects.get(last_name='井上').pk]))
+        res = self.client.get(lst + '?status=graduated')
+        self.assertContains(res, '青木 子')
+        self.assertNotContains(res, '井上 空')
+        self.assertContains(res, reverse('beneficiaries:delete', args=[self.b.pk]))
+        self.assertNotContains(self.client.get(lst + '?status=inactive'), '青木 子')
+        # 在籍中に戻すと退所日は消える
+        self.client.post(reverse('beneficiaries:status', args=[self.b.pk]), {'status': 'active'})
+        self.b.refresh_from_db()
+        self.assertEqual((self.b.status, self.b.discharge_date), ('active', None))
+        res = self.client.post(reverse('beneficiaries:status', args=[self.b.pk]), {'status': 'x'}, follow=True)
+        self.assertContains(res, '在籍状況を選んでください')
 
     def test_confirm_and_delete(self):
         from support_plans.models import SupportPlan

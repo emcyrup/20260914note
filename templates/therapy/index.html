@@ -16,6 +16,7 @@
   .th-acts { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; }
   .th-count { font-variant-numeric: tabular-nums; }
   .th-sum { font-size: 0.82rem; color: #6b6257; }
+  .th-pick select { max-width: 280px; }
   @media (max-width: 576px) { .th-row { padding: 10px 12px; gap: 10px; } .th-time { flex-basis: 48px; font-size: 0.95rem; } }
 </style>
 {% endblock %}
@@ -46,19 +47,35 @@
         <div class="fw-bold"><i class="bi bi-calendar-check me-1"></i>この日の予約から書く</div>
         <div class="th-sum">押すと、日付と時刻の入った入力欄が開きます。</div>
       </div>
+      <form method="get" action="{% url 'therapy:index' %}" class="d-flex gap-1 align-items-center th-pick" onsubmit="if(!this.pick.value)return false;location.href=this.pick.value;return false;">
+        <select name="pick" class="form-select form-select-sm" aria-label="ほかの{{ terms.beneficiary }}を選んで書く" onchange="if(this.value)location.href=this.value;">
+          <option value="">予約に無い{{ terms.beneficiary }}を選んで書く…</option>
+          {% for c in children %}{% if c.beneficiary.pk not in reserved_ids %}<option value="{% url 'therapy:child' c.beneficiary.pk %}?date={{ day|date:'Y-m-d' }}#add">{{ c.beneficiary.full_name }}</option>{% endif %}{% endfor %}
+        </select>
+      </form>
       {% if reservations %}<div class="th-sum">予約 {{ reservations|length }} 件・記録ずみ {{ written_count }} 件</div>{% endif %}
     </div>
     {% for r in reservations %}
     <div class="th-row">
       <div class="th-time">{{ r.time_label|default:'—' }}</div>
+      {% if r.beneficiary %}
       <div class="th-main">
         <a href="{% url 'therapy:child' r.beneficiary.pk %}" class="th-name">{{ r.beneficiary.full_name }}</a>
-        <div>{% if r.written %}<span class="badge text-bg-success">記録ずみ</span>{% else %}<span class="badge text-bg-light border">未記録</span>{% endif %}</div>
+        <div>{% if r.written %}<span class="badge text-bg-success">記録ずみ</span>{% else %}<span class="badge text-bg-light border">未記録</span>{% endif %}{% if r.status == 'waitlist' %} <span class="badge text-bg-warning">キャンセル待ちから来所</span>{% endif %}</div>
       </div>
       <div class="th-acts">
         <a href="{% url 'therapy:child' r.beneficiary.pk %}?date={{ day|date:'Y-m-d' }}{% if r.start_time %}&time={{ r.start_time|time:'H:i' }}{% endif %}#add"
            class="btn btn-sm {% if r.written %}btn-outline-secondary{% else %}btn-primary{% endif %} text-nowrap"><i class="bi bi-pencil-square me-1"></i>{% if r.written %}開く{% else %}書く{% endif %}</a>
       </div>
+      {% else %}
+      <div class="th-main">
+        <span class="th-name">{{ r.guest_name }}</span> <span class="badge text-bg-secondary">台帳に未登録</span>
+        <div class="th-meta">台帳の{{ terms.beneficiary }}と結びつけると療育記録を書けます（台帳にいなければ、先に{{ terms.beneficiary }}情報で登録）。</div>
+      </div>
+      <div class="th-acts">
+        <a href="{% url 'reservations:day' day.year day.month day.day %}#link{{ r.pk }}" class="btn btn-sm btn-outline-primary text-nowrap"><i class="bi bi-link-45deg me-1"></i>台帳と結びつける</a>
+      </div>
+      {% endif %}
     </div>
     {% empty %}
     <div class="text-center text-muted py-3 small border-top">この日の予約はありません{% if not features.reservation %}（予約管理を使っていません）{% endif %}。下の一覧から{{ terms.beneficiary }}を選んで書けます。</div>
@@ -70,7 +87,7 @@
     <div class="card-body pb-2"><div class="fw-bold"><i class="bi bi-journal-check me-1"></i>この日に書いた記録（{{ today_records|length }} 件）</div></div>
     {% for rec in today_records %}
     <div class="th-row">
-      <div class="th-time">{% if rec.time %}{{ rec.time|time:'G:i' }}{% else %}—{% endif %}</div>
+      <div class="th-time">{% if rec.time %}{{ rec.time_label }}{% else %}—{% endif %}</div>
       <div class="th-main">
         <a href="{% url 'therapy:child' rec.beneficiary.pk %}#rec{{ rec.pk }}" class="th-name">{{ rec.beneficiary.full_name }}</a>
         {% if rec.staff_label %}<span class="th-meta ms-1">担当 {{ rec.staff_label }}</span>{% endif %}

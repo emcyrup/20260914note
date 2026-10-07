@@ -11,6 +11,7 @@ urlpatterns = [
     path('<int:pk>/', views.BeneficiaryDetailView.as_view(), name='detail'),
     path('<int:pk>/edit/', views.BeneficiaryUpdateView.as_view(), name='update'),
     path('<int:pk>/delete/', views.BeneficiaryDeleteView.as_view(), name='delete'),
+    path('<int:pk>/status/', views.BeneficiaryStatusView.as_view(), name='status'),
     path('<int:beneficiary_pk>/guardians/new/', views.GuardianCreateView.as_view(), name='guardian_create'),
     path('<int:beneficiary_pk>/guardians/<int:guardian_pk>/edit/', views.GuardianUpdateView.as_view(), name='guardian_update'),
     path('<int:beneficiary_pk>/certificates/new/', views.RecipientCertificateCreateView.as_view(), name='certificate_create'),

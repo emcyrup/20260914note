@@ -58,10 +58,14 @@ class Beneficiary(models.Model):
 
     STATUS_ACTIVE = 'active'
     STATUS_INACTIVE = 'inactive'
+    STATUS_GRADUATED = 'graduated'
     STATUS_CHOICES = [
         (STATUS_ACTIVE, '在籍中'),
         (STATUS_INACTIVE, '退所'),
+        (STATUS_GRADUATED, '卒業'),
     ]
+    # 利用をやめた人（退所・卒業）。一覧では在籍中と分けて見る
+    LEFT_STATUSES = (STATUS_INACTIVE, STATUS_GRADUATED)
 
     facility = models.ForeignKey(
         Facility,

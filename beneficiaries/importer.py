@@ -8,8 +8,11 @@
 - まず「確かめる」（登録しない）で行ごとの結果を見せ、「登録する」で保存する
 - もう1つの形「保護者一覧」（前のシステムからのデータ移行用。1行が保護者1人。児童は名前で台帳と照合）にも対応する。
   1行目に「保護者（名前）」があればこの形とみなす（GUARDIAN_COLUMNS）
-- もう1つの形「児童一覧」（前のシステムの CSV。見出しなし・15列。1行が契約1件で、同じお子さまが複数行に出る）にも対応する。
-  列の並びは CHILDREN_COLUMNS。同じ姓・名・生年月日の行は1人にまとめ、利用中があれば在籍中、なければ退所にする
+- もう1つの形「児童一覧」（前のシステムの CSV。1行が契約1件で、同じお子さまが複数行に出る）にも対応する。
+  見出しあり（17列：保護者（名前）…児童（名前）…保訪退所日。1行目に「児童（名前）」があればこの形）と、見出しなし（15列）の両方を読む。
+  列の意味は CHILDREN_COLUMNS。同じ姓・名・生年月日の行は1人にまとめ、利用中があれば在籍中、なければ退所にする
+- すでに台帳にいる利用者は、登録のときに「取り込んだ値で上書きする」か「台帳の値を残す」かを選ぶ（MODE_*）。
+  どちらでも、台帳の欄が空なら取り込んだ値を入れる
 """
 import datetime
 import io
@@ -37,7 +40,7 @@ COLUMNS = [
     ('school_name', '通学学校名', False, '', '○○小学校'),
     ('grade', '学年', False, '未就学・小1〜小6・中1〜中3・高1〜高3・その他', '小1'),
     ('admission_date', '入所日', False, '日付', '2026-04-01'),
-    ('status', '在籍状況', False, '在籍中・退所（空なら変えない。新しい人は在籍中）', '在籍中'),
+    ('status', '在籍状況', False, '在籍中・退所・卒業（空なら変えない。新しい人は在籍中）', '在籍中'),
     ('discharge_date', '退所日', False, '日付（退所のとき）', ''),
     ('weekdays', '利用予定曜日', False, '月・水・金 のように「・」か「,」で区切る', '月・水'),
     ('notes', '備考', False, '', ''),
@@ -65,7 +68,8 @@ GENDER = {'男': 'male', '男性': 'male', '女': 'female', '女性': 'female', 
           'male': 'male', 'female': 'female', 'other': 'other'}
 RELATION = {'父': 'father', '母': 'mother', 'その他': 'other', 'father': 'father', 'mother': 'mother', 'other': 'other'}
 STATUS = {'在籍中': 'active', '在籍': 'active', '利用中': 'active', '退所': 'inactive', '退所済': 'inactive', '退所済み': 'inactive',
-          'active': 'active', 'inactive': 'inactive'}
+          '卒業': 'graduated', '卒業済': 'graduated', '卒業済み': 'graduated',
+          'active': 'active', 'inactive': 'inactive', 'graduated': 'graduated'}
 DISABILITY = {'1級': '1', '2級': '2', '1': '1', '2': '2', '１級': '1', '２級': '2'}
 GRADE = {label: key for key, label in Beneficiary.GRADE_CHOICES if key}
 WEEKDAY_FIELDS = {'月': 'weekday_mon', '火': 'weekday_tue', '水': 'weekday_wed', '木': 'weekday_thu', '金': 'weekday_fri', '土': 'weekday_sat'}
@@ -88,12 +92,19 @@ GUARDIAN_MARK = '保護者（名前）'
 FORMAT_BENEFICIARY = 'beneficiary'
 FORMAT_GUARDIAN = 'guardian'
 FORMAT_CHILDREN = 'children'
-# 前のシステムの「児童一覧」CSV（見出しなし・15列。1行が契約1件）。列の意味は依頼者のファイルから推測したもの
-CHILDREN_COLUMNS = ['保護者 氏名', '保護者 カナ', '利用者番号', '児童 氏名', '児童 カナ', '性別', '生年月日', '（空）',
-                    '児童発達支援 利用状況', '児童発達支援 開始日', '児童発達支援 終了日',
-                    '放課後等デイ 利用状況', '放課後等デイ 開始日', '放課後等デイ 終了日', '3つ目のサービス 利用状況']
-CHILDREN_SERVICES = ((8, '児童発達支援'), (11, '放課後等デイ'), (14, '3つ目のサービス'))   # (利用状況の列, 名前)
+MODE_OVERWRITE = 'overwrite'     # 台帳と違う値は、取り込んだ値で上書きする
+MODE_KEEP = 'keep'               # 台帳の値を残す（台帳の欄が空のときだけ取り込んだ値を入れる）
+MODES = (MODE_OVERWRITE, MODE_KEEP)
+# 前のシステムの「児童一覧」CSV（1行が契約1件）。見出しの文字と列の並び（見出しなしの CSV はこの並びで読む）
+CHILDREN_COLUMNS = ['保護者（名前）', '保護者（カナ）', '管理番号', '児童（名前）', '児童（カナ）', '性別', '生年月日', '備考',
+                    '児発状態', '児発利用契約日', '児発退所日', '放デイ状態', '放デイ利用契約日', '放デイ退所日',
+                    '保訪状態', '保訪利用契約日', '保訪退所日']
+CHILDREN_WIDTH = len(CHILDREN_COLUMNS)
+CHILDREN_MARK = '児童（名前）'
+CHILDREN_SERVICES = ((8, '児童発達支援'), (11, '放課後等デイ'), (14, '保育所等訪問支援'))   # (状態の列, 名前)。契約日・退所日はその右の2列
 CHILDREN_STATUS_WORDS = {'利用なし', '退所', '利用中'}
+CHILDREN_ACTIVE_WORDS = {'利用中', '契約中', '在籍', '在籍中', '利用'}
+CHILDREN_NONE_WORDS = {'', '利用なし', 'なし', '-', '－', '—'}
 PLACEHOLDER_DOB = datetime.date(2000, 1, 1)     # 児童の生年月日が無いときの仮の値（あとで直してもらう）
 RELATION_WORDS = {'父': 'father', '母': 'mother', '父親': 'father', '母親': 'mother', 'お父さん': 'father', 'お母さん': 'mother'}
 
@@ -125,7 +136,7 @@ def template_xlsx():
         ws2.append([c[1], '必須' if c[2] else '', c[3]])
     ws2.append([])
     ws2.append(['1枚目の2行目は例です。消して、2行目から利用者を1人1行で入れてください。'])
-    ws2.append(['同じ「姓・名・生年月日」の利用者がすでにいれば、その人の情報を書き換えます（空の欄は変えません）。'])
+    ws2.append(['同じ「姓・名・生年月日」の利用者がすでにいれば、登録のときに「取り込んだ値で上書きする」か「台帳の値を残す」かを選べます（台帳の欄が空なら、どちらでも取り込んだ値を入れます。取り込む側の空の欄は何も変えません）。'])
     ws2.append(['見出しの並びは変えても構いません。使わない列は消しても構いません（姓・名・生年月日は必要）。'])
     for col, w in (('A', 30), ('B', 8), ('C', 60)):
         ws2.column_dimensions[col].width = w
@@ -140,6 +151,9 @@ def rows_from_file(uploaded):
     rows = read_rows(uploaded)
     if not rows:
         return []
+    head = find_header(rows, [CHILDREN_MARK, '生年月日'])
+    if head is not None:
+        return _children_rows(_children_by_header(rows[head], rows[head + 1:head + 1 + MAX_ROWS]), head + 1, strict=False)
     head = find_header(rows, [GUARDIAN_MARK])
     if head is not None:
         return _guardian_rows([(h or '').strip() for h in rows[head]], rows[head + 1:head + 1 + MAX_ROWS])
@@ -184,8 +198,18 @@ def _guardian_rows(header, body):
     return out
 
 
+def _children_by_header(header, body):
+    """見出しのある児童一覧 → CHILDREN_COLUMNS の並びにそろえた行（見出しの並びが変わっても読める）"""
+    pos = {}
+    for i, h in enumerate(header):
+        h = (h or '').strip()
+        if h in CHILDREN_COLUMNS and h not in pos:
+            pos[h] = i
+    return [[(r[pos[label]] if label in pos and pos[label] < len(r) else '') for label in CHILDREN_COLUMNS] for r in body]
+
+
 def _is_children_row(r):
-    """児童一覧の1行か：15列以上、性別が男/女、利用状況の語、利用者番号が数字、生年月日が日付"""
+    """見出しなしの児童一覧の1行か：15列以上、性別が男/女、利用状況の語、管理番号が数字、生年月日が日付"""
     if len(r) < 15:
         return False
     c = [(x or '').strip() for x in r]
@@ -217,17 +241,18 @@ def _fmt_date(v):
     return f'{d.year}/{d.month}/{d.day}' if d else ''
 
 
-def _children_rows(body, offset):
-    """児童一覧（1行が契約1件）→ 同じお子さまを1人にまとめて、雛形と同じキーの dict にする"""
+def _children_rows(body, offset, strict=True):
+    """児童一覧（1行が契約1件）→ 同じお子さまを1人にまとめて、雛形と同じキーの dict にする。
+    strict は見出しなしの CSV（並びを決め打ちで読むので、行の形を確かめる）"""
     groups = {}
     order = []
     for n, r in enumerate(body):
-        c = [(x or '').strip() for x in r] + [''] * 15
-        if not any(c[:15]):
+        c = ([(x or '').strip() for x in r] + [''] * CHILDREN_WIDTH)[:CHILDREN_WIDTH]
+        if not any(c):
             continue
-        if not _is_children_row(c):
+        if strict and not _is_children_row(c):
             key = ('?', n)
-            groups[key] = {'_format': FORMAT_CHILDREN, '_line': offset + n + 1, '_error': '児童一覧の行として読めません（15列の並びを確かめてください）',
+            groups[key] = {'_format': FORMAT_CHILDREN, '_line': offset + n + 1, '_error': '児童一覧の行として読めません（列の並びを確かめてください）',
                            'last_name': c[3], 'first_name': ''}
             order.append(key)
             continue
@@ -236,21 +261,26 @@ def _children_rows(body, offset):
         regs = []
         for col, name in CHILDREN_SERVICES:
             st = c[col]
-            start, end = (c[col + 1], c[col + 2]) if col + 2 < 15 else ('', '')
-            if st and st != '利用なし':
-                regs.append({'service': name, 'status': st, 'start': start, 'end': end, 'number': c[2]})
+            start, end = c[col + 1], c[col + 2]
+            if st not in CHILDREN_NONE_WORDS or start or end:
+                regs.append({'service': name, 'status': st or '（状態なし）', 'start': start, 'end': end, 'number': c[2],
+                             'active': st in CHILDREN_ACTIVE_WORDS or (not st and start and not end)})
         if not regs:
-            regs.append({'service': '', 'status': '利用なし', 'start': '', 'end': '', 'number': c[2]})
+            regs.append({'service': '', 'status': '利用なし', 'start': '', 'end': '', 'number': c[2], 'active': False})
         g = groups.get(key)
         if g is None:
-            g = {'_format': FORMAT_CHILDREN, '_line': offset + n + 1, '_regs': [],
+            g = {'_format': FORMAT_CHILDREN, '_line': offset + n + 1, '_regs': [], '_notes': [],
                  'last_name': last, 'first_name': first, 'date_of_birth': c[6], 'gender': c[5]}
             groups[key] = g
             order.append(key)
         kl, kf = split_name(c[4])
-        g['last_name_kana'], g['first_name_kana'] = _hira(kl), _hira(kf)
-        gl, gf = split_name(c[0])
-        g['guardian_last_name'], g['guardian_first_name'], g['guardian_kana'] = gl, gf, _hira(c[1])
+        if kl or kf:
+            g['last_name_kana'], g['first_name_kana'] = _hira(kl), _hira(kf)
+        if c[0]:
+            gl, gf = split_name(c[0])
+            g['guardian_last_name'], g['guardian_first_name'], g['guardian_kana'] = gl, gf, _hira(c[1])
+        if c[7] and c[7] not in g['_notes']:
+            g['_notes'].append(c[7])
         g['_regs'].extend(regs)
     by_first = {}
     for key in order:
@@ -263,16 +293,18 @@ def _children_rows(body, offset):
             out.append(g)
             continue
         regs = g.pop('_regs')
+        notes = g.pop('_notes')
         others = [k for k in by_first.get((key[1], key[2]), []) if k != key]
-        actives = [x for x in regs if x['status'] == '利用中']
-        starts = sorted(x['start'] for x in regs if x['start'])
-        ends = sorted(x['end'] for x in regs if x['end'])
+        actives = [x for x in regs if x['active']]
+        starts = sorted((parse_date_or_none(x['start']), x['start']) for x in regs if parse_date_or_none(x['start']))
+        ends = sorted((parse_date_or_none(x['end']), x['end']) for x in regs if parse_date_or_none(x['end']))
         g['status'] = '在籍中' if actives else '退所'
-        g['admission_date'] = starts[0] if starts else ''
-        g['discharge_date'] = '' if actives else (ends[-1] if ends else '')
+        g['admission_date'] = starts[0][1] if starts else ''
+        g['discharge_date'] = '' if actives else (ends[-1][1] if ends else '')
         g['notes_append'] = '\n'.join(
-            f"前のシステム：利用者番号 {x['number']}" + (f" {x['service']}" if x['service'] else '') + f" {x['status']}"
-            + (f" {_fmt_date(x['start'])}〜{_fmt_date(x['end'])}" if x['start'] or x['end'] else '') for x in regs)
+            [f"前のシステム：管理番号 {x['number']}" + (f" {x['service']}" if x['service'] else '') + f" {x['status']}"
+             + (f" {_fmt_date(x['start'])}〜{_fmt_date(x['end'])}" if x['start'] or x['end'] else '') for x in regs]
+            + [f'備考：{x}' for x in notes])
         g['_detail'] = '・'.join(
             (f"{x['service']} " if x['service'] else '') + x['status']
             + (f"（{_fmt_date(x['start'])}〜{_fmt_date(x['end'])}）" if x['start'] or x['end'] else '') for x in regs)
@@ -301,6 +333,14 @@ def parse_date(v):
         return datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
     except ValueError:
         raise RowError(f'日付が正しくありません：{v}')
+
+
+def parse_date_or_none(v):
+    """日付として読めなければ None（並べ替え用）"""
+    try:
+        return parse_date(v)
+    except RowError:
+        return None
 
 
 def _int(v, label):
@@ -473,8 +513,8 @@ def plan_guardians(facility, rows, create_children=False):
 
 
 @transaction.atomic
-def apply_guardians(facility, planned):
-    """plan_guardians() の結果を保存する。戻り値 (新しく作った児童, 付けた保護者の数, エラー数)"""
+def apply_guardians(facility, planned, mode=MODE_OVERWRITE):
+    """plan_guardians() の結果を保存する。mode は台帳にすでに値がある欄の扱い。戻り値 (新しく作った児童, 付けた保護者の数, エラー数)"""
     children_made = guardians = errors = 0
     for item in planned:
         data = item['data']
@@ -508,8 +548,13 @@ def apply_guardians(facility, planned):
                                         is_primary=not b.guardians.filter(is_primary=True).exists(), **fields)
             else:
                 for k, v in fields.items():
-                    setattr(existing, k, v)
-                existing.extra = {**(existing.extra or {}), **g['extra']}
+                    if k == 'relation':
+                        if v != Guardian.RELATION_OTHER and (mode == MODE_OVERWRITE or existing.relation == Guardian.RELATION_OTHER):
+                            existing.relation = v
+                    elif _take(getattr(existing, k), v, mode):
+                        setattr(existing, k, v)
+                existing.extra = ({**(existing.extra or {}), **g['extra']} if mode == MODE_OVERWRITE
+                                  else {**g['extra'], **{k: v for k, v in (existing.extra or {}).items() if v not in ('', None)}})
                 existing.save()
             guardians += 1
     return children_made, guardians, errors
@@ -520,8 +565,57 @@ def find_existing(facility, data):
                                       date_of_birth=data['date_of_birth']).order_by('pk').first()
 
 
+FIELD_LABELS = {c[0]: c[1] for c in COLUMNS}
+FIELD_LABELS.update({'last_name_kana': 'ふりがな（姓）', 'first_name_kana': 'ふりがな（名）', 'weekdays': '利用予定曜日', 'is_severe': '重症心身障害児'})
+
+
+def _empty(v):
+    return v in ('', None, False)
+
+
+def _show(b, k, v):
+    """見込みの画面に出す値（選択肢は表示名に、日付は 2026/4/1 に）"""
+    if v in ('', None):
+        return '（空）'
+    if isinstance(v, datetime.date):
+        return f'{v.year}/{v.month}/{v.day}'
+    if isinstance(v, bool):
+        return '○' if v else '（空）'
+    if isinstance(v, set):
+        return '・'.join(d for d, f in WEEKDAY_FIELDS.items() if f in v) or '（空）'
+    field = Beneficiary._meta.get_field(k) if k in SIMPLE_FIELDS else None
+    if field is not None and field.choices:
+        return dict(field.choices).get(v, v)
+    text = str(v)
+    return text if len(text) <= 30 else text[:30] + '…'
+
+
+def compare(b, data):
+    """台帳の利用者 b と取り込む値 data を比べる → (空欄に入れる欄, 台帳と違う欄 [(見出し, 台帳, 取り込み)])"""
+    fills, diffs = [], []
+    current = {k: getattr(b, k) for k in SIMPLE_FIELDS}
+    current['weekdays'] = {f for f in WEEKDAY_FIELDS.values() if getattr(b, f)}
+    current['is_severe'] = b.is_severe
+    for k in SIMPLE_FIELDS + ('weekdays', 'is_severe'):
+        new = data.get(k)
+        if k == 'notes' or new in ('', None):
+            continue
+        old = current[k]
+        if _empty(old) or (k == 'weekdays' and not old):
+            fills.append(FIELD_LABELS.get(k, k))
+        elif old != new:
+            diffs.append((FIELD_LABELS.get(k, k), _show(b, k, old), _show(b, k, new)))
+    new_notes = (data.get('notes') or '').strip()
+    if new_notes:
+        if not (b.notes or '').strip():
+            fills.append('備考')
+        elif new_notes != (b.notes or '').strip():
+            diffs.append(('備考', _show(b, 'notes', b.notes), _show(b, 'notes', new_notes)))
+    return fills, diffs
+
+
 def plan(facility, rows):
-    """行ごとの見込み：[{'line', 'name', 'action': 'create'|'update'|'error', 'detail', 'data'}]"""
+    """行ごとの見込み：[{'line', 'name', 'action': 'create'|'update'|'error', 'detail', 'data', 'fills', 'diffs'}]"""
     out = []
     for i, r in enumerate(rows, 2):
         name = f'{r.get("last_name", "")} {r.get("first_name", "")}'.strip() or '（名前なし）'
@@ -540,8 +634,12 @@ def plan(facility, rows):
             extras.append('保護者')
         if data['certificate']:
             extras.append('受給者証')
-        detail = ('同じ姓・名・生年月日の利用者がいるので書き換えます' if existing else '新しく登録します') + \
-                 ('（' + '・'.join(extras) + ' も）' if extras else '')
+        fills, diffs = compare(existing, data) if existing else ([], [])
+        if existing:
+            detail = 'すでに台帳にいます' + ('（台帳と違う値があります。下の「台帳と違う値」の扱いに従います）' if diffs else '')
+        else:
+            detail = '新しく登録します'
+        detail += '（' + '・'.join(extras) + ' も）' if extras else ''
         if r.get('_detail'):
             detail += '。' + r['_detail']
         if not existing:
@@ -550,7 +648,7 @@ def plan(facility, rows):
             if same:
                 detail += f'。※ 姓だけ違う同じ名・生年月日の利用者（{same.full_name}）がいます。姓が変わったのなら、登録後にどちらかを消してください'
         out.append({'line': line, 'name': name, 'action': 'update' if existing else 'create', 'detail': detail, 'data': data,
-                    'existing_pk': existing.pk if existing else None})
+                    'existing_pk': existing.pk if existing else None, 'fills': fills, 'diffs': diffs})
     return out
 
 
@@ -558,9 +656,16 @@ SIMPLE_FIELDS = ('last_name_kana', 'first_name_kana', 'gender', 'disability_clas
                  'mobile_phone', 'home_phone', 'school_name', 'grade', 'admission_date', 'status', 'discharge_date', 'notes')
 
 
+def _take(old, new, mode):
+    """取り込んだ値 new を使うか：空なら使わない。台帳が空なら使う。台帳に値があれば上書きのときだけ"""
+    if new in ('', None):
+        return False
+    return mode == MODE_OVERWRITE or _empty(old)
+
+
 @transaction.atomic
-def apply(facility, planned):
-    """plan() の結果を保存する。戻り値 (新規, 更新, エラー数)"""
+def apply(facility, planned, mode=MODE_OVERWRITE):
+    """plan() の結果を保存する。mode は台帳にすでに値がある欄の扱い（MODE_OVERWRITE／MODE_KEEP）。戻り値 (新規, 更新, エラー数)"""
     created = updated = errors = 0
     for item in planned:
         data = item['data']
@@ -570,36 +675,49 @@ def apply(facility, planned):
         b = Beneficiary.objects.filter(pk=item.get('existing_pk'), facility=facility).first() if item.get('existing_pk') else None
         if b is None:
             b = Beneficiary(facility=facility, last_name=data['last_name'], first_name=data['first_name'],
-                            date_of_birth=data['date_of_birth'], has_prior_records=True)
+                            date_of_birth=data['date_of_birth'], has_prior_records=True, gender='', status='')
             is_new = True
         else:
             is_new = False
+        m = MODE_OVERWRITE if is_new else mode
+        status_taken = _take(b.status, data.get('status'), m)
         for k in SIMPLE_FIELDS:
             v = data.get(k)
-            if v not in ('', None):
+            if _take(getattr(b, k), v, m):
                 setattr(b, k, v)
-        if is_new and not b.gender:
+        if not b.gender:
             b.gender = Beneficiary.GENDER_MALE
-        if data.get('status') == Beneficiary.STATUS_ACTIVE and not data.get('discharge_date'):
+        if not b.status:
+            b.status = Beneficiary.STATUS_ACTIVE
+        if status_taken and data.get('status') == Beneficiary.STATUS_ACTIVE and not data.get('discharge_date'):
             b.discharge_date = None      # 在籍中に戻すときは退所日を消す
         add = (data.get('notes_append') or '').strip()
         if add:
             lines = [ln for ln in add.split('\n') if ln and ln not in (b.notes or '')]
             if lines:
                 b.notes = ((b.notes or '').rstrip() + '\n' if b.notes else '') + '\n'.join(lines)
-        if data.get('is_severe') is not None:
+        if data.get('is_severe') is not None and (m == MODE_OVERWRITE or not b.is_severe):
             b.is_severe = data['is_severe']
-        if data.get('weekdays') is not None:
+        has_days = any(getattr(b, f) for f in WEEKDAY_FIELDS.values())
+        if data.get('weekdays') is not None and (m == MODE_OVERWRITE or not has_days):
             for f in WEEKDAY_FIELDS.values():
                 setattr(b, f, f in data['weekdays'])
         b.save()
         g = data.get('guardian')
         if g:
-            Guardian.objects.update_or_create(
-                beneficiary=b, last_name=g['last_name'], first_name=g['first_name'],
-                defaults={'relation': g['relation'], 'phone': g['phone'], 'email': g['email'],
-                          **({'kana': g['kana']} if g.get('kana') else {}),
-                          'is_primary': not b.guardians.filter(is_primary=True).exclude(last_name=g['last_name'], first_name=g['first_name']).exists()})
+            existing = b.guardians.filter(last_name=g['last_name'], first_name=g['first_name']).first()
+            if existing is None:
+                Guardian.objects.create(beneficiary=b, last_name=g['last_name'], first_name=g['first_name'],
+                                        relation=g['relation'], phone=g['phone'], email=g['email'], kana=g.get('kana', ''),
+                                        is_primary=not b.guardians.filter(is_primary=True).exists())
+            else:
+                for k in ('phone', 'email', 'kana'):
+                    if _take(getattr(existing, k), g.get(k), m):
+                        setattr(existing, k, g[k])
+                # 続柄：「その他」は空とみなす（続柄の無い行で、台帳の父・母を変えない）
+                if g['relation'] != Guardian.RELATION_OTHER and (m == MODE_OVERWRITE or existing.relation == Guardian.RELATION_OTHER):
+                    existing.relation = g['relation']
+                existing.save()
         c = data.get('certificate')
         if c:
             qs = b.recipient_certificates.filter(certificate_number=c['certificate_number']) if c['certificate_number'] else \
@@ -609,7 +727,9 @@ def apply(facility, planned):
                 RecipientCertificate.objects.create(beneficiary=b, **c)
             else:
                 for k, v in c.items():
-                    if v not in ('', None, 0) or k in ('valid_from', 'valid_until'):
+                    if v in ('', None, 0) and k not in ('valid_from', 'valid_until'):
+                        continue
+                    if m == MODE_OVERWRITE or _empty(getattr(cert, k)) or getattr(cert, k) == 0:
                         setattr(cert, k, v)
                 cert.save()
         if is_new:

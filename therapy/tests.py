@@ -46,7 +46,7 @@ class TherapyTests(TestCase):
         self.assertRedirects(res, self.url)
         self.assertEqual(TherapyProfile.objects.get(beneficiary=self.kid).cautions, '大きな音が苦手。')
 
-        res = self.client.post(self.url, {'action': 'add', 'date': '2026-10-03', 'time': '10:00', 'staff': self.user.pk,
+        res = self.client.post(self.url, {'action': 'add', 'date': '2026-10-03', 'time': '10:40', 'staff': self.user.pk,
                                           'activity_1': 'ウレタン棒', 'activity_2': 'アンパンマンブロック',
                                           'activity_3': '', 'activity_4': 'シール貼り', 'body': 'よく集中していた。'})
         self.assertRedirects(res, self.url)
@@ -54,9 +54,13 @@ class TherapyTests(TestCase):
         self.assertEqual((rec.date, rec.time, rec.staff, rec.staff_label), (datetime.date(2026, 10, 3), datetime.time(10, 0), self.user, '永山'))
         self.assertEqual(rec.activity_list, ['①ウレタン棒', '②アンパンマンブロック', '③シール貼り'])
         self.assertEqual(rec.date_label, '2026年10月3日 土曜日')
-        self.assertEqual(rec.time_label, '10時00分')
+        self.assertEqual(rec.time_label, '10時')        # 時刻は時だけ（分は使わない）
+        self.assertEqual(TherapyRecord(time=datetime.time(9, 30)).time_label, '9時30分')   # 前に分まで入れた記録
 
         res = self.client.get(self.url)
+        self.assertContains(res, '<option value="10" selected>10時</option>', html=True)
+        self.assertNotContains(res, 'type="time"')
+        self.assertContains(res, 'th-save-btn')
         for chip in ('①ウレタン棒', '②アンパンマンブロック', '③シール貼り'):
             self.assertContains(res, f'<span class="th-chip">{chip}</span>', html=True)
         self.assertContains(res, '担当 永山')
@@ -69,6 +73,13 @@ class TherapyTests(TestCase):
 
         res = self.client.post(self.url, {'action': 'delete', 'record': rec.pk})
         self.assertFalse(TherapyRecord.objects.exists())
+        # 何も入っていない記録は保存しない
+        res = self.client.post(self.url, {'action': 'add', 'date': '2026-10-03', 'time': '15', 'body': ' '}, follow=True)
+        self.assertContains(res, '「やったこと」か「記録」を入れてから保存してください')
+        self.assertFalse(TherapyRecord.objects.exists())
+        # 予約の時刻（15:40）から開いたときは 15時を選んでおく
+        res = self.client.get(self.url + '?date=2026-10-03&time=15:40')
+        self.assertContains(res, '<option value="15" selected>15時</option>', html=True)
 
     def test_auto_save_after_summary_keeps_cautions(self):
         # 「留意点から記録に追記」のあとは「追加する」を押さなくても保存し、保存前の留意点も一緒に保存する
@@ -112,6 +123,26 @@ class TherapyTests(TestCase):
         res = self.client.get(reverse('therapy:index') + f'?date={day.isoformat()}')
         self.assertContains(res, '未記録')
         self.assertContains(res, f'time={s.slot_hours(day)[0]:02d}:00')
+
+    def test_index_shows_day_additions_guests_and_picker(self):
+        """当日に足した人：キャンセル待ちでも「来た」なら出す。台帳に未登録の人は結びつけへ案内。予約に無い子も選んで書ける"""
+        from reservations.models import Reservation
+        self.f.use_reservation = True
+        self.f.save()
+        day = datetime.date(2026, 10, 7)
+        other = Beneficiary.objects.create(facility=self.f, last_name='井上', first_name='空', date_of_birth=datetime.date(2019, 4, 1))
+        third = Beneficiary.objects.create(facility=self.f, last_name='上田', first_name='海', date_of_birth=datetime.date(2019, 4, 1))
+        Reservation.objects.create(facility=self.f, beneficiary=other, date=day, status=Reservation.STATUS_WAITLIST, attendance='attended')
+        guest = Reservation.objects.create(facility=self.f, guest_name='体験 太郎', date=day)
+        Reservation.objects.create(facility=self.f, beneficiary=third, date=day, status=Reservation.STATUS_WAITLIST)
+        res = self.client.get(reverse('therapy:index') + f'?date={day.isoformat()}')
+        self.assertContains(res, 'キャンセル待ちから来所')
+        self.assertContains(res, '体験 太郎')
+        self.assertContains(res, reverse('reservations:day', args=[2026, 10, 7]) + f'#link{guest.pk}')
+        picker = res.content.decode().split('予約に無い')[1].split('</select>')[0]
+        self.assertIn('青木 子', picker)
+        self.assertIn('上田 海', picker)          # 来ていないキャンセル待ちは予約の欄に出さず、選んで書ける
+        self.assertNotIn('井上 空', picker)
 
 
 class TherapySuggestAndFilterTests(TestCase):
@@ -365,7 +396,9 @@ class CautionsSummaryTests(TestCase):
             '【グーの部屋でのエアホッケー】\n・ルール設定：「シュートしたら勝ち」に「勝ち」と復唱した。\n'
             '・片付け：「片付けは」の声かけで全部片付けた。\n\n【全体のまとめ】\n着席して過ごせた。'))
         kwargs = client_cls.return_value.messages.create.call_args.kwargs
-        self.assertIn('【全体のまとめ】', kwargs['system'])
+        self.assertIn('【気をつけること】', kwargs['system'])
+        self.assertIn('ありのままに', kwargs['system'])
+        self.assertNotIn('【全体のまとめ】', kwargs['system'])
         self.assertIn('「」で、話したとおりに残す', kwargs['system'])
         self.assertEqual(kwargs['max_tokens'], 4096)
 
@@ -438,7 +471,9 @@ class RecordSummaryTests(TestCase):
                                          'ブロックでは、崩れる音が大きくならないよう机の上で行う。')
         self.assertEqual(data['length'], len(data['result']) - 1)
         kwargs = client_cls.return_value.messages.create.call_args.kwargs
-        self.assertIn('100字以上500字以内', kwargs['system'])
+        self.assertIn('500字以内', kwargs['system'])
+        self.assertIn('ありのままに', kwargs['system'])
+        self.assertIn('見解', kwargs['system'])
         content = kwargs['messages'][0]['content']
         for word in ('青木 子さん', '大きな音が苦手', '・ウレタン棒', '・ブロック', '2026年9月24日', '今日は笑顔が多かった'):
             self.assertIn(word, content)
