@@ -703,3 +703,27 @@ class DevelopmentTest(models.Model):
 
     def result_rows(self):
         return [dict(r, age_label=self.age_label(r.get('age_months'))) for r in (self.results or [])]
+
+
+class RecordDigest(models.Model):
+    """
+    面談資料（記録のまとめ）。期間の日誌・療育記録から、数字は計算で、文章は AI で記録にあることだけをまとめる（beneficiaries/digest.py）。
+    職員が直して保存し、印刷して保護者面談・モニタリング・支援計画の見直しに使う
+    """
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='digests', verbose_name='利用者')
+    date_from = models.DateField(verbose_name='期間（から）')
+    date_to = models.DateField(verbose_name='期間（まで）')
+    purpose = models.CharField(max_length=50, blank=True, verbose_name='使い道', help_text='例：保護者面談・モニタリング・計画の見直し')
+    summary = models.TextField(blank=True, verbose_name='まとめ')
+    stats = models.JSONField(default=dict, blank=True, verbose_name='数字')
+    created_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '面談資料'
+        verbose_name_plural = '面談資料'
+        ordering = ['-created_at', '-pk']
+
+    def __str__(self):
+        return f'{self.beneficiary} {self.date_from}〜{self.date_to}'

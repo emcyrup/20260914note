@@ -459,6 +459,10 @@ python manage.py collectstatic --noinput
 
 `https://st-michinotedemo.ai-labo.cloud/` のように、プロバイダ管理の nginx が HTTPS を終端して割り当てポート（8029）の Gunicorn に中継し、DB もプロバイダ管理の PostgreSQL を使う構成向けです。サーバー上では `deploy/venv-deploy.sh` が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行い、ワークフロー **Deploy (dev)**（`develop` への push または手動実行）がそれを SSH で呼びます。`.env` の雛形は `deploy/.env.dev-aws.example`。手順は [docs/DEPLOY_AWS_DEV.md](docs/DEPLOY_AWS_DEV.md) を参照してください。同じサーバーに「発達支援ルーム　ゆあーず」を別の clone（`~/michinoteyours`・ポート 8030・DB `michinoteyours`）で並べて動かす手順は [docs/DEPLOY_AWS_YOURS.md](docs/DEPLOY_AWS_YOURS.md)（ワークフロー **Deploy (yours)**）です（Docker が使えるサーバー向けの `deploy/docker-compose.external.yml` も同じ文書に載せています）。「児童発達支援センター　オウル」はさらに別の clone（`~/michinoteowl`・ポート 8034・DB `michinoteowl`・`https://michinote.owl.ai-labo.cloud/`）で、ワークフロー **Deploy (owl)**（`ryoiku` への push でゆあーずと一緒に配備。初回は `.env` を雛形から自動で作る）と **Manage (owl)** を使います。手順は [docs/DEPLOY_AWS_OWL.md](docs/DEPLOY_AWS_OWL.md)。
 
+**面談資料（記録のまとめ）**（利用者の画面の上の「面談資料（記録のまとめ）」。`/users/<id>/digest/`、`beneficiaries/digest.py`・`RecordDigest`）：期間（過去 3 か月・6 か月（半期）・1 か月・日付を指定）を選ぶと、その間の日誌・療育記録と、5領域アセスメント・個別支援計画の目標を集め、数字（日誌・療育記録の件数、記録のある日、予約と来た・欠席の回数、健康の記録と 37.5℃以上の日）は計算で、文章は AI で**記録にあることだけ**を使って【この期間の様子】【5領域ごとの様子】【支援計画の目標に対する様子】【印象に残った場面（日付つき）】【保護者に伝えたいこと】【次の計画に向けて】にまとめる（記録が多いときは期間全体から均等に 120 件）。右に元の記録を並べて見比べて直し、保存・A4 印刷。保護者面談・モニタリング・半期の計画の見直しの準備に使う。
+
+日誌の「**AIで記録文章を一括生成**」に**分量**（いつもの長さ／約 200・300・400 字。観察・支援・反応の 3 つの文を合わせた目安。保護者向けは少し長く。この端末に覚える）と**キーワードの入れ方**（2〜4 個・書くこと・避けること・分量の目安）を足した。分量を選ぶと「キーワードとタグにある事実だけでつなげる。無いことは作らず、届かなければ短くてよい」と指示し、キーワードが 1 つだけなら注意を出す。
+
 **更新・切り戻し・障害時の手順**は [docs/OPERATIONS.md](docs/OPERATIONS.md) にまとめています（営業時間外の更新、Deploy (yours)／(owl) の `ref` で前のコミットへ戻す、Manage の `status`・`autostart_check`・`autostart_install`（サーバーの再起動のあとに自動で起動し、5 分ごとに止まっていないか見回る crontab の行を入れる。`deploy/venv-deploy.sh --ensure`・`--status`・`--autostart`）、15 分ごとの見回り **Watch (production)**（止まっていれば立て直して失敗として知らせる））。
 
 ## Docker で動かす（任意の VM）

@@ -12,7 +12,7 @@ from django.db import models as db_models
 from django.conf import settings
 import anthropic
 
-from .models import Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guardian, RecipientCertificate, BeneficiaryDocument, DOCUMENT_EXTENSIONS, DOCUMENT_MAX_BYTES, KANA_ROWS, DevelopmentAssessment
+from .models import Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guardian, RecipientCertificate, BeneficiaryDocument, DOCUMENT_EXTENSIONS, DOCUMENT_MAX_BYTES, KANA_ROWS, DevelopmentAssessment, RecordDigest
 from .forms import BeneficiaryForm, BeneficiaryOfficeForm, GuardianForm, RecipientCertificateForm
 from facilities.context_processors import get_terms
 from config.concurrency import check_conflict
@@ -1224,3 +1224,87 @@ class DevTestDeleteView(DailyOpsMixin, View):
         t.delete()
         messages.success(request, f'{label}を削除しました。')
         return redirect(f"{reverse('beneficiaries:detail', args=[b.pk])}#dev-tests")
+
+
+# =============================================
+# 面談資料（記録のまとめ）：期間の記録から数字と文章のまとめ → 直して保存・印刷
+# =============================================
+class DigestView(LoginRequiredMixin, View):
+    """一覧と作成。期間（過去 3 か月・半年・1 か月・日付を指定）を選んで「AI でまとめる」"""
+    template_name = 'beneficiaries/digest_list.html'
+
+    def _beneficiary(self, request, pk):
+        return get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
+
+    def get(self, request, pk):
+        from . import digest
+        b = self._beneficiary(request, pk)
+        start, end = digest.period_range('3m')
+        data = digest.collect(b, start, end)
+        return render(request, self.template_name, {
+            'beneficiary': b, 'digests': b.digests.all()[:20], 'periods': digest.PERIODS,
+            'preview': data['stats'], 'preview_from': start, 'preview_to': end,
+        })
+
+    def post(self, request, pk):
+        from . import digest
+        b = self._beneficiary(request, pk)
+        back = redirect('beneficiaries:digest', pk=pk)
+        key = request.POST.get('period', '3m')
+        try:
+            d_from = datetime.date.fromisoformat(request.POST.get('date_from', '')) if request.POST.get('date_from') else None
+            d_to = datetime.date.fromisoformat(request.POST.get('date_to', '')) if request.POST.get('date_to') else None
+        except ValueError:
+            messages.error(request, '日付が正しくありません。')
+            return back
+        if key == 'custom' and not (d_from and d_to and d_from <= d_to):
+            messages.error(request, '期間を指定するときは、から・まで の両方の日付を入れてください。')
+            return back
+        start, end = digest.period_range(key, date_from=d_from, date_to=d_to)
+        data = digest.collect(b, start, end)
+        if not data['lines']:
+            messages.error(request, f'{start:%Y/%m/%d}〜{end:%Y/%m/%d} の日誌・療育記録がありません。期間を広げてください。')
+            return back
+        text, error = digest.summarize(b, start, end, data)
+        if error:
+            try:
+                msg = json.loads(error.content).get('error')
+            except Exception:  # noqa: BLE001
+                msg = None
+            messages.error(request, msg or 'AI でまとめられませんでした。もう一度お試しください。')
+            return back
+        stats = dict(data['stats'], goals=len(data['goals']), lines=len(data['lines']))
+        item = RecordDigest.objects.create(beneficiary=b, date_from=start, date_to=end, summary=text, stats=stats,
+                                           purpose=request.POST.get('purpose', '').strip()[:50], created_by=request.user)
+        messages.success(request, '面談資料のまとめを作りました。記録と見比べて、直してから保存・印刷してください。')
+        return redirect('beneficiaries:digest_detail', pk=pk, digest_pk=item.pk)
+
+
+class DigestDetailView(LoginRequiredMixin, View):
+    """まとめを見る・直す・消す。?print=1 で A4 の印刷（PDF）"""
+
+    def _get(self, request, pk, digest_pk):
+        b = get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
+        return b, get_object_or_404(RecordDigest, pk=digest_pk, beneficiary=b)
+
+    def get(self, request, pk, digest_pk):
+        from . import digest
+        b, item = self._get(request, pk, digest_pk)
+        ctx = {'beneficiary': b, 'item': item, 'facility': request.user.facility,
+               'sources': digest.collect(b, item.date_from, item.date_to)['lines']}
+        if request.GET.get('print'):
+            return pdf_or_html(request, 'beneficiaries/pdf/digest.html', ctx,
+                               f'面談資料_{b.full_name}_{item.date_from:%Y%m%d}-{item.date_to:%Y%m%d}')
+        return render(request, 'beneficiaries/digest_detail.html', ctx)
+
+    def post(self, request, pk, digest_pk):
+        b, item = self._get(request, pk, digest_pk)
+        if request.POST.get('action') == 'delete':
+            item.delete()
+            messages.success(request, '面談資料を削除しました。')
+            return redirect('beneficiaries:digest', pk=pk)
+        item.summary = request.POST.get('summary', '').strip()[:20000]
+        item.purpose = request.POST.get('purpose', '').strip()[:50]
+        item.save(update_fields=['summary', 'purpose', 'updated_at'])
+        messages.success(request, '面談資料を保存しました。')
+        return redirect('beneficiaries:digest_detail', pk=pk, digest_pk=item.pk)

@@ -1084,8 +1084,9 @@
             </p>
             <textarea id="memoTextareaCreate" name="memo" class="form-control" rows="4"
                       x-model="memo"
-                      placeholder="例：ハロウィンの工作でかぼちゃを折り紙で作った。最初は難しそうにしていたが、声かけすると集中して取り組み、完成時はとても嬉しそうだった。送迎あり。"></textarea>
+                      placeholder="例：ハロウィンの工作でかぼちゃを折り紙で作った。最初は難しそうにしていたが、声かけすると集中して取り組み、完成時はとても嬉しそうだった。送迎あり。（キーワードだけでも可：折り紙のかぼちゃ 声かけで集中 完成して笑顔）"></textarea>
             <input type="hidden" name="observation_memo" :value="memo">
+            {% include 'records/_length_guide.html' with id='journalLengthCreate' %}
             <div class="mt-2 text-end">
               <button type="button" class="ai-btn px-4 py-2" style="font-size:0.82rem;"
                       @click="generateAll()"
@@ -1099,6 +1100,7 @@
 
           <!-- エラー表示 -->
           <p x-show="errorMsg" class="text-danger small mb-2" x-text="errorMsg"></p>
+          <p x-show="warnMsg" class="text-warning-emphasis small mb-2" x-text="warnMsg"></p>
 
           <!-- ④ AI生成結果（生成後に表示） -->
           <div x-show="generated" x-transition style="border-top:1px solid #e8e8e8;padding-top:14px;margin-top:4px;">
@@ -1425,6 +1427,7 @@
             </p>
             <textarea id="memoTextareaEdit" class="form-control" rows="3" x-model="memo"
                       placeholder="例：今日は工作でリース作り。はさみの使い方を練習しながら取り組んだ。最後まで集中できていた。"></textarea>
+            {% include 'records/_length_guide.html' with id='journalLengthEdit' %}
             <div class="mt-2 text-end">
               <button type="button" class="ai-btn px-4 py-2" style="font-size:0.82rem;"
                       @click="generateAll()" :disabled="generating">
@@ -1437,6 +1440,7 @@
 
           <!-- エラー表示 -->
           <p x-show="errorMsg" class="text-danger small mb-2" x-text="errorMsg"></p>
+          <p x-show="warnMsg" class="text-warning-emphasis small mb-2" x-text="warnMsg"></p>
 
           <!-- 記録文章（常時表示・直接編集可） -->
           <div style="border-top:1px solid #e8e8e8;padding-top:14px;">
@@ -1667,6 +1671,10 @@ function activityPlanMixin(planUrl, init) {
     activityReflection: init.reflection || '',
     planning:           false,
     planErrorMsg:       '',
+    // AI 一括生成の分量（200／300／400字。空はいつもの長さ）。この端末に覚える
+    length:             (function () { try { return localStorage.getItem('journal-length') || ''; } catch (e) { return ''; } })(),
+    warnMsg:            '',
+    saveLength() { try { localStorage.setItem('journal-length', this.length || ''); } catch (e) {} },
 
     addViewpoint() { this.activityViewpoints.push({text: '', answer: null}); },
 
@@ -1797,6 +1805,8 @@ function journalCreateForm(generateUrl, planUrl) {
         const fd = new FormData();
         fd.append('memo', this.memo);
         fd.append('tags', this._tagsWithActivity(tagNames));
+        fd.append('length', this.length || '');
+        this.warnMsg = '';
         fd.append('csrfmiddlewaretoken', csrf);
         const res  = await fetch(generateUrl, { method: 'POST', body: fd });
         const data = await res.json().catch(() => ({}));
@@ -1809,6 +1819,7 @@ function journalCreateForm(generateUrl, planUrl) {
         } else {
           this.result    = data;
           this.generated = true;
+          this.warnMsg   = data.warning || '';
         }
       } catch(e) {
         this.errorMsg = '通信エラー: ' + e.message;
@@ -1877,12 +1888,14 @@ function journalEditForm(generateUrl, initialResult, initSupportTags = [], initD
         const fd = new FormData();
         fd.append('memo', this.memo);
         fd.append('tags', this._tagsWithActivity(tagNames));
+        fd.append('length', this.length || '');
+        this.warnMsg = '';
         fd.append('csrfmiddlewaretoken', csrf);
         const res = await fetch(generateUrl, { method: 'POST', body: fd });
         const data = await res.json().catch(() => ({}));
         if (!res.ok && !data.error) { this.errorMsg = `サーバーエラー (${res.status})`; return; }
         if (data.error) { this.errorMsg = data.error; }
-        else { this.result = data; }
+        else { this.result = data; this.warnMsg = data.warning || ''; }
       } catch(e) {
         this.errorMsg = '通信エラー: ' + e.message;
       } finally {

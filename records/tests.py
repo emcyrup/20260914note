@@ -161,6 +161,27 @@ class AiGenerateAllViewTests(TestCase):
         self.assertEqual(self.facility.trial_ai_used, 2)
 
     @mock.patch('records.views.anthropic.Anthropic')
+    def test_length_preset_and_keyword_warning(self, mock_client_cls):
+        """分量（200／300／400字）を選ぶと字数の目安と「キーワードに無いことを作らない」を指示する。キーワードが 1 つなら注意を返す"""
+        text = mock.Mock(type='text', text='{"observation":"o","support":"s","reaction":"r","parent_message":"p"}')
+        mock_client_cls.return_value.messages.create.return_value = mock.Mock(content=[text])
+        with self.settings(ANTHROPIC_API_KEY='sk-ant-test'):
+            res = self.client.post(self.url, {'memo': '折り紙 声かけで集中 完成して笑顔', 'length': '400'})
+            system = mock_client_cls.return_value.messages.create.call_args.kwargs['system']
+            self.assertIn('約400字', system)
+            self.assertIn('150〜170字が目安', system)                  # 観察は 400 × 0.4 = 160 字前後
+            self.assertIn('150〜200字が目安', system)                  # 保護者向け
+            self.assertIn('キーワードに無い出来事', system)
+            self.assertNotIn('warning', res.json())
+            res = self.client.post(self.url, {'memo': '折り紙', 'length': '200'})
+            self.assertIn('キーワードが 1 つだけ', res.json()['warning'])
+            # いつもの長さ（空・おかしな値）は従来の指示のまま
+            self.client.post(self.url, {'memo': '折り紙', 'length': '999'})
+            system = mock_client_cls.return_value.messages.create.call_args.kwargs['system']
+            self.assertNotIn('【分量とキーワード】', system)
+            self.assertIn('80〜120字', system)
+
+    @mock.patch('records.views.anthropic.Anthropic')
     def test_thinking_block_is_skipped(self, mock_client_cls):
         thinking = mock.Mock(type='thinking')
         text = mock.Mock(type='text', text='{"observation":"o","support":"s","reaction":"r","parent_message":"p"}')

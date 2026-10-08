@@ -1372,3 +1372,66 @@ class BeneficiaryListBulkTests(TestCase):
         self.assertEqual(list(Beneficiary.objects.filter(facility=self.f)), [self.c])
         self.assertTrue(Beneficiary.objects.filter(pk=self.x.pk).exists())
         self.assertFalse(TherapyRecord.objects.exists())
+
+
+class RecordDigestTests(TestCase):
+    """面談資料：期間の日誌・療育記録を集め、数字は計算、文章は AI（記録にあることだけ）。直して保存・印刷"""
+
+    def setUp(self):
+        from unittest import mock  # noqa: F401
+        self.f = Facility.objects.create(name='児童発達支援センター　オウル', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True)
+        self.user = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f)
+        self.client.login(username='st', password='pw12345678')
+        self.b = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        from therapy.models import TherapyRecord
+        today = datetime.date.today()
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.b, date=today - datetime.timedelta(days=10),
+                                     activities=['ブロック'], body='「できた」と言って最後まで積んだ。')
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.b, date=today - datetime.timedelta(days=200),
+                                     activities=['古い'], body='半年より前の記録。')
+        self.url = reverse('beneficiaries:digest', args=[self.b.pk])
+
+    def test_collect_and_prompt(self):
+        from . import digest
+        start, end = digest.period_range('3m')
+        data = digest.collect(self.b, start, end)
+        self.assertEqual((data['stats']['therapy'], data['stats']['journals']), (1, 0))
+        content = digest.build_content(self.b, start, end, data)
+        self.assertIn('「できた」と言って最後まで積んだ', content)
+        self.assertNotIn('半年より前', content)
+        self.assertIn('記録にあることだけ', digest.SYSTEM_PROMPT)
+        s6, _ = digest.period_range('6m')
+        self.assertLess(s6, start)
+        cs, ce = digest.period_range('custom', date_from=datetime.date(2026, 4, 1), date_to=datetime.date(2026, 9, 30))
+        self.assertEqual((cs, ce), (datetime.date(2026, 4, 1), datetime.date(2026, 9, 30)))
+
+    def test_create_edit_print(self):
+        from unittest import mock
+        self.assertContains(self.client.get(reverse('beneficiaries:detail', args=[self.b.pk])), '面談資料（記録のまとめ）')
+        res = self.client.get(self.url)
+        self.assertContains(res, '療育記録 1 件')
+        with mock.patch('beneficiaries.digest.ask_ai', return_value=('## この期間の様子（全体）\nブロックを最後まで積んだ。', None)) as ask:
+            res = self.client.post(self.url, {'period': '3m', 'purpose': '10月の面談'}, follow=True)
+        self.assertContains(res, '面談資料のまとめを作りました')
+        self.assertContains(res, '【この期間の様子（全体）】')
+        self.assertIn('「できた」', ask.call_args.args[1])
+        item = self.b.digests.get()
+        self.assertEqual((item.purpose, item.stats['therapy']), ('10月の面談', 1))
+        detail = reverse('beneficiaries:digest_detail', args=[self.b.pk, item.pk])
+        self.client.post(detail, {'summary': '直した文', 'purpose': '面談'})
+        item.refresh_from_db()
+        self.assertEqual(item.summary, '直した文')
+        res = self.client.get(detail + '?print=1&fmt=html')
+        self.assertContains(res, '直した文')
+        # 記録の無い期間はまとめない
+        res = self.client.post(self.url, {'period': 'custom', 'date_from': '2020-01-01', 'date_to': '2020-02-01'}, follow=True)
+        self.assertContains(res, '日誌・療育記録がありません')
+        res = self.client.post(detail, {'action': 'delete'}, follow=True)
+        self.assertContains(res, '削除しました')
+        self.assertFalse(self.b.digests.exists())
+
+    def test_other_facility_cannot_see(self):
+        other = Facility.objects.create(name='ほか')
+        StaffAccount.objects.create_user('ot', password='pw12345678', facility=other)
+        self.client.login(username='ot', password='pw12345678')
+        self.assertEqual(self.client.get(self.url).status_code, 404)

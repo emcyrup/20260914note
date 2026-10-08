@@ -130,6 +130,7 @@
       {% if features.therapy %}
       <a href="{% url 'therapy:child' beneficiary.pk %}?date={% now 'Y-m-d' %}#add" class="btn btn-primary btn-sm"><i class="bi bi-journal-medical me-1"></i>療育記録を書く（きょう）</a>
       {% endif %}
+      <a href="{% url 'beneficiaries:digest' beneficiary.pk %}" class="btn btn-outline-primary btn-sm" title="期間の記録から、面談・モニタリング・計画の見直しに使うまとめを作る"><i class="bi bi-file-earmark-text me-1"></i>面談資料（記録のまとめ）</a>
       <form method="post" action="{% url 'beneficiaries:status' beneficiary.pk %}" class="d-flex align-items-center gap-1 flex-wrap justify-content-end">
         {% csrf_token %}
         <span class="small text-muted me-1">在籍状況</span>

@@ -688,13 +688,50 @@ class AiGenerateAllView(LoginRequiredMixin, View):
         'parent_message': ('parent_message', '保護者向けメッセージ（100〜150字・温かみのある表現で今日の様子を伝える）'),
     }
 
+    # 分量（記録の3つの文を合わせた字数の目安）。0 はいつもの長さ（上の ITEM_SPECS のまま）
+    LENGTHS = (0, 200, 300, 400)
+    LENGTH_SHARE = {'observation': 0.4, 'support': 0.35, 'reaction': 0.25}
+    PARENT_LENGTH = {200: (100, 150), 300: (120, 180), 400: (150, 200)}
+    LENGTH_TEXT = {'observation': ('活動内容・観察記録', '事実に基づき客観的に'),
+                   'support': ('支援内容の記録', 'どのような支援をしたか具体的に'),
+                   'reaction': ('本人の反応・変化の記録', '言動や表情など具体的に')}
+
     @classmethod
-    def build_prompt(cls, keys):
+    def item_specs(cls, length=0):
+        """分量を選んだときは、3つの文に字数を割り振る（合わせて約 length 字）。保護者向けは少しだけ長くする"""
+        if length not in cls.PARENT_LENGTH:
+            return cls.ITEM_SPECS
+        out = dict(cls.ITEM_SPECS)
+        for key, share in cls.LENGTH_SHARE.items():
+            n = round(length * share / 10) * 10
+            label, note = cls.LENGTH_TEXT[key]
+            out[key] = (key, f'{label}（{n - 10}〜{n + 10}字が目安・{note}）')
+        lo, hi = cls.PARENT_LENGTH[length]
+        out['parent_message'] = ('parent_message', f'保護者向けメッセージ（{lo}〜{hi}字が目安・温かみのある表現で今日の様子を伝える）')
+        return out
+
+    @staticmethod
+    def keyword_count(memo):
+        """メモの言葉の数（空白・読点・改行で区切ったもの）。キーワードで書いたかの目安"""
+        import re as _re
+        return len([w for w in _re.split(r'[\s、,，・/／]+', memo or '') if w])
+
+    @classmethod
+    def build_prompt(cls, keys, length=0):
         """施設で決めた項目を、優先順位の順に並べた JSON の形で指示する"""
-        keys = [k for k in keys if k in cls.ITEM_SPECS] or list(cls.ITEM_SPECS)
-        lines = ',\n'.join(f'  "{cls.ITEM_SPECS[k][0]}": "{cls.ITEM_SPECS[k][1]}"' for k in keys)
+        specs = cls.item_specs(length)
+        keys = [k for k in keys if k in specs] or list(specs)
+        lines = ',\n'.join(f'  "{specs[k][0]}": "{specs[k][1]}"' for k in keys)
         order = '、'.join(f'{i + 1}. {Facility.JOURNAL_SECTION_LABELS[k]}' for i, k in enumerate(keys))
-        return cls.SYSTEM_PROMPT.replace('{ITEMS}', lines).replace('{COUNT}', str(len(keys))).replace('{ORDER}', order)
+        prompt = cls.SYSTEM_PROMPT.replace('{ITEMS}', lines).replace('{COUNT}', str(len(keys))).replace('{ORDER}', order)
+        if length in cls.PARENT_LENGTH:
+            prompt = prompt.replace('【日本語の書き方', cls.LENGTH_RULE.replace('{LEN}', str(length)) + '\n\n【日本語の書き方', 1)
+        return prompt
+
+    LENGTH_RULE = """【分量とキーワード】
+- 観察・支援・反応の3つの文を合わせて、約{LEN}字を目安にする（各項目の字数は上の目安）
+- メモは職員のキーワード（2〜4個のことが多い）。キーワードとタグにある事実だけを使って、文としてつなげる
+- キーワードに無い出来事・子どもの言葉・表情・回数・時間を作らない。材料が少なく目安の字数に届かないときは、短いままでよい（飾りの言葉や一般論で長くしない）"""
 
     SYSTEM_PROMPT = """あなたは放課後等デイサービスの記録専門AIアシスタントです。
 職員のメモ書きと選択されたタグをもとに、{COUNT}種類の記録文章を生成してください。「して下さいました」などの過剰な敬語は不要です。
@@ -712,6 +749,11 @@ class AiGenerateAllView(LoginRequiredMixin, View):
     def post(self, request):
         memo = request.POST.get('memo', '').strip()
         tags = request.POST.get('tags', '').strip()
+        try:
+            length = int(request.POST.get('length') or 0)
+        except ValueError:
+            length = 0
+        length = length if length in self.LENGTHS else 0
 
         if not memo:
             return JsonResponse({'error': 'メモを入力してから生成してください。'}, status=400)
@@ -729,7 +771,7 @@ class AiGenerateAllView(LoginRequiredMixin, View):
                 model=settings.AI_TEXT_MODEL,
                 max_tokens=2048,
                 **effort_kwargs(settings.AI_TEXT_MODEL),
-                system=self.build_prompt(request.user.facility.journal_text_keys()),
+                system=self.build_prompt(request.user.facility.journal_text_keys(), length),
                 messages=[{'role': 'user', 'content': user_content}],
             )
             trial.use(request.user.facility)
@@ -745,6 +787,8 @@ class AiGenerateAllView(LoginRequiredMixin, View):
                 raise json.JSONDecodeError('object expected', raw, 0)
             out = clean_ai_dict(data, ('observation', 'support', 'reaction', 'parent_message'))
             out['order'] = request.user.facility.journal_text_keys()
+            if length and self.keyword_count(memo) < 2:
+                out['warning'] = 'キーワードが 1 つだけだと、材料が足りず文が短くなります（キーワードに無いことは書きません）。2〜4 個入れると、ちょうどよい長さになります。'
             return JsonResponse(out)
         except json.JSONDecodeError:
             logger.warning('AI一括生成の返答がJSONでない: %r', raw[:200] if 'raw' in locals() else None)
