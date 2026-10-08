@@ -1,0 +1,79 @@
+# =============================================
+# 本番（ゆあーず・オウル）の見回り：15 分ごとに公開 URL の healthz を確かめる
+#   - 200 なら何もしない（成功）
+#   - 応答が無いときは、サーバーで deploy/venv-deploy.sh --ensure（止まっていれば起動）を実行して立て直し、
+#     もう一度確かめる。止まっていたことを知らせるため、この実行は「失敗」にする（GitHub から失敗のメールが届く）
+#   サーバーの crontab の 5 分ごとの見回り（Manage の autostart_install）と二重の備え。
+#   Secrets は Deploy (yours)／Deploy (owl) と同じ（未登録なら確かめるだけ）。ログに秘密の値は出さない。
+#   手動でも動かせる（Actions → Watch (production) → Run workflow）。
+# =============================================
+name: Watch (production)
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    # 配備と同じ concurrency の組には入れない（入れると、待っている配備が取り消されることがある）。
+    # --ensure は止まっているときだけ起動するので、配備と重なっても動いているアプリには触らない
+    strategy:
+      fail-fast: false
+      matrix:
+        site: [yours, owl]
+    steps:
+      - name: healthz
+        id: health
+        env:
+          URL_YOURS: ${{ secrets.YOURS_HEALTH_URL || 'https://michinote.yours.ai-labo.cloud/healthz/' }}
+          URL_OWL: ${{ secrets.OWL_HEALTH_URL || 'https://michinote.owl.ai-labo.cloud/healthz/' }}
+        run: |
+          url=$([ "${{ matrix.site }}" = "owl" ] && echo "$URL_OWL" || echo "$URL_YOURS")
+          code=""
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url" || true)
+            [ "$code" = "200" ] && break
+            sleep 10
+          done
+          echo "${{ matrix.site }} healthz: $code"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Restart if down (deploy/venv-deploy.sh --ensure)
+        if: steps.health.outputs.code != '200'
+        env:
+          HOST: ${{ matrix.site == 'owl' && (secrets.OWL_DEPLOY_HOST || secrets.YOURS_DEPLOY_HOST) || secrets.YOURS_DEPLOY_HOST }}
+          USER: ${{ matrix.site == 'owl' && (secrets.OWL_DEPLOY_USER || secrets.YOURS_DEPLOY_USER) || secrets.YOURS_DEPLOY_USER }}
+          KEY: ${{ matrix.site == 'owl' && (secrets.OWL_DEPLOY_SSH_KEY || secrets.YOURS_DEPLOY_SSH_KEY) || secrets.YOURS_DEPLOY_SSH_KEY }}
+          PORT: ${{ matrix.site == 'owl' && (secrets.OWL_DEPLOY_SSH_PORT || secrets.YOURS_DEPLOY_SSH_PORT || '22') || (secrets.YOURS_DEPLOY_SSH_PORT || '22') }}
+          APP_DIR_IN: ${{ matrix.site == 'owl' && (secrets.OWL_APP_DIR || '~/michinoteowl') || (secrets.YOURS_APP_DIR || '~/michinoteyours') }}
+          VENV_IN: ${{ matrix.site == 'owl' && (secrets.OWL_VENV || secrets.YOURS_VENV || '~/env') || (secrets.YOURS_VENV || '~/env') }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ]; then
+            echo "SSH の Secrets が無いので立て直しはしません（止まっていることだけ知らせます）"; exit 0
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key; chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key -p "$PORT" "$USER@$HOST" "APP_DIR_IN='$APP_DIR_IN' VENV_IN='$VENV_IN' bash -s" <<'REMOTE'
+            set -euo pipefail
+            APP_DIR=$(eval echo "$APP_DIR_IN"); VENV=$(eval echo "$VENV_IN")
+            cd "$APP_DIR"
+            APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --ensure
+            APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --status
+          REMOTE
+
+      - name: Report
+        if: steps.health.outputs.code != '200'
+        env:
+          URL: ${{ steps.health.outputs.url }}
+        run: |
+          sleep 10
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$URL" || true)
+          echo "${{ matrix.site }}：見回りのときに応答がありませんでした（${{ steps.health.outputs.code }}）。立て直したあと: $code"
+          exit 1

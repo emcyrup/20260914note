@@ -57,6 +57,8 @@ Gunicorn は自動では上がりません。ゆあーずの行と並べて `cro
 @reboot sleep 30 && APP_DIR=$HOME/michinoteowl VENV=$HOME/env bash $HOME/michinoteowl/deploy/venv-deploy.sh --restart >> $HOME/michinoteowl/logs/boot.log 2>&1
 ```
 
+**いまの手順**：上の行を手で入れる代わりに、Actions の **Manage (owl)** を task `autostart_install` で実行すると、`@reboot` と 5 分ごとの見回り（`--ensure`：止まっていれば起動）が crontab に入ります（この環境の行だけ。手で入れた行は置き換え）。確かめるのは `autostart_check`。詳しくは [docs/OPERATIONS.md](OPERATIONS.md) 4 章。
+
 ## 5. サーバーに入って行うこと（必要なときだけ）
 
 ```bash

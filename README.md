@@ -459,6 +459,8 @@ python manage.py collectstatic --noinput
 
 `https://st-michinotedemo.ai-labo.cloud/` のように、プロバイダ管理の nginx が HTTPS を終端して割り当てポート（8029）の Gunicorn に中継し、DB もプロバイダ管理の PostgreSQL を使う構成向けです。サーバー上では `deploy/venv-deploy.sh` が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行い、ワークフロー **Deploy (dev)**（`develop` への push または手動実行）がそれを SSH で呼びます。`.env` の雛形は `deploy/.env.dev-aws.example`。手順は [docs/DEPLOY_AWS_DEV.md](docs/DEPLOY_AWS_DEV.md) を参照してください。同じサーバーに「発達支援ルーム　ゆあーず」を別の clone（`~/michinoteyours`・ポート 8030・DB `michinoteyours`）で並べて動かす手順は [docs/DEPLOY_AWS_YOURS.md](docs/DEPLOY_AWS_YOURS.md)（ワークフロー **Deploy (yours)**）です（Docker が使えるサーバー向けの `deploy/docker-compose.external.yml` も同じ文書に載せています）。「児童発達支援センター　オウル」はさらに別の clone（`~/michinoteowl`・ポート 8034・DB `michinoteowl`・`https://michinote.owl.ai-labo.cloud/`）で、ワークフロー **Deploy (owl)**（`ryoiku` への push でゆあーずと一緒に配備。初回は `.env` を雛形から自動で作る）と **Manage (owl)** を使います。手順は [docs/DEPLOY_AWS_OWL.md](docs/DEPLOY_AWS_OWL.md)。
 
+**更新・切り戻し・障害時の手順**は [docs/OPERATIONS.md](docs/OPERATIONS.md) にまとめています（営業時間外の更新、Deploy (yours)／(owl) の `ref` で前のコミットへ戻す、Manage の `status`・`autostart_check`・`autostart_install`（サーバーの再起動のあとに自動で起動し、5 分ごとに止まっていないか見回る crontab の行を入れる。`deploy/venv-deploy.sh --ensure`・`--status`・`--autostart`）、15 分ごとの見回り **Watch (production)**（止まっていれば立て直して失敗として知らせる））。
+
 ## Docker で動かす（任意の VM）
 
 > GCP（Compute Engine）の本番環境は **2026-09-14 に廃止**、ゆあーずの GCP お試しサーバーも **2026-09-30 に廃止**しました。`main` への push で自動配備するワークフローも削除しています。現在動いているのは AWS の開発環境とゆあーず本番（上記）と、GCP のシンプル用サーバーです。

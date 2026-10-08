@@ -21,6 +21,11 @@ on:
   push:
     branches: [ryoiku]
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "配備するコミット（切り戻しのときに前のコミットの番号を入れる。空なら選んだブランチの最新）"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -38,6 +43,8 @@ jobs:
       ready: ${{ steps.check.outputs.ready }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
@@ -87,12 +94,14 @@ jobs:
 
       - name: Checkout, prepare .env (first time only), migrate, restart gunicorn
         env:
-          SHA: ${{ github.sha }}
+          SHA: ${{ inputs.ref || github.sha }}
           REPO_URL: https://github.com/${{ github.repository }}.git
           REMOTE_APP_DIR: ${{ env.APP_DIR }}
           REMOTE_VENV: ${{ env.VENV }}
           YOURS_APP_DIR: ${{ secrets.YOURS_APP_DIR || '~/michinoteyours' }}
         run: |
+          # 切り戻しで入れるのはコミットの番号だけ（英数字 7〜40 字）。ほかの文字はサーバーのコマンドに渡さない
+          [[ "$SHA" =~ ^[0-9a-fA-F]{7,40}$ ]] || { echo "ref はコミットの番号（7〜40 桁の英数字）で入れてください: $SHA"; exit 1; }
           ssh -i ~/.ssh/deploy_key -p "${{ env.SSH_PORT }}" "${{ secrets.OWL_DEPLOY_USER || secrets.YOURS_DEPLOY_USER }}@${{ secrets.OWL_DEPLOY_HOST || secrets.YOURS_DEPLOY_HOST }}" \
             "SHA='$SHA' REPO_URL='$REPO_URL' APP_DIR_IN='$REMOTE_APP_DIR' VENV_IN='$REMOTE_VENV' YOURS_DIR_IN='$YOURS_APP_DIR' bash -s" <<'REMOTE'
             set -euo pipefail

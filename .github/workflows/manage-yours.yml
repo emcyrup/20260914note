@@ -9,6 +9,9 @@
 #   - delete_facility : 利用者・予約の無い事業所を、職員アカウント・設定ごと消す（facility_id）
 #   - error_log       : サーバーのエラーログの末尾（技術的な行だけ。日本語と長い数字は伏せる）を表示する
 #   - set_media_root  : .env の MEDIA_ROOT を ~/michinoteyours/media に直して Gunicorn を再起動する（写真・書類が 500 になるとき）
+#   - status            : アプリが動いているか・いまのコミット・最近の配備を表示する
+#   - autostart_check   : サーバーの再起動のあとに自動で上がる設定（crontab の @reboot と 5 分ごとの見回り）があるか確かめる
+#   - autostart_install : その設定を入れる（この環境の行だけを入れ替え、ほかの crontab の行は触らない）
 #
 # パスワードは入力欄（admin_password）に入れる。ログには出ない（マスクし、サーバーへは環境変数で渡す）。
 # このリポジトリは公開なので、ログに秘密の値を出さないこと。
@@ -23,7 +26,7 @@ on:
         type: choice
         required: true
         default: list
-        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, error_log, set_media_root]
+        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, error_log, set_media_root, status, autostart_check, autostart_install]
       facility_name:
         description: "事業所名（create_facility）"
         type: string
@@ -151,6 +154,12 @@ jobs:
                 if grep -q '^MEDIA_ROOT=' .env; then sed -i "s#^MEDIA_ROOT=.*#MEDIA_ROOT=$target#" .env; else echo "MEDIA_ROOT=$target" >> .env; fi
                 echo "MEDIA_ROOT を $target にしました"
                 APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --restart ;;
+              status)
+                APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --status ;;
+              autostart_check)
+                APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --autostart check ;;
+              autostart_install)
+                APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --autostart install ;;
               *) echo "unknown task: $TASK"; exit 1 ;;
             esac
           REMOTE
