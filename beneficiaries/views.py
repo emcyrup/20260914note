@@ -17,7 +17,8 @@ from .models import Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guard
 from .forms import BeneficiaryForm, BeneficiaryOfficeForm, GuardianForm, RecipientCertificateForm
 from facilities.context_processors import get_terms
 from config.concurrency import check_conflict
-from config.utils import reservation_enabled
+from config.utils import reservation_enabled, to_int
+from .importer import PLACEHOLDER_DOB
 from config.pdf import pdf_or_html
 
 
@@ -73,6 +74,9 @@ class BeneficiaryListView(LoginRequiredMixin, ListView):
         ctx['status_tabs'] = [(value, label, counts.get(value, 0)) for value, label in Beneficiary.STATUS_CHOICES] \
             + [('', '全員', sum(counts.values()))]
         ctx['can_delete'] = self.request.user.is_admin or self.request.user.is_superuser
+        if ctx['can_delete']:      # 同じ名前の組の数（重複のまとめへ）
+            from .merge import find_groups
+            ctx['duplicate_groups'] = len(find_groups(self.request.user.facility))
         ctx['status_choices'] = Beneficiary.STATUS_CHOICES
         return ctx
 
@@ -235,6 +239,56 @@ class BeneficiaryBulkView(LoginRequiredMixin, View):
             return _back_to(request, back)
         messages.error(request, '操作を選んでください。')
         return _back_to(request, back)
+
+
+class DuplicateListView(LoginRequiredMixin, View):
+    """同じ名前の利用者の組を並べ、「この人にまとめる」を選ぶ（管理者だけ。beneficiaries/merge.py）"""
+
+    def get(self, request):
+        if not (request.user.is_admin or request.user.is_superuser):
+            messages.error(request, '重複のまとめは管理者だけができます。')
+            return redirect('beneficiaries:list')
+        from . import merge
+        groups = [[(b, merge.counts(b)) for b in people] for people in merge.find_groups(request.user.facility)]
+        return render(request, 'beneficiaries/duplicates.html', {'groups': groups, 'placeholder_dob': PLACEHOLDER_DOB})
+
+
+class MergeView(LoginRequiredMixin, View):
+    """2人を1人にまとめる。GET で見込み（移る記録・埋まる欄・重なり）を見せ、POST（確認の印）でまとめる。管理者だけ"""
+
+    def _pair(self, request, data):
+        facility = request.user.facility
+        keep = get_object_or_404(Beneficiary, pk=to_int(data.get('keep'), -1), facility=facility)
+        drop = get_object_or_404(Beneficiary, pk=to_int(data.get('drop'), -1), facility=facility)
+        if keep.pk == drop.pk:
+            raise Http404
+        return keep, drop
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and not (request.user.is_admin or request.user.is_superuser):
+            messages.error(request, '重複のまとめは管理者だけができます。')
+            return redirect('beneficiaries:list')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request):
+        from . import merge
+        keep, drop = self._pair(request, request.GET)
+        return render(request, 'beneficiaries/merge.html', {'p': merge.plan(keep, drop), 'placeholder_dob': PLACEHOLDER_DOB})
+
+    def post(self, request):
+        from . import merge
+        keep, drop = self._pair(request, request.POST)
+        if not request.POST.get('agree'):
+            messages.error(request, '確認の印が付いていません。まとめていません。')
+            return redirect(f"{reverse('beneficiaries:merge')}?keep={keep.pk}&drop={drop.pk}")
+        drop_label = f'{drop.full_name}（{drop.date_of_birth:%Y/%-m/%-d} 生まれ・No.{drop.pk}）'
+        try:
+            merge.merge(keep, drop)
+        except ValueError as e:
+            messages.error(request, str(e))
+            return redirect(f"{reverse('beneficiaries:merge')}?keep={keep.pk}&drop={drop.pk}")
+        messages.success(request, f'{drop_label} を {keep.full_name} さんにまとめました（記録・予約などを移し、空いていた欄を埋めました）。')
+        return redirect('beneficiaries:detail', pk=keep.pk)
 
 
 # =============================================

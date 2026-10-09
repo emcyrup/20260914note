@@ -11,7 +11,7 @@ from django.urls import reverse
 
 from accounts.models import StaffAccount
 from facilities.models import Facility
-from .models import Beneficiary, BeneficiaryOffice
+from .models import Beneficiary, BeneficiaryOffice, Guardian
 
 
 class BeneficiaryOfficeTests(TestCase):
@@ -1480,3 +1480,76 @@ class DobOverwriteAndPartialEditTests(TestCase):
         b.refresh_from_db()
         self.assertEqual((b.date_of_birth, b.last_name_kana), (datetime.date(2018, 4, 2), 'やまだ'))
         self.assertNotIn('仮の値', b.notes)
+
+
+class BeneficiaryMergeTests(TestCase):
+    """同じ名前の利用者を1人にまとめる（beneficiaries/merge.py）"""
+
+    def setUp(self):
+        from reservations.services import get_setting
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True,
+                                         use_reservation=True)
+        get_setting(self.f)
+        self.admin = StaffAccount.objects.create_user('adm', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.staff = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f)
+        self.keep = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='花子', last_name_kana='あおき',
+                                               date_of_birth=datetime.date(2000, 1, 1), notes='生年月日は取り込み時の仮の値（2000-01-01）です。正しい日付に直してください。')
+        self.drop = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='花 子', first_name_kana='はなこ',
+                                               date_of_birth=datetime.date(2019, 4, 1), address='札幌市', school_name='みどり小',
+                                               notes='電車が好き', status='inactive', weekday_tue=True)
+        self.other = Beneficiary.objects.create(facility=self.f, last_name='井上', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        self.drop.cannot_pair.add(self.other)
+
+    def test_find_plan_and_merge(self):
+        from therapy.models import TherapyProfile, TherapyRecord
+        from reservations.models import Reservation
+        from . import merge
+        self.assertEqual(merge.find_groups(self.f), [[self.drop, self.keep]])        # 仮の生年月日の人は後ろ
+        Guardian.objects.create(beneficiary=self.drop, last_name='青木', first_name='母')
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.drop, date=datetime.date(2026, 10, 2), body='記録')
+        TherapyProfile.objects.create(beneficiary=self.keep, cautions='大きな音が苦手')
+        TherapyProfile.objects.create(beneficiary=self.drop, cautions='疲れると手が出る')
+        Reservation.objects.create(facility=self.f, beneficiary=self.drop, date=datetime.date(2026, 10, 2), status='confirmed')
+        Reservation.objects.create(facility=self.f, beneficiary=self.keep, date=datetime.date(2026, 10, 2), status='cancelled')
+        p = merge.plan(self.keep, self.drop)
+        self.assertEqual(p['conflicts'], [])
+        self.assertIn(('date_of_birth', '生年月日', datetime.date(2019, 4, 1)), p['fills'])
+        self.assertIn('療育記録の留意点：両方の文をつなぎます', p['one_to_one'])
+
+        self.client.login(username='adm', password='pw12345678')
+        res = self.client.get(reverse('beneficiaries:list'))
+        self.assertContains(res, '同じ名前 1 組')
+        res = self.client.get(reverse('beneficiaries:duplicates'))
+        self.assertContains(res, f'?keep={self.keep.pk}&drop={self.drop.pk}')
+        url = reverse('beneficiaries:merge')
+        res = self.client.get(url, {'keep': self.keep.pk, 'drop': self.drop.pk})
+        self.assertContains(res, '療育記録：1 件')
+        self.assertContains(res, '住所：札幌市')
+        res = self.client.post(url, {'keep': self.keep.pk, 'drop': self.drop.pk})       # 確認の印なし
+        self.assertTrue(Beneficiary.objects.filter(pk=self.drop.pk).exists())
+        res = self.client.post(url, {'keep': self.keep.pk, 'drop': self.drop.pk, 'agree': '1'})
+        self.assertRedirects(res, reverse('beneficiaries:detail', args=[self.keep.pk]))
+        self.assertFalse(Beneficiary.objects.filter(pk=self.drop.pk).exists())
+        k = Beneficiary.objects.get(pk=self.keep.pk)
+        self.assertEqual((k.date_of_birth, k.address, k.school_name, k.first_name_kana, k.status, k.weekday_tue),
+                         (datetime.date(2019, 4, 1), '札幌市', 'みどり小', 'はなこ', 'active', True))
+        self.assertEqual(k.notes, '電車が好き')                                      # 仮の値の注意は消え、備考をつなぐ
+        self.assertEqual(k.guardians.count(), 1)
+        self.assertEqual(k.therapy_records.count(), 1)
+        self.assertEqual(k.reservations.count(), 2)
+        self.assertEqual(k.therapy_profile.cautions, '大きな音が苦手\n疲れると手が出る')
+        self.assertEqual(list(k.cannot_pair.all()), [self.other])
+
+    def test_conflict_blocks_and_staff_cannot(self):
+        from reservations.models import Reservation
+        for b in (self.keep, self.drop):
+            Reservation.objects.create(facility=self.f, beneficiary=b, date=datetime.date(2026, 10, 2), status='confirmed')
+        url = reverse('beneficiaries:merge')
+        self.client.login(username='st', password='pw12345678')
+        self.assertRedirects(self.client.get(url, {'keep': self.keep.pk, 'drop': self.drop.pk}), reverse('beneficiaries:list'))
+        self.client.login(username='adm', password='pw12345678')
+        res = self.client.get(url, {'keep': self.keep.pk, 'drop': self.drop.pk})
+        self.assertContains(res, '予約：2026/10/2 が両方にあります')
+        self.assertNotContains(res, '1人にまとめる</button>')
+        self.client.post(url, {'keep': self.keep.pk, 'drop': self.drop.pk, 'agree': '1'})
+        self.assertTrue(Beneficiary.objects.filter(pk=self.drop.pk).exists())

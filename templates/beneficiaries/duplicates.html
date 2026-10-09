@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block title %}同じ名前の{{ terms.beneficiary }}{% endblock %}
+{% block page_title %}同じ名前の{{ terms.beneficiary }}（重複のまとめ）{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width:900px;">
+  <a href="{% url 'beneficiaries:list' %}" class="small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>一覧に戻る</a>
+  <p class="small text-muted mt-2">名前（姓・名）が同じ{{ terms.beneficiary }}の組です。同じ子が2人に分かれている（取り込みで仮の生年月日で作られた・生年月日を打ちまちがえたなど）ときは、残す方の「この人にまとめる」を押すと、もう一方の記録・予約・保護者・書類などを移して1人にします（次の画面で中身を確かめてから）。別の子（同姓同名）のときは何もしないでください。</p>
+  {% for people in groups %}
+  <div class="card mb-3"><div class="card-body p-2">
+    <div class="fw-bold mb-2">{{ people.0.0.full_name }}（{{ people|length }} 人）</div>
+    <div class="table-responsive"><table class="table table-sm align-middle mb-0 small">
+      <thead><tr><th>No.</th><th>ふりがな</th><th>生年月日</th><th>在籍</th><th>記録・予約など</th><th></th></tr></thead>
+      <tbody>
+      {% for b, counts in people %}
+      <tr>
+        <td><a href="{% url 'beneficiaries:detail' b.pk %}">{{ b.pk }}</a></td>
+        <td>{{ b.full_name_kana|default:'—' }}</td>
+        <td>{{ b.date_of_birth|date:'Y/n/j' }}{% if b.date_of_birth == placeholder_dob %} <span class="badge text-bg-warning">仮</span>{% endif %}</td>
+        <td>{{ b.get_status_display }}</td>
+        <td>{% for label, n in counts %}{{ label }} {{ n }}{% if not forloop.last %}・{% endif %}{% empty %}<span class="text-muted">なし</span>{% endfor %}</td>
+        <td class="text-end text-nowrap">
+          {% for other, c in people %}{% if other.pk != b.pk %}
+          <a href="{% url 'beneficiaries:merge' %}?keep={{ b.pk }}&drop={{ other.pk }}" class="btn btn-sm btn-outline-primary py-0 mb-1" title="No.{{ other.pk }} の記録などをこの人に移して、No.{{ other.pk }} を消します">No.{{ other.pk }} をこの人にまとめる</a>
+          {% endif %}{% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </div></div>
+  {% empty %}
+  <div class="alert alert-success"><i class="bi bi-check-circle me-1"></i>同じ名前の{{ terms.beneficiary }}はいません。</div>
+  {% endfor %}
+</div>
+{% endblock %}

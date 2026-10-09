@@ -21,6 +21,7 @@
       <i class="bi bi-people-fill me-2"></i>{{ terms.beneficiary }}一覧
     </h5>
     <div class="d-flex gap-2">
+      {% if duplicate_groups %}<a href="{% url 'beneficiaries:duplicates' %}" class="btn btn-outline-warning" title="同じ名前の{{ terms.beneficiary }}がいます。同じ子が2人に分かれているときは1人にまとめられます"><i class="bi bi-intersect me-1"></i>同じ名前 {{ duplicate_groups }} 組</a>{% endif %}
       {% if user.facility.is_ryoiku %}<a href="{% url 'beneficiaries:import' %}" class="btn btn-outline-primary" title="Excel・CSV から利用者をまとめて登録・書き換え"><i class="bi bi-file-earmark-spreadsheet me-1"></i>Excel・CSV から取り込む</a>{% endif %}
       <a href="{% url 'beneficiaries:create' %}" class="btn btn-primary">
         <i class="bi bi-person-plus-fill me-1"></i>新規登録
