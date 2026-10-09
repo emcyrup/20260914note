@@ -328,7 +328,7 @@
                 <div class="fw-semibold">{{ g.last_name }} {{ g.first_name }}
                   <span class="badge text-bg-light text-dark ms-1" style="font-size:0.7rem;">{{ g.get_relation_display }}</span>
                   {% if g.is_primary %}<span class="badge ms-1" style="background:var(--color-primary);font-size:0.7rem;">主連絡先</span>{% endif %}
-                  {% if features.line %}{% if g.line_linked %}<span class="badge ms-1" style="background:#06C755;font-size:0.7rem;"><i class="bi bi-chat-dots me-1"></i>LINE連携済</span>{% else %}<span class="badge ms-1 bg-light text-muted" style="font-size:0.7rem;">LINE未連携</span>{% endif %}{% endif %}
+                  {% if features.line %}{% if g.line_linked %}<span class="badge ms-1" style="background:#06C755;font-size:0.7rem;"><i class="bi bi-chat-dots me-1"></i>LINE連携済</span>{% else %}<span class="badge ms-1 bg-light text-muted" style="font-size:0.7rem;">LINE未連携</span>{% endif %}{% if not beneficiary.line_send_journal %}<span class="badge ms-1 text-bg-warning text-dark" style="font-size:0.7rem;" title="利用者情報の「日誌を LINE で送る」が外れています">日誌は LINE で送らない</span>{% endif %}{% endif %}
                 </div>
                 {% if g.kana %}<div class="text-muted small">{{ g.kana }}</div>{% endif %}
                 <div class="text-muted small">{{ g.phone|default:'—' }}{% if g.phone2 %}／{{ g.phone2 }}{% endif %}{% if g.email %}・{{ g.email }}{% endif %}</div>
@@ -763,6 +763,15 @@
                   <span class="text-muted">— 日誌が重身用（体温・排便などの記録つき）になり、請求は重身の基本報酬単位数を使います</span>
                 </label>
               </div>
+              {% if features.line %}
+              <div class="form-check">
+                <input type="checkbox" name="line_send_journal" id="edit_line_send_journal" class="form-check-input"
+                       {% if edit_form.line_send_journal.value %}checked{% endif %}>
+                <label for="edit_line_send_journal" class="form-check-label small">日誌を LINE で送る
+                  <span class="text-muted">— 外すと、自動送信でも「LINE送信」ボタンでも、この子の日誌は保護者へ送りません</span>
+                </label>
+              </div>
+              {% elif edit_form.line_send_journal.value %}<input type="hidden" name="line_send_journal" value="on">{% endif %}
             </div>
             <div class="col-sm-6">
               <label class="form-label small fw-semibold">在籍状況</label>

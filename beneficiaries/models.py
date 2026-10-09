@@ -104,6 +104,8 @@ class Beneficiary(models.Model):
     discharge_date = models.DateField(null=True, blank=True, verbose_name='退所日')
     # 他システムや紙の記録がある（新規の利用者ではない）
     has_prior_records = models.BooleanField(default=False, verbose_name='他システム・紙の記録がある')
+    # 日誌の保護者向けメッセージを LINE で送る子か（送らない子は、自動送信でも「LINE送信」ボタンでも送らない）
+    line_send_journal = models.BooleanField(default=True, verbose_name='日誌を LINE で送る')
     # 利用予定曜日（月〜土）。Phase 3 の予定一括生成で使用する
     weekday_mon = models.BooleanField(default=False, verbose_name='月')
     weekday_tue = models.BooleanField(default=False, verbose_name='火')

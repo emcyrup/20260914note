@@ -181,6 +181,11 @@
             <input type="checkbox" class="form-check-input" name="use_line" id="use_line" {% if facility.use_line %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_line">LINE連携（保護者へのLINE送信・配信履歴）</label>
           </div>
+          <div class="form-check mb-1 ms-4">
+            <input type="checkbox" class="form-check-input" name="line_auto_send" id="line_auto_send" {% if facility.line_auto_send %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="line_auto_send">日誌を「確定」で保存したら、保護者向けメッセージを保護者の LINE へ自動で送る
+              <span class="small text-muted">（下書き→確定にした保存のときだけ。送らない子は利用者情報の「日誌を LINE で送る」を外す。送信ずみの日誌には二重に送らない）</span></label>
+          </div>
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_reservation" id="use_reservation" {% if facility.use_reservation %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_reservation">予約管理（1日の枠・キャンセル待ち・公式LINEからの申し込み・顧客台帳）</label>

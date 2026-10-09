@@ -394,10 +394,11 @@ class DailyRecordListView(LoginRequiredMixin, TemplateView):
 # =============================================
 # LINE送信ヘルパー（作成・更新ビュー共用）
 # =============================================
-def _send_line_for_record(request, record):
+def _send_line_for_record(request, record, auto=False):
     """
     保存済みの日誌レコードに対してLINE Push Messageを送信する。
     保護者未連携やトークン未設定の場合は警告メッセージを表示して処理を続ける（例外はraiseしない）。
+    auto=True は「確定したら自動で送る」（施設設定 line_auto_send）からの呼び出し：送信ずみの日誌には二重に送らない
     """
     from linebot.v3.messaging import (
         ApiClient, Configuration, MessagingApi,
@@ -406,9 +407,16 @@ def _send_line_for_record(request, record):
     from line_integration.models import LineDeliveryLog
 
     facility = request.user.facility
+    head = 'LINE の自動送信：' if auto else ''
 
+    if not record.beneficiary.line_send_journal:
+        messages.info(request, f'{head}{record.beneficiary.full_name}さんは「日誌を LINE で送らない」設定なので送っていません（利用者情報で変えられます）。')
+        return
+    if auto and LineDeliveryLog.objects.filter(daily_record=record, is_success=True).exists():
+        messages.info(request, f'{head}この日誌は送信ずみなので送っていません（もう一度送るときは「LINE送信」）。')
+        return
     if not record.parent_message_draft:
-        messages.warning(request, 'メッセージが空のためLINE送信をスキップしました。')
+        messages.warning(request, f'{head}メッセージが空のためLINE送信をスキップしました。')
         return
 
     guardian = (
@@ -416,11 +424,11 @@ def _send_line_for_record(request, record):
         or record.beneficiary.guardians.filter(line_linked=True).first()
     )
     if not guardian:
-        messages.warning(request, f'{record.beneficiary.full_name}様の保護者がLINE未連携のため送信できませんでした。')
+        messages.warning(request, f'{head}{record.beneficiary.full_name}様の保護者がLINE未連携のため送信できませんでした。')
         return
 
     if not facility.line_channel_access_token:
-        messages.warning(request, 'LINEチャネルアクセストークンが未設定のため送信できませんでした。')
+        messages.warning(request, f'{head}LINEチャネルアクセストークンが未設定のため送信できませんでした。')
         return
 
     send_text = (
@@ -451,9 +459,23 @@ def _send_line_for_record(request, record):
         error_message=error_message,
     )
     if is_success:
-        messages.success(request, f'{guardian}へLINEメッセージを送信しました。')
+        messages.success(request, f'{head}{guardian}へLINEメッセージを送信しました。')
     else:
-        messages.error(request, f'LINE送信に失敗しました：{error_message}')
+        messages.error(request, f'{head}LINE送信に失敗しました：{error_message}')
+
+
+def _auto_send_line(request, record, was_confirmed):
+    """
+    施設設定「日誌を確定したら保護者へ LINE を自動で送る」：この保存で下書き→確定になった（または確定で新しく作った）ときだけ送る。
+    確定のまま直しただけの保存では送らない。戻り値は送ろうとしたか
+    """
+    facility = request.user.facility
+    if not (facility.use_line and facility.line_auto_send):
+        return False
+    if record.status != DailyRecord.STATUS_CONFIRMED or was_confirmed:
+        return False
+    _send_line_for_record(request, record, auto=True)
+    return True
 
 
 def _suggest_addons_after_save(record):
@@ -555,9 +577,11 @@ class DailyRecordCreateView(LoginRequiredMixin, View):
         messages.success(request, f'{date} の日誌を保存しました。')
         _suggest_addons_after_save(record)
 
-        # 「保存してLINE送信」ボタンが押された場合
+        # 「保存してLINE送信」ボタンが押された場合。そうでなければ、確定にしたときの自動送信（施設設定）
         if p.get('send_line') == '1' and record.status == DailyRecord.STATUS_CONFIRMED:
             _send_line_for_record(request, record)
+        else:
+            _auto_send_line(request, record, was_confirmed=existing is not None and existing.status == DailyRecord.STATUS_CONFIRMED)
 
         return redirect(safe_next(request, p.get('next', ''), f'/records/{beneficiary_pk}/?selected={record.pk}'))
 
@@ -583,6 +607,7 @@ class DailyRecordUpdateView(LoginRequiredMixin, View):
             record.author_id = author_pk
         elif not author_pk:
             pass  # 空の場合は変更しない
+        was_confirmed = record.status == DailyRecord.STATUS_CONFIRMED
         record.record_kind             = _record_kind(request, record.beneficiary, record.record_kind)
         if record.record_kind == DailyRecord.KIND_SEVERE:
             record.severe_care = clean_severe_care(p)
@@ -628,6 +653,7 @@ class DailyRecordUpdateView(LoginRequiredMixin, View):
 
         messages.success(request, '日誌を更新しました。')
         _suggest_addons_after_save(record)
+        _auto_send_line(request, record, was_confirmed)      # 下書き → 確定にしたときの自動送信（施設設定）
         return redirect(f'/records/{record.beneficiary_id}/?selected={record.pk}')
 
 

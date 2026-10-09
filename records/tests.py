@@ -647,3 +647,97 @@ class SevereJournalAndAddonTests(TestCase):
         res = self.client.get(reverse('records:list', args=[self.ben.pk]))
         self.assertNotContains(res, '加算の入力はありますか')
         self.assertContains(res, '重身用')
+
+
+class LineAutoSendTests(TestCase):
+    """日誌を確定したら LINE へ自動で送る（施設設定 line_auto_send）と、子ごとの送る／送らない（Beneficiary.line_send_journal）"""
+
+    def setUp(self):
+        import datetime
+        from beneficiaries.models import Beneficiary, Guardian
+        self.facility = Facility.objects.create(name='F', use_line=True, line_auto_send=True, line_channel_access_token='tok')
+        self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility,
+                                                     role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        self.b = Beneficiary.objects.create(facility=self.facility, last_name='山田', first_name='太郎', date_of_birth=datetime.date(2018, 4, 1))
+        Guardian.objects.create(beneficiary=self.b, last_name='山田', first_name='母', relation='mother', is_primary=True,
+                                line_linked=True, line_user_id='U123')
+        self.day = datetime.date(2026, 10, 8)
+
+    def _post(self, status, msg='きょうは工作をしました。', **extra):
+        data = {'date': self.day.isoformat(), 'status': status, 'parent_message_draft': msg, 'observation_memo': 'x'}
+        data.update(extra)
+        return self.client.post(reverse('records:create', args=[self.b.pk]), data, follow=True)
+
+    def _logs(self):
+        from line_integration.models import LineDeliveryLog
+        return LineDeliveryLog.objects.filter(daily_record__beneficiary=self.b)
+
+    def test_auto_send_only_when_becoming_confirmed(self):
+        from records.models import DailyRecord
+        with mock.patch('linebot.v3.messaging.MessagingApi.push_message') as push:
+            res = self._post('draft')                                   # 下書きでは送らない
+            self.assertEqual(push.call_count, 0)
+            record = DailyRecord.objects.get(beneficiary=self.b, date=self.day)
+            res = self.client.post(reverse('records:update', args=[record.pk]),
+                                   {'status': 'confirmed', 'parent_message_draft': 'きょうは工作をしました。'}, follow=True)
+            self.assertEqual(push.call_count, 1)                        # 下書き → 確定で自動送信
+            self.assertContains(res, 'LINE の自動送信：')
+            self.assertContains(res, 'へLINEメッセージを送信しました')
+            self.assertEqual(self._logs().filter(is_success=True).count(), 1)
+            self.assertIn('きょうは工作をしました。', push.call_args.args[0].messages[0].text)
+            res = self.client.post(reverse('records:update', args=[record.pk]),
+                                   {'status': 'confirmed', 'parent_message_draft': '直した文。'}, follow=True)
+            self.assertEqual(push.call_count, 1)                        # 確定のまま直しても送らない
+            res = self.client.post(reverse('records:update', args=[record.pk]), {'status': 'draft', 'parent_message_draft': '直した文。'})
+            res = self.client.post(reverse('records:update', args=[record.pk]),
+                                   {'status': 'confirmed', 'parent_message_draft': '直した文。'}, follow=True)
+            self.assertEqual(push.call_count, 1)                        # 送信ずみの日誌は二重に送らない
+            self.assertContains(res, '送信ずみなので送っていません')
+
+    def test_create_confirmed_sends_and_manual_button_not_doubled(self):
+        with mock.patch('linebot.v3.messaging.MessagingApi.push_message') as push:
+            res = self._post('confirmed')                               # 確定で新しく作る → 送る
+            self.assertEqual(push.call_count, 1)
+            self.assertContains(res, 'LINE の自動送信：')
+        from records.models import DailyRecord
+        DailyRecord.objects.filter(beneficiary=self.b).delete()
+        with mock.patch('linebot.v3.messaging.MessagingApi.push_message') as push:
+            res = self._post('confirmed', send_line='1')                # 「保存してLINE送信」は手動の送信だけ（自動と二重にしない）
+            self.assertEqual(push.call_count, 1)
+            self.assertNotContains(res, 'LINE の自動送信：')
+
+    def test_setting_off_and_child_opt_out(self):
+        self.facility.line_auto_send = False
+        self.facility.save()
+        with mock.patch('linebot.v3.messaging.MessagingApi.push_message') as push:
+            self._post('confirmed')
+            self.assertEqual(push.call_count, 0)                        # 施設設定がオフなら送らない
+        self.facility.line_auto_send = True
+        self.facility.save()
+        self.b.line_send_journal = False
+        self.b.save()
+        from records.models import DailyRecord
+        DailyRecord.objects.filter(beneficiary=self.b).delete()
+        with mock.patch('linebot.v3.messaging.MessagingApi.push_message') as push:
+            res = self._post('confirmed')
+            self.assertEqual(push.call_count, 0)                        # 送らない子
+            self.assertContains(res, '「日誌を LINE で送らない」設定なので送っていません')
+            record = DailyRecord.objects.get(beneficiary=self.b, date=self.day)
+            res = self.client.post(reverse('line_integration:send', args=[record.pk]), follow=True)
+            self.assertEqual(push.call_count, 0)                        # 手動の「LINE送信」でも送らない
+            self.assertContains(res, '「日誌を LINE で送らない」設定です')
+            res = self.client.get(reverse('records:list', args=[self.b.pk]) + f'?selected={record.pk}')
+            self.assertContains(res, 'さんは「日誌を LINE で送らない」設定です')
+            self.assertNotContains(res, 'id="lineSendForm"')
+        res = self.client.get(reverse('beneficiaries:detail', args=[self.b.pk]))
+        self.assertContains(res, '日誌は LINE で送らない')
+        self.assertContains(res, 'name="line_send_journal"')
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, 'name="line_auto_send"')
+        self.client.post(reverse('facilities:feature_settings'), {'use_line': 'on', 'journal_sections': ['observation']})
+        self.facility.refresh_from_db()
+        self.assertFalse(self.facility.line_auto_send)
+        self.client.post(reverse('facilities:feature_settings'), {'use_line': 'on', 'line_auto_send': 'on', 'journal_sections': ['observation']})
+        self.facility.refresh_from_db()
+        self.assertTrue(self.facility.line_auto_send)

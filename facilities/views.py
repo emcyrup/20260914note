@@ -195,6 +195,7 @@ class FeatureSettingsView(LoginRequiredMixin, View):
         facility.use_billing = 'use_billing' in request.POST
         facility.use_schedule = 'use_schedule' in request.POST
         facility.use_line = 'use_line' in request.POST
+        facility.line_auto_send = 'line_auto_send' in request.POST
         facility.use_reservation = 'use_reservation' in request.POST
         facility.use_therapy_record = 'use_therapy_record' in request.POST
         facility.use_transport = 'use_transport' in request.POST
@@ -223,7 +224,7 @@ class FeatureSettingsView(LoginRequiredMixin, View):
                 pass
             if request.POST.get('trial_ai_reset'):
                 facility.trial_ai_used = 0
-        facility.save(update_fields=['use_billing', 'use_schedule', 'use_line', 'use_reservation', 'use_therapy_record',
+        facility.save(update_fields=['use_billing', 'use_schedule', 'use_line', 'line_auto_send', 'use_reservation', 'use_therapy_record',
                                      'use_transport', 'use_dev_assessment', 'use_survey', 'use_daily_ops',
                                      'journal_sections', 'form_set', 'layout', 'trial_ai_limit', 'trial_ai_used',
                                      'speech_words', 'word_rules', 'updated_at'])

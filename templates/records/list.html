@@ -1148,7 +1148,10 @@
                   <label for="status_confirmed" class="form-check-label small">確定</label>
                 </div>
               </div>
-              {% if features.line %}
+              {% if features.line and not beneficiary.line_send_journal %}
+              <div class="small text-muted"><i class="bi bi-chat-dots me-1"></i>{{ beneficiary.full_name }}さんは「日誌を LINE で送らない」設定です（利用者情報で変えられます）</div>
+              {% elif features.line %}
+              {% if request.user.facility.line_auto_send %}<div class="small text-success mb-1" x-show="confirmed"><i class="bi bi-send-check me-1"></i>確定で保存すると、保護者向けメッセージを LINE へ自動で送ります（施設設定）</div>{% endif %}
               <!-- 保存してLINE送信ボタン -->
               <input type="hidden" name="send_line" id="createSendLineFlag" value="0">
               <div class="d-flex align-items-center gap-2">
@@ -1498,8 +1501,11 @@
                   <label for="edit_status_confirmed" class="form-check-label small">確定</label>
                 </div>
               </div>
-              {% if features.line %}
+              {% if features.line and not selected_record.beneficiary.line_send_journal %}
+              <div class="small text-muted"><i class="bi bi-chat-dots me-1"></i>{{ selected_record.beneficiary.full_name }}さんは「日誌を LINE で送らない」設定です（利用者情報で変えられます）</div>
+              {% elif features.line %}
               <div>
+                {% if request.user.facility.line_auto_send and selected_record.status != 'confirmed' %}<div class="small text-success mb-1" x-show="confirmed"><i class="bi bi-send-check me-1"></i>確定で保存すると、保護者向けメッセージを LINE へ自動で送ります（施設設定）</div>{% endif %}
                 <button type="button" class="btn btn-sm"
                         :style="confirmed ? 'background-color:#06C755;color:#fff;border:none;' : 'background-color:#ccc;color:#fff;border:none;cursor:not-allowed;'"
                         :disabled="!confirmed"
@@ -1586,7 +1592,7 @@
 {% endif %}
 
 {% if selected_record %}
-{% if features.line %}<form id="lineSendForm" method="post" action="{% url 'line_integration:send' selected_record.pk %}">
+{% if features.line and selected_record.beneficiary.line_send_journal %}<form id="lineSendForm" method="post" action="{% url 'line_integration:send' selected_record.pk %}">
   {% csrf_token %}
 </form>{% endif %}
 {% include 'esignatures/signature_modal.html' with target_type='daily_record' target_id=selected_record.pk guardians=beneficiary.guardians.all %}

@@ -325,6 +325,9 @@ class SendLineMessageView(LoginRequiredMixin, LineEnabledMixin, View):
         facility = request.user.facility
         record = get_object_or_404(DailyRecord, pk=record_pk, facility=facility)
 
+        if not record.beneficiary.line_send_journal:
+            messages.error(request, f'{record.beneficiary.full_name}さんは「日誌を LINE で送らない」設定です（利用者情報で変えられます）。')
+            return redirect('records:list', beneficiary_pk=record.beneficiary_id)
         if not record.parent_message_draft:
             messages.error(request, 'メッセージがありません。先に保護者向けメッセージを入力してください。')
             return redirect('records:list', beneficiary_pk=record.beneficiary_id)

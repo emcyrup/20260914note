@@ -85,6 +85,8 @@ class Facility(models.Model):
     use_schedule = models.BooleanField(default=True, verbose_name='予定（来所予定・出欠）を使う',
                                        help_text='月のカレンダーに来所予定を入れて出欠を付ける画面。予約管理で枠を扱う事業所は使わなくてよい。')
     use_line = models.BooleanField(default=True, verbose_name='LINE連携を使う')
+    # 日誌を「確定」で保存したとき、保護者向けメッセージを保護者の LINE へ自動で送る（利用者ごとに送らない設定ができる）
+    line_auto_send = models.BooleanField(default=False, verbose_name='日誌を確定したら保護者へ LINE を自動で送る')
     use_reservation = models.BooleanField(default=False, verbose_name='予約管理を使う',
                                           help_text='1日の枠・キャンセル待ち・公式LINEからの申し込みを扱います。')
     use_therapy_record = models.BooleanField(default=False, verbose_name='療育記録を使う',

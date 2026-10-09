@@ -16,7 +16,7 @@ class BeneficiaryForm(forms.ModelForm):
             'weekday_thu', 'weekday_fri', 'weekday_sat',
             'notes', 'status',
             'postal_code', 'address', 'mobile_phone', 'home_phone', 'school_name', 'grade',
-            'admission_date', 'discharge_date', 'has_prior_records', 'cannot_pair', 'siblings',
+            'admission_date', 'discharge_date', 'has_prior_records', 'cannot_pair', 'siblings', 'line_send_journal',
         ]
         widgets = {
             'date_of_birth': forms.DateInput(attrs={'type': 'date'}),

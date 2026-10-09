@@ -105,6 +105,14 @@
                 <span class="text-muted small">— 日誌が重身用になり、請求は重身の基本報酬単位数を使います</span>
               </label>
             </div>
+            {% if features.line %}
+            <div class="form-check">
+              <input type="checkbox" name="line_send_journal" id="line_send_journal" class="form-check-input" {% if form.line_send_journal.value or not form.instance.pk %}checked{% endif %}>
+              <label for="line_send_journal" class="form-check-label">日誌を LINE で送る
+                <span class="text-muted small">— 外すと、自動送信でも「LINE送信」ボタンでも、この子の日誌は保護者へ送りません</span>
+              </label>
+            </div>
+            {% elif form.line_send_journal.value or not form.instance.pk %}<input type="hidden" name="line_send_journal" value="on">{% endif %}
           </div>
           <div class="col-12">
             <label class="form-label">在籍状況</label>
