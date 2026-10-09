@@ -127,9 +127,34 @@
       </div>
     </div>
     <div class="d-flex flex-column align-items-end gap-2">
-      {% if features.therapy %}
-      <a href="{% url 'therapy:child' beneficiary.pk %}?date={% now 'Y-m-d' %}#add" class="btn btn-primary btn-sm"><i class="bi bi-journal-medical me-1"></i>療育記録を書く（きょう）</a>
+      <div class="d-flex gap-2 flex-wrap justify-content-end">
+      {% if add_today %}
+      {% if add_today.existing %}
+      <span class="btn btn-sm btn-outline-success disabled" title="きょうの予定に入っています"><i class="bi bi-calendar-check me-1"></i>きょう {% if add_today.existing.start_time %}{{ add_today.existing.start_time|time:'G' }}時{% endif %}の予定あり{% if add_today.existing.status != 'confirmed' %}（{{ add_today.existing.get_status_display }}）{% endif %}</span>
+      {% elif add_today.closed %}
+      <span class="btn btn-sm btn-outline-secondary disabled" title="きょうは休業日か、枠がありません"><i class="bi bi-calendar-x me-1"></i>きょうは休業日</span>
+      {% else %}
+      <div class="dropdown">
+        <button type="button" class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"
+                title="きょうの時間枠を選んで予定に入れ、そのまま療育記録を書きます（保護者への通知は出しません）"><i class="bi bi-calendar-plus me-1"></i>今日の予定に追加</button>
+        <form method="post" action="{% url 'reservations:add_today' beneficiary.pk %}" class="dropdown-menu dropdown-menu-end p-1" style="min-width:15rem;">
+          {% csrf_token %}
+          <div class="small text-muted px-2 py-1">{{ add_today.day|date:'n/j' }}（{{ add_today.day|date:'D' }}）の枠を選ぶ</div>
+          {% for s in add_today.slots %}
+          <button name="start_time" value="{{ s.hour }}:00" class="dropdown-item d-flex justify-content-between gap-2 small"
+                  {% if s.ng %}disabled title="同じ時間にできない {{ s.ng|join:'・' }} さんがいます"{% elif s.full %}onclick="return confirm('{{ s.label }} の枠はいっぱいです。キャンセル待ちで入れます。よろしいですか？');"{% endif %}>
+            <span>{{ s.label }}</span>
+            <span class="{% if s.ng %}text-danger{% elif s.full %}text-warning{% else %}text-success{% endif %}">{% if s.ng %}共演NG：{{ s.ng|join:'・' }}{% elif s.full %}いっぱい{% else %}空き {{ s.remaining }}{% endif %}</span>
+          </button>
+          {% endfor %}
+        </form>
+      </div>
       {% endif %}
+      {% endif %}
+      {% if features.therapy %}
+      <a href="{% url 'therapy:child' beneficiary.pk %}?date={% if add_today %}{{ add_today.day|date:'Y-m-d' }}{% else %}{% now 'Y-m-d' %}{% endif %}{% if add_today.existing.start_time %}&time={{ add_today.existing.start_time|time:'H:i' }}{% endif %}#add" class="btn btn-primary btn-sm"><i class="bi bi-journal-medical me-1"></i>療育記録を書く（きょう）</a>
+      {% endif %}
+      </div>
       <a href="{% url 'beneficiaries:digest' beneficiary.pk %}" class="btn btn-outline-primary btn-sm" title="期間の記録から、面談・モニタリング・計画の見直しに使うまとめを作る"><i class="bi bi-file-earmark-text me-1"></i>面談資料（記録のまとめ）</a>
       <form method="post" action="{% url 'beneficiaries:status' beneficiary.pk %}" class="d-flex align-items-center gap-1 flex-wrap justify-content-end">
         {% csrf_token %}

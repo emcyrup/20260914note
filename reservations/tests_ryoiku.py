@@ -1617,3 +1617,51 @@ class ScheduleSideTableTests(TestCase):
         self.assertIn('契約（支給量）10 − 確定 2', side)
         self.assertIn('ms-fit', page)                      # 全体表示は画面いっぱい（左メニュー・上の帯を消す）
         self.assertIn('requestFullscreen', page)
+
+
+class AddTodayTests(TestCase):
+    """利用者の画面の「今日の予定に追加」：枠を選んできょうの予約を作り、そのまま療育記録へ"""
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kids = [child(self.f, n) for n in ('青木', '井上', '上田', '江口', '大野')]
+        self.day = datetime.date(2026, 10, 2)    # 金
+        patcher = mock.patch('django.utils.timezone.localdate', return_value=self.day)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_detail_shows_slots_and_add_goes_to_therapy(self):
+        a, b = self.kids[0], self.kids[1]
+        a.cannot_pair.add(b)
+        services.create_reservation(self.f, b, self.day, start_time='10')
+        detail = reverse('beneficiaries:detail', args=[a.pk])
+        res = self.client.get(detail)
+        self.assertContains(res, '今日の予定に追加')
+        self.assertContains(res, '共演NG：井上 子')                  # 10時は同じ時間にできない子がいる
+        self.assertContains(res, 'value="11:00"')
+        url = reverse('reservations:add_today', args=[a.pk])
+        res = self.client.post(url, {'start_time': '10:00'})
+        self.assertRedirects(res, detail)
+        self.assertFalse(Reservation.objects.filter(beneficiary=a).exists())
+        res = self.client.post(url, {'start_time': '11:00'})
+        self.assertRedirects(res, reverse('therapy:child', args=[a.pk]) + '?date=2026-10-02&time=11:00#add', fetch_redirect_response=False)
+        r = Reservation.objects.get(beneficiary=a)
+        self.assertEqual((r.date, r.start_time, r.status, r.note), (self.day, datetime.time(11), Reservation.STATUS_CONFIRMED, '当日追加'))
+        self.assertFalse(ReservationNotice.objects.filter(reservation=r).exists())     # 保護者への通知は出さない
+        res = self.client.get(detail)
+        self.assertContains(res, 'きょう 11時の予定あり')
+        self.assertContains(res, '?date=2026-10-02&time=11:00#add')
+        # もう一度押しても二重にしない
+        self.client.post(url, {'start_time': '13:00'})
+        self.assertEqual(Reservation.objects.filter(beneficiary=a).count(), 1)
+
+    def test_full_slot_goes_to_waitlist_and_closed_day(self):
+        for k in self.kids[1:4]:
+            services.create_reservation(self.f, k, self.day, start_time='10')
+        self.client.post(reverse('reservations:add_today', args=[self.kids[0].pk]), {'start_time': '10:00'})
+        self.assertEqual(Reservation.objects.get(beneficiary=self.kids[0]).status, Reservation.STATUS_WAITLIST)
+        with mock.patch('django.utils.timezone.localdate', return_value=datetime.date(2026, 10, 5)):   # 月曜はお休み
+            res = self.client.get(reverse('beneficiaries:detail', args=[self.kids[4].pk]))
+        self.assertContains(res, 'きょうは休業日')

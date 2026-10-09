@@ -170,6 +170,42 @@ class SettingView(ReservationEnabledMixin, View):
         return redirect('reservations:calendar')
 
 
+class AddTodayView(ReservationEnabledMixin, View):
+    """
+    利用者の画面の「今日の予定に追加」：選んだ時間枠できょうの予約を作り（保護者への通知は出さない）、そのまま療育記録へ。
+    すでにきょうの予約があれば作らずに療育記録へ。入れられない（休業日・共演NG）ときは利用者の画面へ戻す
+    """
+
+    def post(self, request, pk):
+        facility = request.user.facility
+        beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=facility)
+        today = timezone.localdate()
+        back = redirect('beneficiaries:detail', pk=beneficiary.pk)
+        res = Reservation.objects.filter(facility=facility, beneficiary=beneficiary, date=today,
+                                         status__in=Reservation.ACTIVE_STATUSES).first()
+        if res is None:
+            try:
+                res, _ = services.create_reservation(facility, beneficiary, today, note='当日追加',
+                                                     start_time=request.POST.get('start_time'), notify=False)
+            except services.ReservationError as e:
+                messages.error(request, str(e))
+                return back
+            when = f'{res.start_time.hour}時' if res.start_time else ''
+            if res.status == Reservation.STATUS_CONFIRMED:
+                messages.success(request, f'{beneficiary.full_name} さんをきょうの {when} の予定に入れました。')
+            else:
+                messages.warning(request, f'{when} の枠がいっぱいのため、{beneficiary.full_name} さんを'
+                                          f'「{res.get_status_display()}」で入れました。来所したら日の画面で実績を「来た」にしてください。')
+        else:
+            messages.info(request, f'{beneficiary.full_name} さんはきょうの予定に入っています。')
+        if getattr(facility, 'use_therapy_record', False):
+            url = f"{reverse('therapy:child', args=[beneficiary.pk])}?date={today:%Y-%m-%d}"
+            if res.start_time:
+                url += f'&time={res.start_time:%H:%M}'
+            return redirect(url + '#add')
+        return redirect('reservations:day', year=today.year, month=today.month, day=today.day)
+
+
 class DayView(ReservationEnabledMixin, View):
     """その日の予約：一覧・追加・取消・臨時休業・前日のお知らせ"""
     template_name = 'reservations/day.html'

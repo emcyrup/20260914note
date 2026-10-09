@@ -418,6 +418,25 @@ def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STA
 
 
 @transaction.atomic
+def add_today_choices(facility, beneficiary, day):
+    """
+    利用者の画面の「今日の予定に追加」で選べる枠。時間枠で予約する事業所だけ（ほかは None）。
+    戻り値 {'day', 'closed', 'existing'（その日の有効な予約）, 'slots': [{hour, label, remaining, full, ng（共演NG の相手）}]}
+    """
+    setting = get_setting(facility)
+    if not setting.slot_mode:
+        return None
+    existing = Reservation.objects.filter(facility=facility, beneficiary=beneficiary, date=day,
+                                          status__in=Reservation.ACTIVE_STATUSES).first()
+    st = day_state(facility, day, setting)
+    slots = []
+    for x in st.get('slots', []):
+        t = datetime.time(x['hour'])
+        slots.append({'hour': x['hour'], 'label': x['label'], 'remaining': x['remaining'], 'full': x['full'],
+                      'ng': pair_conflicts(beneficiary, day, start_time=t)})
+    return {'day': day, 'closed': not slots, 'existing': existing, 'slots': slots}
+
+
 def cancel_reservation(res, notify=True, base=''):
     """
     予約を取り消す。キャンセル待ちがいれば申し込み順に繰り上げ、

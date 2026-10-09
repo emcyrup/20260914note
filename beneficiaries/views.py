@@ -10,12 +10,14 @@ from django.http import Http404, JsonResponse
 from django.contrib import messages
 from django.db import models as db_models
 from django.conf import settings
+from django.utils import timezone
 import anthropic
 
 from .models import Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guardian, RecipientCertificate, BeneficiaryDocument, DOCUMENT_EXTENSIONS, DOCUMENT_MAX_BYTES, KANA_ROWS, DevelopmentAssessment, RecordDigest
 from .forms import BeneficiaryForm, BeneficiaryOfficeForm, GuardianForm, RecipientCertificateForm
 from facilities.context_processors import get_terms
 from config.concurrency import check_conflict
+from config.utils import reservation_enabled
 from config.pdf import pdf_or_html
 
 
@@ -259,6 +261,11 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
         today = datetime.date.today()
         ctx['guardians'] = b.guardians.all()
         ctx['status_choices'] = Beneficiary.STATUS_CHOICES
+        facility = self.request.user.facility
+        if facility.is_ryoiku and b.status == 'active' and reservation_enabled(facility):
+            # 「今日の予定に追加」：きょうの時間枠と空き（reservations/views.py の AddTodayView で予約を作る）
+            from reservations.services import add_today_choices
+            ctx['add_today'] = add_today_choices(facility, b, timezone.localdate())
         ctx['certificates'] = b.recipient_certificates.all()
         ctx['offices'] = b.offices.all()
         ctx['assessments'] = b.assessments.select_related('created_by')
