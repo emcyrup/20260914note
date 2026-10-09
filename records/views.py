@@ -176,6 +176,9 @@ class RecordsDashboardView(LoginRequiredMixin, TemplateView):
 
         # スタッフメモ（新しい順に20件）
         memos = StaffMemo.objects.filter(facility=facility).select_related('author')[:20]
+        # 書いていない日誌（きのうまで 14 日ぶん）の件数
+        from . import unwritten
+        unwritten_count = len(unwritten.collect(facility, today))
 
         ctx.update({
             'week_info':     week_info,
@@ -186,6 +189,34 @@ class RecordsDashboardView(LoginRequiredMixin, TemplateView):
             'next_week':     (week_start + timedelta(days=7)).isoformat(),
             'beneficiaries': beneficiaries,
             'memos':         memos,
+            'unwritten_count': unwritten_count,
+        })
+        return ctx
+
+
+class UnwrittenListView(LoginRequiredMixin, TemplateView):
+    """
+    書いていない日誌の一覧（records/unwritten.py）。来所したのに日誌が無い・下書きのままの利用者を、新しい日から出す。
+    ?days=7|14|30|60 でさかのぼる日数、?draft=0 で下書きのままを除く
+    """
+    template_name = 'records/unwritten.html'
+
+    def get_context_data(self, **kwargs):
+        from . import unwritten
+        ctx = super().get_context_data(**kwargs)
+        facility = self.request.user.facility
+        days = to_int(self.request.GET.get('days')) or unwritten.DEFAULT_DAYS
+        if days not in unwritten.DAY_CHOICES:
+            days = unwritten.DEFAULT_DAYS
+        include_draft = self.request.GET.get('draft', '1') != '0'
+        today = date.today()
+        rows = unwritten.collect(facility, today, days=days, include_draft=include_draft)
+        ctx.update({
+            'today': today, 'days': days, 'day_choices': unwritten.DAY_CHOICES, 'include_draft': include_draft,
+            'rows': rows, 'groups': unwritten.by_date(rows),
+            'none_count': sum(1 for r in rows if r.state == unwritten.STATE_NONE),
+            'draft_count': sum(1 for r in rows if r.state == unwritten.STATE_DRAFT),
+            'since': today - timedelta(days=days),
         })
         return ctx
 

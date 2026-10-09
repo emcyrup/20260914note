@@ -253,6 +253,8 @@
       <i class="bi bi-plus me-1"></i>日誌を追加
     </button>
     <a href="{% url 'records:paper_list' %}" class="btn btn-sm btn-outline-secondary" title="過去の紙の日誌をカメラで取り込む"><i class="bi bi-camera me-1"></i>紙の日誌を取り込む</a>
+    <a href="{% url 'records:unwritten' %}" class="btn btn-sm {% if unwritten_count %}btn-warning{% else %}btn-outline-secondary{% endif %}" title="来所したのに日誌が無い・下書きのまま（きのうまで 14 日ぶん）">
+      <i class="bi bi-journal-x me-1"></i>書いていない日誌{% if unwritten_count %} <span class="badge text-bg-danger">{{ unwritten_count }}</span>{% endif %}</a>
   </div>
 
   <!-- 凡例 -->

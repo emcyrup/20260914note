@@ -106,11 +106,16 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         # 個別支援計画の計画期間・モニタリングの期日（30日以内と期限切れ）
         from . import reminders
         plan_items = reminders.collect(facility, today, kinds=(reminders.KIND_PLAN, reminders.KIND_MONITORING))
+        # 書いていない日誌（きのうまで 14 日ぶん。来所したのに日誌が無い・下書きのまま）
+        from records import unwritten
+        unwritten_rows = unwritten.collect(facility, today) if unwritten.enabled(facility) else []
 
         ctx.update({
             'today':           today,
             'soon':            soon,
             'plan_items':      plan_items,
+            'unwritten_rows':  unwritten_rows,
+            'unwritten_days':  unwritten.DEFAULT_DAYS,
             'expired_certs':   expired_certs,
             'expiring_certs':  expiring_certs,
             'today_schedules': today_schedules,
