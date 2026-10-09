@@ -173,3 +173,28 @@ class TransportTests(TestCase):
         res = self.client.get(reverse('facilities:settings'))
         self.assertContains(res, 'name="use_transport"')
         self.assertContains(res, 'name="use_dev_assessment"')
+
+    def test_ride_ng_pairs_on_board(self):
+        """同乗NG：送迎の設定で付け（相手にも付く）、同じ車・近い時刻（30 分以内）なら配車表で赤く知らせる"""
+        res = self.client.post(reverse('transport:profile', args=[self.kid2.pk]), {
+            'pickup': 'on', 'pickup_place': '北小学校', 'default_vehicle': self.van.pk,
+            'ride_ng_present': '1', 'no_ride_with': [self.kid.pk]})
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(list(self.kid.no_ride_with.all()), [self.kid2])
+        self.assertContains(self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk])), '同じ車に乗せない')
+        res = self.client.get(self.url)
+        self.assertContains(res, '同乗NG：伊藤 花')
+        self.assertContains(res, '同乗NG：青木 子')
+        # 保存すると注意も出る
+        k1, k2 = f'r{self.r1.pk}_pickup', f'r{self.r2.pk}_pickup'
+        post = {'action': 'save', 'd': self.day.isoformat(), f'present_{k1}': '1', f'present_{k2}': '1',
+                f'vehicle_{k1}': self.van.pk, f'vehicle_{k2}': self.van.pk, f'time_{k1}': '14:30', f'time_{k2}': '16:00'}
+        res = self.client.post(reverse('transport:day'), dict(post, **{f'time_{k2}': '14:45'}), follow=True)
+        self.assertContains(res, '同じ車に乗せない組み合わせ')
+        # 時刻が離れていれば別の便
+        res = self.client.post(reverse('transport:day'), post, follow=True)
+        self.assertNotContains(res, '同乗NG：')
+        # 別の車なら出ない
+        van2 = Vehicle.objects.create(facility=self.f, name='軽')
+        res = self.client.post(reverse('transport:day'), dict(post, **{f'time_{k2}': '14:30', f'vehicle_{k2}': van2.pk}), follow=True)
+        self.assertNotContains(res, '同乗NG：')

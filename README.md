@@ -463,6 +463,8 @@ python manage.py collectstatic --noinput
 
 日誌の「**AIで記録文章を一括生成**」に**分量**（いつもの長さ／約 200・300・400 字。観察・支援・反応の 3 つの文を合わせた目安。保護者向けは少し長く。この端末に覚える）と**キーワードの入れ方**（2〜4 個・書くこと・避けること・分量の目安）を足した。分量を選ぶと「キーワードとタグにある事実だけでつなげる。無いことは作らず、届かなければ短くてよい」と指示し、キーワードが 1 つだけなら注意を出す。
 
+**送迎の同乗NG**：利用者情報の「送迎」欄の「同じ車に乗せない利用者」（`Beneficiary.no_ride_with`。対称。相手にも付く）に入れた組み合わせが、配車表で同じ方向（迎え／送り）・同じ車両・近い時刻（30 分以内。時刻の無い行は同じ便とみなす）に入ると、行を赤くして「同乗NG：相手の名前」を出し、保存したときも注意を出す（止めはしない。PDF にも印）。`transport/views.py` の `mark_ride_ng`。
+
 **更新・切り戻し・障害時の手順**は [docs/OPERATIONS.md](docs/OPERATIONS.md) にまとめています（営業時間外の更新、Deploy (yours)／(owl) の `ref` で前のコミットへ戻す、Manage の `status`・`autostart_check`・`autostart_install`（サーバーの再起動のあとに自動で起動し、5 分ごとに止まっていないか見回る crontab の行を入れる。`deploy/venv-deploy.sh --ensure`・`--status`・`--autostart`）、15 分ごとの見回り **Watch (production)**（止まっていれば立て直して失敗として知らせる））。
 
 ## Docker で動かす（任意の VM）

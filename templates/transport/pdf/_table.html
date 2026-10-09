@@ -7,7 +7,7 @@
   {% for x in rows %}{% if not x.skip %}
   <tr>
     <td class="c">{{ x.time|time:'G:i'|default:'' }}</td>
-    <td>{{ x.beneficiary.full_name }}</td>
+    <td>{{ x.beneficiary.full_name }}{% if x.ride_ng %}<span style="color:#b02a37;font-weight:700;">（同乗NG：{{ x.ride_ng|join:'・' }}）</span>{% endif %}</td>
     <td>{{ x.place }}</td>
     <td class="c">{% if x.vehicle %}{{ x.vehicle.name }}{% endif %}</td>
     <td class="c">{% if x.driver %}{{ x.driver.name }}{% endif %}</td>

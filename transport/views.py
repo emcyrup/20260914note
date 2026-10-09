@@ -112,6 +112,45 @@ def build_board(facility, day):
             c['over'] = bool(c['vehicle'].capacity and c['count'] > c['vehicle'].capacity)
         board['counts'][direction] = counts
         board[f'{direction}_active'] = sum(1 for x in rows if not x['skip'])
+    return mark_ride_ng(facility, board)
+
+
+RIDE_WINDOW = datetime.timedelta(minutes=30)    # 同じ車でも、これより時刻が離れていれば別の便とみなす
+
+
+def _near(a, b):
+    """同じ便とみなす時刻か（どちらかに時刻が無ければ同じとみなす）"""
+    if a is None or b is None:
+        return True
+    da = datetime.datetime.combine(datetime.date.min, a)
+    db = datetime.datetime.combine(datetime.date.min, b)
+    return abs(da - db) <= RIDE_WINDOW
+
+
+def mark_ride_ng(facility, board):
+    """
+    同乗NG：同じ方向（迎え／送り）・同じ車両・近い時刻（30 分以内）に「同じ車に乗せない利用者」がいれば、
+    その行に ride_ng（相手の名前のリスト）を付け、board['ride_ng'][方向] に組の数を入れる
+    """
+    from beneficiaries.models import Beneficiary
+    pairs = {}
+    for a, b in Beneficiary.no_ride_with.through.objects.filter(from_beneficiary__facility=facility).values_list(
+            'from_beneficiary_id', 'to_beneficiary_id'):
+        pairs.setdefault(a, set()).add(b)
+    board['ride_ng'] = {}
+    for direction, _label in DIRECTIONS:
+        rows = [x for x in board[direction] if not x['skip']]
+        n = 0
+        for x in board[direction]:
+            x['ride_ng'] = []
+        for i, x in enumerate(rows):
+            for y in rows[i + 1:]:
+                if (x['vehicle_id'] and x['vehicle_id'] == y['vehicle_id'] and y['beneficiary'].pk in pairs.get(x['beneficiary'].pk, ())
+                        and _near(x['time'], y['time'])):
+                    x['ride_ng'].append(y['beneficiary'].full_name)
+                    y['ride_ng'].append(x['beneficiary'].full_name)
+                    n += 1
+        board['ride_ng'][direction] = n
     return board
 
 
@@ -169,6 +208,10 @@ class DayView(TransportEnabledMixin, View):
         if action == 'save':
             n = save_board(facility, day, request.POST)
             messages.success(request, f'{day:%-m月%-d日}の配車を保存しました（{n} 件）。')
+            ng = build_board(facility, day)['ride_ng']
+            if any(ng.values()):
+                messages.warning(request, '同じ車に乗せない組み合わせが同じ車・近い時刻に入っています（' +
+                                 '・'.join(f'{DIRECTION_LABELS[d]} {c} 組' for d, c in ng.items() if c) + '）。赤い行を確かめてください。')
             return back
         if action in ('add', 'remove'):
             from reservations.models import Reservation
@@ -263,8 +306,12 @@ class VehiclesView(TransportEnabledMixin, View):
 def profile_context(beneficiary):
     """利用者情報の「送迎」欄に渡すもの（送迎・配車を使う事業所だけ呼ぶ）"""
     profile = TransportProfile.objects.filter(beneficiary=beneficiary).select_related('default_vehicle').first()
+    from beneficiaries.models import Beneficiary
     return {'transport_profile': profile or TransportProfile(beneficiary=beneficiary),
-            'transport_vehicles': list(Vehicle.objects.filter(facility=beneficiary.facility, is_active=True))}
+            'transport_vehicles': list(Vehicle.objects.filter(facility=beneficiary.facility, is_active=True)),
+            'ride_candidates': list(Beneficiary.objects.filter(facility=beneficiary.facility, status=Beneficiary.STATUS_ACTIVE)
+                                    .exclude(pk=beneficiary.pk).order_by('last_name_kana', 'first_name_kana')),
+            'ride_ng_ids': set(beneficiary.no_ride_with.values_list('pk', flat=True))}
 
 
 class ProfileView(TransportEnabledMixin, View):
@@ -289,5 +336,8 @@ class ProfileView(TransportEnabledMixin, View):
         profile.default_vehicle = Vehicle.objects.filter(facility=b.facility, pk=to_int(p.get('default_vehicle'), 0)).first()
         profile.note = (p.get('note') or '').strip()[:200]
         profile.save()
+        if 'ride_ng_present' in p:      # 同じ車に乗せない利用者（同じ事業所の人だけ。相手の側にも付く）
+            ids = [to_int(x, 0) for x in p.getlist('no_ride_with')]
+            b.no_ride_with.set(Beneficiary.objects.filter(facility=b.facility, pk__in=ids).exclude(pk=b.pk))
         messages.success(request, f'{b.full_name} さんの送迎の設定を保存しました。')
         return back

@@ -45,6 +45,15 @@
         <label class="form-label small mb-0" for="tp-note">送迎の注意</label>
         <input type="text" name="note" id="tp-note" class="form-control form-control-sm" maxlength="200" value="{{ transport_profile.note }}" placeholder="チャイルドシート・酔いやすい・引き渡しの相手 など">
       </div>
+      {% if ride_candidates %}
+      <div class="col-12">
+        <input type="hidden" name="ride_ng_present" value="1">
+        <label class="form-label small mb-0">同じ車に乗せない{{ terms.beneficiary }}（同乗NG）<span class="text-muted">：配車表で同じ車・近い時刻（30 分以内）に入ると赤く知らせます。相手の側にも付きます</span></label>
+        <div class="border rounded p-2" style="max-height:140px;overflow:auto;">
+          {% for c in ride_candidates %}<label class="form-check form-check-inline small mb-1"><input type="checkbox" class="form-check-input" name="no_ride_with" value="{{ c.pk }}" {% if c.pk in ride_ng_ids %}checked{% endif %}>{{ c.full_name }}</label>{% endfor %}
+        </div>
+      </div>
+      {% endif %}
       <div class="col-12 d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div class="small text-muted">{% if beneficiary.address %}住所：{{ beneficiary.address }}{% else %}住所は基本情報の編集で入れられます{% endif %}</div>
         <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>送迎の設定を保存</button>

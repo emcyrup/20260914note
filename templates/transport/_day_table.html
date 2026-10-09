@@ -14,12 +14,13 @@
     <thead><tr><th style="width:120px;">時刻</th><th>利用者</th><th>場所</th><th style="width:150px;">車両</th><th style="width:150px;">運転手</th><th>備考</th><th style="width:56px;">なし</th></tr></thead>
     <tbody>
     {% for x in rows %}
-    <tr class="{% if x.skip %}skip{% endif %}">
+    <tr class="{% if x.skip %}skip{% endif %}{% if x.ride_ng %} ride-ng{% endif %}">
       <td><input type="hidden" name="present_{{ x.key }}" value="1"><input type="time" name="time_{{ x.key }}" class="form-control" value="{{ x.time|time:'H:i' }}" aria-label="時刻"></td>
       <td class="tr-who">
         <a href="{% url 'beneficiaries:detail' x.beneficiary.pk %}#transport" class="tr-name">{{ x.beneficiary.full_name }}</a>
         {% if x.reservation.start_time %}<span class="small text-muted ms-1">予約 {{ x.reservation.time_label }}</span>{% endif %}
         {% if x.added %}<span class="badge text-bg-info ms-1">この日だけ</span>{% endif %}
+        {% if x.ride_ng %}<span class="badge text-bg-danger ms-1" title="同じ車・近い時刻に、同じ車に乗せない利用者がいます">同乗NG：{{ x.ride_ng|join:'・' }}</span>{% endif %}
         {% if x.profile_note %}<div class="tr-pnote"><i class="bi bi-exclamation-triangle me-1"></i>{{ x.profile_note }}</div>{% endif %}
       </td>
       <td><input type="text" name="place_{{ x.key }}" class="form-control" maxlength="200" value="{{ x.place }}" placeholder="場所"></td>

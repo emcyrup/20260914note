@@ -120,6 +120,8 @@ class Beneficiary(models.Model):
     # きょうだい。同じ時間枠に入った日は、予約ごとに「きょうだいと1枠にまとめる」（Reservation.share_seat）を選べる。
     # 予約の連絡先（Customer）が同じ子もきょうだいとして扱う（reservations/services.py の sibling_map）
     siblings = models.ManyToManyField('self', blank=True, symmetrical=True, verbose_name='きょうだい')
+    # 送迎で同じ車に乗せない（同乗NG）。配車表で同じ車・近い時刻に入ると赤く知らせる（transport/views.py の mark_ride_ng）
+    no_ride_with = models.ManyToManyField('self', blank=True, symmetrical=True, verbose_name='同じ車に乗せない利用者')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
