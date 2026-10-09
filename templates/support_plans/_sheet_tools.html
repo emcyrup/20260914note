@@ -1,0 +1,8 @@
+{% comment %}様式の欄の道具：鉛筆でその欄のメモを開き、「整文」でメモから文を作る（sheet.html の JS）{% endcomment %}
+<div class="sh-tools">
+  <button type="button" class="btn btn-outline-secondary sh-open-memo" title="この欄のメモを書いて整文する"><i class="bi bi-pencil-square"></i></button>
+</div>
+<div class="sh-memo">
+  <textarea placeholder="この欄に入れたいことのメモ{% if hint %}（{{ hint }}）{% endif %}"></textarea>
+  <div class="d-flex justify-content-end mt-1"><button type="button" class="btn btn-outline-primary sh-memo-go"><i class="bi bi-magic me-1"></i>整文してこの欄に入れる</button></div>
+</div>

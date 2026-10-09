@@ -495,6 +495,95 @@ class PlanDraftView(PlanMixin, View):
         return redirect('support_plans:step', pk=pk, n=2)
 
 
+class PlanSheetView(PlanMixin, View):
+    """
+    様式のまま直接編集する画面（support_plans/sheet.py）。使っている様式（標準／はぴねす様式の別紙1）と同じ並びで欄がそのまま入力欄になり、
+    上の「文を作る」でメモから欄の文を作って入れる欄を選べる。欄ごとの「メモ → 整文」もできる。
+    編集できるのはステップ2（原案）の間。ほかのステップでは読むだけ
+    """
+    template_name = 'support_plans/sheet.html'
+
+    def _editable(self, plan):
+        return plan.current_step == SupportPlan.STEP_DRAFT and plan.status != SupportPlan.STATUS_CLOSED
+
+    def _render(self, request, plan):
+        from django.conf import settings
+
+        from custom_forms.views import PLAN_EXTRA_FIELDS
+
+        from . import sheet
+        draft = plan.get_step(SupportPlan.STEP_DRAFT)
+        extra_labels = {k: label for k, label, _ in PLAN_EXTRA_FIELDS}
+        return render(request, self.template_name, {
+            'plan': plan, 'draft': draft, 'b': plan.beneficiary, 'facility': plan.facility,
+            'happiness': plan.facility.form_set == plan.facility.FORM_SET_HAPPINESS,
+            'editable': self._editable(plan),
+            'plan_cells': [(k, label, sheet.hint_of(k)) for k, label, _w, _h in sheet.PLAN_CELLS],
+            'extra_cells': [(k, extra_labels.get(k, k)) for k in sheet.EXTRA_IN_SHEET],
+            'values': sheet.plan_values(plan, draft), 'goal_cells': [(k, label) for k, label, _w, _h in sheet.GOAL_CELLS],
+            'rows': sheet.goal_rows(plan), 'type_choices': PlanGoal.TYPE_CHOICES,
+            'assessment': plan.get_step(SupportPlan.STEP_ASSESSMENT),
+            'ai_enabled': bool(settings.ANTHROPIC_API_KEY), 'today': date.today(),
+        })
+
+    def get(self, request, pk):
+        return self._render(request, self.get_plan(pk))
+
+    def post(self, request, pk):
+        from . import sheet
+        plan = self.get_plan(pk)
+        if not self._editable(plan):
+            messages.error(request, '様式の編集はステップ2「計画（原案）の作成」の間だけできます。直すときは「完了を取り消して修正」を押してください。')
+            return redirect('support_plans:sheet', pk=pk)
+        draft = plan.get_step(SupportPlan.STEP_DRAFT)
+        conflict = check_conflict(request, draft)
+        if conflict:
+            messages.error(request, conflict)
+            return self._render(request, plan)
+        edited, added, removed = sheet.save(plan, draft, request.POST)
+        messages.success(request, '計画書を保存しました'
+                         + (f'（目標：直した {edited}・足した {added}・消した {removed}）' if edited or added or removed else '') + '。')
+        if request.POST.get('next') == 'step':
+            return redirect('support_plans:step', pk=pk, n=SupportPlan.STEP_DRAFT)
+        return redirect('support_plans:sheet', pk=pk)
+
+
+class PlanSheetAiView(PlanMixin, View):
+    """様式の欄ごとの整文（JSON）。items: [{field, memo, current}] → results: [{field, result}]。お試しの回数は 1 回分"""
+
+    def post(self, request, pk):
+        import json
+
+        from django.conf import settings
+        from django.http import JsonResponse
+
+        from ai_assist import trial
+
+        from . import ai, sheet
+        plan = self.get_plan(pk)
+        if not settings.ANTHROPIC_API_KEY:
+            return JsonResponse({'error': 'AIを使う設定（ANTHROPIC_API_KEY）がサーバーにありません。'}, status=500)
+        over = trial.check(plan.facility)
+        if over:
+            return JsonResponse({'error': over}, status=403)
+        try:
+            items = json.loads(request.body.decode('utf-8') or '{}').get('items') or []
+        except (ValueError, AttributeError):
+            items = []
+        items = [{'field': str(i.get('field', ''))[:40], 'memo': str(i.get('memo', '')).strip()[:2000],
+                  'current': str(i.get('current', '')).strip()[:4000]} for i in items if isinstance(i, dict)]
+        items = [i for i in items if i['field'] and i['memo']][:12]
+        if not items:
+            return JsonResponse({'error': 'メモが空です。欄に入れたいことを短く書いてから押してください。'}, status=400)
+        for i in items:
+            i['label'], i['hint'] = sheet.label_of(i['field']), sheet.hint_of(i['field'])
+        draft = plan.get_step(SupportPlan.STEP_DRAFT)
+        results = ai.compose_cells(plan, items, sheet.context_text(plan, draft))
+        if any(r['result'] for r in results):
+            trial.use(plan.facility)
+        return JsonResponse({'results': results})
+
+
 def _period_from_request(request):
     """期間（既定：今日から3か月前まで）"""
     from datetime import timedelta

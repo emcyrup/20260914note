@@ -339,3 +339,83 @@ class PdfAndAiTests(PlanFlowTestBase):
     def test_journal_menu_links_to_plan(self):
         res = self.client.get(reverse('records:list', args=[self.b.pk]))
         self.assertContains(res, reverse('support_plans:detail', args=[self.plan.pk]))
+
+
+class SheetEditorTests(PlanFlowTestBase):
+    """様式のまま直接編集する画面（support_plans/sheet.py）：欄の表示・保存・目標の追加と削除・欄ごとの整文（AI）"""
+
+    def setUp(self):
+        super().setUp()
+        self.fill_assessment(); self.plan.complete_step(1, self.user)
+        self.url = reverse('support_plans:sheet', args=[self.plan.pk])
+
+    def test_links_and_render(self):
+        res = self.client.get(self.step_url(2))
+        self.assertContains(res, '様式のまま編集')
+        res = self.client.get(self.url)
+        self.assertContains(res, '個別支援計画書')
+        self.assertContains(res, 'name="f_policy"')
+        self.assertContains(res, 'name="n1_content"')            # 空の行
+        self.assertNotContains(res, '様式は読むだけです')
+
+    def test_save_cells_and_goals(self):
+        g = PlanGoal.objects.create(plan=self.plan, goal_type='short', content='順番を待てる', support_content='声かけ')
+        g2 = PlanGoal.objects.create(plan=self.plan, goal_type='long', content='消す目標')
+        res = self.client.post(self.url, {
+            'f_family_wishes': '友だちと遊べるようになってほしい', 'f_policy': '好きな活動を通して関わりを増やす', 'f_service_hours': '月・水・金 15:00〜17:30',
+            'f_notes': '疲れたら休憩', 'f_usage_form': '放デイ 週3回',
+            f'g{g.pk}_type': 'short', f'g{g.pk}_item': '人間関係', f'g{g.pk}_content': '順番を待って遊べる', f'g{g.pk}_support_content': '職員が横につき声かけ',
+            f'g{g.pk}_frequency': '週3回', f'g{g.pk}_target_date': '2026-12-31', f'g{g.pk}_timing': '12月末', f'g{g.pk}_staff': '保育士', f'g{g.pk}_notes': '自分で順番を言う',
+            f'g{g2.pk}_type': 'long', f'g{g2.pk}_content': '消す目標', f'g{g2.pk}_delete': '1',
+            'n1_type': 'long', 'n1_content': '友だちと協力して活動できる', 'n1_target_date': '2027-03-31',
+            'n2_content': '',
+        })
+        self.assertRedirects(res, self.url)
+        d = self.plan.get_step(2)
+        self.assertEqual((d.family_wishes, d.policy, d.notes), ('友だちと遊べるようになってほしい', '好きな活動を通して関わりを増やす', '疲れたら休憩'))
+        self.plan.refresh_from_db()
+        self.assertEqual(self.plan.form_extra['service_hours'], '月・水・金 15:00〜17:30')
+        self.assertEqual(self.plan.form_extra['usage_form'], '放デイ 週3回')
+        g.refresh_from_db()
+        self.assertEqual((g.content, g.support_content, g.frequency, g.target_date), ('順番を待って遊べる', '職員が横につき声かけ', '週3回', date(2026, 12, 31)))
+        self.assertEqual(g.form_extra, {'item': '人間関係', 'timing': '12月末', 'staff': '保育士', 'notes': '自分で順番を言う'})
+        self.assertFalse(PlanGoal.objects.filter(pk=g2.pk).exists())
+        new = self.plan.goals.get(goal_type='long')
+        self.assertEqual((new.content, new.target_date), ('友だちと協力して活動できる', date(2027, 3, 31)))
+        self.assertEqual(self.plan.goals.count(), 2)
+        # ステップ2 を終えると読むだけ
+        d.period_start, d.period_end = date.today(), date.today() + timedelta(days=180)
+        d.save()
+        self.plan.complete_step(2, self.user)
+        res = self.client.get(self.url)
+        self.assertContains(res, '様式は読むだけです')
+        res = self.client.post(self.url, {'f_policy': '書き換え'}, follow=True)
+        self.assertContains(res, 'ステップ2「計画（原案）の作成」の間だけ')
+        self.assertEqual(self.plan.get_step(2).policy, '好きな活動を通して関わりを増やす')
+
+    @override_settings(ANTHROPIC_API_KEY='test')
+    def test_compose_cells(self):
+        import json
+        from types import SimpleNamespace
+        from unittest import mock
+        g = PlanGoal.objects.create(plan=self.plan, goal_type='short', content='順番を待てる')
+        with mock.patch('ai_assist.quick.anthropic.Anthropic') as client_cls:
+            client_cls.return_value.messages.create.side_effect = [
+                SimpleNamespace(content=[SimpleNamespace(type='text', text='好きな工作を通して、友だちと関わる場面を増やします。')]),
+                SimpleNamespace(content=[SimpleNamespace(type='text', text='「かして」と言って順番を待つことができる。')]),
+            ]
+            res = self.client.post(reverse('support_plans:sheet_ai', args=[self.plan.pk]), data=json.dumps({'items': [
+                {'field': 'f_policy', 'memo': '工作が好き。友だちと関われるように', 'current': ''},
+                {'field': f'g{g.pk}_content', 'memo': 'かしてと言える', 'current': '順番を待てる'},
+            ]}), content_type='application/json')
+            self.assertEqual(res.status_code, 200, res.content)
+            results = res.json()['results']
+            self.assertEqual([r['field'] for r in results], ['f_policy', f'g{g.pk}_content'])
+            self.assertEqual(results[1]['result'], '「かして」と言って順番を待つことができる。')
+            calls = client_cls.return_value.messages.create.call_args_list
+            self.assertIn('【欄】総合的な支援の方針', calls[0].kwargs['messages'][0]['content'])
+            self.assertIn('【欄】支援目標（具体的な到達目標）', calls[1].kwargs['messages'][0]['content'])
+            self.assertIn('【いまの欄の文】\n順番を待てる', calls[1].kwargs['messages'][0]['content'])
+            self.assertIn('友だちと一緒に遊べるようになりたい', calls[1].kwargs['messages'][0]['content'])   # アセスメントが前提
+        res = self.client.post(reverse('support_plans:sheet_ai', args=[self.plan.pk]), data=json.dumps({'items': []}), content_type='application/json')
+        self.assertEqual(res.status_code, 400)

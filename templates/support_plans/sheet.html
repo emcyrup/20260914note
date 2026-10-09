@@ -1,0 +1,270 @@
+{% extends 'base.html' %}
+{% load concurrency %}
+
+{% block title %}計画書を様式のまま編集 — {{ b.full_name }}{% endblock %}
+{% block page_title %}{{ b.full_name }} さんの{{ plan.title }}（様式のまま編集）{% endblock %}
+{% block nav_plans %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .sh-sheet { background: #fff; border: 1px solid #b7b0a3; border-radius: 6px; padding: 14px 16px; font-size: .9rem; }
+  .sh-sheet h1 { font-size: 1.15rem; text-align: center; letter-spacing: .12em; margin: 0 0 8px; }
+  .sh-sheet table { width: 100%; border-collapse: collapse; margin-bottom: 8px; table-layout: fixed; }
+  .sh-sheet th, .sh-sheet td { border: 1px solid #777; padding: 4px 6px; vertical-align: top; }
+  .sh-sheet th { background: #dfe7f1; font-weight: 700; text-align: center; font-size: .8rem; }
+  .sh-cell { position: relative; }
+  .sh-cell textarea, .sh-cell input[type=text] { width: 100%; border: 0; background: transparent; padding: 2px; font: inherit; resize: vertical; min-height: 2.4em; line-height: 1.5; }
+  .sh-cell textarea:focus, .sh-cell input:focus { outline: 2px solid var(--color-primary); background: #fffdf7; }
+  .sh-cell.is-target { background: #fff3cd; }
+  .sh-cell.just-set textarea { background: #e6f4ea; }
+  .sh-memo { display: none; margin-top: 4px; border-top: 1px dashed #c9c2b5; padding-top: 4px; }
+  .sh-cell:hover .sh-tools, .sh-cell:focus-within .sh-tools { visibility: visible; }
+  .sh-tools { visibility: hidden; position: absolute; top: 2px; right: 2px; display: flex; gap: 2px; }
+  .sh-tools .btn { padding: 0 5px; font-size: .68rem; line-height: 1.4; }
+  .sh-memo textarea { width: 100%; font-size: .8rem; min-height: 2em; border: 1px solid #d8d2c6; border-radius: 4px; padding: 2px 4px; }
+  .sh-memo .btn { padding: 0 6px; font-size: .72rem; }
+  .sh-row-new td { background: #fbfaf7; }
+  .sh-gen { background: var(--color-primary-bg); border: 1px solid var(--color-primary-light); border-radius: 8px; padding: 10px 12px; }
+  .sh-gen textarea { min-height: 3.2em; }
+  .sh-ro .sh-cell textarea, .sh-ro .sh-cell input { color: #333; }
+  .sh-small { font-size: .78rem; color: #6b6257; }
+  .sh-type { font-size: .78rem; width: 100%; border: 1px solid #d8d2c6; border-radius: 4px; }
+  @media (max-width: 700px) { .sh-sheet { padding: 8px; font-size: .84rem; } .sh-tools { visibility: visible; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+    <div>
+      <a href="{% url 'support_plans:list' %}" class="text-muted small"><i class="bi bi-arrow-left me-1"></i>計画一覧</a>
+      <span class="text-muted small mx-1">/</span>
+      <a href="{% url 'support_plans:detail' plan.pk %}" class="text-muted small">{{ plan.title }} の全体</a>
+      <span class="text-muted small mx-1">/</span>
+      <a href="{% url 'support_plans:step' plan.pk 2 %}" class="text-muted small">ステップごとの入力に戻る</a>
+    </div>
+    <div class="d-flex gap-2">
+      {% if happiness %}
+      <a href="{% url 'custom_forms:plan_sheet1' plan.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>別紙1を印刷</a>
+      {% else %}
+      <a href="{% url 'support_plans:print' plan.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>計画書を印刷</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if not editable %}
+  <div class="alert alert-secondary small py-2"><i class="bi bi-lock me-1"></i>いまはステップ{{ plan.current_step }}のため、様式は読むだけです。直すときは<a href="{% url 'support_plans:step' plan.pk plan.current_step %}">ステップの画面</a>の「完了を取り消して修正」でステップ2に戻してください。</div>
+  {% endif %}
+
+  {% if editable and ai_enabled %}
+  <div class="sh-gen mb-3" id="sh-gen">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+      <div class="fw-bold"><i class="bi bi-magic me-1"></i>メモから欄の文を作る</div>
+      <div class="sh-small">下の様式の欄を押すと「入れる欄」が変わります。欄ごとの <i class="bi bi-pencil-square"></i> からも、その欄だけ整文できます。</div>
+    </div>
+    <div class="row g-2 align-items-end">
+      <div class="col-12 col-md-7">
+        <textarea id="sh-gen-memo" class="form-control form-control-sm" placeholder="例：工作が好き。はさみは1人で使えるようになった。順番を待つと手が出る。母は友だちと遊べるようにと言っている"></textarea>
+      </div>
+      <div class="col-8 col-md-3">
+        <label class="form-label sh-small mb-0" for="sh-gen-target">入れる欄</label>
+        <select id="sh-gen-target" class="form-select form-select-sm"></select>
+      </div>
+      <div class="col-4 col-md-2 d-grid">
+        <button type="button" class="btn btn-sm btn-primary" id="sh-gen-btn"><i class="bi bi-magic me-1"></i>文を作る</button>
+      </div>
+    </div>
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-2">
+      <div class="sh-small">作った文は欄に入ります（緑）。手で直せます。「保存する」を押すまでは計画に入りません。</div>
+      <button type="button" class="btn btn-sm btn-outline-primary" id="sh-gen-all" title="欄ごとのメモ（鉛筆で開く）が入っている欄を、まとめて整文します"><i class="bi bi-stars me-1"></i>メモを入れた欄をまとめて整える</button>
+    </div>
+    <div id="sh-gen-note" class="alert small py-1 px-2 mt-2 mb-0 d-none"></div>
+  </div>
+  {% endif %}
+
+  <form method="post" id="sh-form" {% if editable %}data-concurrency="plan_draft:{{ draft.pk }}" data-draft="plan-sheet:{{ plan.pk }}"{% endif %}>
+    {% csrf_token %}{% if editable %}{% version_field draft %}{% endif %}
+    <div data-draft-banner></div>
+    <div class="sh-sheet {% if not editable %}sh-ro{% endif %}">
+      <div class="d-flex justify-content-between align-items-end flex-wrap gap-2 mb-2">
+        <div class="sh-small">{% if happiness %}<span style="border:1px solid #333;padding:1px 6px;">別紙１</span>　{% endif %}利用児氏名：<b>{{ b.full_name }}</b>（{{ b.date_of_birth|date:'Y年n月j日' }} 生）</div>
+        <h1 class="mb-0">個別支援計画書</h1>
+        <div class="sh-small">{{ facility.name }}　作成：{{ draft.completed_at|date:'Y年n月j日'|default:today|date:'Y年n月j日' }}</div>
+      </div>
+
+      {# ---- 計画の欄 ---- #}
+      <table>
+        <colgroup><col style="width:22%"><col></colgroup>
+        {% for key, label, hint in plan_cells %}
+        <tr>
+          <th>{{ label }}</th>
+          <td class="sh-cell" data-field="f_{{ key }}" data-label="{{ label }}">
+            {% if key == 'service_hours' %}
+            <input type="text" name="f_{{ key }}" value="{{ values.service_hours }}" placeholder="例：月・水・金 15:00〜17:30" {% if not editable %}readonly{% endif %}>
+            {% else %}
+            <textarea name="f_{{ key }}" rows="{% if key == 'policy' or key == 'family_wishes' %}4{% else %}2{% endif %}" {% if not editable %}readonly{% endif %}>{% if key == 'family_wishes' %}{{ values.family_wishes }}{% elif key == 'policy' %}{{ values.policy }}{% elif key == 'notes' %}{{ values.notes }}{% endif %}</textarea>
+            {% endif %}
+            {% if editable and ai_enabled %}{% include 'support_plans/_sheet_tools.html' with hint=hint %}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        {% if happiness %}
+        {% for key, label in extra_cells %}
+        <tr>
+          <th>{{ label }}</th>
+          <td class="sh-cell" data-field="f_{{ key }}" data-label="{{ label }}">
+            <textarea name="f_{{ key }}" rows="1" {% if not editable %}readonly{% endif %}>{% if key == 'usage_form' %}{{ values.usage_form }}{% elif key == 'specialists' %}{{ values.specialists }}{% elif key == 'medical_care' %}{{ values.medical_care }}{% elif key == 'review_cycle' %}{{ values.review_cycle }}{% endif %}</textarea>
+            {% if editable and ai_enabled %}{% include 'support_plans/_sheet_tools.html' with hint='' %}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        {% endif %}
+      </table>
+
+      {# ---- 目標の表 ---- #}
+      <div class="sh-small mb-1">○支援目標及び具体的な支援内容等（行の「内容」が空の行は保存しません。消すときは「消す」に印）</div>
+      <table>
+        <colgroup>
+          <col style="width:9%"><col style="width:9%"><col style="width:19%"><col style="width:27%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:9%">
+        </colgroup>
+        <tr>
+          <th>区分</th><th>項目</th><th>支援目標<br>（具体的な到達目標）</th><th>支援内容<br>（内容・ポイント）</th><th>頻度・時間</th><th>達成時期</th><th>担当者<br>提供機関</th><th>留意事項<br>（本人の役割）</th>
+        </tr>
+        {% for r in rows %}
+        <tr class="{% if not r.goal %}sh-row-new{% endif %}">
+          <td>
+            <select name="{{ r.prefix }}_type" class="sh-type" {% if not editable %}disabled{% endif %}>
+              {% for v, l in type_choices %}<option value="{{ v }}" {% if r.type == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
+            </select>
+            {% if r.goal and editable %}<label class="sh-small d-block mt-1"><input type="checkbox" name="{{ r.prefix }}_delete" value="1" class="form-check-input me-1" style="transform:scale(.8);">消す</label>{% endif %}
+            {% if not r.goal %}<div class="sh-small mt-1">新しい行</div>{% endif %}
+          </td>
+          {% for key, label in goal_cells %}
+          {% if key == 'timing' %}
+          <td class="sh-cell" data-field="{{ r.prefix }}_timing" data-label="達成時期">
+            <input type="date" name="{{ r.prefix }}_target_date" value="{{ r.target_date }}" class="form-control form-control-sm px-1" style="font-size:.75rem;" {% if not editable %}disabled{% endif %}>
+            <input type="text" name="{{ r.prefix }}_timing" value="{{ r.values.timing }}" placeholder="文章で" class="mt-1" style="font-size:.78rem;" {% if not editable %}readonly{% endif %}>
+          </td>
+          {% else %}
+          <td class="sh-cell" data-field="{{ r.prefix }}_{{ key }}" data-label="{{ label }}">
+            <textarea name="{{ r.prefix }}_{{ key }}" rows="{% if key == 'support_content' %}4{% elif key == 'content' %}3{% else %}2{% endif %}" {% if not editable %}readonly{% endif %}>{% if key == 'item' %}{{ r.values.item }}{% elif key == 'content' %}{{ r.values.content }}{% elif key == 'support_content' %}{{ r.values.support_content }}{% elif key == 'frequency' %}{{ r.values.frequency }}{% elif key == 'staff' %}{{ r.values.staff }}{% elif key == 'notes' %}{{ r.values.notes }}{% endif %}</textarea>
+            {% if editable and ai_enabled and key != 'frequency' and key != 'staff' %}{% include 'support_plans/_sheet_tools.html' with hint='' %}{% endif %}
+          </td>
+          {% endif %}
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </table>
+      <div class="sh-small">※５領域の視点「健康・生活」「運動・感覚」「認知・行動」「言語・コミュニケーション」「人間関係・社会性」</div>
+    </div>
+
+    {% if editable %}
+    <div class="d-flex justify-content-end align-items-center gap-2 mt-3 flex-wrap">
+      <span class="sh-small me-auto">「保存する」で計画に入ります（原案のステップと同じ内容です）。</span>
+      <button class="btn btn-outline-primary" name="next" value="step"><i class="bi bi-check2 me-1"></i>保存してステップの画面へ</button>
+      <button class="btn btn-primary px-4"><i class="bi bi-check2 me-1"></i>保存する</button>
+    </div>
+    {% endif %}
+  </form>
+
+  {% if assessment %}
+  <details class="mt-3 small">
+    <summary class="fw-bold" style="cursor:pointer;">アセスメントの内容を見る（面談 {{ assessment.interview_date|date:'Y/n/j'|default:'未記入' }}）</summary>
+    <div class="mt-2" style="white-space:pre-wrap;">
+      <div class="fw-bold text-muted">心身の状況</div>{{ assessment.condition|default:'—' }}
+      <div class="fw-bold text-muted mt-2">置かれている環境</div>{{ assessment.environment|default:'—' }}
+      <div class="fw-bold text-muted mt-2">希望する生活</div>{{ assessment.wishes|default:'—' }}
+    </div>
+  </details>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if editable and ai_enabled %}
+<script>
+(function () {
+  var form = document.getElementById('sh-form');
+  var sel = document.getElementById('sh-gen-target'), memo = document.getElementById('sh-gen-memo');
+  var note = document.getElementById('sh-gen-note');
+  var url = '{% url "support_plans:sheet_ai" plan.pk %}';
+  var cells = Array.prototype.slice.call(form.querySelectorAll('.sh-cell'));
+  function inputOf(cell) { return cell.querySelector('textarea, input[type=text]'); }
+  function rowLabel(cell) {
+    var tr = cell.closest('tr'), nth = tr.parentNode ? Array.prototype.indexOf.call(tr.parentNode.children, tr) : 0;
+    return tr.querySelector('.sh-type') ? '目標' + nth + '：' : '';
+  }
+  // 入れる欄の一覧
+  cells.forEach(function (c) {
+    var o = document.createElement('option');
+    o.value = c.dataset.field; o.textContent = rowLabel(c) + c.dataset.label;
+    sel.appendChild(o);
+    c.addEventListener('click', function () { setTarget(c.dataset.field); });
+  });
+  function setTarget(field) {
+    sel.value = field;
+    cells.forEach(function (c) { c.classList.toggle('is-target', c.dataset.field === field); });
+  }
+  sel.addEventListener('change', function () { setTarget(sel.value); });
+  setTarget(cells[0].dataset.field);
+  function show(text, cls) { note.className = 'alert small py-1 px-2 mt-2 mb-0 alert-' + cls; note.textContent = text; }
+  function put(field, text) {
+    var cell = cells.filter(function (c) { return c.dataset.field === field; })[0];
+    if (!cell) return;
+    var input = inputOf(cell);
+    input.value = text;
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+    cell.classList.add('just-set');
+    setTimeout(function () { cell.classList.remove('just-set'); }, 4000);
+  }
+  function run(items, buttons) {
+    buttons.forEach(function (b) { b.disabled = true; });
+    show('作っています（' + items.length + ' 欄）…', 'info');
+    fetch(url, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', 'X-CSRFToken': form.csrfmiddlewaretoken.value},
+                body: JSON.stringify({items: items})})
+      .then(function (r) { return r.json().catch(function () { return {error: '作れませんでした（' + r.status + '）。'}; }); })
+      .then(function (d) {
+        if (d.error) { show(d.error, 'danger'); return; }
+        var ok = 0;
+        (d.results || []).forEach(function (r) { if (r.result) { put(r.field, r.result); ok++; } });
+        show(ok ? ok + ' 欄に文を入れました（緑の欄）。内容を確かめて直し、「保存する」を押してください。' : '文を作れませんでした。', ok ? 'success' : 'warning');
+      })
+      .catch(function () { show('通信できませんでした。もう一度お試しください。', 'danger'); })
+      .finally(function () { buttons.forEach(function (b) { b.disabled = false; }); });
+  }
+  var genBtn = document.getElementById('sh-gen-btn'), allBtn = document.getElementById('sh-gen-all');
+  genBtn.addEventListener('click', function () {
+    var text = memo.value.trim();
+    if (!text) { show('メモが空です。入れたいことを短く書いてから押してください。', 'warning'); memo.focus(); return; }
+    var cell = cells.filter(function (c) { return c.dataset.field === sel.value; })[0];
+    run([{field: sel.value, memo: text, current: inputOf(cell).value}], [genBtn, allBtn]);
+  });
+  // 欄ごとのメモ
+  form.addEventListener('click', function (e) {
+    var open = e.target.closest('.sh-open-memo');
+    if (open) {
+      var box = open.closest('.sh-cell').querySelector('.sh-memo');
+      box.style.display = box.style.display === 'block' ? 'none' : 'block';
+      if (box.style.display === 'block') box.querySelector('textarea').focus();
+      return;
+    }
+    var go = e.target.closest('.sh-memo-go');
+    if (go) {
+      var cell = go.closest('.sh-cell'), m = cell.querySelector('.sh-memo textarea').value.trim();
+      if (!m) { show('この欄のメモが空です。', 'warning'); return; }
+      run([{field: cell.dataset.field, memo: m, current: inputOf(cell).value}], [go, genBtn, allBtn]);
+    }
+  });
+  allBtn.addEventListener('click', function () {
+    var items = [];
+    cells.forEach(function (c) {
+      var m = c.querySelector('.sh-memo textarea');
+      if (m && m.value.trim()) items.push({field: c.dataset.field, memo: m.value.trim(), current: inputOf(c).value});
+    });
+    if (!items.length) { show('欄ごとのメモがありません。欄の鉛筆を押してメモを入れてから押してください。', 'warning'); return; }
+    run(items.slice(0, 12), [genBtn, allBtn]);
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}
