@@ -1756,3 +1756,37 @@ class LineSlotTests(TestCase):
             services.apply_request(req, self.kid)
         res = services.apply_request(req, self.kid, start_time='16')
         self.assertEqual(res.start_time, datetime.time(16))
+
+
+class GuideSheetTests(TestCase):
+    """保護者向けの「予約のご案内」（公式LINE・空き状況ページの QR と書き方）"""
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+
+    def test_guide_html(self):
+        url = reverse('reservations:guide') + '?fmt=html'
+        res = self.client.get(url)
+        self.assertContains(res, '空き状況のページ')
+        self.assertNotContains(res, '友だち追加</div>')
+        self.s.line_friend_url = 'https://lin.ee/example'
+        self.s.save()
+        res = self.client.get(url)
+        self.assertContains(res, '① 公式LINE を友だち追加')
+        self.assertContains(res, 'https://lin.ee/example')
+        self.assertContains(res, '<svg', count=2)
+        self.assertContains(res, '【登録】')
+        self.assertContains(res, '時（お子さまの名前）'.replace('時', '時　'))
+
+    def test_setting_requires_https(self):
+        base = {'capacity': 10, 'slot_mode': 'on', 'slot_capacity': 3, 'slot_minutes': 45, 'weekday_first_hour': 10,
+                'weekday_last_hour': 18, 'holiday_first_hour': 9, 'holiday_last_hour': 17, 'break_hours': '12',
+                'booking_from_days': 1, 'booking_until_days': 60}
+        self.client.post(reverse('reservations:settings'), dict(base, line_friend_url='http://lin.ee/x'))
+        self.s.refresh_from_db()
+        self.assertEqual(self.s.line_friend_url, '')
+        self.client.post(reverse('reservations:settings'), dict(base, line_friend_url='https://lin.ee/x'))
+        self.s.refresh_from_db()
+        self.assertEqual(self.s.line_friend_url, 'https://lin.ee/x')

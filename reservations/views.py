@@ -114,6 +114,12 @@ class SettingView(ReservationEnabledMixin, View):
         setting.closed_weekdays = sorted({n for n in (to_int(v) for v in request.POST.getlist('closed_weekdays'))
                                           if n is not None and 0 <= n <= 6})
         setting.signature = request.POST.get('signature', '').strip()[:100]
+        if 'line_friend_url' in request.POST:
+            friend = request.POST.get('line_friend_url', '').strip()[:200]
+            if friend and not friend.startswith('https://'):
+                messages.error(request, '公式LINEの友だち追加のアドレスは https:// で始まるものを入れてください（例：https://lin.ee/…）。')
+                return redirect('reservations:calendar')
+            setting.line_friend_url = friend
 
         # 顧客向けの予定表（ログインなしで見えるページ）
         setting.public_calendar = 'public_calendar' in request.POST
@@ -182,6 +188,31 @@ class SettingView(ReservationEnabledMixin, View):
             messages.info(request, f'枠を増やしたので、満席だった日の空きのお知らせを {len(made)} 件、'
                                    '送信待ちに入れました。送信は公式LINEの画面から行います。')
         return redirect('reservations:calendar')
+
+
+class GuideView(ReservationEnabledMixin, View):
+    """
+    保護者に配る「予約のご案内」（A4 1枚）。公式LINE の友だち追加と空き状況のページの QR コード、LINE での予約・取り消し・
+    空きの確かめ方の書き方、はじめての方の登録の書き方。?fmt=html で画面、それ以外は PDF
+    """
+
+    def get(self, request):
+        from config.pdf import pdf_or_html
+        from surveys.views import qr_svg
+        facility = request.user.facility
+        setting = services.get_setting(facility)
+        cal_url = services.calendar_page_url(setting, request.build_absolute_uri('/'))
+        today = timezone.localdate()
+        example = next((today + datetime.timedelta(days=i) for i in range(2, 30)
+                        if not services.is_closed(facility, today + datetime.timedelta(days=i), setting)), today)
+        hours = setting.slot_hours(example) if setting.slot_mode else []
+        ctx = {
+            'facility': facility, 'setting': setting,
+            'friend_url': setting.line_friend_url, 'friend_qr': qr_svg(setting.line_friend_url, scale=5) if setting.line_friend_url else '',
+            'cal_url': cal_url, 'cal_qr': qr_svg(cal_url, scale=5) if cal_url else '',
+            'example': example, 'example_hour': hours[len(hours) // 2] if hours else None,
+        }
+        return pdf_or_html(request, 'reservations/pdf/guide.html', ctx, '予約のご案内')
 
 
 class AddTodayView(ReservationEnabledMixin, View):

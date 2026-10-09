@@ -219,6 +219,10 @@
           <label class="form-label small fw-semibold" for="signature">通知の署名</label>
           <input type="text" class="form-control form-control-sm" id="signature" name="signature"
                  value="{{ setting.signature }}" placeholder="{{ facility.name }}" {% if not is_admin %}disabled{% endif %}>
+          <label class="form-label small fw-semibold mt-2" for="line_friend_url">公式LINEの友だち追加のアドレス</label>
+          <input type="url" class="form-control form-control-sm" id="line_friend_url" name="line_friend_url" maxlength="200"
+                 value="{{ setting.line_friend_url }}" placeholder="https://lin.ee/…" {% if not is_admin %}disabled{% endif %}>
+          <div class="form-text">LINE Official Account Manager の「友だち追加」のアドレス。保護者向けの<a href="{% url 'reservations:guide' %}?fmt=html" target="_blank">予約のご案内（A4）</a>に QR コードで載ります。</div>
         </div>
         <div class="col-12"><hr class="my-1"></div>
         <div class="col-md-6">

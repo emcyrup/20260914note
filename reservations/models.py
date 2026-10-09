@@ -70,6 +70,8 @@ class ReservationSetting(models.Model):
                                     help_text='1日の枠ではなく、1時間ごとの枠（1枠45分）に人数の上限を置きます。'
                                               '月予約利用希望から月間予定表を作れます。')
     slot_capacity = models.PositiveSmallIntegerField(default=3, verbose_name='1枠の人数')
+    line_friend_url = models.URLField(max_length=200, blank=True, verbose_name='公式LINEの友だち追加のアドレス',
+                                      help_text='https://lin.ee/… など。保護者向けの案内紙に QR コードで載せる')
     # 定員超過利用減算の目安（予約は止めず、月間予定表・日の画面で知らせるだけ）。0 は使わない／自動
     legal_capacity = models.PositiveSmallIntegerField(default=0, verbose_name='定員（人／日）',
                                                       help_text='指定を受けた定員。0 なら定員の知らせを出さない')
