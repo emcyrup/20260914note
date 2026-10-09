@@ -1,6 +1,6 @@
 """
-事業所様式（はぴりす様式）の作成・編集・PDF 出力
-施設設定の「帳票様式」が「はぴりす様式」の施設だけが使える。
+事業所様式（はびりす様式）の作成・編集・PDF 出力
+施設設定の「帳票様式」が「はびりす様式」の施設だけが使える。
 """
 import urllib.parse
 from datetime import date, datetime
@@ -59,7 +59,7 @@ GOAL_EXTRA_FIELDS = [
 
 
 class FormSetMixin(LoginRequiredMixin):
-    """はぴりす様式の施設だけが使える"""
+    """はびりす様式の施設だけが使える"""
 
     def dispatch(self, request, *args, **kwargs):
         facility = getattr(request.user, 'facility', None)

@@ -497,7 +497,7 @@ class PlanDraftView(PlanMixin, View):
 
 class PlanSheetView(PlanMixin, View):
     """
-    様式のまま直接編集する画面（support_plans/sheet.py）。使っている様式（標準／はぴりす様式の別紙1）と同じ並びで欄がそのまま入力欄になり、
+    様式のまま直接編集する画面（support_plans/sheet.py）。使っている様式（標準／はびりす様式の別紙1）と同じ並びで欄がそのまま入力欄になり、
     上の「文を作る」でメモから欄の文を作って入れる欄を選べる。欄ごとの「メモ → 整文」もできる。
     編集できるのはステップ2（原案）の間。ほかのステップでは読むだけ
     """

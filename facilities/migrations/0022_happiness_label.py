@@ -4,9 +4,9 @@ from django.db import migrations, models
 
 
 def rename_facility(apps, schema_editor):
-    """事業所名は「はぴねす」ではなく「はぴりす」が正しい（2026-10-09 依頼者）。名前がそのままの事業所を書き換える"""
+    """事業所名は「はぴねす」「はぴりす」ではなく「はびりす」が正しい（2026-10-09 依頼者）。名前がそのままの事業所を書き換える"""
     Facility = apps.get_model('facilities', 'Facility')
-    Facility.objects.filter(name='はぴねす').update(name='はぴりす')
+    Facility.objects.filter(name__in=('はぴねす', 'はぴりす')).update(name='はびりす')
 
 
 class Migration(migrations.Migration):
@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
                     ("standard", "標準"),
                     (
                         "happiness",
-                        "はぴりす様式（関係機関連携報告書・個別支援計画書 別紙1／詳細版・専門的支援実施計画書）",
+                        "はびりす様式（関係機関連携報告書・個別支援計画書 別紙1／詳細版・専門的支援実施計画書）",
                     ),
                 ],
                 default="standard",

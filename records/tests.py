@@ -538,7 +538,7 @@ class SevereJournalAndAddonTests(TestCase):
     def setUp(self):
         from beneficiaries.models import Beneficiary
         from facilities.models import AddonMaster, FacilityAddonSetting
-        self.facility = Facility.objects.create(name='はぴりす', use_billing=True, region_category='3')
+        self.facility = Facility.objects.create(name='はびりす', use_billing=True, region_category='3')
         self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility)
         self.client.force_login(self.user)
         self.ben = Beneficiary.objects.create(

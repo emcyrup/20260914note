@@ -239,7 +239,7 @@ class DeveloperFacilitySwitchTests(TestCase):
 
     def setUp(self):
         self.f1 = Facility.objects.create(name='みちのて', form_set=Facility.FORM_SET_STANDARD)
-        self.f2 = Facility.objects.create(name='はぴりす', form_set=Facility.FORM_SET_HAPPINESS)
+        self.f2 = Facility.objects.create(name='はびりす', form_set=Facility.FORM_SET_HAPPINESS)
         self.dev = StaffAccount.objects.create_user('dev', password='pass12345', facility=self.f1,
                                                     role=StaffAccount.ROLE_ADMIN, is_developer=True)
         self.admin = StaffAccount.objects.create_user('adm', password='pass12345', facility=self.f1,
@@ -251,12 +251,12 @@ class DeveloperFacilitySwitchTests(TestCase):
         self.assertContains(res, 'devFacilitySelect')
         self.assertContains(res, 'みちのて（所属）')
         self.assertNotContains(res, '事業所様式')
-        # はぴりすに切り替えると、その事業所として動く（専用様式のメニューが出る）
+        # はびりすに切り替えると、その事業所として動く（専用様式のメニューが出る）
         res = self.client.post(reverse('accounts:switch_facility'), {'facility': self.f2.pk, 'next': '/'})
         self.assertRedirects(res, '/', fetch_redirect_response=False)
         res = self.client.get(reverse('facilities:dashboard'))
         self.assertContains(res, '事業所様式')
-        self.assertContains(res, 'はぴりす')
+        self.assertContains(res, 'はびりす')
         res = self.client.get(reverse('custom_forms:index'))
         self.assertEqual(res.status_code, 200)
         # DB の所属は変わらない
@@ -298,7 +298,7 @@ class DeveloperFacilitySwitchTests(TestCase):
         self.client.force_login(self.admin)
         res = self.client.get(reverse('facilities:settings'))
         self.assertNotContains(res, 'name="form_set"')
-        self.assertNotContains(res, 'はぴりす様式')
+        self.assertNotContains(res, 'はびりす様式')
         self.client.post(reverse('facilities:feature_settings'), {
             'use_billing': 'on', 'journal_sections': ['activity', 'observation'], 'form_set': 'happiness'})
         self.f1.refresh_from_db()

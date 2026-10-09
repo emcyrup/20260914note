@@ -18,7 +18,7 @@ class BeneficiaryOfficeTests(TestCase):
     """利用事業所（上限管理事業所のフラグ）と重身フラグ"""
 
     def setUp(self):
-        self.facility = Facility.objects.create(name='はぴりす', office_number='2650000001')
+        self.facility = Facility.objects.create(name='はびりす', office_number='2650000001')
         self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility)
         self.client.force_login(self.user)
         self.ben = Beneficiary.objects.create(
@@ -28,7 +28,7 @@ class BeneficiaryOfficeTests(TestCase):
     def test_add_office_and_manager_flag_is_unique(self):
         url = reverse('beneficiaries:office_create', args=[self.ben.pk])
         self.client.post(url, {'name': 'ひまわり', 'office_number': '2650000101', 'is_manager': 'on', 'order': 1})
-        self.client.post(url, {'name': 'はぴりす', 'is_this_office': 'on', 'is_manager': 'on', 'order': 0})
+        self.client.post(url, {'name': 'はびりす', 'is_this_office': 'on', 'is_manager': 'on', 'order': 0})
         offices = list(self.ben.offices.all())
         self.assertEqual(len(offices), 2)
         managers = [o for o in offices if o.is_manager]
@@ -963,7 +963,7 @@ class ListOrderTests(TestCase):
     """利用者一覧の 50 音順（ふりがなの無い人は最後・行の絞り込み・カタカナはひらがなに）"""
 
     def setUp(self):
-        self.f = Facility.objects.create(name='はぴりす')
+        self.f = Facility.objects.create(name='はびりす')
         StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f)
         self.client.login(username='st', password='pw12345678')
         d = datetime.date(2018, 1, 1)
