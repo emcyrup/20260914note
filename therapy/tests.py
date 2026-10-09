@@ -91,7 +91,7 @@ class TherapyTests(TestCase):
         self.assertFalse(TherapyRecord.objects.exists())
         # 何も入っていない記録は保存しない
         res = self.client.post(self.url, {'action': 'add', 'date': '2026-10-03', 'time': '15', 'body': ' '}, follow=True)
-        self.assertContains(res, '「やったこと」か「記録」を入れてから保存してください')
+        self.assertContains(res, '「やったこと」か「記録」（事実・様子）を入れてから保存してください')
         self.assertFalse(TherapyRecord.objects.exists())
         # 予約の時刻（15:40）から開いたときは 15時を選んでおく
         res = self.client.get(self.url + '?date=2026-10-03&time=15:40')
@@ -661,3 +661,40 @@ class TherapyConflictTests(TestCase):
         other_kid = Beneficiary.objects.create(facility=other_f, last_name='他', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
         other = TherapyProfile.objects.create(beneficiary=other_kid, cautions='y')
         self.assertEqual(self.client.get(reverse('facilities:editing') + f'?kind=therapy_profile&id={other.pk}').status_code, 404)
+
+
+class TwoPartRecordTests(TestCase):
+    """2段の記録：事実（したこと）と様子（どうだったか）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_therapy_record=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        self.url = reverse('therapy:child', args=[self.kid.pk])
+
+    def test_add_edit_show_print_search(self):
+        res = self.client.get(self.url)
+        self.assertContains(res, '記録（事実：したこと）')
+        self.assertContains(res, 'name="situation"')
+        self.client.post(self.url, {'action': 'add', 'date': '2026-10-03', 'body': '', 'situation': '「もう1回」と言った'})
+        rec = TherapyRecord.objects.get()                       # 様子だけでも保存できる
+        self.assertEqual((rec.body, rec.situation), ('', '「もう1回」と言った'))
+        self.client.post(self.url, {'action': 'edit', 'record': rec.pk, 'date': '2026-10-03',
+                                    'body': 'ウレタン棒で10回打ち合った', 'situation': '「もう1回」と言った'})
+        rec.refresh_from_db()
+        self.assertEqual(rec.body, 'ウレタン棒で10回打ち合った')
+        res = self.client.get(self.url)
+        self.assertContains(res, '<span class="th-lbl">様子</span>「もう1回」と言った')
+        res = self.client.get(reverse('therapy:pdf', args=[self.kid.pk]) + '?fmt=html')
+        self.assertContains(res, '【事実】ウレタン棒で10回打ち合った')
+        self.assertContains(res, '【様子】「もう1回」と言った')
+        res = self.client.get(reverse('therapy:search') + '?q=もう1回')
+        self.assertContains(res, '<b>様子</b> 「もう1回」と言った')
+        # 前からの記録（様子が空）は1段のまま。様子の欄の無い画面から送っても様子は消えない
+        old = TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date(2026, 9, 1), body='前の記録')
+        self.client.post(self.url, {'action': 'edit', 'record': rec.pk, 'date': '2026-10-03', 'body': '直した'})
+        rec.refresh_from_db()
+        self.assertEqual(rec.situation, '「もう1回」と言った')
+        res = self.client.get(self.url)
+        self.assertContains(res, '<div class="th-body">前の記録</div>')

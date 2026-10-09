@@ -44,7 +44,10 @@ class TherapyRecord(models.Model):
     staff_name = models.CharField(max_length=50, blank=True, verbose_name='担当（名前）',
                                   help_text='アカウントのない職員や、退職した職員の名前を残すとき')
     activities = models.JSONField(default=list, blank=True, verbose_name='やったこと（①〜⑤）')
-    body = models.TextField(blank=True, verbose_name='記録')
+    body = models.TextField(blank=True, verbose_name='記録（事実：したこと）')
+    # 2段の記録（2026-10-09〜）：事実（何をしたか）と様子（どうだったか：見えたこと・聞こえた言葉）を分ける。
+    # 前からの記録は body だけ（様子が空なら「記録」として1段で出す）
+    situation = models.TextField(blank=True, verbose_name='様子（どうだったか）')
     reservation = models.ForeignKey('reservations.Reservation', on_delete=models.SET_NULL, null=True, blank=True,
                                     related_name='therapy_records', verbose_name='もとになった予約')
     created_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
@@ -66,6 +69,10 @@ class TherapyRecord(models.Model):
         if self.staff_id and self.staff is not None:
             return str(self.staff)
         return self.staff_name
+
+    @property
+    def text_for_search(self):
+        return f'{self.body} {self.situation}'
 
     @property
     def activity_list(self):

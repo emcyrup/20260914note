@@ -31,7 +31,8 @@
   {% if rec %}
   <div class="h">{{ rec.date_label }}　{{ rec.time_label|default:'　　時' }}<span class="staff">担当　{{ rec.staff_label }}</span></div>
   <div class="tr-text">{% if rec.activity_text %}{{ rec.activity_text }}
-{% endif %}{{ rec.body }}</div>
+{% endif %}{% if rec.situation %}{% if rec.body %}【事実】{{ rec.body }}
+{% endif %}【様子】{{ rec.situation }}{% else %}{{ rec.body }}{% endif %}</div>
   {% else %}
   <div class="h">　　　年　　月　　日　　曜日　　　時<span class="staff">担当　　　　　</span></div>
   <div class="tr-lines">{% for i in line_range %}<div class="tr-line"></div>{% endfor %}</div>

@@ -84,8 +84,9 @@ def collect(beneficiary, start, end):
     therapy = list(TherapyRecord.objects.filter(beneficiary=beneficiary, date__range=(start, end)).order_by('date', 'time'))
     for r in therapy:
         acts = '・'.join(a for a in (r.activities or []) if isinstance(a, str) and a)
-        if r.body or acts:
-            lines.append((r.date, f'療育記録{"（" + acts + "）" if acts else ""}', r.body or ''))
+        if r.body or r.situation or acts:
+            text = '\n'.join(x for x in (r.body, f'様子：{r.situation}' if r.situation else '') if x)
+            lines.append((r.date, f'療育記録{"（" + acts + "）" if acts else ""}', text))
     lines.sort(key=lambda x: x[0])
     stats = {'journals': len(journals), 'therapy': len(therapy), 'days': len({x[0] for x in lines})}
     try:

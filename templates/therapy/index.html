@@ -92,7 +92,7 @@
         <a href="{% url 'therapy:child' rec.beneficiary.pk %}#rec{{ rec.pk }}" class="th-name">{{ rec.beneficiary.full_name }}</a>
         {% if rec.staff_label %}<span class="th-meta ms-1">担当 {{ rec.staff_label }}</span>{% endif %}
         {% if rec.activity_text %}<div class="small">{{ rec.activity_text }}</div>{% endif %}
-        {% if rec.body %}<div class="th-meta text-truncate">{{ rec.body|truncatechars:80 }}</div>{% endif %}
+        {% if rec.body or rec.situation %}<div class="th-meta text-truncate">{{ rec.body|default:rec.situation|truncatechars:80 }}</div>{% endif %}
       </div>
     </div>
     {% endfor %}

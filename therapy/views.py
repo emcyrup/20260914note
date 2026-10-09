@@ -139,7 +139,7 @@ def search_records(facility, params):
         # 「やったこと」は JSON で保存されている（SQLite では日本語が \uXXXX になる）ので、DB ではなく Python で照らす
         words = [w.lower() for w in q.replace('　', ' ').split()]
         records = [r for r in records
-                   if all(w in (r.body + ' ' + ' '.join(a for a in (r.activities or []) if isinstance(a, str))).lower()
+                   if all(w in (r.text_for_search + ' ' + ' '.join(a for a in (r.activities or []) if isinstance(a, str))).lower()
                           for w in words)]
     return records, {'child': child, 'staff': staff, 'q': q, 'ym': ym, 'from': start, 'to': end}
 
@@ -234,7 +234,8 @@ class ChildView(TherapyEnabledMixin, View):
             'default_date': default_date, 'default_hour': default_hour,
             'hour_choices': hour_choices(default_hour, *(r.time.hour for r in records if r.time)),
             'default_activities': list(copy_rec.activities or []) if copy_rec else [],
-            'default_body': (copy_rec.body if copy_rec else ''), 'copy_rec': copy_rec,
+            'default_body': (copy_rec.body if copy_rec else ''), 'default_situation': (copy_rec.situation if copy_rec else ''),
+            'copy_rec': copy_rec,
             'activity_range': range(1, ACTIVITY_MAX + 1), 'edit_pk': to_int(request.GET.get('edit')),
             'cautions_rows': min(max(len((profile.cautions if profile else '').splitlines()) + 1, 4), 24),
             'fig': figure.build(profile.cautions if profile else '', beneficiary.full_name),
@@ -284,8 +285,9 @@ class ChildView(TherapyEnabledMixin, View):
         if day is None:
             messages.error(request, '日付を入れてください。')
             return back
-        if action == 'add' and not any(_activities_from_post(p)) and not p.get('body', '').strip():
-            messages.error(request, '「やったこと」か「記録」を入れてから保存してください。')
+        if action == 'add' and not any(_activities_from_post(p)) and not p.get('body', '').strip() \
+                and not p.get('situation', '').strip():
+            messages.error(request, '「やったこと」か「記録」（事実・様子）を入れてから保存してください。')
             return back
         staff = StaffAccount.objects.filter(facility=facility, pk=to_int(p.get('staff'), -1)).first()
         fields = {
@@ -293,11 +295,13 @@ class ChildView(TherapyEnabledMixin, View):
             'staff_name': p.get('staff_name', '').strip()[:50] if staff is None else '',
             'activities': _activities_from_post(p), 'body': p.get('body', '').strip()[:4000],
         }
+        if 'situation' in p:     # 2段の記録の「様子」（無い画面から送られたときは変えない）
+            fields['situation'] = p.get('situation', '').strip()[:4000]
         if action == 'edit':
             rec = get_object_or_404(TherapyRecord, pk=to_int(p.get('record'), -1), beneficiary=beneficiary)
             conflict = check_conflict(request, rec)
             if conflict:
-                keep_unsaved(request, 'therapy_record', rec.pk, {'text': fields['body'],
+                keep_unsaved(request, 'therapy_record', rec.pk, {'text': '\n'.join(x for x in (fields['body'], fields.get('situation', '')) if x),
                                                                  'activities': [a for a in fields['activities'] if a]})
                 messages.error(request, conflict + '（入れた記録は、その記録の直す欄の下に残してあります）')
                 return redirect(f"{reverse('therapy:child', args=[pk])}?edit={rec.pk}#rec{rec.pk}")

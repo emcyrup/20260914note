@@ -191,7 +191,7 @@
             <a href="{% url 'therapy:child' beneficiary.pk %}?ym={{ r.date|date:'Y-m' }}#rec{{ r.pk }}" class="small ms-auto">開く</a>
           </div>
           {% if r.activity_list %}<div class="th-recent-acts">{% for a in r.activity_list %}<span class="th-chip">{{ a }}</span>{% endfor %}</div>{% endif %}
-          {% if r.body %}<div class="th-recent-body">{{ r.body }}</div>{% endif %}
+          {% if r.body %}<div class="th-recent-body">{{ r.body }}</div>{% endif %}{% if r.situation %}<div class="th-recent-body"><b>様子</b> {{ r.situation }}</div>{% endif %}
         </div>
         {% endfor %}
       </div>

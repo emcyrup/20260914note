@@ -44,11 +44,11 @@
 </div>
 <div class="col-12">
   {% if rec %}
-  <label class="form-label small fw-semibold">記録</label>
-  <textarea name="body" class="form-control form-control-sm" rows="4" placeholder="ようすや声かけ、次回に向けて">{{ rec.body }}</textarea>
+  <label class="form-label small fw-semibold">記録（事実：したこと）</label>
+  <textarea name="body" class="form-control form-control-sm" rows="4" placeholder="何を・どのようにしたか（例：ウレタン棒で10回打ち合った。「あと1回」と声をかけた）">{{ rec.body }}</textarea>
   {% else %}
   <div class="d-flex justify-content-between align-items-end flex-wrap gap-2 mb-1">
-    <label class="form-label small fw-semibold mb-0" for="record-body">記録</label>
+    <label class="form-label small fw-semibold mb-0" for="record-body">記録（事実：したこと）</label>
     <button type="button" class="btn btn-sm btn-outline-primary" id="record-summary"
             data-url="{% url 'therapy:record_summary' beneficiary.pk %}"
             title="留意点のうち、やったこと（①〜⑤）に関係するところを、留意点の言葉のまま記録の最後に足します"><i class="bi bi-magic"></i> 留意点から記録に追記</button>
@@ -57,7 +57,16 @@
     <span class="msg"></span>
     <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline d-none" id="record-undo">追記を取り消す</button>
   </div>
-  <textarea name="body" id="record-body" class="form-control form-control-sm" rows="4" placeholder="ようすや声かけ、次回に向けて">{{ default_body }}</textarea>
+  <textarea name="body" id="record-body" class="form-control form-control-sm" rows="4" placeholder="何を・どのようにしたか（例：ウレタン棒で10回打ち合った。「あと1回」と声をかけた）">{{ default_body }}</textarea>
   <div class="form-text">「やったこと」を入れてから「留意点から記録に追記」を押すと、留意点のうち今日の活動に関係するところを、<b>留意点の言葉のまま</b>（言いかえ・飾りの言葉・AI の見解は足さずに。500字まで）最後に足します。足したあとはそのまま保存します（入れ直したいときは、下の「これまでの記録」の「直す」から）。</div>
   {% endif %}
 </div>
+{% if rec %}<div class="col-12">
+  <label class="form-label small fw-semibold mb-0" for="sit-{{ rec.pk }}">様子（どうだったか）</label>
+  <textarea name="situation" id="sit-{{ rec.pk }}" class="form-control form-control-sm" rows="3" placeholder="見えたこと・聞こえた言葉をそのまま（例：「もう1回」と言った。途中で座りこみ、声をかけると立った）">{{ rec.situation }}</textarea>
+  <div class="form-text">2段の記録：上の「事実」に<b>何をしたか</b>、ここに<b>どうだったか</b>（見えたこと・子どもの言葉）を書きます。あとで読む人が誤解しないよう、「〜するとよい」「〜が大切」などの方針・評価は書かず、あったことだけを書きます。</div>
+</div>{% else %}<div class="col-12">
+  <label class="form-label small fw-semibold mb-0" for="record-situation">様子（どうだったか）</label>
+  <textarea name="situation" id="record-situation" class="form-control form-control-sm" rows="3" placeholder="見えたこと・聞こえた言葉をそのまま（例：「もう1回」と言った。途中で座りこみ、声をかけると立った）">{{ default_situation }}</textarea>
+  <div class="form-text">2段の記録：上の「事実」に<b>何をしたか</b>、ここに<b>どうだったか</b>（見えたこと・子どもの言葉）を書きます。あとで読む人が誤解しないよう、「〜するとよい」「〜が大切」などの方針・評価は書かず、あったことだけを書きます。</div>
+</div>{% endif %}
