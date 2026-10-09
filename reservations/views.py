@@ -252,6 +252,9 @@ class AddTodayView(ReservationEnabledMixin, View):
         else:
             messages.info(request, f'{beneficiary.full_name} さんはきょうの予定に入っています。')
         if getattr(facility, 'use_therapy_record', False):
+            from therapy.models import TherapyRecord
+            if TherapyRecord.objects.filter(beneficiary=beneficiary, date=today).exists():
+                messages.info(request, f'{beneficiary.full_name} さんのきょうの療育記録はすでにあります（二重に作らないよう、直すなら「直す」から）。')
             url = f"{reverse('therapy:child', args=[beneficiary.pk])}?date={today:%Y-%m-%d}"
             if res.start_time:
                 url += f'&time={res.start_time:%H:%M}'

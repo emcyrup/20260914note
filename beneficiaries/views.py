@@ -234,6 +234,65 @@ class BeneficiaryBulkView(LoginRequiredMixin, View):
         return _back_to(request, back)
 
 
+RETENTION_YEARS = 5     # 記録の保存年数（サービスを終えた日から）
+
+
+class LeftListView(LoginRequiredMixin, View):
+    """
+    やめた子リスト：退所・卒業した利用者の一覧（名前・かな・退所した年で探せる）。
+    入所日・退所日・在籍期間・最後の利用日・療育記録の件数・記録の保存期限（退所日から 5 年）を出す
+    """
+
+    def get(self, request):
+        from django.db.models import Count, Max
+        facility = request.user.facility
+        q = request.GET.get('q', '').strip()
+        status = request.GET.get('status', '')
+        year = to_int(request.GET.get('year'))
+        qs = Beneficiary.objects.filter(facility=facility, status__in=Beneficiary.LEFT_STATUSES)
+        if q:
+            qs = qs.filter(db_models.Q(last_name__icontains=q) | db_models.Q(first_name__icontains=q)
+                           | db_models.Q(last_name_kana__icontains=q) | db_models.Q(first_name_kana__icontains=q))
+        if status in Beneficiary.LEFT_STATUSES:
+            qs = qs.filter(status=status)
+        if year:
+            qs = qs.filter(discharge_date__year=year)
+        qs = qs.annotate(record_count=Count('therapy_records', distinct=True), last_record=Max('therapy_records__date'))
+        people = list(qs.order_by(db_models.F('discharge_date').desc(nulls_last=True), 'last_name_kana', 'pk'))
+        today = datetime.date.today()
+        last_visit = {}
+        if facility.use_reservation:
+            from reservations.models import Reservation
+            last_visit = dict(Reservation.objects.filter(facility=facility, beneficiary__in=people, status=Reservation.STATUS_CONFIRMED)
+                              .exclude(attendance__in=(Reservation.ATT_ABSENT, Reservation.ATT_CANCELLED))
+                              .values_list('beneficiary').annotate(d=Max('date')).values_list('beneficiary', 'd'))
+        rows = []
+        for b in people:
+            last = max(x for x in (b.last_record, last_visit.get(b.pk)) if x) if (b.last_record or last_visit.get(b.pk)) else None
+            start = b.admission_date
+            end = b.discharge_date or last or today
+            # 在籍期間：退所日の翌日までで数える（4/1〜3/31 は 3 年）
+            after = end + datetime.timedelta(days=1)
+            months = (after.year - start.year) * 12 + after.month - start.month - (1 if after.day < start.day else 0) if start else None
+            base = b.discharge_date or last
+            keep_until = None
+            if base:
+                try:
+                    keep_until = base.replace(year=base.year + RETENTION_YEARS)
+                except ValueError:          # 2/29
+                    keep_until = base.replace(year=base.year + RETENTION_YEARS, day=28)
+            period = '' if months is None else (f'{months // 12}年' if months >= 12 else '') + (f'{months % 12}か月' if months % 12 or months < 12 else '')
+            rows.append({'b': b, 'last': last, 'months': months, 'period': period, 'keep_until': keep_until,
+                         'expired': bool(keep_until and keep_until < today)})
+        years = sorted({d.year for d in Beneficiary.objects.filter(facility=facility, status__in=Beneficiary.LEFT_STATUSES)
+                        .exclude(discharge_date__isnull=True).values_list('discharge_date', flat=True)}, reverse=True)
+        return render(request, 'beneficiaries/left.html', {
+            'rows': rows, 'q': q, 'status': status, 'year': year, 'years': years, 'today': today,
+            'status_choices': [(v, l) for v, l in Beneficiary.STATUS_CHOICES if v in Beneficiary.LEFT_STATUSES],
+            'retention_years': RETENTION_YEARS, 'can_delete': request.user.is_admin or request.user.is_superuser,
+        })
+
+
 class TrashView(LoginRequiredMixin, View):
     """ごみ箱：消した利用者の一覧と「戻す」「完全に消す」（管理者だけ。beneficiaries/trash.py）"""
 

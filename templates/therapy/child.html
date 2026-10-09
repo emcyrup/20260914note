@@ -117,8 +117,11 @@
 
   <div class="card mb-3" id="add"><div class="card-body">
     <div class="th-card-title mb-2"><i class="bi bi-plus-circle"></i>記録を追加する</div>
+    {% if dup %}<div class="alert alert-warning small py-2 px-2 mb-2"><i class="bi bi-exclamation-triangle me-1"></i>{{ dup.date|date:'n/j' }} の記録はすでにあります（<a href="#rec{{ dup.pk }}">{{ dup.time_label|default:'時刻なし' }}の記録を見る</a>）。二重にならないよう保存していません。直すなら「これまでの記録」の「直す」から。別の回として足すときは下の印を付けて保存してください。
+      <label class="d-block mt-1 fw-bold"><input type="checkbox" name="dup_ok" value="1" form="th-add-form" class="form-check-input me-1">もう1件として保存する</label></div>{% endif %}
+    {% if day_res %}<div class="alert alert-light border small py-1 px-2 mb-2"><i class="bi bi-calendar-check me-1"></i>{{ day_res.date|date:'n/j' }}{% if day_res.start_time %} {{ day_res.time_label }}{% endif %} の予約があります（{{ day_res.get_status_display }}{% if day_res.note == '当日追加' %}・当日追加{% endif %}）。まだ記録はありません。保存すると、この予約と結びつきます。</div>{% endif %}
     {% if copy_rec %}<div class="alert alert-info small py-1 px-2 mb-2"><i class="bi bi-files me-1"></i>{{ copy_rec.beneficiary.full_name }}さんの {{ copy_rec.date|date:'n/j' }} の記録の「やったこと」と「記録」を写しています。この{{ terms.beneficiary }}に合わせて直してから「保存する」を押してください。</div>{% endif %}
-    <form method="post" class="row g-2 th-save-form" data-new="1" data-draft="therapy-add:{{ beneficiary.pk }}" data-draft-new>
+    <form method="post" id="th-add-form" class="row g-2 th-save-form" data-new="1" data-draft="therapy-add:{{ beneficiary.pk }}" data-draft-new>
       {% csrf_token %}<input type="hidden" name="action" value="add">
       <div class="col-12" data-draft-banner></div>
       {% include 'therapy/_record_fields.html' with rec=None %}

@@ -698,3 +698,45 @@ class TwoPartRecordTests(TestCase):
         self.assertEqual(rec.situation, '「もう1回」と言った')
         res = self.client.get(self.url)
         self.assertContains(res, '<div class="th-body">前の記録</div>')
+
+
+class ReservationLinkTests(TestCase):
+    """当日追加の予約と記録のつながり：同じ日の記録の二重防止、予約ありで記録なしの知らせ、記録と予約のひもづけ"""
+
+    def setUp(self):
+        from reservations.services import get_setting
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_therapy_record=True, use_reservation=True,
+                                         layout=Facility.LAYOUT_RYOIKU)
+        get_setting(self.f)
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        self.url = reverse('therapy:child', args=[self.kid.pk])
+
+    def test_duplicate_guard_and_link(self):
+        from reservations.models import Reservation
+        res = Reservation.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date(2026, 10, 2), status='confirmed', note='当日追加')
+        page = self.client.get(self.url + '?date=2026-10-02')
+        self.assertContains(page, '10/2 の予約があります')
+        self.assertContains(page, '当日追加')
+        r = self.client.post(self.url, {'action': 'add', 'date': '2026-10-02', 'time': '10', 'body': '1回目'})
+        rec = TherapyRecord.objects.get()
+        self.assertEqual(rec.reservation, res)                    # 予約と結びつく
+        page = self.client.get(self.url + '?date=2026-10-02')
+        self.assertNotContains(page, '10/2 の予約があります')      # 記録ができたら知らせない
+        # 同じ日・同じ時刻の 2 件目は止める
+        r = self.client.post(self.url, {'action': 'add', 'date': '2026-10-02', 'time': '10', 'body': '2回目'})
+        self.assertRedirects(r, f'{self.url}?date=2026-10-02&dup={rec.pk}#add', fetch_redirect_response=False)
+        self.assertEqual(TherapyRecord.objects.count(), 1)
+        page = self.client.get(f'{self.url}?date=2026-10-02&dup={rec.pk}')
+        self.assertContains(page, 'もう1件として保存する')
+        # 印を付ければ足せる。時刻が違えば止めない
+        self.client.post(self.url, {'action': 'add', 'date': '2026-10-02', 'time': '10', 'body': '2回目', 'dup_ok': '1'})
+        self.client.post(self.url, {'action': 'add', 'date': '2026-10-02', 'time': '15', 'body': '午後'})
+        self.assertEqual(TherapyRecord.objects.count(), 3)
+        # ホームに「記録がまだ n 人」「当日追加」
+        kid2 = Beneficiary.objects.create(facility=self.f, last_name='井上', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        Reservation.objects.create(facility=self.f, beneficiary=kid2, date=datetime.date(2026, 10, 2), status='confirmed')
+        page = self.client.get(reverse('therapy:index') + '?date=2026-10-02')
+        self.assertContains(page, '記録がまだ 1 人')
+        self.assertContains(page, '当日追加 1')

@@ -334,6 +334,26 @@ def pair_conflicts(beneficiary, day, exclude_pk=None, start_time=None):
     return sorted({r.beneficiary.full_name for r in qs if same_time(start_time, r.start_time)})
 
 
+def sibling_in_slot(beneficiary, day, start_time=None, exclude_pk=None, siblings=None):
+    """
+    きょうだいの日：この利用者のきょうだいが、同じ日の同じ時間枠に有効な予約を持っていればその予約のリスト（無ければ空）。
+    きょうだいの日には通常の制約を上書きする（2026-10-09 ゆあーず）：
+    - 枠がいっぱいでも、きょうだいと1枠にまとめて入れる（席を増やさない）
+    - 「同じ時間にできない」相手がその枠にいても止めない（赤い印は出す）。きょうだいで来る方を優先する
+    - 月間予定表の割り当てでは、きょうだいのいる枠を先に選ぶ
+    """
+    if beneficiary is None:
+        return []
+    sibs = (siblings or sibling_map(beneficiary.facility)).get(beneficiary.pk, ())
+    if not sibs:
+        return []
+    qs = Reservation.objects.filter(facility_id=beneficiary.facility_id, date=day, status__in=Reservation.ACTIVE_STATUSES,
+                                    beneficiary_id__in=sibs)
+    if exclude_pk:
+        qs = qs.exclude(pk=exclude_pk)
+    return [r for r in qs if same_time(start_time, r.start_time)]
+
+
 # 職員側の操作（職員の画面・スタッフのグループ・月間予定表の割り当て）だけ組み合わせで止める。
 # 保護者からの申し込み（入力ページ・LINE）は止めずに受け、職員の画面で赤く示す（pair_names）
 STAFF_SOURCES = (Reservation.SOURCE_STAFF, Reservation.SOURCE_GROUP, Reservation.SOURCE_REQUEST)
@@ -416,13 +436,14 @@ def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STA
         raise ReservationError(f'{jp_date(day)} の {who} さんの予約はすでにあります。')
     if is_closed(facility, day, setting):
         raise ReservationError(f'{jp_date(day)} は休業日のため予約を受け付けられません。')
-    if source in STAFF_SOURCES:
+    st = day_state(facility, day, setting)
+    with_sibling = sibling_in_slot(beneficiary, day, start_time, siblings=st['siblings'])
+    if source in STAFF_SOURCES and not with_sibling:      # きょうだいの日は、共演NG があっても止めない（印は出る）
         names = pair_conflicts(beneficiary, day, start_time=start_time)
         if names:
             raise pair_error(day, who, names, start_time)
 
     customer = customer or (customer_for(facility, beneficiary) if beneficiary is not None else None)
-    st = day_state(facility, day, setting)
     cand = Reservation(facility=facility, beneficiary=beneficiary, date=day, start_time=start_time, share_seat=share_seat)
     if setting.slot_mode:
         if start_time is None:
@@ -431,6 +452,9 @@ def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STA
         if slot is None:
             raise ReservationError(f'{jp_date(day)} {hour_label(start_time.hour)} の枠はありません。')
         fits = fits_in_slot(slot, cand, setting.slot_capacity, st['siblings'])
+        if not fits and with_sibling:       # いっぱいでも、きょうだいと1枠にまとめて入れる
+            cand.share_seat = share_seat = True
+            fits = fits_in_slot(slot, cand, setting.slot_capacity, st['siblings'])
     else:
         fits = st['capacity'] > 0 and seat_count(st['confirmed_rows'] + [cand], st['siblings']) <= st['capacity']
     if fits:
@@ -531,18 +555,24 @@ def move_reservation(res, new_day, note=None, base='', start_time=None, notify=T
             beneficiary=res.beneficiary, date=new_day,
             status__in=Reservation.ACTIVE_STATUSES).exclude(pk=res.pk).exists():
         raise ReservationError(f'{jp_date(new_day)} の {res.display_name} さんの予約はすでにあります。')
-    names = pair_conflicts(res.beneficiary, new_day, exclude_pk=res.pk, start_time=new_time)
-    if names:
-        raise pair_error(new_day, res.display_name, names, new_time)
-
     st = day_state(facility, new_day, setting)
+    with_sibling = sibling_in_slot(res.beneficiary, new_day, new_time, exclude_pk=res.pk, siblings=st['siblings'])
+    if not with_sibling:        # きょうだいの日は、共演NG があっても止めない（印は出る）
+        names = pair_conflicts(res.beneficiary, new_day, exclude_pk=res.pk, start_time=new_time)
+        if names:
+            raise pair_error(new_day, res.display_name, names, new_time)
+
     if setting.slot_mode:
         slot = next((x for x in st['slots'] if new_time is not None and x['hour'] == new_time.hour), None)
         if slot is None:
             raise ReservationError(f'{jp_date(new_day)} {new_time.strftime("%H:%M") if new_time else ""} の枠はありません。')
         # 同じ枠の中で自分を数えない。きょうだいと1枠にまとめるなら席を増やさない
         moved = Reservation(pk=res.pk, beneficiary_id=res.beneficiary_id, share_seat=res.share_seat)
-        st = dict(slot, full=not fits_in_slot(slot, moved, slot['capacity'], st['siblings']))
+        full = not fits_in_slot(slot, moved, slot['capacity'], st['siblings'])
+        if full and with_sibling:           # いっぱいでも、きょうだいと1枠にまとめて入れる
+            res.share_seat = moved.share_seat = True
+            full = not fits_in_slot(slot, moved, slot['capacity'], st['siblings'])
+        st = dict(slot, full=full)
     else:
         moved = Reservation(pk=res.pk, beneficiary_id=res.beneficiary_id, share_seat=res.share_seat)
         others = [r for r in st['confirmed_rows'] if r.pk != res.pk]

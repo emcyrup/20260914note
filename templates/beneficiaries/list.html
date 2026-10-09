@@ -35,6 +35,7 @@
     {% for value, label, n in status_tabs %}
     <li class="nav-item"><a class="nav-link {% if status == value %}active fw-bold{% endif %}" href="?status={{ value }}{% if q %}&q={{ q|urlencode }}{% endif %}">{{ label }} <span class="badge {% if value == 'graduated' %}bl-grad{% elif value == 'inactive' %}text-bg-secondary{% elif value == 'active' %}text-bg-success{% else %}text-bg-light border{% endif %}">{{ n }}</span></a></li>
     {% endfor %}
+    <li class="nav-item ms-auto"><a class="nav-link" href="{% url 'beneficiaries:left' %}" title="退所・卒業した{{ terms.beneficiary }}の一覧（在籍期間・最後の利用日・記録の保存期限）"><i class="bi bi-box-arrow-right me-1"></i>やめた子リスト</a></li>
   </ul>
 
   <!-- 検索・フィルタ -->

@@ -1632,3 +1632,46 @@ class BeneficiaryTrashTests(TestCase):
         self.assertEqual(purge_expired(timezone.now() + datetime.timedelta(days=29)), 0)
         self.assertEqual(purge_expired(timezone.now() + datetime.timedelta(days=31)), 1)
         self.assertFalse(DeletedBeneficiary.objects.exists())
+
+
+class LeftListTests(TestCase):
+    """やめた子リスト：退所・卒業の一覧と検索、在籍期間・最後の利用日・保存期限"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True)
+        StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f)
+        self.client.login(username='st', password='pw12345678')
+        mk = lambda last, kana, **kw: Beneficiary.objects.create(facility=self.f, last_name=last, first_name='子', last_name_kana=kana,
+                                                                  date_of_birth=datetime.date(2015, 4, 1), **kw)
+        self.a = mk('青木', 'あおき', status='graduated', admission_date=datetime.date(2019, 4, 1), discharge_date=datetime.date(2022, 3, 31))
+        self.b = mk('井上', 'いのうえ', status='inactive', admission_date=datetime.date(2024, 1, 10), discharge_date=datetime.date(2025, 6, 30))
+        self.c = mk('上田', 'うえだ')                                           # 在籍中は出ない
+        from therapy.models import TherapyRecord
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.b, date=datetime.date(2025, 6, 20), body='x')
+
+    def test_list_search_and_columns(self):
+        res = self.client.get(reverse('beneficiaries:list'))
+        self.assertContains(res, 'やめた子リスト')
+        url = reverse('beneficiaries:left')
+        res = self.client.get(url)
+        self.assertContains(res, '青木 子')
+        self.assertContains(res, '井上 子')
+        self.assertNotContains(res, '上田 子')
+        self.assertContains(res, '2027/3/31')          # 青木の保存期限（退所日＋5年）
+        self.assertContains(res, '3年')                 # 在籍期間 2019/4〜2022/3
+        self.assertContains(res, '1年5か月')            # 井上 2024/1/10〜2025/6/30（日まで見て 1年5か月21日）
+        self.assertContains(res, '2025/6/20')          # 井上の最後の利用日（療育記録）
+        self.assertContains(res, '1 件')
+        res = self.client.get(url + '?q=いのうえ')
+        self.assertContains(res, '井上 子')
+        self.assertNotContains(res, '青木 子')
+        res = self.client.get(url + '?year=2022')
+        self.assertContains(res, '青木 子')
+        self.assertNotContains(res, '井上 子')
+        res = self.client.get(url + '?status=inactive')
+        self.assertNotContains(res, '青木 子')
+        # 在籍中に戻す
+        res = self.client.post(reverse('beneficiaries:status', args=[self.b.pk]), {'status': 'active', 'next': url})
+        self.assertRedirects(res, url)
+        self.b.refresh_from_db()
+        self.assertEqual((self.b.status, self.b.discharge_date), ('active', None))

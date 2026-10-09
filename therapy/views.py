@@ -178,6 +178,8 @@ class IndexView(TherapyEnabledMixin, View):
             'day': day, 'prev_day': day - datetime.timedelta(days=1), 'next_day': day + datetime.timedelta(days=1),
             'reservations': reservations, 'children': children,
             'written_count': sum(1 for r in reservations if r.written),
+            'unwritten': [r for r in reservations if not r.written],
+            'added_today': sum(1 for r in reservations if r.note == '当日追加'),
             'reserved_ids': {r.beneficiary_id for r in reservations if r.beneficiary_id},
             'today_records': (TherapyRecord.objects.filter(facility=facility, date=day)
                               .select_related('beneficiary', 'staff').order_by('time', 'pk')),
@@ -226,7 +228,16 @@ class ChildView(TherapyEnabledMixin, View):
         default_date = _parse_date(request.GET.get('date'), datetime.date.today())
         default_t = _parse_time(request.GET.get('time'))
         default_hour = default_t.hour if default_t else None
+        dup = TherapyRecord.objects.filter(beneficiary=beneficiary, pk=to_int(request.GET.get('dup'), -1)).first()
+        # 予約とのつながり：その日の予約があるのに記録がまだ無ければ知らせる
+        same_day = [r for r in records if r.date == default_date]
+        day_res = None
+        if facility.use_reservation and not same_day:
+            from reservations.models import Reservation
+            day_res = Reservation.objects.filter(facility=facility, beneficiary=beneficiary, date=default_date,
+                                                 status__in=Reservation.ACTIVE_STATUSES).order_by('status', 'pk').first()
         return render(request, self.template_name, {
+            'dup': dup, 'day_res': day_res,
             'beneficiary': beneficiary, 'profile': profile, 'records': records, 'ym': ym, 'months': months,
             'date_from': date_from, 'date_to': date_to, 'filtered': filtered, 'filter_query': filter_query,
             'activity_suggestions': suggestions, 'activity_chips': suggestions[:ACTIVITY_CHIP_MAX],
@@ -311,11 +322,23 @@ class ChildView(TherapyEnabledMixin, View):
             messages.success(request, f'{day:%-m/%-d} の療育記録を保存しました。')
             return back
 
+        # 二重の確認：同じ日（同じ時刻）の記録がすでにあれば、「もう1件として保存」の印が無いかぎり保存しない
+        # （入れた文は下書きの自動保存が戻す）
+        same = TherapyRecord.objects.filter(beneficiary=beneficiary, date=day)
+        if fields['time'] is not None:
+            same = same.filter(Q(time=fields['time']) | Q(time__isnull=True))
+        dup = same.order_by('pk').first()
+        if dup and p.get('dup_ok') != '1':
+            messages.warning(request, f'{day:%-m/%-d} の療育記録はすでにあります（{dup.time_label or "時刻なし"}）。二重にならないよう保存していません。'
+                                      '直すなら下の「これまでの記録」の「直す」から。別の回として足すなら「もう1件として保存する」に印を付けて保存してください。')
+            return redirect(f"{reverse('therapy:child', args=[pk])}?date={day:%Y-%m-%d}&dup={dup.pk}#add")
         reservation = None
         if facility.use_reservation:
+            # 予約とのつながり：その日の確定の予約（無ければ来所したキャンセル待ち。当日追加もここで結びつく）
             from reservations.models import Reservation
-            reservation = Reservation.objects.filter(facility=facility, beneficiary=beneficiary, date=day,
-                                                     status=Reservation.STATUS_CONFIRMED).first()
+            reservation = (Reservation.objects.filter(facility=facility, beneficiary=beneficiary, date=day, status=Reservation.STATUS_CONFIRMED).first()
+                           or Reservation.objects.filter(facility=facility, beneficiary=beneficiary, date=day, status=Reservation.STATUS_WAITLIST,
+                                                         attendance=Reservation.ATT_ATTENDED).first())
         TherapyRecord.objects.create(facility=facility, beneficiary=beneficiary, reservation=reservation,
                                      created_by=request.user, **fields)
         if p.get('auto') == '1':

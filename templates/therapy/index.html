@@ -44,7 +44,9 @@
   <div class="card mb-3">
     <div class="card-body pb-2 d-flex justify-content-between align-items-end flex-wrap gap-1">
       <div>
-        <div class="fw-bold"><i class="bi bi-calendar-check me-1"></i>この日の予約から書く</div>
+        <div class="fw-bold"><i class="bi bi-calendar-check me-1"></i>この日の予約から書く
+          {% if reservations %}<span class="badge {% if unwritten %}text-bg-warning{% else %}text-bg-success{% endif %} ms-1" title="予約のうち記録がまだの人">{% if unwritten %}記録がまだ {{ unwritten|length }} 人{% else %}全員記録ずみ{% endif %}</span>{% endif %}
+          {% if added_today %}<span class="badge text-bg-light border ms-1" title="利用者の画面の「今日の予定に追加」で入れた予約">当日追加 {{ added_today }}</span>{% endif %}</div>
         <div class="th-sum">押すと、日付と時刻の入った入力欄が開きます。</div>
       </div>
       <form method="get" action="{% url 'therapy:index' %}" class="d-flex gap-1 align-items-center th-pick" onsubmit="if(!this.pick.value)return false;location.href=this.pick.value;return false;">

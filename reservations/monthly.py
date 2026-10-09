@@ -314,13 +314,15 @@ def assign_month(facility, year, month, setting=None, base='', notify=True, only
             for req in order:
                 days_taken = taken.setdefault(req.beneficiary_id, set())
                 blocked = set().union(*(slots_of.get(b, set()) for b in pairs.get(req.beneficiary_id, ())))
+                # きょうだいの日：きょうだいがいる枠は、いっぱいでも（1枠にまとめる）・共演NG があっても入れ、先に選ぶ
+                with_sib = set().union(*(slots_of.get(b, set()) for b in siblings.get(req.beneficiary_id, ())))
                 options = [(d, h) for d, h in candidates[req.pk]
-                           if d not in days_taken and (d, h) not in blocked and (d, None) not in blocked
-                           and used.get((d, h), 0) < setting.slot_capacity]
+                           if d not in days_taken and ((d, h) in with_sib or (
+                               (d, h) not in blocked and (d, None) not in blocked and used.get((d, h), 0) < setting.slot_capacity))]
                 if not options:
                     continue
-                # 日にちは間があく順、同じ日の中では早い時刻から（午前から詰める）
-                options.sort(key=lambda dh: (-_spread_score(dh[0], days_taken), dh[0], dh[1]))
+                # きょうだいのいる枠を先に。日にちは間があく順、同じ日の中では早い時刻から（午前から詰める）
+                options.sort(key=lambda dh: (dh not in with_sib, -_spread_score(dh[0], days_taken), dh[0], dh[1]))
                 day, hour = options[0]
                 try:
                     res, _ = services.create_reservation(
@@ -333,7 +335,8 @@ def assign_month(facility, year, month, setting=None, base='', notify=True, only
                     res.delete()           # 数え違い（同時操作）。この枠はあきらめる
                     used[(day, hour)] = setting.slot_capacity
                     continue
-                used[(day, hour)] = used.get((day, hour), 0) + 1
+                if not res.share_seat:     # きょうだいと1枠にまとめたときは席が増えない
+                    used[(day, hour)] = used.get((day, hour), 0) + 1
                 days_taken.add(day)
                 slots_of.setdefault(req.beneficiary_id, set()).add((day, hour))
                 need[req.pk] -= 1

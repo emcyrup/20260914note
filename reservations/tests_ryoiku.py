@@ -1815,3 +1815,60 @@ class OverLimitNoticeTests(TestCase):
         res = self.client.get(reverse('reservations:daily_board') + '?d=2026-10-02')
         self.assertContains(res, '1日の上限 3 名を超えています')
         self.assertEqual(services.limit_notice(self.f, datetime.date(2026, 10, 3)), '')
+
+
+class SiblingDayTests(TestCase):
+    """きょうだいの日：枠がいっぱいでも1枠にまとめて入れる、共演NG があっても止めない（印は出る）"""
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        self.day = datetime.date(2026, 10, 2)    # 金
+        self.a, self.b = child(self.f, '青木', '兄'), child(self.f, '青木', '妹')
+        self.a.siblings.add(self.b)
+        self.others = [child(self.f, n) for n in ('井上', '上田', '江口', '大野')]
+
+    def test_full_slot_shares_with_sibling(self):
+        services.create_reservation(self.f, self.b, self.day, start_time='10')
+        for k in self.others[:2]:
+            services.create_reservation(self.f, k, self.day, start_time='10')
+        res, _ = services.create_reservation(self.f, self.a, self.day, start_time='10')      # 3 人でいっぱいの枠
+        self.assertEqual((res.status, res.share_seat), (Reservation.STATUS_CONFIRMED, True))
+        self.assertEqual(services.slot_state(self.f, self.day, 10)['seats'], 3)
+        # きょうだいのいない枠がいっぱいなら、これまでどおりキャンセル待ち
+        for k in self.others[:3]:
+            services.create_reservation(self.f, k, self.day + datetime.timedelta(days=1), start_time='10')
+        res, _ = services.create_reservation(self.f, self.a, self.day + datetime.timedelta(days=1), start_time='10')
+        self.assertEqual(res.status, Reservation.STATUS_WAITLIST)
+
+    def test_pair_conflict_is_allowed_with_sibling(self):
+        ng = self.others[0]
+        self.a.cannot_pair.add(ng)
+        services.create_reservation(self.f, ng, self.day, start_time='11')
+        with self.assertRaises(services.ReservationError):
+            services.create_reservation(self.f, self.a, self.day, start_time='11')       # きょうだいがいなければ止める
+        services.create_reservation(self.f, self.b, self.day, start_time='11')
+        res, _ = services.create_reservation(self.f, self.a, self.day, start_time='11')  # きょうだいがいれば入れる
+        self.assertEqual(res.status, Reservation.STATUS_CONFIRMED)
+        marked = services.mark_pairs(self.f, Reservation.objects.filter(date=self.day))
+        self.assertTrue(any(getattr(r, 'pair_names', None) for r in marked))            # 赤い印は出る
+
+    def test_move_into_full_sibling_slot(self):
+        services.create_reservation(self.f, self.b, self.day, start_time='10')
+        for k in self.others[:2]:
+            services.create_reservation(self.f, k, self.day, start_time='10')
+        res, _ = services.create_reservation(self.f, self.a, self.day, start_time='13')
+        res = services.move_reservation(res, self.day, start_time='10', notify=False)
+        self.assertEqual((res.status, res.share_seat, res.start_time), (Reservation.STATUS_CONFIRMED, True, datetime.time(10)))
+
+    def test_assign_prefers_sibling_slot_even_when_full(self):
+        a, b = self.a, self.b
+        # 10/3（土）9 時は妹＋2 人でいっぱい。兄の希望は 10/3 の 9・10 時 → 10 時が空いていても、きょうだいのいる 9 時に 1 枠で入る
+        services.create_reservation(self.f, b, datetime.date(2026, 10, 3), start_time='9')
+        for k in self.others[:2]:
+            services.create_reservation(self.f, k, datetime.date(2026, 10, 3), start_time='9')
+        monthly.save_request(self.f, a, 2026, 10, 1, {'2026-10-03': [9, 10]})
+        result = monthly.assign_month(self.f, 2026, 10, self.s)
+        self.assertEqual(len(result.made), 1)
+        res = Reservation.objects.get(beneficiary=a)
+        self.assertEqual((res.start_time, res.status, res.share_seat), (datetime.time(9), 'confirmed', True))
+        self.assertEqual(services.slot_state(self.f, datetime.date(2026, 10, 3), 9)['seats'], 3)
