@@ -13,7 +13,7 @@ from django.conf import settings
 from django.utils import timezone
 import anthropic
 
-from .models import Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guardian, RecipientCertificate, BeneficiaryDocument, DOCUMENT_EXTENSIONS, DOCUMENT_MAX_BYTES, KANA_ROWS, DevelopmentAssessment, RecordDigest
+from .models import TRASH_DAYS, DeletedBeneficiary, Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guardian, RecipientCertificate, BeneficiaryDocument, DOCUMENT_EXTENSIONS, DOCUMENT_MAX_BYTES, KANA_ROWS, DevelopmentAssessment, RecordDigest
 from .forms import BeneficiaryForm, BeneficiaryOfficeForm, GuardianForm, RecipientCertificateForm
 from facilities.context_processors import get_terms
 from config.concurrency import check_conflict
@@ -77,6 +77,7 @@ class BeneficiaryListView(LoginRequiredMixin, ListView):
         if ctx['can_delete']:      # 同じ名前の組の数（重複のまとめへ）
             from .merge import find_groups
             ctx['duplicate_groups'] = len(find_groups(self.request.user.facility))
+            ctx['trash_count'] = DeletedBeneficiary.objects.filter(facility=self.request.user.facility).count()
         ctx['status_choices'] = Beneficiary.STATUS_CHOICES
         return ctx
 
@@ -106,19 +107,10 @@ def related_counts(b):
     return [(label, n) for label, n in rows if n]
 
 
-def delete_beneficiary(b):
-    """利用者を関連する記録・書類ごと消す。ファイルは DB を消したあとに消す（途中で失敗しても DB と食い違わないように）"""
-    from records.models import DailyRecordPhoto
-    files = [d.file for d in b.documents.all()] + [a.file for a in b.assessments.all() if a.file] \
-        + [c.scanned_image for c in b.recipient_certificates.all() if c.scanned_image] \
-        + [ph.photo for ph in DailyRecordPhoto.objects.filter(daily_record__beneficiary=b) if ph.photo]
-    b.support_plans.all().delete()        # PROTECT なので先に消す
-    b.delete()
-    for f in files:
-        try:
-            f.storage.delete(f.name)
-        except Exception:       # ファイルが既に無いなどは無視（DB は消えている）
-            pass
+def delete_beneficiary(b, by=None):
+    """利用者を関連する記録・書類ごと消す。ごみ箱に TRASH_DAYS 日置き、そのあいだは戻せる（beneficiaries/trash.py）"""
+    from .trash import trash
+    return trash(b, by=by)
 
 
 def set_status(b, status):
@@ -145,7 +137,7 @@ def _back_to(request, default):
 
 class BeneficiaryDeleteView(LoginRequiredMixin, View):
     """
-    利用者を、関連する記録・書類ごと消す（辞めた子・まちがえて登録した子）。戻せないので確認画面を挟み、管理者だけができる。
+    利用者を、関連する記録・書類ごと消す（辞めた子・まちがえて登録した子）。ごみ箱に置くので戻せるが、確認画面を挟み、管理者だけができる。
     在籍中の人も消せるが、確認画面で「在籍中」と強く知らせる。
     """
 
@@ -161,7 +153,7 @@ class BeneficiaryDeleteView(LoginRequiredMixin, View):
         if bounce:
             return bounce
         return render(request, 'beneficiaries/delete.html',
-                      {'beneficiary': b, 'counts': related_counts(b), 'retention_note': RETENTION_NOTE})
+                      {'beneficiary': b, 'counts': related_counts(b), 'retention_note': RETENTION_NOTE, 'trash_days': TRASH_DAYS})
 
     def post(self, request, pk):
         b, bounce = self._get(request, pk)
@@ -172,8 +164,8 @@ class BeneficiaryDeleteView(LoginRequiredMixin, View):
             messages.error(request, '氏名が合っていないか、確認の印が付いていません。削除していません。')
             return redirect('beneficiaries:delete', pk=pk)
         name, status = b.full_name, b.status
-        delete_beneficiary(b)
-        messages.success(request, f'「{name}」を削除しました。')
+        delete_beneficiary(b, by=request.user)
+        messages.success(request, f'「{name}」を削除しました（ごみ箱に {TRASH_DAYS} 日置きます。そのあいだは一覧の「ごみ箱」から戻せます）。')
         return redirect(f"{reverse('beneficiaries:list')}?status={status}")
 
 
@@ -225,7 +217,7 @@ class BeneficiaryBulkView(LoginRequiredMixin, View):
                 return _back_to(request, back)
             if request.POST.get('confirm') != '1':
                 return render(request, 'beneficiaries/bulk_delete.html', {
-                    'people': [(b, related_counts(b)) for b in people], 'retention_note': RETENTION_NOTE,
+                    'people': [(b, related_counts(b)) for b in people], 'retention_note': RETENTION_NOTE, 'trash_days': TRASH_DAYS,
                     'active_count': sum(1 for b in people if b.status == Beneficiary.STATUS_ACTIVE),
                     'next': request.POST.get('next', '')})
             if request.POST.get('confirm_text', '').strip() != '削除' or not request.POST.get('agree'):
@@ -233,12 +225,47 @@ class BeneficiaryBulkView(LoginRequiredMixin, View):
                 return _back_to(request, back)
             names = [b.full_name for b in people]
             for b in people:
-                delete_beneficiary(b)
+                delete_beneficiary(b, by=request.user)
             messages.success(request, f'{len(names)} 名を削除しました：' + '、'.join(names[:10])
-                             + (f' ほか {len(names) - 10} 名' if len(names) > 10 else '') + '。')
+                             + (f' ほか {len(names) - 10} 名' if len(names) > 10 else '')
+                             + f'。ごみ箱に {TRASH_DAYS} 日置きます（そのあいだは戻せます）。')
             return _back_to(request, back)
         messages.error(request, '操作を選んでください。')
         return _back_to(request, back)
+
+
+class TrashView(LoginRequiredMixin, View):
+    """ごみ箱：消した利用者の一覧と「戻す」「完全に消す」（管理者だけ。beneficiaries/trash.py）"""
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and not (request.user.is_admin or request.user.is_superuser):
+            messages.error(request, 'ごみ箱は管理者だけが使えます。')
+            return redirect('beneficiaries:list')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request):
+        from .trash import purge_expired
+        purge_expired()
+        entries = DeletedBeneficiary.objects.filter(facility=request.user.facility).select_related('deleted_by')
+        return render(request, 'beneficiaries/trash.html', {'entries': entries, 'trash_days': TRASH_DAYS})
+
+    def post(self, request):
+        from . import trash
+        entry = get_object_or_404(DeletedBeneficiary, pk=to_int(request.POST.get('entry'), -1), facility=request.user.facility)
+        if request.POST.get('action') == 'restore':
+            try:
+                b = trash.restore(entry)
+            except ValueError as e:
+                messages.error(request, str(e))
+                return redirect('beneficiaries:trash')
+            messages.success(request, f'{b.full_name} さんを戻しました（記録・予約・書類なども元どおり）。'
+                             + (f'消したあとに相手がいなくなった結びつき {entry.skipped} 件は戻していません。' if entry.skipped else ''))
+            return redirect('beneficiaries:detail', pk=b.pk)
+        if request.POST.get('action') == 'purge':
+            name = entry.name
+            trash.purge(entry)
+            messages.success(request, f'{name} さんをごみ箱から完全に消しました（戻せません）。')
+        return redirect('beneficiaries:trash')
 
 
 class DuplicateListView(LoginRequiredMixin, View):

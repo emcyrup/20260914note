@@ -9,8 +9,8 @@
   <h5 class="fw-bold mt-2 mb-3"><i class="bi bi-trash me-2 text-danger"></i>「{{ beneficiary.full_name }}」を削除する</h5>
 
   <div class="alert alert-danger">
-    <div class="fw-bold mb-1">この操作は戻せません。</div>
-    次のものがすべて消えます（写真・PDF などのファイルも消えます）。
+    <div class="fw-bold mb-1">ごみ箱に {{ trash_days }} 日置きます。そのあいだは「ごみ箱」から戻せますが、過ぎると本当に消えます。</div>
+    次のものがすべて消えます（写真・PDF などのファイルも、ごみ箱の期限が過ぎると消えます）。
     {% if counts %}
     <ul class="mb-0 mt-1">{% for label, n in counts %}<li>{{ label }}：{{ n }} 件</li>{% endfor %}</ul>
     {% else %}<div class="mt-1">関連する記録はありません（{{ terms.beneficiary }}の基本情報だけです）。</div>{% endif %}

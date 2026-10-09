@@ -9,8 +9,8 @@
   <h5 class="fw-bold mt-2 mb-3"><i class="bi bi-trash me-2 text-danger"></i>{{ people|length }} 名を削除する</h5>
 
   <div class="alert alert-danger">
-    <div class="fw-bold mb-1">この操作は戻せません。</div>
-    次の{{ terms.beneficiary }}と、それぞれの療育記録・予約・書類などがすべて消えます（写真・PDF などのファイルも消えます）。
+    <div class="fw-bold mb-1">ごみ箱に {{ trash_days }} 日置きます。そのあいだは「ごみ箱」から戻せますが、過ぎると本当に消えます。</div>
+    次の{{ terms.beneficiary }}と、それぞれの療育記録・予約・書類などがすべて消えます（写真・PDF などのファイルも、ごみ箱の期限が過ぎると消えます）。
     <ul class="mb-0 mt-2">
       {% for b, counts in people %}
       <li><b>{{ b.full_name }}</b>（{{ b.get_status_display }}{% if b.status == 'active' %}・<span class="text-danger fw-bold">在籍中</span>{% endif %}）{% if counts %}：{% for label, n in counts %}{{ label }} {{ n }} 件{% if not forloop.last %}・{% endif %}{% endfor %}{% else %}：関連する記録なし{% endif %}</li>

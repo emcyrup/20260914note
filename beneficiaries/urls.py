@@ -9,6 +9,7 @@ urlpatterns = [
     path('import/', views.BeneficiaryImportView.as_view(), name='import'),
     path('bulk/', views.BeneficiaryBulkView.as_view(), name='bulk'),
     path('duplicates/', views.DuplicateListView.as_view(), name='duplicates'),
+    path('trash/', views.TrashView.as_view(), name='trash'),
     path('merge/', views.MergeView.as_view(), name='merge'),
     path('import/template.xlsx', views.BeneficiaryImportTemplateView.as_view(), name='import_template'),
     path('<int:pk>/', views.BeneficiaryDetailView.as_view(), name='detail'),

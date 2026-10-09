@@ -1063,6 +1063,10 @@ class BeneficiaryDeleteTests(TestCase):
         self.assertFalse(Beneficiary.objects.filter(pk=self.b.pk).exists())
         self.assertFalse(SupportPlan.objects.exists())
         self.assertFalse(TherapyRecord.objects.exists())
+        self.assertTrue(storage.exists(name))         # ファイルはごみ箱の期限まで残す
+        from .models import DeletedBeneficiary
+        from .trash import purge
+        purge(DeletedBeneficiary.objects.get())
         self.assertFalse(storage.exists(name))
 
 
@@ -1553,3 +1557,78 @@ class BeneficiaryMergeTests(TestCase):
         self.assertNotContains(res, '1人にまとめる</button>')
         self.client.post(url, {'keep': self.keep.pk, 'drop': self.drop.pk, 'agree': '1'})
         self.assertTrue(Beneficiary.objects.filter(pk=self.drop.pk).exists())
+
+
+class BeneficiaryTrashTests(TestCase):
+    """削除の取り消し：ごみ箱に置き、記録・予約・書類ごと戻す（beneficiaries/trash.py）"""
+
+    def setUp(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from reservations.models import Customer, Reservation
+        from reservations.services import get_setting
+        from support_plans.models import SupportPlan
+        from therapy.models import TherapyProfile, TherapyRecord
+        from .models import BeneficiaryDocument
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True,
+                                         use_reservation=True)
+        get_setting(self.f)
+        self.admin = StaffAccount.objects.create_user('adm', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        mk = lambda last: Beneficiary.objects.create(facility=self.f, last_name=last, first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        self.b, self.sib, self.gone = mk('青木'), mk('青木2'), mk('井上')
+        self.b.siblings.add(self.sib)
+        self.b.cannot_pair.add(self.gone)
+        Guardian.objects.create(beneficiary=self.b, last_name='青木', first_name='母')
+        self.doc = BeneficiaryDocument.objects.create(beneficiary=self.b, file_name='a.pdf', file=SimpleUploadedFile('a.pdf', b'%PDF-1.4 x'))
+        SupportPlan.objects.create(facility=self.f, beneficiary=self.b, title='第1期', created_by=self.admin)
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.b, date=datetime.date(2026, 9, 1), body='記録', staff=self.admin)
+        TherapyProfile.objects.create(beneficiary=self.b, cautions='大きな音が苦手')
+        self.customer = Customer.objects.create(facility=self.f, name='青木 母')
+        self.customer.children.add(self.b)
+        Reservation.objects.create(facility=self.f, beneficiary=self.b, customer=self.customer, date=datetime.date(2026, 10, 2), status='confirmed')
+        self.client.login(username='adm', password='pw12345678')
+
+    def test_delete_restore_and_purge(self):
+        from reservations.models import Reservation
+        from .models import DeletedBeneficiary
+        pk, file_name = self.b.pk, self.doc.file.name
+        res = self.client.post(reverse('beneficiaries:delete', args=[pk]), {'confirm_name': '青木 子', 'agree': '1'}, follow=True)
+        self.assertContains(res, 'ごみ箱に 30 日置きます')
+        self.assertFalse(Beneficiary.objects.filter(pk=pk).exists())
+        self.assertFalse(Reservation.objects.filter(beneficiary_id=pk).exists())
+        self.assertTrue(self.doc.file.storage.exists(file_name))           # ファイルは期限まで残す
+        self.assertContains(self.client.get(reverse('beneficiaries:list')), 'ごみ箱 1')
+        res = self.client.get(reverse('beneficiaries:trash'))
+        self.assertContains(res, '青木 子')
+        self.assertContains(res, '療育記録 1 件')
+        self.gone.delete()                                                  # 消したあとに相手がいなくなった
+        entry = DeletedBeneficiary.objects.get()
+        res = self.client.post(reverse('beneficiaries:trash'), {'entry': entry.pk, 'action': 'restore'}, follow=True)
+        self.assertContains(res, '青木 子 さんを戻しました')
+        b = Beneficiary.objects.get(pk=pk)
+        self.assertEqual(b.guardians.count(), 1)
+        self.assertEqual(b.therapy_records.get().staff, self.admin)
+        self.assertEqual(b.therapy_profile.cautions, '大きな音が苦手')
+        self.assertEqual(b.support_plans.count(), 1)
+        self.assertEqual(b.reservations.get().customer, self.customer)
+        self.assertEqual(list(self.customer.children.all()), [b])
+        self.assertEqual(list(b.siblings.all()), [self.sib])
+        self.assertEqual(list(self.sib.siblings.all()), [b])
+        self.assertEqual(list(b.cannot_pair.all()), [])
+        self.assertEqual(b.documents.get().file.read(), b'%PDF-1.4 x')
+        self.assertFalse(DeletedBeneficiary.objects.exists())
+        # もう一度消して、完全に消す（ファイルも消える）
+        from .views import delete_beneficiary
+        entry = delete_beneficiary(b, by=self.admin)
+        self.client.post(reverse('beneficiaries:trash'), {'entry': entry.pk, 'action': 'purge'})
+        self.assertFalse(DeletedBeneficiary.objects.exists())
+        self.assertFalse(self.doc.file.storage.exists(file_name))
+
+    def test_expired_are_purged(self):
+        from django.utils import timezone
+        from .models import DeletedBeneficiary
+        from .trash import purge_expired
+        from .views import delete_beneficiary
+        delete_beneficiary(self.b, by=self.admin)
+        self.assertEqual(purge_expired(timezone.now() + datetime.timedelta(days=29)), 0)
+        self.assertEqual(purge_expired(timezone.now() + datetime.timedelta(days=31)), 1)
+        self.assertFalse(DeletedBeneficiary.objects.exists())

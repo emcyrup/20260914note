@@ -729,3 +729,36 @@ class RecordDigest(models.Model):
 
     def __str__(self):
         return f'{self.beneficiary} {self.date_from}〜{self.date_to}'
+
+
+TRASH_DAYS = 30     # 消した利用者をごみ箱に置く日数（過ぎたら記録とファイルを本当に消す）
+
+
+class DeletedBeneficiary(models.Model):
+    """
+    ごみ箱：消した利用者と、いっしょに消えた記録・予約・書類など（beneficiaries/trash.py）。
+    TRASH_DAYS 日のあいだは「戻す」で元の番号のまま戻せる。書類のファイルはそのあいだ残しておく
+    """
+    facility = models.ForeignKey('facilities.Facility', on_delete=models.CASCADE, related_name='deleted_beneficiaries')
+    beneficiary_pk = models.PositiveIntegerField(verbose_name='元の番号')
+    name = models.CharField(max_length=120, verbose_name='氏名')
+    status_label = models.CharField(max_length=20, blank=True, verbose_name='消したときの在籍状況')
+    deleted_at = models.DateTimeField(auto_now_add=True, verbose_name='消した日時')
+    deleted_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    payload = models.JSONField(default=list, verbose_name='消えた記録（戻す順）')
+    relinks = models.JSONField(default=list, verbose_name='戻すときに結び直すもの')
+    files = models.JSONField(default=list, verbose_name='書類のファイル')
+    counts = models.JSONField(default=list, verbose_name='件数')
+
+    class Meta:
+        verbose_name = 'ごみ箱の利用者'
+        verbose_name_plural = 'ごみ箱の利用者'
+        ordering = ['-deleted_at', '-pk']
+
+    def __str__(self):
+        return f'{self.name}（{self.deleted_at:%Y/%m/%d} 削除）'
+
+    @property
+    def expires_at(self):
+        import datetime as _dt
+        return self.deleted_at + _dt.timedelta(days=TRASH_DAYS)

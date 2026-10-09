@@ -681,7 +681,7 @@
 {% if user.is_admin or user.is_superuser %}
 <div class="text-end mt-4">
   <a href="{% url 'beneficiaries:delete' beneficiary.pk %}" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>この{{ terms.beneficiary }}を削除する</a>
-  <div class="small text-muted mt-1">辞めた子・まちがえて登録した子を、療育記録・予約・書類ごと消します（戻せません）。次の画面で確かめてから消します。残しておきたいときは、上の「在籍状況」で「退所」「卒業」にすると一覧で分けて見られます。</div>
+  <div class="small text-muted mt-1">辞めた子・まちがえて登録した子を、療育記録・予約・書類ごと消します（ごみ箱に 30 日置き、そのあいだは戻せます）。次の画面で確かめてから消します。残しておきたいときは、上の「在籍状況」で「退所」「卒業」にすると一覧で分けて見られます。</div>
 </div>
 {% endif %}
 
