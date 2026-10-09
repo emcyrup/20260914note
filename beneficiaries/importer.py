@@ -614,6 +614,18 @@ def compare(b, data):
     return fills, diffs
 
 
+def find_same_name(facility, data):
+    """
+    姓・名は同じで生年月日だけ違う台帳の子（仮の生年月日 2000-01-01 の子を先に）。生年月日を書き換えて同じ子として扱う候補。
+    無ければ None
+    """
+    key = _norm(data['last_name'] + data['first_name'])
+    found = [b for b in Beneficiary.objects.filter(facility=facility, last_name__in=[data['last_name'], data['last_name'].strip()])
+             .exclude(date_of_birth=data['date_of_birth']).order_by('pk') if _norm(b.last_name + b.first_name) == key]
+    found.sort(key=lambda b: (b.date_of_birth != PLACEHOLDER_DOB, b.pk))
+    return found[0] if found else None
+
+
 def plan(facility, rows):
     """行ごとの見込み：[{'line', 'name', 'action': 'create'|'update'|'error', 'detail', 'data', 'fills', 'diffs'}]"""
     out = []
@@ -642,13 +654,20 @@ def plan(facility, rows):
         detail += '（' + '・'.join(extras) + ' も）' if extras else ''
         if r.get('_detail'):
             detail += '。' + r['_detail']
+        dob_match = None
+        if not existing:
+            other = find_same_name(facility, data)
+            if other:
+                dob_match = {'pk': other.pk, 'old': other.date_of_birth, 'placeholder': other.date_of_birth == PLACEHOLDER_DOB}
+                detail += (f'。※ 台帳に同じ名前の子がいます（生年月日 {other.date_of_birth:%Y/%m/%d}'
+                           + ('・取り込みのときの仮の日付' if dob_match['placeholder'] else '') + '）。同じ子なら下の印で生年月日を書き換えます')
         if not existing:
             same = Beneficiary.objects.filter(facility=facility, first_name=data['first_name'], date_of_birth=data['date_of_birth']) \
                 .exclude(last_name=data['last_name']).first()
             if same:
                 detail += f'。※ 姓だけ違う同じ名・生年月日の利用者（{same.full_name}）がいます。姓が変わったのなら、登録後にどちらかを消してください'
         out.append({'line': line, 'name': name, 'action': 'update' if existing else 'create', 'detail': detail, 'data': data,
-                    'existing_pk': existing.pk if existing else None, 'fills': fills, 'diffs': diffs})
+                    'existing_pk': existing.pk if existing else None, 'fills': fills, 'diffs': diffs, 'dob_match': dob_match})
     return out
 
 
@@ -664,14 +683,26 @@ def _take(old, new, mode):
 
 
 @transaction.atomic
-def apply(facility, planned, mode=MODE_OVERWRITE):
-    """plan() の結果を保存する。mode は台帳にすでに値がある欄の扱い（MODE_OVERWRITE／MODE_KEEP）。戻り値 (新規, 更新, エラー数)"""
+def apply(facility, planned, mode=MODE_OVERWRITE, dob_lines=()):
+    """
+    plan() の結果を保存する。mode は台帳にすでに値がある欄の扱い（MODE_OVERWRITE／MODE_KEEP）。
+    dob_lines は「同じ子として生年月日を書き換える」に印を付けた行の番号。戻り値 (新規, 更新, エラー数)
+    """
     created = updated = errors = 0
+    dob_lines = {str(x) for x in dob_lines}
     for item in planned:
         data = item['data']
         if item['action'] == 'error' or data is None:
             errors += 1
             continue
+        if item.get('dob_match') and str(item['line']) in dob_lines:
+            b = Beneficiary.objects.filter(pk=item['dob_match']['pk'], facility=facility).first()
+            if b is not None:
+                b.date_of_birth = data['date_of_birth']      # 生年月日は印を付けたとおりに書き換える（残す／上書きの選択に関わらず）
+                if b.notes and '生年月日は取り込み時の仮の値' in b.notes:
+                    b.notes = '\n'.join(ln for ln in b.notes.splitlines() if '生年月日は取り込み時の仮の値' not in ln)
+                b.save(update_fields=['date_of_birth', 'notes', 'updated_at'])
+                item = dict(item, existing_pk=b.pk)
         b = Beneficiary.objects.filter(pk=item.get('existing_pk'), facility=facility).first() if item.get('existing_pk') else None
         if b is None:
             b = Beneficiary(facility=facility, last_name=data['last_name'], first_name=data['first_name'],

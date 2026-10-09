@@ -665,7 +665,7 @@
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <form method="post" action="{% url 'beneficiaries:update' beneficiary.pk %}" data-concurrency="beneficiary:{{ beneficiary.pk }}">
-        {% csrf_token %}
+        {% csrf_token %}<input type="hidden" name="_partial" value="1">
         {% version_field beneficiary %}
         <div class="modal-header">
           <div>

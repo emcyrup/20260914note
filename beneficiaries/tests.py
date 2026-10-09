@@ -1435,3 +1435,48 @@ class RecordDigestTests(TestCase):
         StaffAccount.objects.create_user('ot', password='pw12345678', facility=other)
         self.client.login(username='ot', password='pw12345678')
         self.assertEqual(self.client.get(self.url).status_code, 404)
+
+
+class DobOverwriteAndPartialEditTests(TestCase):
+    """生年月日の書き換え（取り込みで同じ子として）と、編集の窓で画面に無い項目を消さないこと"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU)
+        self.user = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='st', password='pw12345678')
+
+    def test_edit_window_keeps_hidden_fields(self):
+        b = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2000, 1, 1),
+                                       postal_code='6000000', address='京都市', school_name='南小', grade='e2',
+                                       admission_date=datetime.date(2025, 4, 1), has_prior_records=True, weekday_mon=True)
+        res = self.client.post(reverse('beneficiaries:update', args=[b.pk]), {
+            '_partial': '1', 'last_name': '青木', 'first_name': '子', 'date_of_birth': '2019-04-02',
+            'gender': 'male', 'status': 'active', 'weekday_tue': 'on'})
+        self.assertEqual(res.status_code, 302)
+        b.refresh_from_db()
+        self.assertEqual(b.date_of_birth, datetime.date(2019, 4, 2))
+        self.assertEqual((b.postal_code, b.address, b.school_name, b.grade, b.admission_date, b.has_prior_records),
+                         ('6000000', '京都市', '南小', 'e2', datetime.date(2025, 4, 1), True))
+        self.assertEqual((b.weekday_mon, b.weekday_tue), (False, True))      # 窓にある項目は送ったとおり
+        self.assertContains(self.client.get(reverse('beneficiaries:detail', args=[b.pk])), 'name="_partial" value="1"')
+
+    def test_import_overwrites_placeholder_dob_when_checked(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        b = Beneficiary.objects.create(facility=self.f, last_name='山田', first_name='太郎', date_of_birth=datetime.date(2000, 1, 1),
+                                       notes='生年月日は取り込み時の仮の値（2000-01-01）です。正しい日付に直してください。')
+        csv = '姓,名,生年月日,せい（ふりがな）\n山田,太郎,2018/4/2,やまだ\n'
+        url = reverse('beneficiaries:import')
+        res = self.client.post(url, {'file': SimpleUploadedFile('a.csv', csv.encode('utf-8'))})
+        self.assertContains(res, '同じ子として生年月日を書き換える')
+        self.assertContains(res, 'name="dob" value="2" form="imp-commit" checked')
+        # 印を外すと別の子として作る
+        res = self.client.post(url, {'action': 'commit'}, follow=True)
+        self.assertEqual(Beneficiary.objects.filter(facility=self.f, last_name='山田').count(), 2)
+        Beneficiary.objects.exclude(pk=b.pk).delete()
+        self.client.post(url, {'file': SimpleUploadedFile('a.csv', csv.encode('utf-8'))})
+        res = self.client.post(url, {'action': 'commit', 'dob': ['2']}, follow=True)
+        self.assertContains(res, '台帳にいた人 1 名')
+        self.assertEqual(Beneficiary.objects.filter(facility=self.f, last_name='山田').count(), 1)
+        b.refresh_from_db()
+        self.assertEqual((b.date_of_birth, b.last_name_kana), (datetime.date(2018, 4, 2), 'やまだ'))
+        self.assertNotIn('仮の値', b.notes)

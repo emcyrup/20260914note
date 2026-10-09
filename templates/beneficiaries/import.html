@@ -42,6 +42,8 @@
               <td>{{ p.name }}</td>
               <td>{% if p.action == 'create' %}<span class="imp-create">{% if fmt == 'guardian' %}児童も作る{% else %}新規{% endif %}</span>{% elif p.action == 'update' %}<span class="imp-update">{% if fmt == 'guardian' %}付ける{% else %}台帳にいる{% endif %}</span>{% else %}<span class="imp-error">読めない</span>{% endif %}</td>
               <td>{{ p.detail }}
+                {% if p.dob_match %}<label class="d-flex align-items-start gap-1 small mt-1 p-1 rounded" style="background:#fff7df;"><input type="checkbox" class="form-check-input mt-1 imp-dob" name="dob" value="{{ p.line }}" form="imp-commit" {% if p.dob_match.placeholder %}checked{% endif %}>
+                  <span><b>同じ子として生年月日を書き換える</b>（台帳 {{ p.dob_match.old|date:'Y/n/j' }} → 取り込み {{ p.data.date_of_birth|date:'Y/n/j' }}）{% if p.dob_match.placeholder %}<span class="text-muted">。台帳の日付は取り込みのときの仮の値です</span>{% else %}<span class="text-danger">。同姓同名の別の子かもしれません。確かめてから印を付けてください</span>{% endif %}</span></label>{% endif %}
                 {% if p.fills %}<div class="small text-success mt-1"><i class="bi bi-plus-circle me-1"></i>台帳の空欄に入れる：{{ p.fills|join:'・' }}</div>{% endif %}
                 {% if p.diffs %}<div class="small mt-1"><span class="fw-semibold text-warning-emphasis"><i class="bi bi-arrow-left-right me-1"></i>台帳と違う値</span>
                   <ul class="mb-0 ps-3">{% for label, old, new in p.diffs %}<li>{{ label }}：台帳「{{ old }}」／取り込み「{{ new }}」</li>{% endfor %}</ul></div>{% endif %}
@@ -52,7 +54,7 @@
         </table>
       </div>
       <div class="small text-muted mb-3">読めない行は登録しません。直したいときは Excel を直して、もう一度ファイルを選んでください。「台帳にいる」は、同じ{% if fmt == 'guardian' %}名前の児童・保護者{% else %}姓・名・生年月日の{{ terms.beneficiary }}{% endif %}がすでに台帳にいる行です。</div>
-      <form method="post">
+      <form method="post" id="imp-commit" onsubmit="var n=document.querySelectorAll('.imp-dob:checked').length; return !n || confirm(n + ' 人の生年月日を、取り込むファイルの日付に書き換えます（同じ子として扱います）。よろしいですか？');">
         {% csrf_token %}<input type="hidden" name="action" value="commit">{% if create_children %}<input type="hidden" name="create_children" value="1">{% endif %}
         {% if counts.update %}
         <div class="border rounded p-2 mb-3" style="background:rgba(255,255,255,.6);">

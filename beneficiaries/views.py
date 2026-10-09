@@ -371,8 +371,35 @@ class BeneficiaryUpdateView(LoginRequiredMixin, UpdateView):
     def get_queryset(self):
         return Beneficiary.objects.filter(facility=self.request.user.facility)
 
+    # 利用者の「編集」の窓（モーダル）と編集の画面（form.html）に出している項目。そこから保存したとき（_partial=1）は、
+    # 画面に無い項目（住所・電話・学校・入所日など。取り込みや計画書中心の画面で入れる）を今の値のままにする（空で上書きして消さないように）
+    MODAL_FIELDS = {'last_name', 'first_name', 'last_name_kana', 'first_name_kana', 'date_of_birth', 'gender',
+                    'disability_class', 'disability_type', 'is_severe', 'notes', 'status', 'cannot_pair', 'siblings',
+                    'weekday_mon', 'weekday_tue', 'weekday_wed', 'weekday_thu', 'weekday_fri', 'weekday_sat'}
+
     def get_form_kwargs(self):
-        return {**super().get_form_kwargs(), 'facility': self.request.user.facility}
+        kwargs = {**super().get_form_kwargs(), 'facility': self.request.user.facility}
+        data = kwargs.get('data')
+        if data is not None and data.get('_partial') == '1':
+            data = data.copy()
+            obj = self.object
+            for name, field in BeneficiaryForm.base_fields.items():
+                if name in self.MODAL_FIELDS:
+                    continue
+                value = getattr(obj, name)
+                if hasattr(value, 'all'):                  # 多対多
+                    data.setlist(name, [str(pk) for pk in value.values_list('pk', flat=True)])
+                elif isinstance(value, bool):
+                    if value:
+                        data[name] = 'on'
+                    else:
+                        data.pop(name, None)
+                elif isinstance(value, datetime.date):
+                    data[name] = value.isoformat()
+                else:
+                    data[name] = '' if value is None else str(value)
+            kwargs['data'] = data
+        return kwargs
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -855,7 +882,7 @@ class BeneficiaryImportView(ImportRyoikuMixin, View):
                 msg = f'保護者一覧を取り込みました：保護者 {guardians} 件（新しく作った児童 {made} 名）'
             else:
                 planned = importer.plan(facility, rows)
-                created, updated, errors = importer.apply(facility, planned, mode=mode)
+                created, updated, errors = importer.apply(facility, planned, mode=mode, dob_lines=request.POST.getlist('dob'))
                 msg = f'利用者を取り込みました：新規 {created} 名・台帳にいた人 {updated} 名' + \
                       ('（台帳の値を残し、空欄だけ埋めました）' if mode == importer.MODE_KEEP else '（取り込んだ値で上書きしました）') if updated else \
                       f'利用者を取り込みました：新規 {created} 名'

@@ -17,7 +17,7 @@
   </div>
 
   <form method="post" {% if object.pk %}data-concurrency="beneficiary:{{ object.pk }}"{% endif %}>
-    {% csrf_token %}
+    {% csrf_token %}{% if object.pk %}<input type="hidden" name="_partial" value="1">{% endif %}
     {% if object.pk %}{% version_field object %}{% endif %}
     {% if conflict %}
     <div class="conflict-box"><i class="bi bi-exclamation-triangle me-1"></i>{{ conflict }}
