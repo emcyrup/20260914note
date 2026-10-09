@@ -27,6 +27,22 @@ class MinutesTests(TestCase):
         self.assertContains(res, 'id="voice-log-toggle"')        # うまく文字にならないときの記録
         self.assertContains(res, f'href="{self.url}" target="_blank"')
 
+    def test_draft_autosave(self):
+        """書きかけは static/js/draft-autosave.js が残す（新しい議事録・開いている議事録で別の下書き）"""
+        res = self.client.get(self.url)
+        self.assertContains(res, 'data-draft="minutes:new" data-draft-fields="#mn-title, #mn-date, #transcript, #summary" data-draft-new')
+        m = Minutes.objects.create(facility=self.f, title='会議', held_on=datetime.date(2026, 9, 24), transcript='x', created_by=self.user)
+        res = self.client.get(f'{self.url}?id={m.pk}')
+        self.assertContains(res, f'data-draft="minutes:{m.pk}"')
+        self.assertNotContains(res, f'data-draft="minutes:{m.pk}" data-draft-fields="#mn-title, #mn-date, #transcript, #summary" data-draft-new')
+
+    def test_global_memo_draft_and_saved_message(self):
+        res = self.client.get(self.url)
+        self.assertContains(res, 'data-draft="memo" data-draft-new')
+        res = self.client.post(reverse('records:memo_create'), {'content': '気づいたこと'}, follow=True)
+        self.assertContains(res, 'メモを保存しました。')
+        self.assertContains(res, 'window.DRAFT_SAVED = true || false;')
+
     def test_create_edit_delete(self):
         res = self.client.post(self.url, {'title': '職員会議', 'held_on': '2026-09-24', 'transcript': 'えー、来月の行事について', 'summary': ''})
         m = Minutes.objects.get()

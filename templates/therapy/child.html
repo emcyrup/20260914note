@@ -68,7 +68,7 @@
   </div>
 
   <div class="card mb-3"><div class="card-body">
-    <form method="post" class="th-save-form" {% if profile %}data-concurrency="therapy_profile:{{ profile.pk }}" data-concurrency-lazy{% endif %}>
+    <form method="post" class="th-save-form" data-draft="therapy-cautions:{{ beneficiary.pk }}" data-draft-fields="#cautions" {% if profile %}data-concurrency="therapy_profile:{{ profile.pk }}" data-concurrency-lazy{% endif %}>
       {% csrf_token %}<input type="hidden" name="action" value="cautions">{% if profile %}{% version_field profile %}{% endif %}
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
         <label class="th-card-title mb-0" for="cautions"><i class="bi bi-exclamation-diamond"></i>留意点</label>
@@ -81,8 +81,12 @@
           <button type="button" class="btn btn-sm btn-outline-primary cautions-ai" id="cautions-summary" data-mode="short"
                   data-url="{% url 'therapy:cautions_summary' beneficiary.pk %}"
                   title="入っている言葉のまま箇条書きにします（言いよどみ・くり返しだけ除きます）"><i class="bi bi-magic"></i> 短く要約</button>
+          <button type="button" class="btn btn-sm btn-outline-primary cautions-ai" id="cautions-tidy" data-mode="tidy"
+                  data-url="{% url 'therapy:cautions_summary' beneficiary.pk %}"
+                  title="箇条書きにせず、話した文章のまま句読点と改行だけ整えます（言いよどみ・くり返しだけ除きます）"><i class="bi bi-text-paragraph"></i> 整文だけ</button>
         </div>
       </div>
+      <div data-draft-banner></div>
       <div id="cautions-voice-note" class="alert alert-warning small py-1 px-2 mb-2 d-none"></div>
       <div id="cautions-summary-note" class="alert alert-info small py-1 px-2 mb-2 d-none">
         <span class="msg"></span>
@@ -96,7 +100,7 @@
       {% endif %}
       <textarea class="form-control" id="cautions" name="cautions" rows="{{ cautions_rows }}" placeholder="用紙の上の枠に書いてある、この{{ terms.beneficiary }}のときに気をつけること">{{ profile.cautions|default:'' }}</textarea>
       <div class="th-save-row">
-        <div class="form-text mb-0">用紙の上に印刷されます。話して入れたあと「詳しくまとめる」で場面ごとの見出しと箇条書きに、「短く要約」で箇条書きにします。どちらも<b>話した言葉のまま</b>使い、言いかえ・飾りの言葉・AI の見解は足しません（消すのは「えー」などの言いよどみとくり返しだけ）。{% if knowledge_count %}<br><i class="bi bi-journal-medical"></i> 「短く要約」と記録の「留意点から記録に追記」は、<a href="{% url 'beneficiaries:detail' beneficiary.pk %}#knowledge">書類から分かっていること</a>（{{ knowledge_count }} 件：診断書など）も参考にします。{% endif %}</div>
+        <div class="form-text mb-0">用紙の上に印刷されます。話して入れたあと「詳しくまとめる」で場面ごとの見出しと箇条書きに、「短く要約」で箇条書きに、「整文だけ」で文章のまま句読点と改行だけ整えます。どちらも<b>話した言葉のまま</b>使い、言いかえ・飾りの言葉・AI の見解は足しません（消すのは「えー」などの言いよどみとくり返しだけ）。{% if knowledge_count %}<br><i class="bi bi-journal-medical"></i> 「短く要約」と記録の「留意点から記録に追記」は、<a href="{% url 'beneficiaries:detail' beneficiary.pk %}#knowledge">書類から分かっていること</a>（{{ knowledge_count }} 件：診断書など）も参考にします。{% endif %}</div>
         <button class="btn btn-sm btn-outline-secondary th-save-btn"><i class="bi bi-check2 me-1"></i>留意点を保存</button>
       </div>
     </form>
@@ -113,8 +117,9 @@
   <div class="card mb-3" id="add"><div class="card-body">
     <div class="th-card-title mb-2"><i class="bi bi-plus-circle"></i>記録を追加する</div>
     {% if copy_rec %}<div class="alert alert-info small py-1 px-2 mb-2"><i class="bi bi-files me-1"></i>{{ copy_rec.beneficiary.full_name }}さんの {{ copy_rec.date|date:'n/j' }} の記録の「やったこと」と「記録」を写しています。この{{ terms.beneficiary }}に合わせて直してから「保存する」を押してください。</div>{% endif %}
-    <form method="post" class="row g-2 th-save-form" data-new="1">
+    <form method="post" class="row g-2 th-save-form" data-new="1" data-draft="therapy-add:{{ beneficiary.pk }}" data-draft-new>
       {% csrf_token %}<input type="hidden" name="action" value="add">
+      <div class="col-12" data-draft-banner></div>
       {% include 'therapy/_record_fields.html' with rec=None %}
       <div class="col-12 d-flex justify-content-end align-items-center gap-2">
         <span class="small text-muted th-save-hint">「やったこと」か「記録」を入れると保存できます</span>
@@ -156,8 +161,8 @@
       </div>
       {% if rec.activity_list %}<div class="th-chips">{% for a in rec.activity_list %}<span class="th-chip">{{ a }}</span>{% endfor %}</div>{% endif %}
       {% if rec.body %}<div class="th-body">{{ rec.body }}</div>{% endif %}
-      <div class="th-edit {% if edit_pk != rec.pk %}d-none{% endif %}" id="edit{{ rec.pk }}">
-        <form method="post" class="row g-2 th-save-form" data-concurrency="therapy_record:{{ rec.pk }}" data-concurrency-lazy>
+      <div class="th-edit {% if edit_pk != rec.pk %}d-none{% endif %}" id="edit{{ rec.pk }}" data-draft-reveal>
+        <form method="post" class="row g-2 th-save-form" data-draft="therapy-rec:{{ rec.pk }}" data-concurrency="therapy_record:{{ rec.pk }}" data-concurrency-lazy>
           {% csrf_token %}<input type="hidden" name="action" value="edit"><input type="hidden" name="record" value="{{ rec.pk }}">{% version_field rec %}
           {% if unsaved_record and unsaved_record.pk == rec.pk %}
           <div class="col-12"><div class="alert alert-warning small py-2 mb-0">
@@ -166,6 +171,7 @@
             <textarea class="form-control form-control-sm mt-1" rows="4" readonly>{{ unsaved_record.text }}</textarea>
           </div></div>
           {% endif %}
+          <div class="col-12" data-draft-banner></div>
           {% include 'therapy/_record_fields.html' with rec=rec %}
           <div class="col-12 d-flex justify-content-end align-items-center gap-2"><span class="small text-muted th-save-hint"></span><button class="btn btn-sm btn-outline-secondary th-save-btn"><i class="bi bi-check2 me-1"></i>保存する</button></div>
         </form>
@@ -228,7 +234,7 @@
       btn.classList.toggle('btn-success', !!ok);
       btn.classList.toggle('btn-outline-secondary', !ok);
       if (isNew) btn.disabled = !ok;
-      if (hint) hint.textContent = ok ? '保存できます' : (isNew ? '「やったこと」か「記録」を入れると保存できます' : '');
+      if (hint) hint.textContent = ok ? '' : (isNew ? '「やったこと」か「記録」を入れると保存できます' : '');  // 保存できるときは下書きの表示（まだ保存していません）が出る
     });
   }
   document.addEventListener('input', refresh);
@@ -279,10 +285,11 @@
     if (rec) rec.click();                         // 音声入力中なら止めてから
     var text = area.value.trim();
     if (!text) { show('留意点が空です。先に音声入力か文字で入れてください。', 'warning', false); return; }
-    var detail = btn.dataset.mode === 'detail';
+    var detail = btn.dataset.mode === 'detail', tidy = btn.dataset.mode === 'tidy';
     var label = btn.innerHTML;
     document.querySelectorAll('.cautions-ai').forEach(function (b) { b.disabled = true; });
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + (detail ? 'まとめ中' : '要約中');
+    AsIsNotice.clear(box);
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + (detail ? 'まとめ中' : tidy ? '整え中' : '要約中');
     var body = new FormData();
     body.append('text', text);
     body.append('mode', btn.dataset.mode);
@@ -293,9 +300,10 @@
         if (data.error) { show(data.error, 'danger', false); return; }
         before = area.value;
         area.value = data.result;
-        area.rows = Math.max(3, Math.min(detail ? 24 : 12, data.result.split('\n').length + 1));
+        area.rows = Math.max(3, Math.min(detail || tidy ? 24 : 12, data.result.split('\n').length + 1));
         area.dispatchEvent(new Event('input', {bubbles: true}));
-        show((detail ? '詳しくまとめて' : '要約して') + '書き換えました' + (data.references ? '（書類から分かっていること ' + data.references + ' 件を参考）' : '') + '。内容を確かめて「留意点を保存」を押してください。', 'info', true);
+        AsIsNotice.show(box, data, area);
+        show((detail ? '詳しくまとめて' : tidy ? '文章を整えて' : '要約して') + '書き換えました' + (data.references ? '（書類から分かっていること ' + data.references + ' 件を参考）' : '') + '。内容を確かめて「留意点を保存」を押してください。', 'info', true);
       })
       .catch(function () { show('通信できませんでした。もう一度お試しください。', 'danger', false); })
       .finally(function () {
@@ -306,6 +314,7 @@
   undo.addEventListener('click', function () {
     if (before === null) return;
     area.value = before; before = null;
+    AsIsNotice.clear(box);
     show('元の文に戻しました。', 'secondary', false);
   });
 })();
@@ -338,10 +347,14 @@
       .then(function (r) { return r.json().catch(function () { return {error: '作成できませんでした（' + r.status + '）。'}; }); })
       .then(function (data) {
         if (data.error) { show(data.error, 'danger', false); return; }
+        // そのまま保存するので、留意点・記録に無い助言・評価の言い回しを含む文は除いてから足す
+        var text = data.added && data.added.length ? (data.cleaned || '') : data.result;
+        var dropped = data.added && data.added.length ? '。留意点に無い言い回し（' + data.added.map(function (w) { return '「' + w + '」'; }).join('') + '）を含む文は除きました' : '';
+        if (!text.trim()) { show('留意点の言葉だけで足せる文がありませんでした' + dropped + '。', 'warning', false); return; }
         before = area.value;
-        area.value = before.trim() ? before.replace(/\s+$/, '') + '\n' + data.result : data.result;
+        area.value = before.trim() ? before.replace(/\s+$/, '') + '\n' + text : text;
         area.rows = Math.max(4, Math.min(14, Math.ceil(area.value.length / 45) + area.value.split('\n').length));
-        show('留意点をまとめて記録の最後に足しました（' + data.length + '字' + (data.references ? '・書類から分かっていること ' + data.references + ' 件を参考' : '') + '）。そのまま保存します…', 'info', false);
+        show('留意点をまとめて記録の最後に足しました（' + text.replace(/\n/g, '').length + '字' + (data.references ? '・書類から分かっていること ' + data.references + ' 件を参考' : '') + '）' + dropped + '。そのまま保存します…', 'info', false);
         // 「追加する」を押さなくても保存する（画面の留意点も一緒に保存。直すのは「これまでの記録」から）
         var add = function (name, value) { var h = document.createElement('input'); h.type = 'hidden'; h.name = name; h.value = value; form.appendChild(h); };
         add('auto', '1'); add('cautions', cautions);

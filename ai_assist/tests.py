@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from django.core.files.base import ContentFile
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
 from accounts.models import StaffAccount
@@ -473,3 +473,20 @@ class WhisperLocalTests(TestCase):
         from django.core.files.uploadedfile import SimpleUploadedFile
         res = self.client.post(self.url, {'audio': SimpleUploadedFile('v.wav', self.wav(), content_type='audio/wav')})
         self.assertIn('WHISPER_MODEL', res.json()['error'])
+
+
+class AsIsCheckTests(SimpleTestCase):
+    """原文に無い助言・評価の言い回しを見つけて消す（ai_assist/asis.py）"""
+
+    def test_find_and_strip(self):
+        from ai_assist import asis
+        source = '工作で折り紙。声かけで最後までやった。'
+        result = ('【工作】\n・折り紙：声かけで最後までやった。成長が感じられる。\n・意欲的に取り組んでいた。\n'
+                  '【気をつけること】\n・見通しを伝えることが大切。')
+        self.assertEqual(asis.find_added(source, result), ['成長が', '感じられ', '意欲的に', 'ことが大切'])
+        self.assertEqual(asis.strip_added(result, asis.find_added(source, result)), '【工作】\n・折り紙：声かけで最後までやった。')
+        self.assertEqual(asis.check(source, '・折り紙：声かけで最後までやった。'), {})
+
+    def test_words_in_source_are_kept(self):
+        from ai_assist import asis
+        self.assertEqual(asis.find_added('しっかり 座って いた', 'しっかり座っていた。'), [])

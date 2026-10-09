@@ -1,5 +1,6 @@
 """療育記録の画面（発達支援ルーム　ゆあーず）"""
 import datetime
+import re
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -11,6 +12,7 @@ from django.urls import reverse
 from django.views import View
 
 from accounts.models import StaffAccount
+from ai_assist import asis
 from ai_assist.quick import ask_ai as _ask_ai, tidy_sections
 from ai_assist.text import clean_ai_text
 from beneficiaries.knowledge import context_for as knowledge_context, usable as knowledge_usable
@@ -407,14 +409,28 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
 - 英語・絵文字・マークダウン（# や ** ）は使わない。見出しは【】、項目は「・」だけを使う
 - 返すのは書き直した文だけ"""
 
+    TIDY_PROMPT = f"""あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
+職員が話した言葉（音声入力の文字）を、読める文章に整えるだけの作業をします。箇条書き・見出し・要約にはしません。
+{AS_IS_RULES}
+【整え方（これ以外はしない）】
+- 「えー」「あの」などの言いよどみ、言い直し、同じことのくり返しを消す
+- 句読点（、。）を付け、話の区切りで改行する。話した順のまま
+- 漢字・かなの変換の誤り（音声入力の聞き違い）は、前後から明らかなときだけ直す。分からないときはそのまま
+- 文を短くしたり、まとめたり、言葉を言いかえたりしない
+- 前置き・あいさつ・まとめの文・見出し・箇条書き・英語・絵文字・マークダウンは使わない
+- 返すのは整えた文だけ"""
+
     def post(self, request, pk):
         beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
         text = request.POST.get('text', '').strip()
-        detail = request.POST.get('mode') == 'detail'
+        mode = request.POST.get('mode')
+        detail = mode == 'detail'
         if not text:
             return JsonResponse({'error': '留意点が空です。先に音声入力か文字で入れてください。'}, status=400)
-        refs = 0
-        if detail:     # 話したことの整理なので、書類の内容は混ぜない
+        refs, reference = 0, ''
+        if mode == 'tidy':      # 整文だけ：書類の内容は混ぜない
+            raw, error = _ask_ai(self.TIDY_PROMPT, f'【{beneficiary.full_name}さんについて職員が話したこと】\n{text[:CAUTIONS_MAX]}', 4096)
+        elif detail:     # 話したことの整理なので、書類の内容は混ぜない
             raw, error = _ask_ai(self.DETAIL_PROMPT, f'【{beneficiary.full_name}さんについて職員が話したこと】\n{text[:CAUTIONS_MAX]}', 4096)
         else:
             reference, refs = knowledge_context(beneficiary, text)
@@ -422,10 +438,15 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
             raw, error = _ask_ai(self.SYSTEM_PROMPT, content, 1024)
         if error:
             return error
-        result = tidy_sections(raw) if detail else self.tidy(raw)
+        if mode == 'tidy':
+            result = re.sub(r'\n{3,}', '\n\n', clean_ai_text(raw)).strip()
+        else:
+            result = tidy_sections(raw) if detail else self.tidy(raw)
         if not result:
             return JsonResponse({'error': 'AIの返答が空でした。もう一度お試しください。'}, status=500)
-        return JsonResponse({'result': result[:CAUTIONS_MAX], 'references': refs})
+        result = result[:CAUTIONS_MAX]
+        # 原文（と参考にした書類）に無い助言・評価の言い回しがあれば知らせる
+        return JsonResponse({'result': result, 'references': refs, **asis.check(text + '\n' + reference, result)})
 
     @staticmethod
     def tidy(raw):
@@ -517,7 +538,8 @@ class RecordSummaryView(TherapyEnabledMixin, View):
         result = self.tidy(raw)
         if not result:
             return JsonResponse({'error': 'AIの返答が空でした。もう一度お試しください。'}, status=500)
-        return JsonResponse({'result': result, 'length': len(result.replace('\n', '')), 'references': refs})
+        return JsonResponse({'result': result, 'length': len(result.replace('\n', '')), 'references': refs,
+                             **asis.check('\n'.join([cautions, body, reference or '']), result)})
 
     @staticmethod
     def tidy(raw):

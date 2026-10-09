@@ -401,7 +401,7 @@
         <div class="sidebar-user-role">{{ user.get_role_display }}</div>
         <a href="{% url 'accounts:theme' %}" class="sidebar-theme-link"><i class="bi bi-palette me-1"></i>画面の見た目</a>
       </div>
-      <form method="post" action="{% url 'accounts:logout' %}" style="display:inline;">
+      <form method="post" action="{% url 'accounts:logout' %}" style="display:inline;" data-draft-clear>
         {% csrf_token %}
         <button type="submit" class="sidebar-logout-btn">ログアウト</button>
       </form>
@@ -509,7 +509,10 @@
 <script src="{% static 'js/dropzone.js' %}?v=1"></script>
 <script src="{% static 'js/shrink-image.js' %}?v=1"></script>
 <script>window.VOICE_INPUT_SERVER = {% if speech_server %}{url: '{% url 'ai_assist:transcribe' %}', diarization: {{ speech_diarization|yesno:'true,false' }}}{% else %}null{% endif %};</script>
-<script src="{% static 'js/voice-input.js' %}?v=13"></script>{% endif %}
+<script src="{% static 'js/voice-input.js' %}?v=13"></script>
+<script>window.DRAFT_SCOPE = '{{ user.pk }}'; window.DRAFT_SAVED = {% if messages %}{% for m in messages %}{% if m.level_tag == 'success' %}true || {% endif %}{% endfor %}{% endif %}false;</script>
+<script src="{% static 'js/draft-autosave.js' %}?v=1"></script>
+<script src="{% static 'js/asis-notice.js' %}?v=1"></script>{% endif %}
 {% block extra_js %}{% endblock %}
 
 {% if user.is_authenticated and user.ui_theme != 'simple' and not reservation_only %}
@@ -545,7 +548,7 @@
 <div class="modal fade" id="globalMemoModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-scrollable" style="max-width:480px;">
     <div class="modal-content" style="border-radius:16px;border:none;">
-      <form method="post" action="{% url 'records:memo_create' %}" x-data="{ memo: '' }">
+      <form method="post" action="{% url 'records:memo_create' %}" x-data="{ memo: '' }" data-draft="memo" data-draft-new>
         {% csrf_token %}
         <div class="modal-header" style="border-bottom:1px solid #e8e8e8;">
           <h6 class="fw-bold mb-0" style="font-family:'Yu Mincho','Hiragino Mincho ProN',serif;">
@@ -554,6 +557,7 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
+          <div data-draft-banner></div>
           <textarea name="content" x-model="memo" id="globalMemoTextarea" rows="5"
                     class="form-control" style="font-size:0.95rem;resize:none;"
                     placeholder="業務中の気づきをメモ…&#10;（音声入力ボタンを使うと話すだけで入力できます）"></textarea>
@@ -581,6 +585,20 @@
 </div>
 {% endif %}
 {# メモの音声入力は static/js/voice-input.js（アプリ共通）を使う #}
+<script>
+// 保存していないメモの下書きを戻したら、「メモ」のボタンに印を付ける（窓は閉じているので）
+document.addEventListener('draft:restored', function (e) {
+  if (!e.target.closest || !e.target.closest('#globalMemoModal')) return;
+  document.querySelectorAll('.btn-memo').forEach(function (b) {
+    if (b.querySelector('.memo-draft-dot')) return;
+    var dot = document.createElement('span');
+    dot.className = 'memo-draft-dot badge rounded-pill bg-warning text-dark ms-1';
+    dot.textContent = '下書き';
+    b.appendChild(dot);
+    b.title = '保存していないメモの下書きがあります';
+  });
+});
+</script>
 {% endif %}
 
 <script>

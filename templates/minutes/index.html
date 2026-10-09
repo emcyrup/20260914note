@@ -34,9 +34,10 @@
   </div>
 
   <div class="mn-grid">
-    <form method="post" id="mn-form" class="card" {% if current %}data-concurrency="minutes:{{ current.pk }}" data-concurrency-lazy{% endif %}><div class="card-body">
+    <form method="post" id="mn-form" class="card" data-draft="minutes:{{ current.pk|default:'new' }}" data-draft-fields="#mn-title, #mn-date, #transcript, #summary"{% if not current %} data-draft-new{% endif %} {% if current %}data-concurrency="minutes:{{ current.pk }}" data-concurrency-lazy{% endif %}><div class="card-body">
       {% csrf_token %}
       {% if current %}<input type="hidden" name="id" value="{{ current.pk }}">{% version_field current %}{% endif %}
+      <div data-draft-banner></div>
       {% if unsaved %}
       <div class="alert alert-warning small py-2">
         <b>保存できなかった内容</b>（開いたあとに他の職員がこの議事録を保存したため）。欄は最新の内容です。見比べて必要なところを写してから保存してください。
@@ -138,7 +139,7 @@
       {% endif %}
       <div class="mn-save mt-3">
         <div class="form-text mb-0" id="mn-save-note">{% if full and not current %}<span class="text-danger">保存すると、一番古い議事録（履歴の一番下）が消えます。</span>{% else %}議事録は新しい{{ keep }}件まで残ります。{% endif %}</div>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 align-items-center">
           {% if current %}<a href="{% url 'minutes:print' current.pk %}" target="_blank" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i>印刷</a>{% endif %}
           <button class="btn btn-primary" id="mn-save"><i class="bi bi-check2 me-1"></i>保存する</button>
         </div>
@@ -178,7 +179,7 @@
   var box = document.getElementById('mn-note');
   var undo = document.getElementById('mn-undo');
   var isNew = !form.querySelector('[name=id]');
-  var KEY = 'minutes-draft';
+  var OLD_KEY = 'minutes-draft';            // 前の作りの下書き（いまは static/js/draft-autosave.js が残す）
   var dirty = false, before = null;
 
   function show(text, cls, canUndo) {
@@ -186,24 +187,22 @@
     box.querySelector('.msg').textContent = text;
     undo.classList.toggle('d-none', !canUndo);
   }
-  // 新しく書いている途中は、この端末に下書きを残す（タブを閉じてしまったときのため）
-  function saveDraft() {
-    if (!isNew) return;
-    try {
-      localStorage.setItem(KEY, JSON.stringify({title: ttl.value, held_on: day.value, transcript: tx.value, summary: sm.value}));
-    } catch (e) { /* 使えない */ }
-  }
+  // 書きかけは static/js/draft-autosave.js がこの端末に残す（開いている議事録も）。前の作りの下書きは一度だけ欄に戻す
   if (isNew) {
-    try {
-      var d = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (d && (d.transcript || d.summary) && !tx.value && !sm.value) {
-        ttl.value = d.title || ''; if (d.held_on) day.value = d.held_on;
-        tx.value = d.transcript || ''; sm.value = d.summary || '';
-        show('保存していない書きかけを戻しました。要らないときは欄を消してください。', 'secondary', false);
-      }
-    } catch (e) { /* 使えない */ }
+    window.addEventListener('load', function () { setTimeout(function () {
+      try {
+        var d = JSON.parse(localStorage.getItem(OLD_KEY) || 'null');
+        localStorage.removeItem(OLD_KEY);
+        if (d && (d.transcript || d.summary) && !tx.value && !sm.value) {
+          ttl.value = d.title || ''; if (d.held_on) day.value = d.held_on;
+          tx.value = d.transcript || ''; sm.value = d.summary || '';
+          form.dispatchEvent(new Event('input', {bubbles: true}));
+          show('保存していない書きかけを戻しました。要らないときは欄を消してください。', 'secondary', false);
+        }
+      } catch (e) { /* 使えない */ }
+    }, 50); });
   }
-  form.addEventListener('input', function () { dirty = true; saveDraft(); });
+  form.addEventListener('input', function () { dirty = true; });
   // 保存先：療育記録を選んだら利用者の欄を出し、選ばれていなければ送らせない
   var saveAs = document.querySelectorAll('input[name=save_as]'), tf = document.getElementById('mn-therapy-fields');
   function applySaveAs() {
@@ -238,7 +237,6 @@
     dirty = false;
     var rec = document.querySelector('[data-voice-target].recording');
     if (rec) rec.click();
-    try { localStorage.removeItem(KEY); } catch (e) { /* 使えない */ }
   });
   window.addEventListener('beforeunload', function (e) {
     if (dirty || document.querySelector('[data-voice-target].recording')) { e.preventDefault(); e.returnValue = ''; }
@@ -249,6 +247,7 @@
     if (rec) rec.click();                          // 録音中なら止めてから
     var text = tx.value.trim();
     if (!text) { show('話した内容が空です。先に録音するか文字で入れてください。', 'warning', false); return; }
+    AsIsNotice.clear(box);
     var label = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 整理中（長いと1分ほど）';
@@ -262,7 +261,8 @@
         if (data.error) { show(data.error, 'danger', false); return; }
         before = sm.value;
         sm.value = data.result;
-        dirty = true; saveDraft();
+        dirty = true;
+        AsIsNotice.show(box, data, sm);
         show('議事録に整理しました。内容を確かめて「保存する」を押してください。', 'info', true);
       })
       .catch(function () { show('通信できませんでした。もう一度お試しください。', 'danger', false); })
@@ -271,6 +271,7 @@
   undo.addEventListener('click', function () {
     if (before === null) return;
     sm.value = before; before = null;
+    AsIsNotice.clear(box);
     show('整理する前に戻しました。', 'secondary', false);
   });
   // 音声入力の動きの記録（うまく文字にならないときに調べる）

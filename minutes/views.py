@@ -8,6 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
 
+from ai_assist import asis
 from ai_assist.quick import ask_ai, tidy_sections
 from config.concurrency import check_conflict, keep_unsaved, pop_unsaved
 from config.utils import to_int
@@ -183,7 +184,7 @@ class OrganizeView(LoginRequiredMixin, View):
         result = tidy_sections(raw)[:SUMMARY_MAX]
         if not result:
             return JsonResponse({'error': 'AIの返答が空でした。もう一度お試しください。'}, status=500)
-        return JsonResponse({'result': result})
+        return JsonResponse({'result': result, **asis.check(f'{title}\n{text}', result)})
 
 
 class PrintView(LoginRequiredMixin, View):

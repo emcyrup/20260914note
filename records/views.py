@@ -204,6 +204,7 @@ class StaffMemoCreateView(LoginRequiredMixin, View):
                 author=request.user,
                 content=content,
             )
+            messages.success(request, 'メモを保存しました。')
         return redirect('records:dashboard')
 
 

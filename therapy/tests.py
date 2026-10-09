@@ -41,6 +41,22 @@ class TherapyTests(TestCase):
         self.assertContains(res, 'data-voice-target="cautions"')
         self.assertContains(res, 'js/voice-input.js')
 
+    def test_draft_autosave_marks(self):
+        """書きかけの自動保存：留意点・追加・直す欄に下書きの印。保存できたら「保存しました」の合図（DRAFT_SAVED）が出る"""
+        rec = TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date(2026, 10, 2), body='記録')
+        res = self.client.get(self.url)
+        self.assertContains(res, 'js/draft-autosave.js')
+        self.assertContains(res, f'data-draft="therapy-cautions:{self.kid.pk}" data-draft-fields="#cautions"')
+        self.assertContains(res, f'data-draft="therapy-add:{self.kid.pk}" data-draft-new')
+        self.assertContains(res, f'data-draft="therapy-rec:{rec.pk}"')
+        self.assertContains(res, f'window.DRAFT_SCOPE = \'{self.user.pk}\'')
+        self.assertContains(res, 'window.DRAFT_SAVED = false;')
+        res = self.client.post(self.url, {'action': 'cautions', 'cautions': '大きな音が苦手。'}, follow=True)
+        self.assertContains(res, 'window.DRAFT_SAVED = true || false;')
+        res = self.client.post(self.url, {'action': 'add', 'date': '2026-10-03', 'body': ''}, follow=True)
+        self.assertContains(res, 'window.DRAFT_SAVED = false;')          # 入れ忘れ：保存できていない → 下書きを戻す
+        self.assertContains(res, 'data-draft-clear')                      # ログアウトで下書きを消す
+
     def test_cautions_add_edit_delete(self):
         res = self.client.post(self.url, {'action': 'cautions', 'cautions': '大きな音が苦手。'})
         self.assertRedirects(res, self.url)
@@ -401,6 +417,27 @@ class CautionsSummaryTests(TestCase):
         self.assertNotIn('【全体のまとめ】', kwargs['system'])
         self.assertIn('「」で、話したとおりに残す', kwargs['system'])
         self.assertEqual(kwargs['max_tokens'], 4096)
+
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_tidy_mode_and_added_advice(self, client_cls):
+        """整文だけ：箇条書きにせず文章のまま。原文に無い助言・評価の言い回しは知らせ、消した文も返す"""
+        client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(type='text', text=(
+            '大きな音が苦手。疲れると手が出ることがある。休憩を先に入れるとよい。\n電車の話が好きで、積極的に話していた。'))])
+        res = self.client.post(self.url, {'text': 'えー大きな音が苦手で、疲れると手が出ることがある。あの電車の話が好き', 'mode': 'tidy'})
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        self.assertEqual(data['result'], '大きな音が苦手。疲れると手が出ることがある。休憩を先に入れるとよい。\n電車の話が好きで、積極的に話していた。')
+        self.assertEqual(data['added'], ['入れるとよい', '積極的に'])
+        self.assertEqual(data['cleaned'], '大きな音が苦手。疲れると手が出ることがある。')
+        system = client_cls.return_value.messages.create.call_args.kwargs['system']
+        self.assertIn('箇条書き・見出し・要約にはしません', system)
+        self.assertIn('ありのままに', system)
+
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_advice_in_source_is_not_flagged(self, client_cls):
+        client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(type='text', text='・声かけが大切')])
+        res = self.client.post(self.url, {'text': '声かけが大切'})
+        self.assertNotIn('added', res.json())
 
     def test_empty_text(self):
         res = self.client.post(self.url, {'text': '  '})
