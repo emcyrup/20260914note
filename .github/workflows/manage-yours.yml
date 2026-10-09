@@ -11,7 +11,8 @@
 #   - set_media_root  : .env の MEDIA_ROOT を ~/michinoteyours/media に直して Gunicorn を再起動する（写真・書類が 500 になるとき）
 #   - status            : アプリが動いているか・いまのコミット・最近の配備を表示する
 #   - autostart_check   : サーバーの再起動のあとに自動で上がる設定（crontab の @reboot と 5 分ごとの見回り）があるか確かめる
-#   - autostart_install : その設定を入れる（この環境の行だけを入れ替え、ほかの crontab の行は触らない）
+#   - autostart_install : その設定を入れる（この環境の行だけを入れ替え、ほかの crontab の行は触らない。毎日 3:15 のバックアップの行も入る）
+#   - backup / backup_list / backup_check : DB のバックアップをいま取る／一覧／最後のバックアップが 2 日以内か
 #
 # パスワードは入力欄（admin_password）に入れる。ログには出ない（マスクし、サーバーへは環境変数で渡す）。
 # このリポジトリは公開なので、ログに秘密の値を出さないこと。
@@ -26,7 +27,7 @@ on:
         type: choice
         required: true
         default: list
-        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, error_log, set_media_root, status, autostart_check, autostart_install]
+        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, error_log, set_media_root, status, autostart_check, autostart_install, backup, backup_list, backup_check]
       facility_name:
         description: "事業所名（create_facility）"
         type: string
@@ -160,6 +161,12 @@ jobs:
                 APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --autostart check ;;
               autostart_install)
                 APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --autostart install ;;
+              backup)
+                APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --backup run ;;
+              backup_list)
+                APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --backup list ;;
+              backup_check)
+                APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --backup check ;;
               *) echo "unknown task: $TASK"; exit 1 ;;
             esac
           REMOTE

@@ -12,6 +12,9 @@
 #   bash ~/michinotedemo/deploy/venv-deploy.sh --stop      # 停止
 #   bash ~/michinotedemo/deploy/venv-deploy.sh --ensure    # 止まっていれば起動する（動いていれば何もしない。cron から呼ぶ）
 #   bash ~/michinotedemo/deploy/venv-deploy.sh --status    # 動いているか・いまのコミット・最後の配備
+#   bash ~/michinotedemo/deploy/venv-deploy.sh --backup [run|list|check]
+#        DB のバックアップ（PostgreSQL は pg_dump、無ければ manage.py dumpdata）を backups/ に取り、14 日ぶん残す。
+#        --autostart install で毎日 3:15 の行も crontab に入る。list は一覧、check は最後のバックアップが 2 日以内か
 #   bash ~/michinotedemo/deploy/venv-deploy.sh --autostart check|install|remove
 #        サーバーの再起動のあとも自動で上がるよう、crontab に @reboot と 5 分ごとの --ensure を入れる（この clone の行だけを触る）
 #
@@ -118,12 +121,49 @@ ensure() {
   fi
 }
 
+BACKUP_KEEP_DAYS=${BACKUP_KEEP_DAYS:-14}
+backup() {
+  # DB のバックアップ。PostgreSQL（.env の DB_NAME あり）は pg_dump、無いか sqlite なら manage.py dumpdata。
+  # ファイル名に日時。$BACKUP_KEEP_DAYS 日より古いものは消す。秘密の値（パスワード）は出さない
+  local mode=${1:-run} stamp out dbname dbuser dbpass dbhost dbport
+  mkdir -p backups
+  case "$mode" in
+    list)
+      echo "backups/（$APP_DIR）:"; ls -lh backups 2>/dev/null | tail -n +2 | awk '{print "  " $6 " " $7 " " $8 "  " $5 "  " $9}' || true
+      [ -n "$(ls -A backups 2>/dev/null)" ] || echo "  （まだありません）"; return 0 ;;
+    check)
+      local last
+      last=$(ls -t backups 2>/dev/null | head -n 1 || true)
+      if [ -z "$last" ]; then echo "backup: NONE（まだ一度も取っていません）"; return 1; fi
+      if [ -n "$(find backups -maxdepth 1 -name "$last" -mtime -2)" ]; then echo "backup: OK 最後は $last"; return 0; fi
+      echo "backup: OLD 最後は $last（2 日より前）"; return 1 ;;
+    run) ;;
+    *) echo "使い方: --backup run|list|check"; exit 1 ;;
+  esac
+  stamp=$(date +%Y%m%d-%H%M)
+  dbname=$(grep -E '^DB_NAME=' .env 2>/dev/null | cut -d= -f2- | tr -d '[:space:]"' || true)
+  if [ -n "$dbname" ] && command -v pg_dump >/dev/null 2>&1; then
+    dbuser=$(grep -E '^DB_USER=' .env | cut -d= -f2- | tr -d '[:space:]"' || true)
+    dbpass=$(grep -E '^DB_PASSWORD=' .env | cut -d= -f2- | sed 's/^"//;s/"$//' || true)
+    dbhost=$(grep -E '^DB_HOST=' .env | cut -d= -f2- | tr -d '[:space:]"' || true)
+    dbport=$(grep -E '^DB_PORT=' .env | cut -d= -f2- | tr -d '[:space:]"' || true)
+    out="backups/db-$stamp.sql.gz"
+    PGPASSWORD="$dbpass" pg_dump -h "${dbhost:-localhost}" -p "${dbport:-5432}" -U "$dbuser" "$dbname" | gzip > "$out"
+  else
+    out="backups/data-$stamp.json.gz"
+    "$VENV/bin/python" manage.py dumpdata --natural-foreign --natural-primary -e contenttypes -e auth.permission -e sessions | gzip > "$out"
+  fi
+  echo "$(date '+%Y-%m-%d %H:%M:%S') backup: $out ($(du -h "$out" | cut -f1))"
+  find backups -maxdepth 1 \( -name 'db-*.sql.gz' -o -name 'data-*.json.gz' \) -mtime +"$BACKUP_KEEP_DAYS" -delete
+}
+
 # crontab の行（この clone の行には印を付けて、ほかの行は触らない）
 CRON_TAG="# michinote-autostart:$APP_DIR"
 cron_lines() {
   local self="$APP_DIR/deploy/venv-deploy.sh" envs="APP_DIR=$APP_DIR VENV=$VENV"
   echo "@reboot sleep 30 && $envs bash $self --ensure >> $APP_DIR/logs/boot.log 2>&1 $CRON_TAG"
   echo "*/5 * * * * $envs bash $self --ensure >> $APP_DIR/logs/ensure.log 2>&1 $CRON_TAG"
+  echo "15 3 * * * $envs bash $self --backup >> $APP_DIR/logs/backup.log 2>&1 $CRON_TAG"
 }
 others() {
   # この clone の印の付いた行を除いた、ほかの行（空行も除く）
@@ -155,6 +195,7 @@ case "${1:-}" in
   --ensure)    ensure; exit 0 ;;
   --status)    status; exit 0 ;;
   --autostart) autostart "${2:-check}"; exit 0 ;;
+  --backup)    backup "${2:-run}"; exit $? ;;
 esac
 
 test -f .env || { echo "ERROR: $APP_DIR/.env がありません。deploy/.env.dev-aws.example（ゆあーずは deploy/.env.yours-aws.example、オウルは deploy/.env.owl-aws.example）を元に作成してください"; exit 1; }

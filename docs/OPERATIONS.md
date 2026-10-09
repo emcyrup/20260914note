@@ -13,6 +13,7 @@
 | 戻し方 | Deploy (yours)／Deploy (owl) を手動実行し、`ref` に前のコミットの番号を入れる（3 章） |
 | 自動起動 | サーバーの crontab に `@reboot`（再起動のあと 30 秒で起動）と 5 分ごとの `--ensure`（止まっていれば起動）。Manage の `autostart_install` で入れる（4 章） |
 | 見回り | Actions の **Watch (production)** が 15 分ごとに両方の `/healthz/` を確かめ、応答が無ければサーバーで `--ensure` して立て直し、その実行を「失敗」にして知らせる（GitHub から失敗のメールが届く） |
+| バックアップ | 毎日 3:15 に `venv-deploy.sh --backup`（crontab。`autostart_install` で入る）が DB を `backups/` に取り、14 日ぶん残す。Manage の `backup`（いま取る）・`backup_list`・`backup_check`（2 日以内に取れているか）。写真・書類（`media/`）はサーバーのディスクにあるだけなので、プロバイダのサーバーのバックアップに頼る（7 章） |
 | 確かめる道具 | **Site check**（外から healthz と 3MB の送信）・**Log check**（直近の 500 の件数と場所）・**Manage** の `status`（動いているか・いまのコミット・最近の配備）と `error_log` |
 
 ## 2. ふだんの更新の流れ
@@ -63,3 +64,13 @@
   2. 外からも 15 分ごとに見回り、止まっていれば立て直して知らせる（Watch (production)）。
   3. 更新は営業時間の外に行い、前の版にすぐ戻せる手順を用意した（2・3 章。Deploy の `ref`）。
   4. デモの前日に Site check と Manage の `status` で状態を確かめる。
+
+## 7. バックアップと復旧
+
+- **何を**：DB（利用者・記録・予約・設定のすべて）。PostgreSQL は `pg_dump`、無い環境は `manage.py dumpdata`。`~/michinoteyours/backups/`・`~/michinoteowl/backups/` に `db-日時.sql.gz` で置き、14 日より古いものは消す。
+- **いつ**：毎日 3:15（crontab。`autostart_install` を一度実行した環境）。手で取るときは Manage の `backup`。配備の前に取っておくとよい。
+- **確かめる**：Manage の `backup_check`（最後のバックアップが 2 日以内なら OK）。前日点検の項目に入れる。
+- **戻す**（DB を壊した・消したとき。プロバイダに頼らず自分で）：サーバーで `gunzip -c backups/db-….sql.gz | psql -h localhost -U <DB_USER> <DB_NAME>`（空の DB に入れる。既存の DB に上書きするときは先に `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`）。dumpdata のときは `manage.py loaddata`。戻したあと Site check。
+- **写真・書類**（`media/`）：バックアップの対象に入っていない。プロバイダのサーバーのバックアップ（有無・頻度）を確かめ、必要なら `tar` で別の場所に写す手順を足す。
+- **残すところ**：いまは同じサーバーの中にしか無い。サーバーごと失うと戻せないので、SLA を決めるときに「別の場所（S3 など）にも日次で写す」を入れるか判断する（`deploy/backup.sh` に Cloud Storage へ送る例がある）。
+

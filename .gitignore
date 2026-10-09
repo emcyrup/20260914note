@@ -14,3 +14,4 @@ deploy/.env
 
 # gunicorn の pid・Whisper のロック（deploy/venv-deploy.sh が作る）
 run/
+backups/
