@@ -168,6 +168,39 @@ def day_state(facility, day, setting=None, closed=None):
     return state
 
 
+def day_people(facility, first_day, last_day=None):
+    """日ごとの人数（確定の予約のうち、実績が欠席・キャンセルでないもの）。{日: 人数}"""
+    from django.db.models import Count
+    last_day = last_day or first_day
+    return dict(Reservation.objects.filter(facility=facility, date__range=(first_day, last_day), status=Reservation.STATUS_CONFIRMED)
+                .exclude(attendance__in=(Reservation.ATT_ABSENT, Reservation.ATT_CANCELLED))
+                .values_list('date').annotate(n=Count('pk')).values_list('date', 'n'))
+
+
+def limit_level(setting, people):
+    """定員の目安に照らした印：'over'（1日の上限を超えた）・'cap'（定員を超えた）・''（定員を使わない・超えていない）"""
+    if not setting.legal_capacity:
+        return ''
+    if people > setting.day_limit_value:
+        return 'over'
+    return 'cap' if people > setting.legal_capacity else ''
+
+
+def limit_notice(facility, day, setting=None):
+    """予約を入れた・動かしたあとの知らせ（上限・定員を超えていれば文、なければ ''）。予約は止めない"""
+    setting = setting or get_setting(facility)
+    if not setting.legal_capacity:
+        return ''
+    n = day_people(facility, day).get(day, 0)
+    level = limit_level(setting, n)
+    if level == 'over':
+        return (f'{jp_date(day)} は {n} 名になり、1日の上限 {setting.day_limit_value} 名を超えています'
+                f'（予約はそのまま入れています。月間予定表・カレンダーに「上限超」と出ます）。')
+    if level == 'cap':
+        return f'{jp_date(day)} は {n} 名で、定員 {setting.legal_capacity} 名を超えています（1日 {setting.day_limit_value} 名まで）。'
+    return ''
+
+
 def month_states(facility, first_day, last_day):
     """月の各日の残枠（1回のクエリでまとめる）"""
     setting = get_setting(facility)
@@ -184,6 +217,7 @@ def month_states(facility, first_day, last_day):
             c['waiting'] += 1
     for (d, _), rows in by_slot.items():     # 席の数（きょうだいで1枠にまとめたぶんは1つ）
         counts[d]['confirmed'] += seat_count(rows, siblings)
+    people = day_people(facility, first_day, last_day) if setting.legal_capacity else {}
     states = {}
     day = first_day
     while day <= last_day:
@@ -193,6 +227,7 @@ def month_states(facility, first_day, last_day):
             'date': day, 'capacity': cap, 'confirmed': c['confirmed'], 'waiting': c['waiting'],
             'remaining': max(cap - c['confirmed'], 0), 'closed': cap == 0,
             'full': cap > 0 and c['confirmed'] >= cap,
+            'people': people.get(day, 0), 'limit': limit_level(setting, people.get(day, 0)),
         }
         day += datetime.timedelta(days=1)
     return states

@@ -28,6 +28,13 @@ from .models import (WEEKDAYS, BookingRequest, ClosedDate, Customer, LineInbox, 
 logger = logging.getLogger(__name__)
 
 
+def _warn_limit(request, facility, day):
+    """予約を入れた・動かした日が定員・1日の上限を超えたら知らせる（予約は止めない）"""
+    text = services.limit_notice(facility, day)
+    if text:
+        messages.warning(request, text)
+
+
 class ReservationEnabledMixin(LoginRequiredMixin):
     """
     施設設定で予約管理を使わない場合はホームへ戻す。
@@ -238,6 +245,7 @@ class AddTodayView(ReservationEnabledMixin, View):
             when = f'{res.start_time.hour}時' if res.start_time else ''
             if res.status == Reservation.STATUS_CONFIRMED:
                 messages.success(request, f'{beneficiary.full_name} さんをきょうの {when} の予定に入れました。')
+                _warn_limit(request, facility, today)
             else:
                 messages.warning(request, f'{when} の枠がいっぱいのため、{beneficiary.full_name} さんを'
                                           f'「{res.get_status_display()}」で入れました。来所したら日の画面で実績を「来た」にしてください。')
@@ -312,6 +320,7 @@ class DayView(ReservationEnabledMixin, View):
             label = res.get_status_display()
             messages.success(request, f'{beneficiary.full_name} さんを「{label}」で登録しました。'
                                       f'通知は送信待ちに入れています。')
+            _warn_limit(request, facility, d)
             return back
 
         if action == 'cancel':
@@ -349,6 +358,7 @@ class DayView(ReservationEnabledMixin, View):
             messages.success(request, f'{res.display_name} さんの予約を '
                                       f'{services.jp_date(new_day)} に移しました（{res.get_status_display()}）。'
                                       '変更のお知らせは送信待ちに入れています。')
+            _warn_limit(request, facility, new_day)
             return redirect('reservations:day', year=new_day.year, month=new_day.month, day=new_day.day)
 
         if action == 'attendance':
@@ -729,6 +739,7 @@ class LineView(ReservationEnabledMixin, View):
             if pair:
                 messages.warning(request, f'{services.jp_date(d)} {res.time_label} には、{beneficiary.full_name} さんと同じ時間にできない '
                                           f'{"・".join(pair)} さんの予約があります（日の画面に赤く出ます）。')
+            _warn_limit(request, facility, d)
         entry.status = LineInbox.STATUS_DONE
         entry.handled_at, entry.handled_by, entry.result_note = timezone.now(), request.user, note[:200]
         entry.redact()
@@ -872,6 +883,11 @@ class MonthlyRequestListView(SlotModeMixin, View):
                 ' 通知は送信待ちに入れています。' if result.notices else ''))
         else:
             messages.info(request, '割り当てるものがありません（利用希望が無いか、希望回数ぶんの予約がすでにあります）。')
+        cap = monthly.capacity_report(facility, year, month, setting)
+        if cap and cap['over_days']:
+            messages.warning(request, f'1日の上限 {cap["day_limit"]} 名を超えた日があります：'
+                             + '、'.join(f'{d:%-m/%-d} {n}名' for d, n in cap['over_days'])
+                             + '（予約はそのまま入れています。月間予定表に「上限超」と出ます）。')
         return redirect('reservations:monthly_schedule', year=year, month=month)
 
 
@@ -1208,6 +1224,7 @@ class DailyBoardView(RyoikuOnlyMixin, View):
         board = monthly.day_board(facility, day, services.get_setting(facility))
         return render(request, self.template_name, {
             'facility': facility, 'b': board, 'today': datetime.date.today(),
+            'limit_text': services.limit_notice(facility, day),
             'attendance_choices': Reservation.ATT_CHOICES,
             'staff_suggestions': monthly.staff_suggestions(facility),
         })
@@ -1416,6 +1433,7 @@ class MonthlyScheduleSwapView(SlotModeMixin, View):
         if refreshed:
             msg += ' 送信待ちの「ご利用日が決まりました」も書き直しました。'
         messages.success(request, msg)
+        _warn_limit(request, facility, res_a.date)
         return back
 
 

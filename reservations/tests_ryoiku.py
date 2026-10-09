@@ -1790,3 +1790,28 @@ class GuideSheetTests(TestCase):
         self.client.post(reverse('reservations:settings'), dict(base, line_friend_url='https://lin.ee/x'))
         self.s.refresh_from_db()
         self.assertEqual(self.s.line_friend_url, 'https://lin.ee/x')
+
+
+class OverLimitNoticeTests(TestCase):
+    """1日の上限を超えても予約はでき、超えたことを知らせる（追加・カレンダー・きょうの予定）"""
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        self.s.legal_capacity, self.s.day_limit = 2, 3
+        self.s.save()
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kids = [child(self.f, f'子{i}') for i in range(4)]
+        self.day = datetime.date(2026, 10, 2)
+
+    def test_add_over_limit_is_allowed_and_marked(self):
+        url = reverse('reservations:day', args=[2026, 10, 2])
+        for h, k in zip((10, 11, 13, 14), self.kids):
+            res = self.client.post(url, {'action': 'add', 'beneficiary': k.pk, 'start_time': str(h)}, follow=True)
+        self.assertEqual(Reservation.objects.filter(date=self.day, status=Reservation.STATUS_CONFIRMED).count(), 4)
+        self.assertContains(res, '4 名になり、1日の上限 3 名を超えています')
+        res = self.client.get(reverse('reservations:calendar_month', args=[2026, 10]))
+        self.assertContains(res, '上限超 4名')
+        res = self.client.get(reverse('reservations:daily_board') + '?d=2026-10-02')
+        self.assertContains(res, '1日の上限 3 名を超えています')
+        self.assertEqual(services.limit_notice(self.f, datetime.date(2026, 10, 3)), '')

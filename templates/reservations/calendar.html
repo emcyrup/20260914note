@@ -14,6 +14,8 @@
   .rz-cell.today { background: var(--color-primary-bg); border-color: var(--color-primary); }
   .rz-cell.closed { background: #f1f1f1; color: #999; }
   .rz-cell.full { background: #fdf0ef; }
+  .rz-limit { font-size: .7rem; font-weight: 700; color: #8a6d1f; }
+  .rz-limit.over { color: #fff; background: #b02a37; border-radius: 3px; padding: 0 4px; display: inline-block; }
   .rz-cell.empty { background: #f8f9fa; cursor: default; }
   .rz-day { font-size: 0.9rem; font-weight: 700; }
   .rz-day.sun { color: var(--color-danger); } .rz-day.sat { color: #0d6efd; }
@@ -66,6 +68,7 @@
             {% else %}
               <div class="rz-left {% if d.remaining %}ok{% else %}none{% endif %}">{% if d.remaining %}残 {{ d.remaining }}{% else %}満席{% endif %}</div>
               <div class="small text-muted">{{ d.confirmed }}/{{ d.capacity }}名</div>
+              {% if d.limit %}<div class="rz-limit {{ d.limit }}" title="{% if d.limit == 'over' %}1日の上限 {{ setting.day_limit_value }} 名を超えています{% else %}定員 {{ setting.legal_capacity }} 名を超えています（上限 {{ setting.day_limit_value }} 名まで）{% endif %}（欠席・キャンセルを除く）">{% if d.limit == 'over' %}上限超{% else %}定員超{% endif %} {{ d.people }}名</div>{% endif %}
               {% if d.waiting %}<div class="rz-wait">待 {{ d.waiting }}</div>{% endif %}
             {% endif %}
           </td>
