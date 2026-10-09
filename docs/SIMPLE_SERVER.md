@@ -1,6 +1,6 @@
 # 「シンプル」を GCP の別サーバーで動かす（次のセッションへの引き継ぎ）
 
-計画書中心の画面（シンプル）を、開発環境（はぴねす・ウィズユー藤森・なゆた）とは**別のサーバー・別のデータベース**で動かすための手引きです。
+計画書中心の画面（シンプル）を、開発環境（はぴりす・ウィズユー藤森・なゆた）とは**別のサーバー・別のデータベース**で動かすための手引きです。
 配備先は **GCP Compute Engine の VM 1台**（Docker Compose：Caddy → Django/Gunicorn → PostgreSQL）で、コードは同じリポジトリのブランチ `simple` を配備します。次のセッションでは、ここに **療育日記** と **シフト** を足します。
 
 Cloud Console（ブラウザ）と GitHub の画面だけで構築できます。サーバー内の作業は Console の「ブラウザで SSH」を使います。
@@ -205,7 +205,7 @@ gunzip -c backups/db-YYYYMMDD-HHMMSS.sql.gz | docker compose exec -T db psql -U 
 
 | ブランチ | 用途 | 配備先 |
 |---|---|---|
-| `develop` | 開発環境（AWS：はぴねす・ウィズユー藤森・なゆた・シンプル） | Deploy (dev) |
+| `develop` | 開発環境（AWS：はぴりす・ウィズユー藤森・なゆた・シンプル） | Deploy (dev) |
 | `simple` | シンプル用の GCP サーバー | Deploy (simple) |
 | `main` | 本番（許可制） | — |
 

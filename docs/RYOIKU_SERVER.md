@@ -328,7 +328,7 @@ gunzip -c backups/db-YYYYMMDD-HHMMSS.sql.gz | docker compose exec -T db psql -U 
 
 | ブランチ | 用途 | 配備先 |
 |---|---|---|
-| `develop` | 開発環境（AWS：ウィズユー藤森・はぴねす・なゆた・シンプル・ゆあーず） | Deploy (dev) |
+| `develop` | 開発環境（AWS：ウィズユー藤森・はぴりす・なゆた・シンプル・ゆあーず） | Deploy (dev) |
 | `simple` | シンプル用の GCP サーバー | Deploy (simple) |
 | `ryoiku` | **ゆあーず用の GCP サーバー** | Deploy (ryoiku) |
 | `main` | 本番（許可制） | — |

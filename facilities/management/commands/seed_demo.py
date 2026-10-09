@@ -406,7 +406,7 @@ class Command(BaseCommand):
             StaffMemo.objects.get_or_create(facility=facility, content=content, defaults={'author': staff})
         counts['スタッフメモ'] = len(MEMOS)
 
-        # --- 事業所様式（はぴねす様式の施設だけ）---
+        # --- 事業所様式（はぴりす様式の施設だけ）---
         if facility.form_set == Facility.FORM_SET_HAPPINESS:
             counts.update(self._create_custom_forms(facility, beneficiaries, staff, today))
 
@@ -955,7 +955,7 @@ class Command(BaseCommand):
 
     # ------------------------------------------------------------------
     def _create_custom_forms(self, facility, beneficiaries, staff, today):
-        """はぴねす様式のサンプル：関係機関連携加算Ⅱ報告書・専門的支援実施計画書・計画書の追加項目"""
+        """はぴりす様式のサンプル：関係機関連携加算Ⅱ報告書・専門的支援実施計画書・計画書の追加項目"""
         from custom_forms.models import AgencyMeetingReport, SpecializedSupportPlan
         D = datetime.timedelta
         counts = {}

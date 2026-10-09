@@ -12,10 +12,10 @@ from .models import AgencyMeetingReport, SpecializedSupportPlan
 
 
 class CustomFormsTests(TestCase):
-    """はぴねす様式：施設の設定で有効化、作成・PDF、他施設からの遮断"""
+    """はぴりす様式：施設の設定で有効化、作成・PDF、他施設からの遮断"""
 
     def setUp(self):
-        self.facility = Facility.objects.create(name='はぴねす', form_set=Facility.FORM_SET_HAPPINESS)
+        self.facility = Facility.objects.create(name='はぴりす', form_set=Facility.FORM_SET_HAPPINESS)
         self.user = StaffAccount.objects.create_user('staff', password='pass12345', facility=self.facility, display_name='山本')
         self.client.force_login(self.user)
         self.b = Beneficiary.objects.create(facility=self.facility, last_name='佐藤', first_name='はると', date_of_birth=date(2016, 4, 1), weekday_mon=True)
@@ -40,7 +40,7 @@ class CustomFormsTests(TestCase):
         res = self.client.post(reverse('custom_forms:meeting_add'), {
             'beneficiary': self.b.pk, 'date': '2026-06-18', 'start_time': '09:00', 'end_time': '10:00',
             'place': '明日香養護学校', 'format': 'face',
-            'p_affiliation': ['明日香養護学校', '', 'はぴねす'], 'p_name': ['田中', '', '山本'],
+            'p_affiliation': ['明日香養護学校', '', 'はぴりす'], 'p_name': ['田中', '', '山本'],
             'purpose': '進級後の支援方針の共有', 'result': '学校での様子を確認した。', 'opinions': '家庭でも同じ声かけを。', 'policy': '声かけを統一する。',
             'recorder': self.user.pk,
         })
@@ -52,7 +52,7 @@ class CustomFormsTests(TestCase):
         res = self.client.get(reverse('custom_forms:meeting_pdf', args=[m.pk]) + '?fmt=html')
         self.assertContains(res, '関係機関連携加算Ⅱ　報告書')
         self.assertContains(res, '明日香養護学校')
-        self.assertContains(res, '放課後等デイサービス　はぴねす')
+        self.assertContains(res, '放課後等デイサービス　はぴりす')
         res = self.client.get(reverse('custom_forms:meeting_pdf', args=[m.pk]))
         self.assertEqual(res['Content-Type'], 'application/pdf')
         # 他施設からは 404
@@ -138,12 +138,12 @@ class CustomFormsTests(TestCase):
 
 
 class SeedCustomFormsTests(TestCase):
-    """seed_demo：はぴねす様式の施設には事業所様式のサンプルも入る"""
+    """seed_demo：はぴりす様式の施設には事業所様式のサンプルも入る"""
 
     def test_seed_creates_custom_forms(self):
         from io import StringIO
         from django.core.management import call_command
-        f = Facility.objects.create(name='はぴねす', form_set=Facility.FORM_SET_HAPPINESS)
+        f = Facility.objects.create(name='はぴりす', form_set=Facility.FORM_SET_HAPPINESS)
         StaffAccount.objects.create_user('h', password='pass12345', facility=f)
         out = StringIO()
         call_command('seed_demo', '--facility', f.pk, stdout=out)

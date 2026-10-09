@@ -18,7 +18,7 @@ class AddonSettingsTests(TestCase):
     """加算のコード・単位数・料金（施設設定）"""
 
     def setUp(self):
-        self.facility = Facility.objects.create(name='はぴねす', region_category='3', use_billing=True)
+        self.facility = Facility.objects.create(name='はぴりす', region_category='3', use_billing=True)
         self.admin = StaffAccount.objects.create_user(username='admin', password='pw12345678', facility=self.facility, role=StaffAccount.ROLE_ADMIN)
         self.client.force_login(self.admin)
         self.a1 = AddonMaster.objects.create(name='送迎加算（往・迎え）', addon_type='individual', unit_count=54, code='615001')
@@ -75,7 +75,7 @@ class CopaymentSheetTests(TestCase):
     """上限額管理：利用事業所からの初期値と、管理結果票＋送付状の出力"""
 
     def setUp(self):
-        self.facility = Facility.objects.create(name='はぴねす', office_number='2650000001', use_billing=True,
+        self.facility = Facility.objects.create(name='はぴりす', office_number='2650000001', use_billing=True,
                                                 base_unit_count=604, base_unit_count_severe=1756, region_category='3')
         self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility)
         self.client.force_login(self.user)
@@ -83,7 +83,7 @@ class CopaymentSheetTests(TestCase):
                                               date_of_birth='2015-09-14', is_severe=True)
         RecipientCertificate.objects.create(beneficiary=self.ben, certificate_number='2600001234', granted_days=23,
                                             monthly_cap=4600, valid_from='2026-04-01', valid_until='2027-03-31', municipality='京都市')
-        BeneficiaryOffice.objects.create(beneficiary=self.ben, name='はぴねす', office_number='2650000001', is_this_office=True, is_manager=True)
+        BeneficiaryOffice.objects.create(beneficiary=self.ben, name='はぴりす', office_number='2650000001', is_this_office=True, is_manager=True)
         BeneficiaryOffice.objects.create(beneficiary=self.ben, name='児童デイ ひまわり', office_number='2650000101',
                                          fax='075-000-0200', contact_name='担当 太郎', order=1)
 
@@ -92,7 +92,7 @@ class CopaymentSheetTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertContains(res, 'value="児童デイ ひまわり"')
         self.assertContains(res, 'value="2650000101"')
-        self.assertContains(res, 'value="はぴねす"')
+        self.assertContains(res, 'value="はぴりす"')
         self.assertContains(res, 'checked', msg_prefix='当施設が上限管理事業所なので初期値でチェック')
 
     def _save(self):
@@ -100,7 +100,7 @@ class CopaymentSheetTests(TestCase):
             'is_upper_limit_manager': 'on', 'management_result': '3',
             'office_records-TOTAL_FORMS': '2', 'office_records-INITIAL_FORMS': '0',
             'office_records-MIN_NUM_FORMS': '0', 'office_records-MAX_NUM_FORMS': '1000',
-            'office_records-0-office_name': 'はぴねす', 'office_records-0-office_number': '2650000001',
+            'office_records-0-office_name': 'はぴりす', 'office_records-0-office_number': '2650000001',
             'office_records-0-total_cost': '60000', 'office_records-0-original_copayment': '6000', 'office_records-0-adjusted_copayment': '4600',
             'office_records-1-office_name': '児童デイ ひまわり', 'office_records-1-office_number': '2650000101',
             'office_records-1-total_cost': '30000', 'office_records-1-original_copayment': '3000', 'office_records-1-adjusted_copayment': '0',
@@ -153,7 +153,7 @@ class CopaymentJudgeAndFaxTests(TestCase):
     """上限管理：判定・配分・FAX の結果の一括反映・先月の設定を写す（billing/copayment.py）"""
 
     def setUp(self):
-        self.facility = Facility.objects.create(name='はぴねす', office_number='2650000001', use_billing=True,
+        self.facility = Facility.objects.create(name='はぴりす', office_number='2650000001', use_billing=True,
                                                 base_unit_count=604, base_unit_count_severe=1756, region_category='3')
         self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility)
         self.client.force_login(self.user)
@@ -162,9 +162,9 @@ class CopaymentJudgeAndFaxTests(TestCase):
         for b in (self.here, self.other, self.single):
             RecipientCertificate.objects.create(beneficiary=b, certificate_number='2600001234', granted_days=23, monthly_cap=4600,
                                                 valid_from='2026-04-01', valid_until='2027-03-31')
-        BeneficiaryOffice.objects.create(beneficiary=self.here, name='はぴねす', office_number='2650000001', is_this_office=True, is_manager=True)
+        BeneficiaryOffice.objects.create(beneficiary=self.here, name='はぴりす', office_number='2650000001', is_this_office=True, is_manager=True)
         BeneficiaryOffice.objects.create(beneficiary=self.here, name='児童デイ ひまわり', office_number='2650000101', order=1)
-        BeneficiaryOffice.objects.create(beneficiary=self.other, name='はぴねす', office_number='2650000001', is_this_office=True)
+        BeneficiaryOffice.objects.create(beneficiary=self.other, name='はぴりす', office_number='2650000001', is_this_office=True)
         BeneficiaryOffice.objects.create(beneficiary=self.other, name='児童デイ ひまわり', office_number='2650000101', is_manager=True, order=1)
         for b in (self.here, self.other):          # 9 月に 10 日来所 → 総費用 604 × 11.05 × 10 = 66,742 円、負担 1 割 6,619 → 上限 4,600
             for d in range(1, 11):
@@ -213,13 +213,13 @@ class CopaymentJudgeAndFaxTests(TestCase):
             'is_upper_limit_manager': 'on', 'management_result': '2', 'action': 'allocate',
             'office_records-TOTAL_FORMS': '2', 'office_records-INITIAL_FORMS': '0',
             'office_records-MIN_NUM_FORMS': '0', 'office_records-MAX_NUM_FORMS': '1000',
-            'office_records-0-office_name': 'はぴねす', 'office_records-0-office_number': '2650000001',
+            'office_records-0-office_name': 'はぴりす', 'office_records-0-office_number': '2650000001',
             'office_records-0-total_cost': '66742', 'office_records-0-original_copayment': '3000', 'office_records-0-adjusted_copayment': '3000',
             'office_records-1-office_name': '児童デイ ひまわり', 'office_records-1-office_number': '2650000101',
             'office_records-1-total_cost': '30000', 'office_records-1-original_copayment': '3000', 'office_records-1-adjusted_copayment': '3000',
         }
         res = self.client.post(edit, data, follow=True)
-        self.assertContains(res, '上限 4,600 円で配分しました：はぴねす 3,000 円、児童デイ ひまわり 1,600 円')
+        self.assertContains(res, '上限 4,600 円で配分しました：はぴりす 3,000 円、児童デイ ひまわり 1,600 円')
         m = CopaymentManagement.objects.get(beneficiary=self.here, year_month='2026-09')
         self.assertEqual(m.management_result, '3')
         self.assertEqual([r.adjusted_copayment for r in m.office_records.order_by('-is_this_office')], [3000, 1600])
@@ -228,4 +228,4 @@ class CopaymentJudgeAndFaxTests(TestCase):
         self.assertContains(res, 'を 1 人に写しました')
         m10 = CopaymentManagement.objects.get(beneficiary=self.here, year_month='2026-10')
         self.assertTrue(m10.is_upper_limit_manager)
-        self.assertEqual(list(m10.office_records.values_list('office_name', 'original_copayment')), [('はぴねす', 0), ('児童デイ ひまわり', 0)])
+        self.assertEqual(list(m10.office_records.values_list('office_name', 'original_copayment')), [('はぴりす', 0), ('児童デイ ひまわり', 0)])

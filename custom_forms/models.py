@@ -1,5 +1,5 @@
 """
-事業所固有の帳票様式（はぴねす様式）
+事業所固有の帳票様式（はぴりす様式）
 
 - AgencyMeetingReport     : 関係機関連携加算Ⅱ 報告書
 - SpecializedSupportPlan  : 専門的支援実施計画書（理学療法系）
