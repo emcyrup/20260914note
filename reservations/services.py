@@ -9,6 +9,7 @@
 """
 import datetime
 import re
+import unicodedata
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -812,7 +813,7 @@ def parse_message(text, today=None):
     """
     today = today or datetime.date.today()
     raw = (text or '').strip()
-    result = {'intent': 'unknown', 'date': None, 'dates': [], 'name': '', 'fields': {}, 'text': raw}
+    result = {'intent': 'unknown', 'date': None, 'dates': [], 'name': '', 'fields': {}, 'text': raw, 'hour': None}
     if not raw:
         return result
 
@@ -834,7 +835,25 @@ def parse_message(text, today=None):
 
     result['dates'] = _find_dates(raw, today)
     result['date'] = result['dates'][0] if result['dates'] else None
+    result['hour'] = _find_hour(raw)
     return result
+
+
+_HOUR_RE = re.compile(r'(午前|午後|ごご|ごぜん)?\s*(\d{1,2})\s*(?:時|じ|[:：]\s*(\d{2}))')
+
+
+def _find_hour(raw):
+    """「15時」「15:00」「午後3時」から時（0〜23）を読む。日付の「10/15」は読まない。無ければ None"""
+    text = unicodedata.normalize('NFKC', raw)
+    for m in _HOUR_RE.finditer(text):
+        if m.start(2) > 0 and text[m.start(2) - 1] in '/-月':
+            continue
+        hour = int(m.group(2))
+        if m.group(1) in ('午後', 'ごご') and hour < 12:
+            hour += 12
+        if 0 <= hour <= 23:
+            return hour
+    return None
 
 
 def guess_beneficiary(facility, text, customer=None):
@@ -980,9 +999,12 @@ def apply_message(facility, text, customer=None, staff=False, today=None, settin
             if not ok:
                 lines.append(reason)
                 continue
+        if setting.slot_mode and parsed['hour'] is None:
+            return False, ''   # 時間枠の事業所で時刻が無い：職員が確かめる（受信箱で時刻を選ぶ）
         try:
             res, notice = create_reservation(facility, beneficiary, day, source=source,
-                                             customer=target_customer)
+                                             customer=target_customer,
+                                             start_time=str(parsed['hour']) if setting.slot_mode else None)
         except ReservationError as e:
             lines.append(str(e))
             continue
@@ -1025,14 +1047,14 @@ def request_matches(facility, req):
 
 
 @transaction.atomic
-def apply_request(req, beneficiary, customer=None, staff=None, note=''):
-    """申し込みを予約にする（職員の確認ずみ）。作った予約を返す"""
+def apply_request(req, beneficiary, customer=None, staff=None, note='', start_time=None):
+    """申し込みを予約にする（職員の確認ずみ）。作った予約を返す。時間枠の事業所では start_time（時）が要る"""
     if not req.is_pending:
         raise ReservationError('この申し込みはすでに処理ずみです。')
     facility = req.facility
     label = note or f'申し込み：{req.name} 様'
     res, _ = create_reservation(facility, beneficiary, req.date, source=Reservation.SOURCE_WEB,
-                                customer=customer, note=label)
+                                customer=customer, note=label, start_time=start_time)
     req.status = BookingRequest.STATUS_DONE
     req.reservation = res
     req.customer = customer
@@ -1081,8 +1103,8 @@ def receive_request(facility, day, name, kana='', phone='', child_name='', note=
         facility=facility, date=day, name=name[:100], kana=kana[:100], phone=phone[:20],
         child_name=child_name[:100], note=note[:200],
     )
-    if not setting.is_auto:
-        return req, None      # 承認方式：職員が確かめてから予約にする
+    if not setting.is_auto or setting.slot_mode:
+        return req, None      # 承認方式・時間枠の事業所（時刻が決まらない）：職員が確かめてから予約にする
     try:
         return req, book_request_now(req, setting)
     except ReservationError as e:

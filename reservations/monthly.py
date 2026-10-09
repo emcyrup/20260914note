@@ -539,6 +539,63 @@ def month_schedule(facility, year, month, setting=None):
             'total_free': sum(d['free'] for d in in_month if not d['closed'])}
 
 
+def _months_back(year, month, n):
+    """(year, month) までの n か月（古い順）"""
+    out = []
+    for _ in range(n):
+        out.insert(0, (year, month))
+        year, month = (year - 1, 12) if month == 1 else (year, month - 1)
+    return out
+
+
+def capacity_report(facility, year, month, setting=None):
+    """
+    定員超過の目安（定員・1日の上限・3か月平均の上限。施設の予約の設定。定員が 0 なら None）。
+    数えるのは確定の予約のうち、実績が欠席・キャンセルでないもの（まだ来ていない日は予定のまま数える）。
+    3か月平均は、その月までの3か月の延べ人数 ÷ 開いている日数（休業日を除く）。予約は止めず、知らせるだけ
+    """
+    from decimal import ROUND_HALF_UP, Decimal
+    from django.db.models import Count
+    setting = setting or services.get_setting(facility)
+    if not setting.legal_capacity:
+        return None
+    months = _months_back(year, month, 3)
+    first, last = month_range(*months[0])[0], month_range(year, month)[1]
+    per_day = dict(Reservation.objects.filter(facility=facility, date__range=(first, last), status=Reservation.STATUS_CONFIRMED)
+                   .exclude(attendance__in=(Reservation.ATT_ABSENT, Reservation.ATT_CANCELLED))
+                   .values_list('date').annotate(n=Count('pk')).values_list('date', 'n'))
+    closed = services.closed_dates(facility, first, last)
+    rows, total, open_days = [], 0, 0
+    for y, m in months:
+        a, b = month_range(y, m)
+        days = [a + datetime.timedelta(days=i) for i in range((b - a).days + 1)]
+        opened = [d for d in days if not services.is_closed(facility, d, setting, closed)
+                  and (not setting.slot_mode or setting.slot_hours(d))]
+        people = sum(per_day.get(d, 0) for d in days)
+        rows.append({'year': y, 'month': m, 'people': people, 'open_days': len(opened),
+                     'avg': (Decimal(people) / len(opened)).quantize(Decimal('0.1'), ROUND_HALF_UP) if opened else None})
+        total += people
+        open_days += len(opened)
+    limit, day_limit = setting.avg_limit_value, setting.day_limit_value
+    avg = (Decimal(total) / open_days).quantize(Decimal('0.01'), ROUND_HALF_UP) if open_days else Decimal(0)
+    a, b = month_range(year, month)
+    this_month = sorted((d, n) for d, n in per_day.items() if a <= d <= b)
+    if avg > limit:
+        level = 'over'
+    elif avg > limit - Decimal('0.5'):
+        level = 'near'
+    else:
+        level = 'ok'
+    return {'capacity': setting.legal_capacity, 'day_limit': day_limit, 'avg_limit': limit, 'months': rows,
+            'people': total, 'open_days': open_days, 'avg': avg, 'level': level,
+            # 3か月の延べ人数で、平均の上限まであと何人入れられるか（マイナスなら超えている人数）
+            'room': int((limit * open_days - total).to_integral_value(rounding='ROUND_FLOOR')) if open_days else 0,
+            'over_by': max(-int((limit * open_days - total).to_integral_value(rounding='ROUND_FLOOR')), 0) if open_days else 0,
+            'over_days': [(d, n) for d, n in this_month if n > day_limit],
+            'cap_days': [(d, n) for d, n in this_month if setting.legal_capacity < n <= day_limit],
+            'per_day': {d: n for d, n in this_month}}
+
+
 DAILY_LOG_ROWS = 15      # 業務日誌の1日ぶんの行数（用紙に合わせる）
 DAILY_LOG_PER_PAGE = 4   # A4 1枚に入る日数
 

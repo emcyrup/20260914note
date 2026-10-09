@@ -150,6 +150,20 @@ class SettingView(ReservationEnabledMixin, View):
                 messages.error(request, '枠の時間帯は 0〜23 時で、最初の枠が最後の枠より前になるように指定してください。')
                 return redirect('reservations:calendar')
         setting.slot_capacity, setting.slot_minutes = slot_capacity, slot_minutes
+        # 定員超過の目安（0 は使わない／自動）
+        if 'legal_capacity' in request.POST:
+            from decimal import Decimal, InvalidOperation
+            legal = to_int(request.POST.get('legal_capacity'), setting.legal_capacity)
+            day_limit = to_int(request.POST.get('day_limit'), setting.day_limit)
+            try:
+                avg_limit = Decimal((request.POST.get('avg_limit') or '0').strip()).quantize(Decimal('0.1'))
+            except InvalidOperation:
+                avg_limit = None
+            if legal is None or day_limit is None or avg_limit is None or not (0 <= legal <= 99 and 0 <= day_limit <= 199
+                                                                              and 0 <= avg_limit <= 199):
+                messages.error(request, '定員・1日の上限は 0〜99（上限は 199）人、3か月平均の上限は 0〜199 の数（小数第1位まで）で入れてください。')
+                return redirect('reservations:calendar')
+            setting.legal_capacity, setting.day_limit, setting.avg_limit = legal, day_limit, avg_limit
         for k, v in hours.items():
             setattr(setting, k, v)
         setting.break_hours = sorted({n for n in (to_int(v) for v in request.POST.get('break_hours', '').replace('、', ',').split(','))
@@ -238,6 +252,8 @@ class DayView(ReservationEnabledMixin, View):
             'closed_date': ClosedDate.objects.filter(facility=facility, date=d).first(),
             'vacancy_text': services.vacancy_text(facility, d),
             'prev_day': d - datetime.timedelta(days=1), 'next_day': d + datetime.timedelta(days=1),
+            'day_people': sum(1 for r in rows if r.status == Reservation.STATUS_CONFIRMED and r.attendance not in
+                              (Reservation.ATT_ABSENT, Reservation.ATT_CANCELLED)),
         })
 
     def post(self, request, year, month, day):
@@ -508,7 +524,8 @@ class RequestListView(ReservationEnabledMixin, View):
             customer = Customer.objects.filter(
                 facility=facility, pk=to_int(request.POST.get('customer'), -1)).first()
             try:
-                res = services.apply_request(req, beneficiary, customer=customer, staff=request.user)
+                res = services.apply_request(req, beneficiary, customer=customer, staff=request.user,
+                                             start_time=request.POST.get('start_time') or None)
             except services.ReservationError as e:
                 messages.error(request, str(e))
                 return back
@@ -669,9 +686,10 @@ class LineView(ReservationEnabledMixin, View):
             services.cancel_reservation(res)
             note = f'{services.jp_date(d)} {beneficiary.full_name} 取消'
         else:
+            hour = request.POST.get('start_time') or (str(parsed['hour']) if parsed['hour'] is not None else None)
             try:
                 res, _ = services.create_reservation(facility, beneficiary, d,
-                                                     source=Reservation.SOURCE_LINE, customer=customer)
+                                                     source=Reservation.SOURCE_LINE, customer=customer, start_time=hour)
             except services.ReservationError as e:
                 messages.error(request, str(e))
                 return back
@@ -1119,8 +1137,16 @@ class MonthlyScheduleView(SlotModeMixin, View):
         facility = request.user.facility
         setting = services.get_setting(facility)
         rows = monthly.request_rows(facility, year, month, setting)
+        schedule = monthly.month_schedule(facility, year, month, setting)
+        cap = monthly.capacity_report(facility, year, month, setting)
+        if cap:       # 日ごとの人数が定員・1日の上限を超えたら印（欠席・キャンセルは数えない）
+            for week in schedule['weeks']:
+                for d in week['days']:
+                    n = cap['per_day'].get(d['date'], 0) if d['in_month'] else 0
+                    d['cap_level'] = 'over' if n > cap['day_limit'] else 'cap' if n > cap['capacity'] else ''
+                    d['cap_people'] = n
         return render(request, self.template_name, {
-            'schedule': monthly.month_schedule(facility, year, month, setting), 'setting': setting,
+            'schedule': schedule, 'setting': setting, 'cap': cap,
             'rows': monthly.schedule_rows(rows), 'row_totals': monthly.row_totals(monthly.schedule_rows(rows)),
             'facility': facility, 'today': datetime.date.today(),
             'therapy': getattr(facility, 'use_therapy_record', False),

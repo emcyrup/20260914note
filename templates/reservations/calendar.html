@@ -148,6 +148,31 @@
           </div>
         </div>
         <div class="col-12">
+          <div class="settings-section-title">定員超過の目安（月間予定表で知らせる）</div>
+          <div class="row g-2">
+            <div class="col-4 col-md-2">
+              <label class="form-label small fw-semibold" for="legal_capacity">定員（人／日）</label>
+              <input type="number" class="form-control form-control-sm" id="legal_capacity" name="legal_capacity" min="0" max="99"
+                     value="{{ setting.legal_capacity }}" {% if not is_admin %}disabled{% endif %}>
+            </div>
+            <div class="col-4 col-md-2">
+              <label class="form-label small fw-semibold" for="day_limit">1日の上限（人）</label>
+              <input type="number" class="form-control form-control-sm" id="day_limit" name="day_limit" min="0" max="199"
+                     value="{{ setting.day_limit }}" placeholder="自動" {% if not is_admin %}disabled{% endif %}>
+            </div>
+            <div class="col-4 col-md-3">
+              <label class="form-label small fw-semibold" for="avg_limit">3か月平均の上限（人／日）</label>
+              <input type="number" class="form-control form-control-sm" id="avg_limit" name="avg_limit" min="0" max="199" step="0.1"
+                     value="{{ setting.avg_limit }}" placeholder="自動" {% if not is_admin %}disabled{% endif %}>
+            </div>
+            <div class="col-12"><div class="form-text">
+              定員を入れると、月間予定表の上に「3か月平均（その月までの3か月の延べ人数 ÷ 開いている日数）」と、日ごとに「定員超」「上限超」の印を出します（欠席・キャンセルは数えません。予約は止めません）。
+              0 のときは自動：1日の上限は定員の 150%、3か月平均の上限は定員 11 名以下なら定員＋3、12 名以上なら定員の 125%。
+              {% if setting.legal_capacity %}いまの値：1日 {{ setting.day_limit_value }} 名まで・3か月平均 {{ setting.avg_limit_value }} 名まで。{% endif %}
+            </div></div>
+          </div>
+        </div>
+        <div class="col-12">
           <div class="settings-section-title">予約の受け方</div>
           <div class="d-flex flex-wrap gap-3">
             <div class="form-check">

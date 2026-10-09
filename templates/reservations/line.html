@@ -123,6 +123,13 @@
           {% csrf_token %}<input type="hidden" name="action" value="apply"><input type="hidden" name="entry" value="{{ row.entry.pk }}">
           <div class="col-6"><label class="form-label small fw-semibold mb-0">日付</label>
             <input type="date" name="date" class="form-control form-control-sm" value="{{ row.parsed.date|date:'Y-m-d' }}"></div>
+          {% if setting.slot_mode %}
+          <div class="col-6"><label class="form-label small fw-semibold mb-0">時刻（枠）</label>
+            <select name="start_time" class="form-select form-select-sm">
+              <option value="">— 選ぶ —</option>
+              {% for h in setting.all_slot_hours %}<option value="{{ h }}" {% if row.parsed.hour == h %}selected{% endif %}>{{ h }}:00</option>{% endfor %}
+            </select></div>
+          {% endif %}
           <div class="col-6"><label class="form-label small fw-semibold mb-0">内容</label>
             <select name="intent" class="form-select form-select-sm">
               <option value="reserve" {% if row.parsed.intent == 'reserve' %}selected{% endif %}>予約</option>

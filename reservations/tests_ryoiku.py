@@ -1665,3 +1665,94 @@ class AddTodayTests(TestCase):
         with mock.patch('django.utils.timezone.localdate', return_value=datetime.date(2026, 10, 5)):   # 月曜はお休み
             res = self.client.get(reverse('beneficiaries:detail', args=[self.kids[4].pk]))
         self.assertContains(res, 'きょうは休業日')
+
+
+class CapacityReportTests(TestCase):
+    """定員超過の目安：定員・1日の上限（150%）・3か月平均の上限（定員＋3、ゆあーずは 12.9）"""
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kids = [child(self.f, f'子{i:02d}') for i in range(17)]
+
+    def fill(self, day, n, start=0):
+        out = []
+        for i, k in enumerate(self.kids[start:start + n]):
+            out.append(Reservation.objects.create(facility=self.f, beneficiary=k, date=day, start_time=datetime.time(10 + i % 6),
+                                                  status=Reservation.STATUS_CONFIRMED))
+        return out
+
+    def test_limits_default_and_report(self):
+        self.assertIsNone(monthly.capacity_report(self.f, 2026, 10, self.s))      # 定員が 0 なら出さない
+        self.s.legal_capacity = 10
+        self.s.save()
+        self.assertEqual((self.s.day_limit_value, str(self.s.avg_limit_value)), (15, '13'))
+        self.s.legal_capacity = 20
+        self.assertEqual((self.s.day_limit_value, str(self.s.avg_limit_value)), (30, '25.00'))
+        self.s.legal_capacity, self.s.day_limit, self.s.avg_limit = 10, 15, '12.9'
+        self.s.save()
+        self.s.refresh_from_db()
+        # 10/2（金）16 名（うち1名欠席 → 15 名で上限ちょうど）、10/3（土）16 名 → 上限超
+        rows = self.fill(datetime.date(2026, 10, 2), 16)
+        rows[0].attendance = Reservation.ATT_ABSENT
+        rows[0].save()
+        self.fill(datetime.date(2026, 10, 3), 16)
+        self.fill(datetime.date(2026, 10, 6), 11)
+        cap = monthly.capacity_report(self.f, 2026, 10, self.s)
+        self.assertEqual([(m['month'], m['people']) for m in cap['months']], [(8, 0), (9, 0), (10, 42)])
+        oct_open = cap['months'][2]['open_days']
+        self.assertEqual(oct_open, 31 - 9)       # 月・木（9日）を除く（スポーツの日 10/12 は月曜で重なる）
+        self.assertEqual(cap['over_days'], [(datetime.date(2026, 10, 3), 16)])
+        self.assertEqual(cap['cap_days'], [(datetime.date(2026, 10, 2), 15), (datetime.date(2026, 10, 6), 11)])
+        self.assertEqual(cap['level'], 'ok')
+        res = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))
+        self.assertContains(res, '定員 10 名')
+        self.assertContains(res, '1日の上限 15 名を超えた日：3日 16名')
+        self.assertContains(res, 'ms-cap over')
+        res = self.client.get(reverse('reservations:day', args=[2026, 10, 3]))
+        self.assertContains(res, '1日の上限 15 名を超えています')
+
+    def test_settings_save(self):
+        res = self.client.post(reverse('reservations:settings'), {
+            'capacity': 10, 'slot_mode': 'on', 'slot_capacity': 3, 'slot_minutes': 45, 'weekday_first_hour': 10,
+            'weekday_last_hour': 18, 'holiday_first_hour': 9, 'holiday_last_hour': 17, 'break_hours': '12',
+            'closed_weekdays': [0, 3], 'booking_from_days': 1, 'booking_until_days': 60,
+            'legal_capacity': 10, 'day_limit': 0, 'avg_limit': '12.9'})
+        self.assertRedirects(res, reverse('reservations:calendar'), fetch_redirect_response=False)
+        self.s.refresh_from_db()
+        self.assertEqual((self.s.legal_capacity, self.s.day_limit_value, str(self.s.avg_limit_value)), (10, 15, '12.9'))
+
+
+class LineSlotTests(TestCase):
+    """時間枠の事業所の LINE：文の時刻（15時・15:00・午後3時）で枠に入れる。時刻が無ければ受信箱で職員が選ぶ"""
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        self.kid = child(self.f, '青木', 'りく')
+        self.customer = Customer.objects.create(facility=self.f, name='青木 母', line_user_id='U-aoki')
+        self.customer.children.add(self.kid)
+        self.today = datetime.date(2026, 10, 1)
+
+    def test_find_hour(self):
+        f = services._find_hour
+        self.assertEqual([f('10/2 15時 予約'), f('10月2日 15:00'), f('10/2 午後3時'), f('１０／２　１５時'), f('10/2 予約'),
+                          f('10/15 予約')], [15, 15, 15, 15, None, None])
+
+    def test_apply_with_and_without_hour(self):
+        ok, reply = services.apply_message(self.f, '10/2 15時 りく 予約', customer=self.customer, today=self.today)
+        self.assertTrue(ok, reply)
+        r = Reservation.objects.get(beneficiary=self.kid)
+        self.assertEqual((r.date, r.start_time, r.status), (datetime.date(2026, 10, 2), datetime.time(15), Reservation.STATUS_CONFIRMED))
+        self.assertIn('承りました', reply)
+        ok, reply = services.apply_message(self.f, '10/3 りく 予約', customer=self.customer, today=self.today)
+        self.assertEqual((ok, reply), (False, ''))          # 時刻が無い：受信箱へ
+        self.assertEqual(Reservation.objects.filter(beneficiary=self.kid).count(), 1)
+
+    def test_public_request_waits_for_staff_time(self):
+        req, res = services.receive_request(self.f, datetime.date(2026, 10, 2), '青木 母', child_name='青木 りく')
+        self.assertIsNone(res)                                   # 時刻が決まらないので職員が確かめる
+        with self.assertRaises(services.ReservationError):
+            services.apply_request(req, self.kid)
+        res = services.apply_request(req, self.kid, start_time='16')
+        self.assertEqual(res.start_time, datetime.time(16))

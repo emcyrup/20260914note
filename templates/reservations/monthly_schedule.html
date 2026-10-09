@@ -24,6 +24,12 @@
   .ms-box.pair { color: #b02a37; background: #fde2e2; font-weight: 600; }      /* 同じ時間にできない利用者が同じ時間枠に入っている */
   .ms-count { font-weight: 400; font-size: 0.68rem; color: #6b6257; }
   .ms-free { margin-left: 3px; color: #2f7d4e; }
+  .ms-cap { margin-left: 3px; font-weight: 700; color: #8a6d1f; }      /* 定員を超えた日 */
+  .ms-cap.over { color: #fff; background: #b02a37; border-radius: 3px; padding: 0 3px; }   /* 1日の上限を超えた日 */
+  .ms-capbar { border-radius: 8px; padding: 6px 10px; font-size: .85rem; }
+  .ms-capbar.ok { background: #eef6ef; border: 1px solid #b9d9c0; }
+  .ms-capbar.near { background: #fff7df; border: 1px solid #e8c98a; }
+  .ms-capbar.over { background: #fde2e2; border: 1px solid #e3a3a8; }
   .ms-wk { font-weight: 400; font-size: 0.62rem; color: #6b6257; white-space: nowrap; }
   .ms-box.grp { background: #e3f1f7; }
   .ms-nm { color: inherit; text-decoration: none; }
@@ -116,6 +122,11 @@
       {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_board' %}?d={{ today|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm ms-hide-fit" title="きょうの担当と予定を1画面で（スマートフォン向け）"><i class="bi bi-phone me-1"></i>きょうの予定</a>{% endif %}
       {% if features.transport %}<a href="{% url 'transport:day' %}?d={{ today|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm ms-hide-fit" title="きょうの迎え・送りの一覧（配車表）"><i class="bi bi-truck me-1"></i>配車表</a>{% endif %}
       {% if facility.is_ryoiku %}<button type="button" class="btn btn-outline-success btn-sm" id="ms-att-toggle" title="名前を押して 来た・欠席・キャンセル を入れます。業務日誌の「実績」欄に印字されます"><i class="bi bi-check2-square me-1"></i>実績を入れる</button>{% endif %}
+      <div class="btn-group btn-group-sm" role="group" aria-label="表示の大きさ" id="ms-zoom" title="予定表と右の一覧の大きさ（この端末に覚えます）">
+        <button type="button" class="btn btn-outline-secondary" data-zoom="0.5">50%</button>
+        <button type="button" class="btn btn-outline-secondary" data-zoom="0.75">75%</button>
+        <button type="button" class="btn btn-outline-secondary" data-zoom="1">100%</button>
+      </div>
       <button type="button" class="btn btn-outline-secondary btn-sm" id="ms-fit-toggle" title="1 か月をひと目で見る（枠の箱を横に並べて小さくし、右の一覧は数字だけ並べる）"><i class="bi bi-arrows-angle-contract me-1"></i>全体を見る</button>
       <div class="btn-group ms-hide-fit">
         <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?inline=1" class="btn btn-outline-secondary btn-sm" target="_blank" title="A3 横 1 枚の PDF を開きます（日付の下にその日の担当）。A4 の用紙に印刷すると縮小されて 1 枚に収まります"><i class="bi bi-printer me-1"></i>印刷（A3）</a>
@@ -163,6 +174,15 @@
   </div>
   {% endif %}
 
+  {% if cap %}
+  <div class="ms-capbar mb-2 {{ cap.level }}" id="ms-cap">
+    <i class="bi {% if cap.level == 'ok' %}bi-check-circle{% else %}bi-exclamation-triangle{% endif %} me-1"></i>
+    <b>定員 {{ cap.capacity }} 名</b>：{% for m in cap.months %}{{ m.month }}月 {{ m.people }}人／{{ m.open_days }}日{% if m.avg is not None %}（{{ m.avg }}）{% endif %}{% if not forloop.last %}・{% endif %}{% endfor %}
+    → <b>3か月平均 {{ cap.avg }} 人／日</b>（上限 {{ cap.avg_limit }}{% if cap.level == 'over' %}・<b class="text-danger">超えています（{{ cap.over_by }} 人ぶん）</b>{% elif cap.room >= 0 %}・あと {{ cap.room }} 人{% endif %}）
+    {% if cap.over_days %}・<b class="text-danger">1日の上限 {{ cap.day_limit }} 名を超えた日：{% for d, n in cap.over_days %}{{ d|date:'j' }}日 {{ n }}名{% if not forloop.last %}、{% endif %}{% endfor %}</b>{% endif %}
+    <span class="text-muted small d-block">欠席・キャンセルは数えません（まだの日は予定の人数）。定員超過利用減算の目安で、予約は止めません。設定は予約カレンダーの「予約の設定」。</span>
+  </div>
+  {% endif %}
   <div class="ms-total mb-2" id="ms-total">
     <span><i class="bi bi-calendar-check me-1"></i>{{ month }}月の予約 合計 <strong>{{ schedule.total }}</strong> 件</span>
     {% if facility.is_ryoiku %}<span>来た <strong>{{ schedule.total_attended }}</strong></span>{% endif %}
@@ -171,7 +191,7 @@
     <span class="text-muted d-none d-md-inline ms-hide-fit"><i class="bi bi-arrows-move me-1"></i>名前はドラッグで動かせます（名前に重ねると入れ替え、きょうだいに重ねると1枠にまとめる、「＋」に置くと移動）</span>
   </div>
 
-  <div class="row g-3">
+  <div class="row g-3" id="ms-area">
     <div class="col-lg-9" id="ms-main">
       {% for week in schedule.weeks %}
       <table class="ms-week" style="--cap: {{ schedule.capacity }};">
@@ -179,7 +199,7 @@
           <th class="time"><span class="ms-wk" title="この週の予約の合計">計{{ week.count }}</span></th>
           {% for d in week.days %}
           <th class="{% if d.is_sunday %}sun{% elif d.is_saturday %}sat{% endif %}{% if d.closed %} closed{% endif %}">
-            {% if d.in_month %}{{ d.date|date:'j' }}日({{ d.date|date:'D' }}){% if d.holiday %}<div class="ms-count text-danger">{{ d.holiday }}</div>{% elif d.closed %}<div class="ms-count">お休み</div>{% else %}<div class="ms-count">{{ d.count }} 名{% if d.free %}<span class="ms-free" title="空いている枠">空{{ d.free }}</span>{% endif %}{% if d.attended %}<span class="ms-att attended ms-1" title="来た">来{{ d.attended }}</span>{% endif %}</div>{% endif %}{% if d.staff %}<div class="ms-count ms-staff" title="その日の担当">{{ d.staff }}</div>{% endif %}{% endif %}
+            {% if d.in_month %}{{ d.date|date:'j' }}日({{ d.date|date:'D' }}){% if d.holiday %}<div class="ms-count text-danger">{{ d.holiday }}</div>{% elif d.closed %}<div class="ms-count">お休み</div>{% else %}<div class="ms-count">{{ d.count }} 名{% if d.cap_level %}<span class="ms-cap {{ d.cap_level }}" title="{% if d.cap_level == 'over' %}1日の上限 {{ cap.day_limit }} 名を超えています{% else %}定員 {{ cap.capacity }} 名を超えています（上限 {{ cap.day_limit }} 名まで）{% endif %}（欠席・キャンセルを除いて {{ d.cap_people }} 名）">{% if d.cap_level == 'over' %}上限超{% else %}定員超{% endif %}</span>{% endif %}{% if d.free %}<span class="ms-free" title="空いている枠">空{{ d.free }}</span>{% endif %}{% if d.attended %}<span class="ms-att attended ms-1" title="来た">来{{ d.attended }}</span>{% endif %}</div>{% endif %}{% if d.staff %}<div class="ms-count ms-staff" title="その日の担当">{{ d.staff }}</div>{% endif %}{% endif %}
           </th>
           {% endfor %}
         </tr></thead>
@@ -297,22 +317,38 @@
   document.getElementById('ms-swap-toggle').addEventListener('click', function () {
     body.classList.toggle('ms-swap'); body.classList.remove('ms-att'); hideAtt(); reset();
   });
+  // 表示の大きさ（50%・75%・100%）。予定表と右の一覧を縮める（CSS の zoom）。この端末に覚える
+  var area = document.getElementById('ms-area'), zoom = 1;
+  function setZoom(z) {
+    zoom = [0.5, 0.75, 1].indexOf(z) >= 0 ? z : 1;
+    area.style.zoom = zoom === 1 ? '' : String(zoom);
+    document.querySelectorAll('#ms-zoom [data-zoom]').forEach(function (b) {
+      var on = parseFloat(b.dataset.zoom) === zoom;
+      b.classList.toggle('active', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    try { localStorage.setItem('ms-zoom', String(zoom)); } catch (e) {}
+    if (window.msFitHeight) window.msFitHeight();
+  }
+  document.querySelectorAll('#ms-zoom [data-zoom]').forEach(function (b) {
+    b.addEventListener('click', function () { setZoom(parseFloat(b.dataset.zoom)); });
+  });
   // 全体表示（1 か月をひと目で）。選んだ状態はこの端末に覚える
   (function () {
     var btn = document.getElementById('ms-fit-toggle');
     function fitHeight() {
-      // 全体表示のとき、すべての週が画面の高さに収まるよう、箱の高さを決める（9〜22px）
+      // 全体表示のとき、すべての週が画面の高さに収まるよう、箱の高さを決める（9〜22px。縮めているときはそのぶん大きく）
       if (!body.classList.contains('ms-fit')) { body.style.removeProperty('--ms-bh'); return; }
       var tables = document.querySelectorAll('.ms-week');
       if (!tables.length) return;
       body.style.setProperty('--ms-bh', '14px');
       var rows = 0, heads = 0;
-      tables.forEach(function (t) { rows += t.tBodies[0].rows.length; heads += t.tHead.offsetHeight + 3; });
+      tables.forEach(function (t) { rows += t.tBodies[0].rows.length; heads += t.tHead.getBoundingClientRect().height + 3 * zoom; });
       var top = tables[0].getBoundingClientRect().top + window.scrollY;
-      var avail = window.innerHeight - top - 6 - heads;
-      var h = Math.max(9, Math.min(22, Math.floor(avail / rows) - 1));
+      var avail = window.innerHeight - top - 6 - heads;      // 画面の上での高さ（縮めたあと）
+      var h = Math.max(9, Math.min(22 / zoom, Math.floor(avail / zoom / rows) - 1));
       body.style.setProperty('--ms-bh', h + 'px');
     }
+    window.msFitHeight = fitHeight;
     window.addEventListener('resize', fitHeight);
     document.addEventListener('fullscreenchange', function () { setTimeout(fitHeight, 50); });
     function apply(on) {
@@ -321,8 +357,9 @@
       btn.innerHTML = on ? '<i class="bi bi-arrows-angle-expand me-1"></i>ふつうの表示' : '<i class="bi bi-arrows-angle-contract me-1"></i>全体を見る';
       try { localStorage.setItem('ms-fit', on ? '1' : ''); } catch (e) {}
     }
-    var saved = false;
-    try { saved = localStorage.getItem('ms-fit') === '1'; } catch (e) {}
+    var saved = false, savedZoom = 1;
+    try { saved = localStorage.getItem('ms-fit') === '1'; savedZoom = parseFloat(localStorage.getItem('ms-zoom') || '1'); } catch (e) {}
+    setZoom(savedZoom);
     apply(saved);
     btn.addEventListener('click', function () {
       var on = !body.classList.contains('ms-fit');

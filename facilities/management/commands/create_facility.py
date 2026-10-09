@@ -30,7 +30,7 @@ RESERVATION_COPY_FIELDS = [
     'capacity', 'allow_waitlist', 'closed_weekdays', 'auto_send', 'public_calendar', 'public_booking', 'public_request',
     'booking_from_days', 'booking_until_days', 'notify_vacancy', 'booking_mode', 'group_auto_apply',
     'slot_mode', 'slot_capacity', 'slot_minutes', 'weekday_first_hour', 'weekday_last_hour',
-    'holiday_first_hour', 'holiday_last_hour', 'break_hours',
+    'holiday_first_hour', 'holiday_last_hour', 'break_hours', 'legal_capacity', 'day_limit', 'avg_limit',
 ]
 
 

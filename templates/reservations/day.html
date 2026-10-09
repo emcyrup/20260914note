@@ -14,6 +14,11 @@
 
 {% block content %}
 <div class="px-2" style="max-width: 1000px;">
+  {% if setting.legal_capacity and day_people > setting.legal_capacity %}
+  <div class="alert {% if day_people > setting.day_limit_value %}alert-danger{% else %}alert-warning{% endif %} py-2 small">
+    <i class="bi bi-exclamation-triangle me-1"></i>この日は {{ day_people }} 名（欠席・キャンセルを除く）で、{% if day_people > setting.day_limit_value %}<b>1日の上限 {{ setting.day_limit_value }} 名を超えています</b>{% else %}定員 {{ setting.legal_capacity }} 名を超えています（1日 {{ setting.day_limit_value }} 名まで）{% endif %}。3か月平均は<a href="{% url 'reservations:monthly_schedule' date.year date.month %}#ms-cap">月間予定表</a>で確かめられます。
+  </div>
+  {% endif %}
   <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <div class="btn-group">
       <a href="{% url 'reservations:day' prev_day.year prev_day.month prev_day.day %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left"></i></a>

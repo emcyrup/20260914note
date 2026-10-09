@@ -70,6 +70,13 @@ class ReservationSetting(models.Model):
                                     help_text='1日の枠ではなく、1時間ごとの枠（1枠45分）に人数の上限を置きます。'
                                               '月予約利用希望から月間予定表を作れます。')
     slot_capacity = models.PositiveSmallIntegerField(default=3, verbose_name='1枠の人数')
+    # 定員超過利用減算の目安（予約は止めず、月間予定表・日の画面で知らせるだけ）。0 は使わない／自動
+    legal_capacity = models.PositiveSmallIntegerField(default=0, verbose_name='定員（人／日）',
+                                                      help_text='指定を受けた定員。0 なら定員の知らせを出さない')
+    day_limit = models.PositiveSmallIntegerField(default=0, verbose_name='1日の上限（人）',
+                                                 help_text='0 なら定員の 150%（定員 10 なら 15）')
+    avg_limit = models.DecimalField(max_digits=4, decimal_places=1, default=0, verbose_name='3か月平均の上限（人／日）',
+                                    help_text='0 なら定員 11 以下は定員＋3、12 以上は定員の 125%')
     slot_minutes = models.PositiveSmallIntegerField(default=45, verbose_name='1枠の長さ（分）')
     weekday_first_hour = models.PositiveSmallIntegerField(default=10, verbose_name='平日の最初の枠（時）')
     weekday_last_hour = models.PositiveSmallIntegerField(default=18, verbose_name='平日の最後の枠（時）')
@@ -134,6 +141,23 @@ class ReservationSetting(models.Model):
         first = min(self.weekday_first_hour, self.holiday_first_hour)
         last = max(self.weekday_last_hour, self.holiday_last_hour)
         return [h for h in range(first, last + 1) if h not in skip]
+
+    @property
+    def day_limit_value(self):
+        """1日の上限（人）。0 なら定員の 150%（端数は切り捨て）。定員が無ければ 0"""
+        if not self.legal_capacity:
+            return 0
+        return self.day_limit or self.legal_capacity * 3 // 2
+
+    @property
+    def avg_limit_value(self):
+        """3か月平均の上限（人／日）。0 なら定員 11 以下は定員＋3、12 以上は定員の 125%。定員が無ければ 0"""
+        from decimal import Decimal
+        if not self.legal_capacity:
+            return Decimal(0)
+        if self.avg_limit:
+            return Decimal(self.avg_limit)
+        return Decimal(self.legal_capacity + 3) if self.legal_capacity <= 11 else Decimal(self.legal_capacity) * Decimal('1.25')
 
     def slot_capacity_of(self, day):
         """その日の枠の合計人数（時間枠のとき）"""
