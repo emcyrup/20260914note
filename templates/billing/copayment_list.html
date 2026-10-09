@@ -32,7 +32,32 @@
   <!-- 説明バナー -->
   <div class="alert mb-3 small" style="background-color: var(--color-primary-bg); border: 1px solid var(--color-primary-light); color: var(--color-primary-dark);">
     <i class="bi bi-info-circle me-1"></i>
-    複数の事業所を利用する{{ terms.beneficiary }}の負担上限月額管理です。「入力」ボタンをタップして各{{ terms.beneficiary }}の実績を登録してください。
+    複数の事業所を利用する{{ terms.beneficiary }}の負担上限月額管理です。対象は <b>{{ targets|length }} 人</b>{% if waiting %}（うち FAX の結果待ち <b>{{ waiting }} 人</b>）{% endif %}。
+    「判定」の列で、当施設だけで上限に達するか・ほかの事業所の額を入れて配分するか・FAX の結果を待つかが分かります。
+    管理する事業所は利用者情報の「利用事業所」で決めます（月ごとの入力で変えることもできます）。
+  </div>
+
+  <form method="post" id="cp-fax-form" class="d-flex flex-wrap align-items-end gap-2 mb-3 p-2 rounded" style="background:#faf8f4;border:1px solid var(--line);">
+    {% csrf_token %}<input type="hidden" name="action" value="fax">
+    <div class="small fw-semibold me-1"><i class="bi bi-printer me-1"></i>FAX で返ってきた結果をまとめて反映（ほかの事業所が管理する{{ terms.beneficiary }}）：</div>
+    {% for v, label in fax_choices %}
+    <div class="form-check form-check-inline mb-0">
+      <input class="form-check-input" type="radio" name="choice" id="fax-{{ v }}" value="{{ v }}" {% if forloop.first %}checked{% endif %}>
+      <label class="form-check-label small" for="fax-{{ v }}">{{ label }}</label>
+    </div>
+    {% endfor %}
+    <input type="number" name="amount" min="0" class="form-control form-control-sm" style="width:120px;" placeholder="円">
+    <button class="btn btn-sm btn-primary" id="cp-fax-btn" disabled>印を付けた人に反映</button>
+    <span class="small text-muted">当施設の負担額は請求と同じ計算で入り、「0 円」は管理結果 1、「全額」は 2 になります。</span>
+  </form>
+
+  <div class="d-flex justify-content-end mb-2">
+    {% if has_prev %}
+    <form method="post" onsubmit="return confirm('先月の上限管理（管理する／しない・事業所の並び）を、今月まだ入力していない人に写します。よろしいですか？');">
+      {% csrf_token %}<input type="hidden" name="action" value="copy_prev">
+      <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat me-1"></i>先月の設定を写す</button>
+    </form>
+    {% endif %}
   </div>
 
   <!-- 利用者一覧 -->
@@ -41,41 +66,32 @@
     <table class="table table-bordered table-sm align-middle" style="font-size: 0.85rem;">
       <thead>
         <tr style="background-color: #f8f9fa;">
+          <th class="text-center px-1" style="width:28px;" title="FAX の結果をまとめて反映する人"><input type="checkbox" id="cp-all" class="form-check-input"></th>
           <th class="px-3">{{ terms.beneficiary }}</th>
-          <th class="text-center px-2">管理結果</th>
+          <th class="px-2">判定</th>
+          <th class="text-center px-2">上限月額</th>
           <th class="text-center px-2">当施設負担額</th>
           <th class="text-center px-2">合計負担額</th>
-          <th class="text-center px-2">上限管理</th>
           <th class="text-center px-2" style="width: 160px;">操作</th>
         </tr>
       </thead>
       <tbody>
         {% for row in rows %}
-        <tr>
+        <tr class="{% if not row.judge.target %}text-muted{% endif %}">
+          <td class="text-center px-1">{% if row.judge.state == 'other' %}<input type="checkbox" name="ids" value="{{ row.beneficiary.pk }}" form="cp-fax-form" class="form-check-input cp-pick">{% endif %}</td>
           <td class="px-3 fw-semibold">{{ row.beneficiary.full_name }}</td>
-          <td class="text-center px-2 small">
-            {% if row.management %}{% if row.management.is_upper_limit_manager %}<span class="badge" style="background:var(--color-primary);font-size:0.7rem;">当施設が管理</span>{% else %}<span class="text-muted">他事業所が管理</span>{% endif %}
-            {% elif row.is_manager_here %}<span class="badge text-bg-light text-dark" style="font-size:0.7rem;">当施設が管理（台帳）</span>
-            {% else %}<span class="text-muted">—</span>{% endif %}
+          <td class="px-2 small">
+            {% if row.judge.state == 'here' %}<span class="badge" style="background:var(--color-primary);font-size:0.7rem;">当施設が管理</span>
+            {% elif row.judge.state == 'other' %}<span class="badge text-bg-secondary" style="font-size:0.7rem;">他事業所が管理</span>
+            {% else %}<span class="badge text-bg-light text-muted" style="font-size:0.7rem;">対象外</span>{% endif %}
+            <span class="ms-1 {% if '結果待ち' in row.judge.text or '未登録' in row.judge.text %}text-warning-emphasis{% elif '0 円' in row.judge.text %}text-success{% endif %}">{{ row.judge.text }}</span>
           </td>
-          {% if row.management %}
-            <td class="text-center px-2">
-              <span class="badge px-2"
-                    style="background-color: var(--color-primary); color: #fff; font-size: 0.72rem;">
-                {{ row.management.get_management_result_display }}
-              </span>
-            </td>
-            <td class="text-center px-2">
-              {{ row.management.this_office_copayment|default:"—" }}円
-            </td>
-            <td class="text-center px-2">
-              {{ row.management.total_copayment|default:"—" }}円
-            </td>
-          {% else %}
-            <td class="text-center text-muted px-2 small">未入力</td>
-            <td class="text-center text-muted px-2 small">—</td>
-            <td class="text-center text-muted px-2 small">—</td>
-          {% endif %}
+          <td class="text-center px-2">{% if row.judge.cap is not None %}{{ row.judge.cap }}円{% else %}<span class="text-danger small">未登録</span>{% endif %}</td>
+          <td class="text-center px-2">
+            {% if row.management and row.management.office_records.exists %}{{ row.management.this_office_copayment }}円
+            {% elif row.judge.burden is not None %}<span class="text-muted" title="請求と同じ計算（未保存）">{{ row.judge.burden }}円</span>{% else %}—{% endif %}
+          </td>
+          <td class="text-center px-2">{% if row.management and row.management.office_records.exists %}{{ row.management.total_copayment }}円{% else %}—{% endif %}</td>
           <td class="text-center px-2 text-nowrap">
             <a href="{% url 'billing:copayment_edit' row.beneficiary.pk year month %}"
                class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size: 0.78rem;">
@@ -104,4 +120,18 @@
   {% endif %}
 
 </div>
+<script>
+(function () {
+  var picks = Array.prototype.slice.call(document.querySelectorAll('.cp-pick')), all = document.getElementById('cp-all'), btn = document.getElementById('cp-fax-btn');
+  function refresh() { btn.disabled = !picks.some(function (p) { return p.checked; }); }
+  picks.forEach(function (p) { p.addEventListener('change', refresh); });
+  if (all) all.addEventListener('change', function () { picks.forEach(function (p) { p.checked = all.checked; }); refresh(); });
+  document.getElementById('cp-fax-form').addEventListener('submit', function (e) {
+    var n = picks.filter(function (p) { return p.checked; }).length;
+    var choice = document.querySelector('input[name=choice]:checked').value, amount = document.querySelector('input[name=amount]').value;
+    if (choice === 'amount' && !amount) { e.preventDefault(); alert('金額を入れてください。'); return; }
+    if (!confirm(n + ' 人に FAX の結果を反映します。よろしいですか？')) e.preventDefault();
+  });
+})();
+</script>
 {% endblock %}

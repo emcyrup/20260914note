@@ -36,6 +36,12 @@
   </div>
   {% endif %}
 
+  <div class="alert alert-light border small py-2 mb-3">
+    <i class="bi bi-calculator me-1"></i>負担上限月額：<b>{% if cap is not None %}{{ cap }} 円{% else %}<span class="text-danger">受給者証が未登録</span>{% endif %}</b>
+    　当施設の今月の額（請求と同じ計算）：総費用 <b>{% if this_total_cost is not None %}{{ this_total_cost }} 円{% else %}—{% endif %}</b>・利用者負担 <b>{% if this_burden is not None %}{{ this_burden }} 円{% else %}—{% endif %}</b>
+    <div class="text-muted mt-1">当施設が管理するときは、ほかの事業所の「負担額（調整前）」を入れて<b>「上限で配分する」</b>を押すと、当施設を先に上限まで充て、残りをほかの事業所に順に入れて管理結果も決めます。ほかの事業所が管理するときは、一覧の「FAX の結果を反映」が早いです。</div>
+  </div>
+
   <form method="post" data-concurrency="copayment:{{ management.pk }}">
     {% csrf_token %}
     {% version_field management %}
@@ -131,6 +137,9 @@
     <div class="d-flex gap-2 justify-content-end">
       <a href="{% url 'billing:copayment_list_month' year month %}"
          class="btn btn-outline-secondary btn-sm">キャンセル</a>
+      <button type="submit" name="action" value="allocate" class="btn btn-outline-primary btn-sm" title="当施設を先に上限まで充て、残りをほかの事業所に順に配分します（保存もします）">
+        <i class="bi bi-calculator me-1"></i>上限で配分する
+      </button>
       <button type="submit" class="btn btn-primary btn-sm px-4">
         <i class="bi bi-check-circle me-1"></i>保存する
       </button>

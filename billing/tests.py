@@ -1,3 +1,5 @@
+from datetime import date
+
 from django.test import TestCase
 
 # Create your tests here.
@@ -145,3 +147,85 @@ class CopaymentSheetTests(TestCase):
         self.ben.save()
         ctx = _build_invoice_context(self.facility, self.ben, 2026, 9)
         self.assertEqual(ctx['total_cost'], int(Decimal(604) * Decimal('11.05') * 3))
+
+
+class CopaymentJudgeAndFaxTests(TestCase):
+    """上限管理：判定・配分・FAX の結果の一括反映・先月の設定を写す（billing/copayment.py）"""
+
+    def setUp(self):
+        self.facility = Facility.objects.create(name='はぴねす', office_number='2650000001', use_billing=True,
+                                                base_unit_count=604, base_unit_count_severe=1756, region_category='3')
+        self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility)
+        self.client.force_login(self.user)
+        mk = lambda last, first: Beneficiary.objects.create(facility=self.facility, last_name=last, first_name=first, date_of_birth='2015-09-14')
+        self.here, self.other, self.single = mk('中村', 'みお'), mk('田中', 'ひなた'), mk('佐藤', 'はると')
+        for b in (self.here, self.other, self.single):
+            RecipientCertificate.objects.create(beneficiary=b, certificate_number='2600001234', granted_days=23, monthly_cap=4600,
+                                                valid_from='2026-04-01', valid_until='2027-03-31')
+        BeneficiaryOffice.objects.create(beneficiary=self.here, name='はぴねす', office_number='2650000001', is_this_office=True, is_manager=True)
+        BeneficiaryOffice.objects.create(beneficiary=self.here, name='児童デイ ひまわり', office_number='2650000101', order=1)
+        BeneficiaryOffice.objects.create(beneficiary=self.other, name='はぴねす', office_number='2650000001', is_this_office=True)
+        BeneficiaryOffice.objects.create(beneficiary=self.other, name='児童デイ ひまわり', office_number='2650000101', is_manager=True, order=1)
+        for b in (self.here, self.other):          # 9 月に 10 日来所 → 総費用 604 × 11.05 × 10 = 66,742 円、負担 1 割 6,619 → 上限 4,600
+            for d in range(1, 11):
+                BillingMatrixEntry.objects.create(facility=self.facility, beneficiary=b, date=date(2026, 9, d), status='attended')
+
+    def test_allocate(self):
+        from . import copayment as cp
+        rows = [{'is_this_office': True, 'original_copayment': 6619}, {'is_this_office': False, 'original_copayment': 3000}]
+        self.assertEqual(cp.allocate(4600, rows), ([4600, 0], '1'))
+        rows = [{'is_this_office': True, 'original_copayment': 3000}, {'is_this_office': False, 'original_copayment': 3000},
+                {'is_this_office': False, 'original_copayment': 1000}]
+        self.assertEqual(cp.allocate(4600, rows), ([3000, 1600, 0], '3'))
+        self.assertEqual(cp.allocate(4600, rows[:1]), ([3000], '2'))
+        self.assertEqual(cp.allocate(None, rows), ([3000, 3000, 1000], '2'))
+
+    def test_list_judgement_and_fax_bulk(self):
+        from . import copayment as cp
+        url = reverse('billing:copayment_list_month', args=[2026, 9])
+        res = self.client.get(url)
+        self.assertContains(res, '当施設だけで上限 4,600 円に達する')
+        self.assertContains(res, 'FAX の結果待ち')
+        self.assertContains(res, '対象外（利用は当施設だけ）')
+        self.assertContains(res, 'FAX の結果待ち <b>1 人</b>')
+        res = self.client.post(url, {'action': 'fax', 'ids': [self.other.pk], 'choice': 'zero'}, follow=True)
+        self.assertContains(res, '1 人に FAX の結果「0 円（管理事業所で上限に達した）」を反映しました')
+        m = CopaymentManagement.objects.get(beneficiary=self.other, year_month='2026-09')
+        mine = m.office_records.get(is_this_office=True)
+        self.assertEqual((m.is_upper_limit_manager, m.management_result, mine.original_copayment, mine.adjusted_copayment, mine.total_cost),
+                         (False, '1', 4600, 0, 66742))
+        self.assertEqual(cp.judge(self.facility, self.other, 2026, 9, m)['text'], 'ほかの事業所が管理：結果を反映ずみ（当施設 0 円）')
+        self.client.post(url, {'action': 'fax', 'ids': [self.other.pk], 'choice': 'amount', 'amount': '3000'})
+        mine.refresh_from_db()
+        m.refresh_from_db()
+        self.assertEqual((mine.adjusted_copayment, m.management_result), (3000, '3'))
+        self.client.post(url, {'action': 'fax', 'ids': [self.other.pk], 'choice': 'full'})
+        mine.refresh_from_db()
+        self.assertEqual(mine.adjusted_copayment, 4600)
+
+    def test_edit_prefill_and_allocate_and_copy_prev(self):
+        edit = reverse('billing:copayment_edit', args=[self.here.pk, 2026, 9])
+        res = self.client.get(edit)
+        self.assertContains(res, '負担上限月額：<b>4600 円</b>')
+        self.assertContains(res, 'value="66742"')          # 当施設の総費用（請求と同じ計算）
+        self.assertContains(res, 'value="4600"')           # 当施設の負担額
+        data = {
+            'is_upper_limit_manager': 'on', 'management_result': '2', 'action': 'allocate',
+            'office_records-TOTAL_FORMS': '2', 'office_records-INITIAL_FORMS': '0',
+            'office_records-MIN_NUM_FORMS': '0', 'office_records-MAX_NUM_FORMS': '1000',
+            'office_records-0-office_name': 'はぴねす', 'office_records-0-office_number': '2650000001',
+            'office_records-0-total_cost': '66742', 'office_records-0-original_copayment': '3000', 'office_records-0-adjusted_copayment': '3000',
+            'office_records-1-office_name': '児童デイ ひまわり', 'office_records-1-office_number': '2650000101',
+            'office_records-1-total_cost': '30000', 'office_records-1-original_copayment': '3000', 'office_records-1-adjusted_copayment': '3000',
+        }
+        res = self.client.post(edit, data, follow=True)
+        self.assertContains(res, '上限 4,600 円で配分しました：はぴねす 3,000 円、児童デイ ひまわり 1,600 円')
+        m = CopaymentManagement.objects.get(beneficiary=self.here, year_month='2026-09')
+        self.assertEqual(m.management_result, '3')
+        self.assertEqual([r.adjusted_copayment for r in m.office_records.order_by('-is_this_office')], [3000, 1600])
+        # 10 月：先月の設定を写す（当施設の額は 10 月の請求から。来所が無いので 0）
+        res = self.client.post(reverse('billing:copayment_list_month', args=[2026, 10]), {'action': 'copy_prev'}, follow=True)
+        self.assertContains(res, 'を 1 人に写しました')
+        m10 = CopaymentManagement.objects.get(beneficiary=self.here, year_month='2026-10')
+        self.assertTrue(m10.is_upper_limit_manager)
+        self.assertEqual(list(m10.office_records.values_list('office_name', 'original_copayment')), [('はぴねす', 0), ('児童デイ ひまわり', 0)])
