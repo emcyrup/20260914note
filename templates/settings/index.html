@@ -257,6 +257,12 @@
         <div class="form-text">サーバーで音声を文字にするときのヒントになります（読点や改行で区切る）。職員・利用者の名前と「やったこと」の活動名は自動で足すので、それ以外の専門用語・地名・略語などを入れてください。</div>
       </div>
       {% endif %}
+      <div class="mt-3">
+        <div class="small fw-semibold mb-1"><i class="bi bi-chat-square-text me-1"></i>言葉づかいの辞書（保存の前に知らせる言葉）</div>
+        <textarea name="word_rules" class="form-control form-control-sm" rows="4" maxlength="4000" {% if not is_admin %}disabled{% endif %}
+                  placeholder="例：&#10;問題行動=気になる行動&#10;さぼり=取り組まなかった&#10;-促す">{{ facility.word_rules }}</textarea>
+        <div class="form-text">日誌・療育記録・計画書を保存するとき、不適切な表現（「問題児」「わがまま」など）・難しい言い回し（「離席」「適宜」など）・方針や助言の言い回し（「〜するとよい」など）が入っていれば、言いかえと一緒に知らせます（止めはしません。「このまま保存」もできます）。標準の辞書に足す言葉を 1 行に「言葉=言いかえ」で書きます。言いかえは無くてもかまいません。行頭に「-」を付けると、標準の辞書からその言葉を外します（例：-促す）。</div>
+      </div>
       {% if is_admin %}
       <div class="text-end mt-3"><button class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>保存する</button></div>
       {% else %}

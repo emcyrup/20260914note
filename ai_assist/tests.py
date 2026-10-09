@@ -490,3 +490,39 @@ class AsIsCheckTests(SimpleTestCase):
     def test_words_in_source_are_kept(self):
         from ai_assist import asis
         self.assertEqual(asis.find_added('しっかり 座って いた', 'しっかり座っていた。'), [])
+
+
+class WordingCheckTests(TestCase):
+    """言葉づかいのチェック（ai_assist/wording.py）：標準の辞書・施設の辞書・方針の言い回し・保存前の呼び出し"""
+
+    def setUp(self):
+        from facilities.models import Facility
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_therapy_record=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+
+    def test_check_and_facility_rules(self):
+        from . import wording
+        found = wording.check('離席が多く、わがままを言った。順番を待つことが大切。', self.f)
+        self.assertEqual([(x['word'], x['kind']) for x in found], [('離席', 'hard'), ('わがまま', 'ng'), ('ことが大切', 'advice')])
+        self.assertEqual(found[0]['hint'], '「席を立った」')
+        self.f.word_rules = 'ぐずぐず=「取りかかるまでに時間がかかった」など\n-離席\n# メモ'
+        found = wording.check('離席してぐずぐずしていた', self.f)
+        self.assertEqual([(x['word'], x['kind']) for x in found], [('ぐずぐず', 'ng')])
+        self.assertEqual(wording.check('ブロックで遊んだ。', self.f), [])
+
+    def test_endpoint_and_settings(self):
+        import json
+        res = self.client.post(reverse('ai_assist:wording_check'), data=json.dumps({'texts': ['工作をした', '暴れた']}), content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual([x['word'] for x in res.json()['findings']], ['暴れ'])
+        res = self.client.post(reverse('facilities:feature_settings'), {'use_therapy_record': 'on', 'journal_sections': ['observation'],
+                                                                 'word_rules': '問題行動=気になる行動'}, follow=True)
+        self.f.refresh_from_db()
+        self.assertEqual(self.f.word_rules, '問題行動=気になる行動')
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, '言葉づかいの辞書')
+        b = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=date(2019, 4, 1))
+        res = self.client.get(reverse('therapy:child', args=[b.pk]))
+        self.assertContains(res, 'data-wording')
+        self.assertContains(res, 'js/wording-check.js')

@@ -512,7 +512,9 @@
 <script src="{% static 'js/voice-input.js' %}?v=13"></script>
 <script>window.DRAFT_SCOPE = '{{ user.pk }}'; window.DRAFT_SAVED = {% if messages %}{% for m in messages %}{% if m.level_tag == 'success' %}true || {% endif %}{% endfor %}{% endif %}false;</script>
 <script src="{% static 'js/draft-autosave.js' %}?v=1"></script>
-<script src="{% static 'js/asis-notice.js' %}?v=1"></script>{% endif %}
+<script src="{% static 'js/asis-notice.js' %}?v=1"></script>
+{% url 'ai_assist:wording_check' as wording_url %}{% if wording_url %}<script>window.WORDING_CHECK_URL = '{{ wording_url }}';</script>
+<script src="{% static 'js/wording-check.js' %}?v=1"></script>{% endif %}{% endif %}
 {% block extra_js %}{% endblock %}
 
 {% if user.is_authenticated and user.ui_theme != 'simple' and not reservation_only %}

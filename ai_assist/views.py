@@ -160,3 +160,22 @@ class TranscribeView(LoginRequiredMixin, View):
         except speech.SpeechError as e:
             return JsonResponse({'error': str(e)}, status=400 if '形式' in str(e) or '長すぎ' in str(e) else 502)
         return JsonResponse({'text': text})
+
+
+class WordingCheckView(LoginRequiredMixin, View):
+    """言葉づかいのチェック（ai_assist/wording.py）。{"texts": [...]} → {"findings": [{word, hint, kind, label}]}。AI は使わない"""
+
+    def post(self, request):
+        import json
+
+        from django.http import JsonResponse
+
+        from . import wording
+        try:
+            data = json.loads(request.body.decode('utf-8') or '{}')
+        except ValueError:
+            data = {}
+        texts = data.get('texts') if isinstance(data.get('texts'), list) else [data.get('text', '')]
+        text = '\n'.join(str(t) for t in texts if t)[:20000]
+        return JsonResponse({'findings': wording.check(text, request.user.facility)})
+

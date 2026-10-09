@@ -1840,6 +1840,10 @@ function journalCreateForm(generateUrl, planUrl) {
         window.Concurrency.check(formEl).then((ok) => { if (ok) { formEl.dataset.concurrencyOk = '1'; this.submitForm(formEl); } });
         return;
       }
+      if (window.WordingCheck && !formEl.dataset.wordingOk) {       // 言葉づかいのチェック（気になる言葉を知らせる。止めはしない）
+        window.WordingCheck.check(formEl).then((ok) => { if (ok) { formEl.dataset.wordingOk = '1'; this.submitForm(formEl); } });
+        return;
+      }
       // iOS Safari では input.files への代入が無効なため、
       // _prev（蓄積済みファイルリスト）と input.files の枚数が合わない場合は
       // fetch + FormData で手動送信してすべての写真を確実に含める
@@ -1911,6 +1915,10 @@ function journalEditForm(generateUrl, initialResult, initSupportTags = [], initD
     submitForm(formEl) {
       if (window.Concurrency && !formEl.dataset.concurrencyOk) {
         window.Concurrency.check(formEl).then((ok) => { if (ok) { formEl.dataset.concurrencyOk = '1'; this.submitForm(formEl); } });
+        return;
+      }
+      if (window.WordingCheck && !formEl.dataset.wordingOk) {       // 言葉づかいのチェック（気になる言葉を知らせる。止めはしない）
+        window.WordingCheck.check(formEl).then((ok) => { if (ok) { formEl.dataset.wordingOk = '1'; this.submitForm(formEl); } });
         return;
       }
       const photoInput = formEl.querySelector('input[name="photos"]');

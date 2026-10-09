@@ -82,7 +82,7 @@
   </div>
   {% endif %}
 
-  <form method="post" id="sh-form" {% if editable %}data-concurrency="plan_draft:{{ draft.pk }}" data-draft="plan-sheet:{{ plan.pk }}"{% endif %}>
+  <form method="post" id="sh-form" {% if editable %}data-wording data-concurrency="plan_draft:{{ draft.pk }}" data-draft="plan-sheet:{{ plan.pk }}"{% endif %}>
     {% csrf_token %}{% if editable %}{% version_field draft %}{% endif %}
     <div data-draft-banner></div>
     <div class="sh-sheet {% if not editable %}sh-ro{% endif %}">

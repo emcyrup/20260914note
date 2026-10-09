@@ -203,6 +203,7 @@ class FeatureSettingsView(LoginRequiredMixin, View):
             return redirect('facilities:settings')
         facility.journal_sections = keys
         facility.speech_words = request.POST.get('speech_words', facility.speech_words).strip()[:2000]
+        facility.word_rules = request.POST.get('word_rules', facility.word_rules).strip()[:4000]
         # 帳票様式は開発向けユーザーだけが変えられる（他の事業所の様式名を管理者に見せない）
         if request.user.can_switch_facility:
             form_set = request.POST.get('form_set', facility.form_set)
@@ -220,7 +221,7 @@ class FeatureSettingsView(LoginRequiredMixin, View):
         facility.save(update_fields=['use_billing', 'use_schedule', 'use_line', 'use_reservation', 'use_therapy_record',
                                      'use_transport', 'use_dev_assessment', 'use_survey', 'use_daily_ops',
                                      'journal_sections', 'form_set', 'layout', 'trial_ai_limit', 'trial_ai_used',
-                                     'speech_words', 'updated_at'])
+                                     'speech_words', 'word_rules', 'updated_at'])
         messages.success(request, '使う機能と日誌の項目を保存しました。')
         return redirect('facilities:settings')
 

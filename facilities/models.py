@@ -104,6 +104,8 @@ class Facility(models.Model):
     trial_ai_used = models.PositiveIntegerField(default=0, verbose_name='お試しの AI を使った回数')
     # 音声入力（サーバーの Whisper）に渡す「よく使う言葉」。職員や利用者の名前・活動名は自動で足すので、それ以外の専門用語など
     speech_words = models.TextField(blank=True, verbose_name='音声入力でよく使う言葉')
+    # 言葉づかいの辞書（ai_assist/wording.py）。1 行に「言葉=言いかえ」。行頭「-」で標準の辞書から外す
+    word_rules = models.TextField(blank=True, verbose_name='言葉づかいの辞書（保存前に知らせる言葉）')
     # オンにすると、ログイン画面の「職員として新しく登録」をコードなしで受け付ける（承認は管理者が行う）
     staff_signup_open = models.BooleanField(default=False, verbose_name='職員登録コードなしで申し込みを受け付ける')
     # 日誌で AI が作る項目と、その順番（空なら標準の順番で全部）
