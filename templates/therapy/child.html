@@ -78,13 +78,13 @@
                   title="音声で入力（もう一度押すと止まる）"><i class="bi bi-mic"></i> 音声入力</button>
           <button type="button" class="btn btn-sm btn-outline-primary cautions-ai" id="cautions-detail" data-mode="detail"
                   data-url="{% url 'therapy:cautions_summary' beneficiary.pk %}"
-                  title="話した言葉のまま、場面ごとの見出しと箇条書きに分けます（言いかえ・飾り・AI の見解は足しません）"><i class="bi bi-card-list"></i> 詳しくまとめる</button>
+                  title="話した内容を書き言葉にして、場面ごとの見出しと箇条書きに分けます（飾り・AI の見解は足しません）"><i class="bi bi-card-list"></i> 詳しくまとめる</button>
           <button type="button" class="btn btn-sm btn-outline-primary cautions-ai" id="cautions-summary" data-mode="short"
                   data-url="{% url 'therapy:cautions_summary' beneficiary.pk %}"
-                  title="入っている言葉のまま箇条書きにします（言いよどみ・くり返しだけ除きます）"><i class="bi bi-magic"></i> 短く要約</button>
+                  title="入っている内容を書き言葉で箇条書きにします（言いよどみ・くだけた言葉は除きます）"><i class="bi bi-magic"></i> 短く要約</button>
           <button type="button" class="btn btn-sm btn-outline-primary cautions-ai" id="cautions-tidy" data-mode="tidy"
                   data-url="{% url 'therapy:cautions_summary' beneficiary.pk %}"
-                  title="箇条書きにせず、話した文章のまま句読点と改行だけ整えます（言いよどみ・くり返しだけ除きます）"><i class="bi bi-text-paragraph"></i> 整文だけ</button>
+                  title="箇条書きにせず、話した文章を書き言葉に整えます（言いよどみ・くだけた言葉を除き、文末は「〜した」「〜だった」）"><i class="bi bi-text-paragraph"></i> 整文だけ</button>
         </div>
       </div>
       <div data-draft-banner></div>
@@ -101,7 +101,7 @@
       {% endif %}
       <textarea class="form-control" id="cautions" name="cautions" rows="{{ cautions_rows }}" placeholder="用紙の上の枠に書いてある、この{{ terms.beneficiary }}のときに気をつけること">{{ profile.cautions|default:'' }}</textarea>
       <div class="th-save-row">
-        <div class="form-text mb-0">用紙の上に印刷されます。話して入れたあと「詳しくまとめる」で場面ごとの見出しと箇条書きに、「短く要約」で箇条書きに、「整文だけ」で文章のまま句読点と改行だけ整えます。どちらも<b>話した言葉のまま</b>使い、言いかえ・飾りの言葉・AI の見解は足しません（消すのは「えー」などの言いよどみとくり返しだけ）。{% if knowledge_count %}<br><i class="bi bi-journal-medical"></i> 「短く要約」と記録の「留意点から記録に追記」は、<a href="{% url 'beneficiaries:detail' beneficiary.pk %}#knowledge">書類から分かっていること</a>（{{ knowledge_count }} 件：診断書など）も参考にします。{% endif %}</div>
+        <div class="form-text mb-0">用紙の上に印刷されます。話して入れたあと「詳しくまとめる」で場面ごとの見出しと箇条書きに、「短く要約」で箇条書きに、「整文だけ」で文章のまま書き言葉に整えます。どれも<b>内容は話したまま</b>で、飾りの言葉・AI の見解は足しません。言葉づかいだけ書き言葉にします（「えー」「なんか」「めっちゃ」などは消すか書き言葉にし、文末は「〜した」「〜だった」「〜だと思う」の断定の形。です・ますにしない）。{% if knowledge_count %}<br><i class="bi bi-journal-medical"></i> 「短く要約」と記録の「留意点から記録に追記」は、<a href="{% url 'beneficiaries:detail' beneficiary.pk %}#knowledge">書類から分かっていること</a>（{{ knowledge_count }} 件：診断書など）も参考にします。{% endif %}</div>
         <button class="btn btn-sm btn-outline-secondary th-save-btn"><i class="bi bi-check2 me-1"></i>留意点を保存</button>
       </div>
     </form>
