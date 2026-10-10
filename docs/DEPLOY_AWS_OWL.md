@@ -44,7 +44,7 @@ Actions → **Deploy (owl)** → Run workflow（ブランチ `ryoiku`）。`ryoi
 
 Actions → **Manage (owl)** → Run workflow：
 
-1. `task=create_facility`、事業所名「児童発達支援センター　オウル」（既定）、管理者 `owl`（既定）、パスワード欄に決めたパスワード（空ならランダムな仮の値になり、あとで `set_password` が要る）、サンプルデータは既定で入れない。`--preset ryoiku`（時間枠の予約・療育記録・メニュー「基本機能／お試し／設定」・お試しの AI 20 回・請求と予定を使わない）に加えて、**送迎・配車と 5領域アセスメントを使う**設定にします。
+1. `task=create_facility`、事業所名「児童発達支援センター　オウル」（既定）、管理者 `owl`（既定）、パスワードはリポジトリの Secrets `OWL_ADMIN_PASSWORD` に入れておく（2026-10-10〜。入力欄では受け取らない。空ならランダムな仮の値になり、あとで `set_password` が要る）、サンプルデータは既定で入れない。`--preset ryoiku`（時間枠の予約・療育記録・メニュー「基本機能／お試し／設定」・お試しの AI 20 回・請求と予定を使わない）に加えて、**送迎・配車と 5領域アセスメントを使う**設定にします。
 2. `https://michinote.owl.ai-labo.cloud/` に `owl` でログインし、施設設定 → 施設基本情報で住所などを入れる。職員はログイン画面の「職員の新規登録」から登録し、管理者が運用管理で承認する。
 
 ほかの task（`set_password`・`list`・`seed_demo`・`delete_facility`・`error_log`・`set_media_root`）は Manage (yours) と同じです（`set_media_root` は `~/michinoteowl/media` に直す）。

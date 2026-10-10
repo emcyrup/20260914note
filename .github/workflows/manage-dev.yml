@@ -10,7 +10,9 @@
 #   - error_log       : サーバーのエラーログの末尾（技術的な行だけ。日本語と長い数字は伏せる）を表示する
 #   - set_media_root  : .env の MEDIA_ROOT を ~/michinotedemo/media に直して Gunicorn を再起動する（写真・書類が 500 になるとき）
 #
-# パスワードは入力欄（admin_password）に入れる。ログには出ない（マスクし、サーバーへは環境変数で渡す）。
+# パスワードは入力欄では受け取らない（入力欄の値は公開のログの「env:」にそのまま出るため）。
+# リポジトリの Secrets の DEV_ADMIN_PASSWORD に入れてから set_password／create_facility を実行する（Secrets はログで伏せられる）。
+# 使い終わったら Secret は消してよい。空なら create_facility はランダムな仮の値にする。
 # このリポジトリは公開なので、ログに秘密の値を出さないこと。
 # =============================================
 name: Manage (dev)
@@ -32,10 +34,6 @@ on:
         description: "管理者のユーザー名（create_facility・set_password）"
         type: string
         default: owl
-      admin_password:
-        description: "パスワード（create_facility・set_password。空なら create_facility はランダムな仮のパスワードにし、あとで set_password で設定する）"
-        type: string
-        default: ""
       with_demo:
         description: "サンプルデータも入れる（create_facility）"
         type: boolean
@@ -86,14 +84,17 @@ jobs:
           TASK: ${{ inputs.task }}
           FACILITY_NAME: ${{ inputs.facility_name }}
           ADMIN_USERNAME: ${{ inputs.admin_username }}
-          ADMIN_PASSWORD: ${{ inputs.admin_password }}
+          ADMIN_PASSWORD: ${{ secrets.DEV_ADMIN_PASSWORD }}
           WITH_DEMO: ${{ inputs.with_demo }}
           FACILITY_ID: ${{ inputs.facility_id }}
           COPY_FROM: ${{ inputs.copy_from }}
           REMOTE_APP_DIR: ${{ env.APP_DIR }}
           REMOTE_VENV: ${{ env.VENV }}
         run: |
-          # パスワードはログに出さない（入力があればマスク。無ければランダムな仮の値。ログには出ない）
+          # パスワードは Secrets（DEV_ADMIN_PASSWORD）から。無ければランダムな仮の値（どちらもログに出さない）
+          if [ "$TASK" = "set_password" ] && [ -z "$ADMIN_PASSWORD" ]; then
+            echo "Secrets の DEV_ADMIN_PASSWORD が空です。先に Settings → Secrets and variables → Actions で登録してください（入力欄では受け取りません）"; exit 1
+          fi
           if [ -n "$ADMIN_PASSWORD" ]; then
             echo "::add-mask::$ADMIN_PASSWORD"
           else
