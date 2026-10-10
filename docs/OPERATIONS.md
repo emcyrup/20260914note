@@ -67,7 +67,7 @@
 
 ## 7. バックアップと復旧
 
-- **何を**：DB（利用者・記録・予約・設定のすべて）。PostgreSQL は `pg_dump`、無い環境は `manage.py dumpdata`。`~/michinoteyours/backups/`・`~/michinoteowl/backups/` に `db-日時.sql.gz` で置き、14 日より古いものは消す。
+- **何を**：DB（利用者・記録・予約・設定のすべて）。PostgreSQL は `pg_dump`、無い環境は `manage.py dumpdata`。`~/michinoteyours/backups/`・`~/michinoteowl/backups/` に `db-日時.sql.gz` で置き、14 日より古いものは消す。中身は全利用者の記録と職員のパスワードのハッシュなので、フォルダは持ち主だけが読める（700、ファイルは 600）。取り損ねたときは途中のファイルを残さない（`backup: FAILED`）。
 - **いつ**：毎日 3:15（crontab。`autostart_install` を一度実行した環境）。手で取るときは Manage の `backup`。配備の前に取っておくとよい。
 - **確かめる**：Manage の `backup_check`（最後のバックアップが 2 日以内なら OK）。前日点検の項目に入れる。
 - **戻す**（DB を壊した・消したとき。プロバイダに頼らず自分で）：サーバーで `gunzip -c backups/db-….sql.gz | psql -h localhost -U <DB_USER> <DB_NAME>`（空の DB に入れる。既存の DB に上書きするときは先に `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`）。dumpdata のときは `manage.py loaddata`。戻したあと Site check。

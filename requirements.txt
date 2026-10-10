@@ -26,7 +26,7 @@ httpx2==2.12.0
 idna==3.19
 jiter==0.16.0
 line-bot-sdk==3.25.0
-multidict==6.7.1
+multidict==6.9.1
 openpyxl==3.1.5
 pillow==12.3.0
 propcache==0.5.2
@@ -50,8 +50,8 @@ tinyhtml5==2.1.0
 truststore==0.10.4
 typing-inspection==0.4.4
 typing_extensions==4.16.0
-urllib3==2.7.0
-weasyprint==69.0
+urllib3==2.8.0
+weasyprint==70.0
 webencodings==0.6.1
 wrapt==2.4.0
 yarl==1.24.5

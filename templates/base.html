@@ -511,7 +511,7 @@
 <script>window.VOICE_INPUT_SERVER = {% if speech_server %}{url: '{% url 'ai_assist:transcribe' %}', diarization: {{ speech_diarization|yesno:'true,false' }}}{% else %}null{% endif %};</script>
 <script src="{% static 'js/voice-input.js' %}?v=13"></script>
 <script>window.DRAFT_SCOPE = '{{ user.pk }}'; window.DRAFT_SAVED = {% if messages %}{% for m in messages %}{% if m.level_tag == 'success' %}true || {% endif %}{% endfor %}{% endif %}false;</script>
-<script src="{% static 'js/draft-autosave.js' %}?v=1"></script>
+<script src="{% static 'js/draft-autosave.js' %}?v=2"></script>
 <script src="{% static 'js/asis-notice.js' %}?v=1"></script>
 {% url 'ai_assist:wording_check' as wording_url %}{% if wording_url %}<script>window.WORDING_CHECK_URL = '{{ wording_url }}';</script>
 <script src="{% static 'js/wording-check.js' %}?v=1"></script>{% endif %}{% endif %}

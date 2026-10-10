@@ -1037,8 +1037,10 @@ def apply_message(facility, text, customer=None, staff=False, today=None, settin
         if customer is None:
             return False, ''
         children = list(customer.children.all())
-        if children and beneficiary.pk not in {b.pk for b in children}:
-            return False, ''   # 担当していない利用者の名前は、職員が確かめる
+        # 担当の利用者がまだ決まっていない顧客や、担当していない利用者の名前は、職員が確かめる
+        # （担当が空のときに名前だけで通すと、ほかの家庭の子の予約を取ったり取り消したりできてしまう）
+        if beneficiary.pk not in {b.pk for b in children}:
+            return False, ''
         target_customer = customer
     else:
         target_customer = customer_for(facility, beneficiary)

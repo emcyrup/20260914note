@@ -124,17 +124,47 @@ EXAMPLES = [
 ]
 
 
-def facility_examples(facility, limit=20):
-    """事業所が「良い例」に選んだ日誌（名前は {名前} に伏せる）"""
+HONORIFICS = ('さん', 'くん', 'ちゃん', '君', '様')
+
+
+def _name_hider(facility):
+    """
+    文の中の子どもの名前を伏せる関数を返す。その日誌の子だけでなく、事業所のすべての利用者の名前を伏せる
+    （ほかの子の名前が文に出ることがあるため）。2 字以上の名前はそのまま、1 字の名前は「さん」「くん」などが続くときだけ
+    """
+    import re
+    from beneficiaries.models import Beneficiary
     from .models import RecordTemplate
+    long_names, short_names = set(), set()
+    for b in Beneficiary.objects.filter(facility=facility):
+        for n in (b.full_name, b.full_name.replace(' ', ''), b.first_name, b.last_name,
+                  (b.full_name_kana or '').replace(' ', ''), b.first_name_kana, b.last_name_kana):
+            n = (n or '').strip()
+            if len(n) >= 2:
+                long_names.add(n)
+            elif len(n) == 1:
+                short_names.add(n)
+    long_names = sorted(long_names, key=len, reverse=True)
+    short_re = (re.compile('(' + '|'.join(re.escape(n) for n in short_names) + ')(?=' + '|'.join(HONORIFICS) + ')')
+                if short_names else None)
+
+    def hide(text):
+        text = text or ''
+        for n in long_names:
+            text = text.replace(n, RecordTemplate.NAME_PLACEHOLDER)
+        if short_re is not None:
+            text = short_re.sub(RecordTemplate.NAME_PLACEHOLDER, text)
+        return text
+    return hide
+
+
+def facility_examples(facility, limit=20):
+    """事業所が「良い例」に選んだ日誌（事業所の子どもの名前は {名前} に伏せる）"""
     rows = []
     qs = (DailyRecord.objects.filter(facility=facility, is_good_example=True, status=DailyRecord.STATUS_CONFIRMED)
           .select_related('beneficiary').order_by('-date')[:limit])
+    hide = _name_hider(facility) if qs else None
     for r in qs:
-        b = r.beneficiary
-
-        def hide(text):
-            return RecordTemplate.anonymize(text or '', b)
         rows.append({'record': r, 'activity_name': hide(r.activity_name), 'activity_aim': hide(r.activity_aim),
                      'viewpoints': [hide(v.get('text', '')) for v in (r.activity_viewpoints or []) if v.get('text')],
                      'observation': hide(r.observation_text), 'support': hide(r.support_text),

@@ -40,8 +40,11 @@
     } catch (e) { /* 使えない */ }
     return out;
   }
-  // 古い下書きを消す
-  allKeys(false).forEach(function (k) { var d = load(k); if (!d || !d.t || Date.now() - d.t > TTL) drop(k); });
+  // 古い下書きと、ほかの人の下書きを消す（共用の端末で別の人がログインしたら、前の人の下書き（子どもの記録）を残さない）
+  allKeys(false).forEach(function (k) {
+    if (k.indexOf(PREFIX + scope + ':') !== 0) { drop(k); return; }
+    var d = load(k); if (!d || !d.t || Date.now() - d.t > TTL) drop(k);
+  });
 
   function fields(form) {
     var sel = form.getAttribute('data-draft-fields') ||

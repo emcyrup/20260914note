@@ -522,7 +522,8 @@ class BeneficiaryUpdateView(LoginRequiredMixin, UpdateView):
     # 画面に無い項目（住所・電話・学校・入所日など。取り込みや計画書中心の画面で入れる）を今の値のままにする（空で上書きして消さないように）
     MODAL_FIELDS = {'last_name', 'first_name', 'last_name_kana', 'first_name_kana', 'date_of_birth', 'gender',
                     'disability_class', 'disability_type', 'is_severe', 'notes', 'status', 'cannot_pair', 'siblings',
-                    'weekday_mon', 'weekday_tue', 'weekday_wed', 'weekday_thu', 'weekday_fri', 'weekday_sat'}
+                    'weekday_mon', 'weekday_tue', 'weekday_wed', 'weekday_thu', 'weekday_fri', 'weekday_sat',
+                    'line_send_journal'}
 
     def get_form_kwargs(self):
         kwargs = {**super().get_form_kwargs(), 'facility': self.request.user.facility}

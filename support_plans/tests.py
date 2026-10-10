@@ -393,6 +393,14 @@ class SheetEditorTests(PlanFlowTestBase):
         self.assertContains(res, 'ステップ2「計画（原案）の作成」の間だけ')
         self.assertEqual(self.plan.get_step(2).policy, '好きな活動を通して関わりを増やす')
 
+    def test_long_frequency_is_cut_to_model_length(self):
+        # 頻度は 100 字まで（モデルの長さ。長い文で保存が途中で失敗しない）
+        g = PlanGoal.objects.create(plan=self.plan, goal_type='short', content='順番を待てる')
+        res = self.client.post(self.url, {f'g{g.pk}_content': '順番を待って遊べる', f'g{g.pk}_frequency': '週' * 300})
+        self.assertRedirects(res, self.url)
+        g.refresh_from_db()
+        self.assertEqual((g.content, len(g.frequency)), ('順番を待って遊べる', 100))
+
     @override_settings(ANTHROPIC_API_KEY='test')
     def test_compose_cells(self):
         import json

@@ -49,21 +49,49 @@ def render_pdf(html, base_url=None, url_fetcher=None):
     kwargs = {'string': html}
     if base_url:
         kwargs['base_url'] = base_url
-    kwargs['url_fetcher'] = url_fetcher or media_url_fetcher
+    kwargs['url_fetcher'] = url_fetcher or media_url_fetcher()
     css = font_css()
-    sheets = [CSS(string=css, font_config=font_config)] if css else []
+    sheets = [CSS(string=css, font_config=font_config, url_fetcher=kwargs['url_fetcher'])] if css else []
     return HTML(**kwargs).write_pdf(stylesheets=sheets, font_config=font_config)
 
 
-def media_url_fetcher(url, *args, **kwargs):
-    from weasyprint import default_url_fetcher
-    parsed = urlsplit(url)
-    if parsed.path.startswith(settings.MEDIA_URL):
-        rel = unquote(parsed.path[len(settings.MEDIA_URL):])
-        target = (Path(settings.MEDIA_ROOT) / rel).resolve()
-        if str(target).startswith(str(Path(settings.MEDIA_ROOT).resolve())) and target.is_file():
-            return default_url_fetcher(target.as_uri(), *args, **kwargs)
-    return default_url_fetcher(url, *args, **kwargs)
+def _allowed_file_roots():
+    """PDF が読んでよいサーバー内のフォルダ（アップロードした画像・静的ファイル・同梱フォント）"""
+    roots = [Path(settings.MEDIA_ROOT), Path(settings.BASE_DIR) / 'static']
+    if getattr(settings, 'STATIC_ROOT', ''):
+        roots.append(Path(settings.STATIC_ROOT))
+    return [r.resolve() for r in roots]
+
+
+def _inside(target, roots):
+    return any(target == r or r in target.parents for r in roots)
+
+
+def media_url_fetcher():
+    """
+    PDF の画像・フォントを読む URL フェッチャ（WeasyPrint 70 からは URLFetcher のサブクラスを渡す）。
+    - /media/ の URL はログイン無しで読めるよう、サーバー内のファイルを直接読む（MEDIA_ROOT の外へは出ない）
+    - file:// はアップロード・静的ファイル・同梱フォントのフォルダの中だけ（ほかのサーバー内のファイルは読まない）
+    - 読める方式は file・data・http・https だけ
+    """
+    from weasyprint.urls import URLFetcher
+
+    class MediaURLFetcher(URLFetcher):
+        def fetch(self, url, headers=None):
+            parsed = urlsplit(url)
+            roots = _allowed_file_roots()
+            if parsed.scheme in ('http', 'https') and parsed.path.startswith(settings.MEDIA_URL):
+                rel = unquote(parsed.path[len(settings.MEDIA_URL):])
+                target = (Path(settings.MEDIA_ROOT) / rel).resolve()
+                if _inside(target, [Path(settings.MEDIA_ROOT).resolve()]) and target.is_file():
+                    return super().fetch(target.as_uri(), headers)
+            if parsed.scheme == 'file':
+                target = Path(unquote(parsed.path)).resolve()
+                if not _inside(target, roots):
+                    raise ValueError(f'PDF: 読めない場所のファイルです: {url}')
+            return super().fetch(url, headers)
+
+    return MediaURLFetcher(allowed_protocols=('file', 'data', 'http', 'https'))
 
 
 def pdf_or_html(request, template, ctx, filename):

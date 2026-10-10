@@ -809,9 +809,13 @@ class JournalQualityTests(TestCase):
 
     def test_good_examples_and_settings(self):
         from records.models import DailyRecord
+        from beneficiaries.models import Beneficiary
+        import datetime as _dt
+        Beneficiary.objects.create(facility=self.facility, last_name='森川', first_name='翔', date_of_birth=_dt.date(2018, 5, 1))
         r = DailyRecord.objects.create(facility=self.facility, beneficiary=self.b, date=self.day, author=self.staff,
                                        status=DailyRecord.STATUS_CONFIRMED, activity_name='折り紙',
-                                       observation_text='太郎さんが折り紙で三回折った。山田 太郎さんは「できた」と言った。')
+                                       observation_text='太郎さんが折り紙で三回折った。山田 太郎さんは「できた」と言った。'
+                                                        '翔くんと森川さんも見ていた。空を翔ぶ鳥を折った。')
         res = self.client.get(reverse('records:examples'))
         self.assertContains(res, '良い記録の例')
         self.assertContains(res, '避けたい例')
@@ -825,8 +829,10 @@ class JournalQualityTests(TestCase):
         self.assertTrue(r.is_good_example)
         res = self.client.get(reverse('records:examples'))
         self.assertContains(res, 'この事業所の良い例（1 件）')
-        self.assertContains(res, '{名前}さんが折り紙で三回折った。{名前}さんは「できた」と言った。')
+        self.assertContains(res, '{名前}さんが折り紙で三回折った。{名前}さんは「できた」と言った。'
+                                 '{名前}くんと{名前}さんも見ていた。空を翔ぶ鳥を折った。')   # ほかの子・1 字の名前も伏せる
         self.assertNotContains(res, '太郎')
+        self.assertNotContains(res, '森川')
         self.assertContains(res, '言葉がそのまま')
         res = self.client.get(reverse('records:list', args=[self.b.pk]) + f'?selected={r.pk}')
         self.assertContains(res, 'id="goodExampleModal"')

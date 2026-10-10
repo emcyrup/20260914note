@@ -126,14 +126,17 @@ backup() {
   # DB のバックアップ。PostgreSQL（.env の DB_NAME あり）は pg_dump、無いか sqlite なら manage.py dumpdata。
   # ファイル名に日時。$BACKUP_KEEP_DAYS 日より古いものは消す。秘密の値（パスワード）は出さない
   local mode=${1:-run} stamp out dbname dbuser dbpass dbhost dbport
+  # 中身は全利用者の記録と職員のパスワードのハッシュ。ほかのアカウントから読めないようにする
+  umask 077
   mkdir -p backups
+  chmod 700 backups
   case "$mode" in
     list)
       echo "backups/（$APP_DIR）:"; ls -lh backups 2>/dev/null | tail -n +2 | awk '{print "  " $6 " " $7 " " $8 "  " $5 "  " $9}' || true
       [ -n "$(ls -A backups 2>/dev/null)" ] || echo "  （まだありません）"; return 0 ;;
     check)
       local last
-      last=$(ls -t backups 2>/dev/null | head -n 1 || true)
+      last=$(ls -t backups 2>/dev/null | grep -v '\.tmp$' | head -n 1 || true)
       if [ -z "$last" ]; then echo "backup: NONE（まだ一度も取っていません）"; return 1; fi
       if [ -n "$(find backups -maxdepth 1 -name "$last" -mtime -2)" ]; then echo "backup: OK 最後は $last"; return 0; fi
       echo "backup: OLD 最後は $last（2 日より前）"; return 1 ;;
@@ -148,11 +151,17 @@ backup() {
     dbhost=$(grep -E '^DB_HOST=' .env | cut -d= -f2- | tr -d '[:space:]"' || true)
     dbport=$(grep -E '^DB_PORT=' .env | cut -d= -f2- | tr -d '[:space:]"' || true)
     out="backups/db-$stamp.sql.gz"
-    PGPASSWORD="$dbpass" pg_dump -h "${dbhost:-localhost}" -p "${dbport:-5432}" -U "$dbuser" "$dbname" | gzip > "$out"
+    # 途中で失敗したときに半端なファイルを残さない（check が OK と言わないように、書き終えてから名前を付ける）
+    if ! PGPASSWORD="$dbpass" pg_dump -h "${dbhost:-localhost}" -p "${dbport:-5432}" -U "$dbuser" "$dbname" | gzip > "$out.tmp"; then
+      rm -f "$out.tmp"; echo "backup: FAILED（pg_dump）"; return 1
+    fi
   else
     out="backups/data-$stamp.json.gz"
-    "$VENV/bin/python" manage.py dumpdata --natural-foreign --natural-primary -e contenttypes -e auth.permission -e sessions | gzip > "$out"
+    if ! "$VENV/bin/python" manage.py dumpdata --natural-foreign --natural-primary -e contenttypes -e auth.permission -e sessions | gzip > "$out.tmp"; then
+      rm -f "$out.tmp"; echo "backup: FAILED（dumpdata）"; return 1
+    fi
   fi
+  mv "$out.tmp" "$out"
   echo "$(date '+%Y-%m-%d %H:%M:%S') backup: $out ($(du -h "$out" | cut -f1))"
   find backups -maxdepth 1 \( -name 'db-*.sql.gz' -o -name 'data-*.json.gz' \) -mtime +"$BACKUP_KEEP_DAYS" -delete
 }

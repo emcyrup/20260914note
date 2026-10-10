@@ -27,7 +27,7 @@
 
   {% if facility_examples %}
   <h6 class="fw-bold mt-4 mb-2"><i class="bi bi-star-fill text-warning me-1"></i>この事業所の良い例（{{ facility_examples|length }} 件）</h6>
-  <div class="small text-muted mb-2">管理者・児発管が選んだ日誌です。子どもの名前は <code>{名前}</code> に伏せています。</div>
+  <div class="small text-muted mb-2">管理者・児発管が選んだ日誌です。この事業所の子どもの名前（1 字の名前は「さん」「くん」などが付いたとき）は <code>{名前}</code> に伏せています。ニックネームなどは伏せられないので、選ぶ前に文を確かめてください。</div>
   {% for e in facility_examples %}
   <div class="card mb-3">
     <div class="card-header py-2 d-flex justify-content-between flex-wrap gap-1">

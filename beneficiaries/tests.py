@@ -1464,6 +1464,18 @@ class DobOverwriteAndPartialEditTests(TestCase):
         self.assertEqual((b.weekday_mon, b.weekday_tue), (False, True))      # 窓にある項目は送ったとおり
         self.assertContains(self.client.get(reverse('beneficiaries:detail', args=[b.pk])), 'name="_partial" value="1"')
 
+    def test_edit_window_can_turn_off_line_journal(self):
+        # 「日誌を LINE で送る」を外して保存すると、ちゃんと外れる（窓から保存しても今の値に戻さない）
+        b = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 2))
+        self.assertTrue(b.line_send_journal)
+        base = {'_partial': '1', 'last_name': '青木', 'first_name': '子', 'date_of_birth': '2019-04-02', 'gender': 'male', 'status': 'active'}
+        self.client.post(reverse('beneficiaries:update', args=[b.pk]), base)
+        b.refresh_from_db()
+        self.assertFalse(b.line_send_journal)
+        self.client.post(reverse('beneficiaries:update', args=[b.pk]), {**base, 'line_send_journal': 'on'})
+        b.refresh_from_db()
+        self.assertTrue(b.line_send_journal)
+
     def test_import_overwrites_placeholder_dob_when_checked(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
         b = Beneficiary.objects.create(facility=self.f, last_name='山田', first_name='太郎', date_of_birth=datetime.date(2000, 1, 1),

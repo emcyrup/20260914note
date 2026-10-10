@@ -115,7 +115,8 @@ def save(plan, draft, post):
             removed += 1
             continue
         for key in goal_keys:
-            setattr(g, key, post.get(p + key, '').strip()[:200 if key == 'content' else 4000])
+            limit = {'content': 200, 'frequency': 100}.get(key, 4000)     # モデルの長さに合わせる
+            setattr(g, key, post.get(p + key, '').strip()[:limit])
         g.goal_type = post.get(f'{p}type') if post.get(f'{p}type') in dict(PlanGoal.TYPE_CHOICES) else g.goal_type
         g.target_date = _date(post.get(f'{p}target_date', ''))
         e = dict(g.form_extra or {})
