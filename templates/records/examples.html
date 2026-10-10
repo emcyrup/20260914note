@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% block title %}記録の例{% endblock %}
+{% block page_title %}記録の例{% endblock %}
+{% block content %}
+<div class="container-fluid py-3" style="max-width: 1000px;">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+    <div>
+      <h5 class="mb-0"><i class="bi bi-lightbulb me-2"></i>良い記録の例</h5>
+      <div class="small text-muted">日誌は、ほかの職員・保護者・行政が読んでも同じように分かるように、<b>何を・どのくらい・どうしたか</b>の事実を書きます。「頑張った」「楽しそう」などの感想や、決めつけの言葉は使いません。</div>
+    </div>
+    <a href="{% url 'records:dashboard' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>日誌へ</a>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header py-2 fw-bold"><i class="bi bi-list-check me-1"></i>この事業所で、日誌を確定するのに要る項目</div>
+    <div class="card-body py-2 small">
+      {% if rules %}
+      <ul class="mb-1">
+        {% for key, label, section, kind, name in rules %}<li>{{ label }}{% if kind == 'long' and min_chars %}（{{ min_chars }} 字以上）{% endif %}</li>{% endfor %}
+      </ul>
+      <div class="text-muted">足りないまま「確定」で保存すると、下書きのまま保存されます。入力の画面の「確定の前のチェック」で、足りない項目を確かめられます。</div>
+      {% else %}
+      <div class="text-muted">決めていません（どの項目が空でも確定できます）。{% if is_admin %}<a href="{% url 'facilities:settings' %}">施設設定</a>の「日誌を確定するのに要る項目」で決められます。{% endif %}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if facility_examples %}
+  <h6 class="fw-bold mt-4 mb-2"><i class="bi bi-star-fill text-warning me-1"></i>この事業所の良い例（{{ facility_examples|length }} 件）</h6>
+  <div class="small text-muted mb-2">管理者・児発管が選んだ日誌です。子どもの名前は <code>{名前}</code> に伏せています。</div>
+  {% for e in facility_examples %}
+  <div class="card mb-3">
+    <div class="card-header py-2 d-flex justify-content-between flex-wrap gap-1">
+      <span class="fw-semibold">{% if e.activity_name %}{{ e.activity_name }}{% else %}日誌{% endif %}</span>
+      <span class="small text-muted">{{ e.record.date|date:'Y/n/j' }}{% if can_mark_example %}　<a href="{% url 'records:list' e.record.beneficiary_id %}?selected={{ e.record.pk }}">元の日誌</a>{% endif %}</span>
+    </div>
+    <div class="card-body py-2 small">
+      {% if e.note %}<div class="mb-2 p-2 rounded" style="background:var(--color-primary-bg);"><b>良いところ：</b>{{ e.note }}</div>{% endif %}
+      {% if e.activity_aim %}<div><b>めあて：</b>{{ e.activity_aim }}</div>{% endif %}
+      {% if e.viewpoints %}<div><b>観点：</b>{% for v in e.viewpoints %}{{ forloop.counter }}. {{ v }}{% if not forloop.last %}　{% endif %}{% endfor %}</div>{% endif %}
+      {% if e.observation %}<div class="mt-1"><b>観察・活動内容</b><div style="white-space:pre-line;">{{ e.observation }}</div></div>{% endif %}
+      {% if e.support %}<div class="mt-1"><b>支援内容</b><div style="white-space:pre-line;">{{ e.support }}</div></div>{% endif %}
+      {% if e.reaction %}<div class="mt-1"><b>本人の反応</b><div style="white-space:pre-line;">{{ e.reaction }}</div></div>{% endif %}
+      {% if e.parent_message %}<div class="mt-1"><b>保護者向けメッセージ</b><div style="white-space:pre-line;">{{ e.parent_message }}</div></div>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  {% elif can_mark_example %}
+  <div class="small text-muted mb-3"><i class="bi bi-star me-1"></i>確定した日誌の上の <i class="bi bi-star"></i> を押すと、その日誌を「この事業所の良い例」としてここに出せます（名前は伏せます）。</div>
+  {% endif %}
+
+  <h6 class="fw-bold mt-4 mb-2">項目ごとの書き方と例</h6>
+  {% for e in examples %}
+  <div class="card mb-3">
+    <div class="card-header py-2 fw-semibold">{{ e.label }}</div>
+    <div class="card-body py-2 small">
+      <div class="mb-2"><b>書くこと：</b>{% for p in e.points %}{{ p }}{% if not forloop.last %}／{% endif %}{% endfor %}</div>
+      <div class="row g-2">
+        <div class="col-md-7">
+          <div class="p-2 rounded h-100" style="border:1px solid #9ccf9a;background:#f3fbf2;">
+            <div class="fw-semibold text-success mb-1"><i class="bi bi-check-circle me-1"></i>良い例</div>{{ e.good }}
+          </div>
+        </div>
+        <div class="col-md-5">
+          <div class="p-2 rounded h-100" style="border:1px solid #e3b4b4;background:#fdf4f4;">
+            <div class="fw-semibold text-danger mb-1"><i class="bi bi-x-circle me-1"></i>避けたい例</div>{{ e.avoid }}
+            <div class="text-muted mt-1">{{ e.why }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+  <div class="small text-muted">保存のときには、言葉づかいのチェック（不適切な表現・難しい言い回し）も働きます。</div>
+</div>
+{% endblock %}

@@ -147,6 +147,8 @@ class SettingsView(LoginRequiredMixin, TemplateView):
         ctx['reference_documents'] = ReferenceDocument.objects.filter(facility=facility)
         ctx['is_admin'] = self.request.user.is_admin or self.request.user.is_superuser
         ctx['ai_enabled'] = bool(settings.ANTHROPIC_API_KEY)
+        from records import quality
+        ctx['journal_rule_choices'] = [(k, label, section) for k, label, section, _t, _n in quality.RULES]
         ctx.update({
             'facility':      facility,
             'facility_form': FacilityForm(instance=facility),
@@ -210,6 +212,14 @@ class FeatureSettingsView(LoginRequiredMixin, View):
         facility.journal_sections = keys
         facility.speech_words = request.POST.get('speech_words', facility.speech_words).strip()[:2000]
         facility.word_rules = request.POST.get('word_rules', facility.word_rules).strip()[:4000]
+        # 日誌を確定するのに要る項目と最低字数（records/quality.py）
+        if 'journal_required_form' in request.POST:
+            from records import quality
+            facility.journal_required = [k for k, *_ in quality.RULES if k in request.POST.getlist('journal_required')]
+            try:
+                facility.journal_min_chars = max(0, min(quality.MIN_CHARS_MAX, int(request.POST.get('journal_min_chars') or 0)))
+            except ValueError:
+                pass
         # 帳票様式は開発向けユーザーだけが変えられる（他の事業所の様式名を管理者に見せない）
         if request.user.can_switch_facility:
             form_set = request.POST.get('form_set', facility.form_set)
@@ -224,7 +234,8 @@ class FeatureSettingsView(LoginRequiredMixin, View):
                 pass
             if request.POST.get('trial_ai_reset'):
                 facility.trial_ai_used = 0
-        facility.save(update_fields=['use_billing', 'use_schedule', 'use_line', 'line_auto_send', 'use_reservation', 'use_therapy_record',
+        facility.save(update_fields=['use_billing', 'use_schedule', 'use_line', 'line_auto_send', 'journal_required', 'journal_min_chars',
+                                     'use_reservation', 'use_therapy_record',
                                      'use_transport', 'use_dev_assessment', 'use_survey', 'use_daily_ops',
                                      'journal_sections', 'form_set', 'layout', 'trial_ai_limit', 'trial_ai_used',
                                      'speech_words', 'word_rules', 'updated_at'])

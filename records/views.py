@@ -221,6 +221,54 @@ class UnwrittenListView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
+def _can_mark_example(user):
+    """「良い記録の例」に選べる人：管理者・児発管"""
+    return bool(user.is_superuser or user.is_admin or user.is_child_dev_manager)
+
+
+class GoodExampleView(LoginRequiredMixin, View):
+    """日誌を「良い記録の例」にする／外す（管理者・児発管）。確定した日誌だけ"""
+
+    def post(self, request, pk):
+        record = get_object_or_404(DailyRecord, pk=pk, facility=request.user.facility)
+        back = f'/records/{record.beneficiary_id}/?selected={record.pk}'
+        if not _can_mark_example(request.user):
+            messages.error(request, '良い記録の例を選べるのは管理者・児発管だけです。')
+            return redirect(back)
+        if request.POST.get('action') == 'remove':
+            record.is_good_example, record.good_example_note = False, ''
+            messages.success(request, '良い記録の例から外しました。')
+        elif record.status != DailyRecord.STATUS_CONFIRMED:
+            messages.error(request, '良い記録の例にできるのは確定した日誌だけです。')
+            return redirect(back)
+        else:
+            record.is_good_example = True
+            record.good_example_note = request.POST.get('note', '').strip()[:200]
+            messages.success(request, '良い記録の例にしました。「記録の例」の画面に名前を伏せて出ます。')
+        record.save(update_fields=['is_good_example', 'good_example_note', 'updated_at'])
+        return redirect(back)
+
+
+class ExamplesView(LoginRequiredMixin, TemplateView):
+    """良い記録の例（標準の例と、事業所が選んだ日誌）と、確定の前のチェックの項目"""
+    template_name = 'records/examples.html'
+
+    def get_context_data(self, **kwargs):
+        from . import quality
+        ctx = super().get_context_data(**kwargs)
+        facility = self.request.user.facility
+        sections = facility.journal_section_keys()
+        ctx.update({
+            'examples': sorted([e for e in quality.EXAMPLES if e['key'] in sections], key=lambda e: sections.index(e['key'])),
+            'facility_examples': quality.facility_examples(facility),
+            'rules': quality.active_rules(facility),
+            'min_chars': quality.min_chars(facility),
+            'can_mark_example': _can_mark_example(self.request.user),
+            'is_admin': self.request.user.is_admin or self.request.user.is_superuser,
+        })
+        return ctx
+
+
 # =============================================
 # スタッフメモ（ダッシュボードのメモボックス）
 # =============================================
@@ -321,6 +369,11 @@ class DailyRecordListView(LoginRequiredMixin, TemplateView):
                 selected_addon_ids = applied_addon_ids(facility, beneficiary, selected_record.date)
                 selected_addons = [r for r in facility_addon_rows(facility, addon_type='individual') if r.pk in selected_addon_ids]
 
+        from . import quality
+        ctx['journal_check'] = quality.check_config(facility)
+        ctx['journal_check_json'] = json.dumps(ctx['journal_check'], ensure_ascii=False)
+        ctx['required_missing'] = quality.missing(quality.values_of(selected_record), facility) if selected_record else []
+        ctx['can_mark_example'] = _can_mark_example(self.request.user)
         ctx.update({
             'beneficiary':     beneficiary,
             'records':         records,
@@ -464,6 +517,24 @@ def _send_line_for_record(request, record, auto=False):
         messages.error(request, f'{head}LINE送信に失敗しました：{error_message}')
 
 
+def _enforce_required(request, record):
+    """
+    確定の前のチェック（records/quality.py）：確定で保存したのに施設設定の必須項目が足りなければ、下書きに戻して知らせる。
+    戻り値は下書きに戻したか
+    """
+    from . import quality
+    if record.status != DailyRecord.STATUS_CONFIRMED:
+        return False
+    lack = quality.missing(quality.values_of(record), request.user.facility)
+    if not lack:
+        return False
+    record.status = DailyRecord.STATUS_DRAFT
+    record.save(update_fields=['status', 'updated_at'])
+    messages.warning(request, '確定の前のチェック：次の項目が足りないので、下書きで保存しました（入れてから「確定」で保存してください）。'
+                              + '／'.join(lack))
+    return True
+
+
 def _auto_send_line(request, record, was_confirmed):
     """
     施設設定「日誌を確定したら保護者へ LINE を自動で送る」：この保存で下書き→確定になった（または確定で新しく作った）ときだけ送る。
@@ -576,6 +647,7 @@ class DailyRecordCreateView(LoginRequiredMixin, View):
 
         messages.success(request, f'{date} の日誌を保存しました。')
         _suggest_addons_after_save(record)
+        _enforce_required(request, record)       # 必須項目が足りなければ下書きに戻す（LINE も送らない）
 
         # 「保存してLINE送信」ボタンが押された場合。そうでなければ、確定にしたときの自動送信（施設設定）
         if p.get('send_line') == '1' and record.status == DailyRecord.STATUS_CONFIRMED:
@@ -653,6 +725,7 @@ class DailyRecordUpdateView(LoginRequiredMixin, View):
 
         messages.success(request, '日誌を更新しました。')
         _suggest_addons_after_save(record)
+        _enforce_required(request, record)       # 必須項目が足りなければ下書きに戻す（LINE も送らない）
         _auto_send_line(request, record, was_confirmed)      # 下書き → 確定にしたときの自動送信（施設設定）
         return redirect(f'/records/{record.beneficiary_id}/?selected={record.pk}')
 

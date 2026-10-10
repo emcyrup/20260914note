@@ -268,6 +268,21 @@
                   placeholder="例：&#10;問題行動=気になる行動&#10;さぼり=取り組まなかった&#10;-促す">{{ facility.word_rules }}</textarea>
         <div class="form-text">日誌・療育記録・計画書を保存するとき、不適切な表現（「問題児」「わがまま」など）・難しい言い回し（「離席」「適宜」など）・方針や助言の言い回し（「〜するとよい」など）が入っていれば、言いかえと一緒に知らせます（止めはしません。「このまま保存」もできます）。標準の辞書に足す言葉を 1 行に「言葉=言いかえ」で書きます。言いかえは無くてもかまいません。行頭に「-」を付けると、標準の辞書からその言葉を外します（例：-促す）。</div>
       </div>
+      <div class="mt-3">
+        <input type="hidden" name="journal_required_form" value="1">
+        <div class="small fw-semibold mb-1"><i class="bi bi-list-check me-1"></i>日誌を確定するのに要る項目（確定の前のチェック）</div>
+        <div class="d-flex flex-wrap gap-3">
+          {% for key, label, section in journal_rule_choices %}
+          <label class="form-check small mb-0"><input type="checkbox" class="form-check-input" name="journal_required" value="{{ key }}" {% if key in facility.journal_required %}checked{% endif %} {% if not is_admin %}disabled{% endif %}> {{ label }}</label>
+          {% endfor %}
+        </div>
+        <div class="d-flex align-items-center gap-2 mt-2 small">
+          <label for="journal_min_chars" class="mb-0">観察・支援・反応の文は、それぞれ</label>
+          <input type="number" id="journal_min_chars" name="journal_min_chars" class="form-control form-control-sm" style="width:90px;" min="0" max="400" value="{{ facility.journal_min_chars }}" {% if not is_admin %}disabled{% endif %}>
+          <span>字以上（0 は字数を見ない。上で選んだ項目だけ）</span>
+        </div>
+        <div class="form-text">新人の職員でも書き漏れが無いように、日誌を「確定」で保存するときに足りない項目があれば下書きのまま保存して知らせます（入力の画面にも「確定の前のチェック」を出します）。何も選ばなければ、これまでどおり確定できます。良い記録の例は<a href="{% url 'records:examples' %}">記録の例</a>の画面で見られます。</div>
+      </div>
       {% if is_admin %}
       <div class="text-end mt-3"><button class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>保存する</button></div>
       {% else %}

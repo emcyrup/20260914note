@@ -741,3 +741,111 @@ class LineAutoSendTests(TestCase):
         self.client.post(reverse('facilities:feature_settings'), {'use_line': 'on', 'line_auto_send': 'on', 'journal_sections': ['observation']})
         self.facility.refresh_from_db()
         self.assertTrue(self.facility.line_auto_send)
+
+
+class JournalQualityTests(TestCase):
+    """確定の前のチェック（施設設定の必須項目・最低字数）と良い記録の例（records/quality.py）"""
+
+    def setUp(self):
+        import datetime
+        from beneficiaries.models import Beneficiary
+        self.facility = Facility.objects.create(name='F', use_line=False,
+                                                journal_required=['activity_name', 'viewpoints', 'domains', 'observation', 'support'],
+                                                journal_min_chars=10)
+        self.admin = StaffAccount.objects.create_user(username='adm', password='pw12345678', facility=self.facility,
+                                                      role=StaffAccount.ROLE_ADMIN)
+        self.staff = StaffAccount.objects.create_user(username='new', password='pw12345678', facility=self.facility,
+                                                      role=StaffAccount.ROLE_STAFF)
+        self.b = Beneficiary.objects.create(facility=self.facility, last_name='山田', first_name='太郎', date_of_birth=datetime.date(2018, 4, 1))
+        self.day = datetime.date(2026, 10, 8)
+        self.client.force_login(self.staff)
+
+    def _full(self, **extra):
+        data = {'date': self.day.isoformat(), 'status': 'confirmed', 'activity_name': '折り紙',
+                'activity_viewpoints': json.dumps([{'text': '角を合わせた', 'answer': 'yes'}]), 'domain_social': '1',
+                'observation_text': '折り紙でかぼちゃを作った。太郎さんは三回折った。', 'support_text': '手順カードを見せて声をかけた。'}
+        data.update(extra)
+        return data
+
+    def test_missing_rules(self):
+        from records import quality
+        vals = {'activity_name': '', 'activity_viewpoints': [{'text': 'a', 'answer': None}, {'text': 'b', 'answer': 'no'}],
+                'domains': [], 'observation_text': '短い', 'support_text': '', 'reaction_text': '', 'parent_message_draft': ''}
+        self.assertEqual(quality.missing(vals, self.facility), [
+            '活動名', '観点（1つ以上、すべてに「はい／いいえ」）：1 つが未確認', '関連する5領域（1つ以上）',
+            '観察・活動内容：2 字（10 字以上）', '支援内容'])
+        # 使っていない日誌の項目（活動）の規則は見ない
+        self.facility.journal_sections = ['observation', 'support']
+        self.assertEqual([m.split('：')[0] for m in quality.missing(vals, self.facility)], ['関連する5領域（1つ以上）', '観察・活動内容', '支援内容'])
+        self.facility.journal_required = []
+        self.assertEqual(quality.missing(vals, self.facility), [])
+        cfg = quality.check_config(Facility(journal_required=['support'], journal_min_chars=999))
+        self.assertEqual(cfg, {'min': 400, 'rules': [{'key': 'support', 'label': '支援内容', 'kind': 'long', 'name': 'support_text'}]})
+
+    def test_confirm_blocked_until_filled(self):
+        from records.models import DailyRecord
+        res = self.client.post(reverse('records:create', args=[self.b.pk]),
+                               self._full(support_text='', activity_viewpoints='[]'), follow=True)
+        r = DailyRecord.objects.get(beneficiary=self.b, date=self.day)
+        self.assertEqual(r.status, DailyRecord.STATUS_DRAFT)                         # 足りないので下書きのまま
+        self.assertContains(res, '確定の前のチェック：次の項目が足りないので、下書きで保存しました')
+        self.assertContains(res, '観点（1つ以上、すべてに「はい／いいえ」）：観点がありません')
+        self.assertContains(res, 'data-journal-check="')
+        self.assertContains(res, 'data-journal-check-box')
+        self.assertContains(res, 'js/journal-check.js')
+        res = self.client.post(reverse('records:update', args=[r.pk]), self._full(), follow=True)
+        r.refresh_from_db()
+        self.assertEqual(r.status, DailyRecord.STATUS_CONFIRMED)                     # そろえば確定
+        self.assertNotContains(res, '下書きで保存しました')
+        # 確定ずみの日誌から必須の文を消すと下書きに戻る
+        self.client.post(reverse('records:update', args=[r.pk]), self._full(support_text='短い'))
+        r.refresh_from_db()
+        self.assertEqual(r.status, DailyRecord.STATUS_DRAFT)
+        # 必須を決めていない事業所はこれまでどおり
+        Facility.objects.filter(pk=self.facility.pk).update(journal_required=[])
+        self.client.post(reverse('records:update', args=[r.pk]), self._full(support_text=''))
+        r.refresh_from_db()
+        self.assertEqual(r.status, DailyRecord.STATUS_CONFIRMED)
+
+    def test_good_examples_and_settings(self):
+        from records.models import DailyRecord
+        r = DailyRecord.objects.create(facility=self.facility, beneficiary=self.b, date=self.day, author=self.staff,
+                                       status=DailyRecord.STATUS_CONFIRMED, activity_name='折り紙',
+                                       observation_text='太郎さんが折り紙で三回折った。山田 太郎さんは「できた」と言った。')
+        res = self.client.get(reverse('records:examples'))
+        self.assertContains(res, '良い記録の例')
+        self.assertContains(res, '避けたい例')
+        self.assertContains(res, '支援内容（10 字以上）')
+        self.assertNotContains(res, 'この事業所の良い例')
+        res = self.client.post(reverse('records:good_example', args=[r.pk]), {'action': 'add', 'note': '言葉がそのまま'}, follow=True)
+        self.assertContains(res, '良い記録の例を選べるのは管理者・児発管だけです')
+        self.client.force_login(self.admin)
+        self.client.post(reverse('records:good_example', args=[r.pk]), {'action': 'add', 'note': '言葉がそのまま'})
+        r.refresh_from_db()
+        self.assertTrue(r.is_good_example)
+        res = self.client.get(reverse('records:examples'))
+        self.assertContains(res, 'この事業所の良い例（1 件）')
+        self.assertContains(res, '{名前}さんが折り紙で三回折った。{名前}さんは「できた」と言った。')
+        self.assertNotContains(res, '太郎')
+        self.assertContains(res, '言葉がそのまま')
+        res = self.client.get(reverse('records:list', args=[self.b.pk]) + f'?selected={r.pk}')
+        self.assertContains(res, 'id="goodExampleModal"')
+        self.client.post(reverse('records:good_example', args=[r.pk]), {'action': 'remove'})
+        r.refresh_from_db()
+        self.assertFalse(r.is_good_example)
+        # 下書きは良い例にできない
+        r.status = DailyRecord.STATUS_DRAFT
+        r.save()
+        self.client.post(reverse('records:good_example', args=[r.pk]), {'action': 'add'})
+        r.refresh_from_db()
+        self.assertFalse(r.is_good_example)
+        # 施設設定
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, 'name="journal_required" value="viewpoints"')
+        self.client.post(reverse('facilities:feature_settings'), {'journal_sections': ['observation', 'support'], 'journal_required_form': '1',
+                                                                   'journal_required': ['support', 'bogus'], 'journal_min_chars': '30'})
+        self.facility.refresh_from_db()
+        self.assertEqual((self.facility.journal_required, self.facility.journal_min_chars), (['support'], 30))
+        self.client.post(reverse('facilities:feature_settings'), {'journal_sections': ['observation']})   # 欄の無い古い画面からの保存では変えない
+        self.facility.refresh_from_db()
+        self.assertEqual(self.facility.journal_required, ['support'])

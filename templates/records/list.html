@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load concurrency %}
+{% load concurrency static %}
 
 {% block title %}{{ beneficiary.full_name }}の日誌{% endblock %}
 {% block page_title %}{{ beneficiary.full_name }}の日誌{% endblock %}
@@ -674,6 +674,13 @@
             <span class="status-badge status-{{ selected_record.status }}">
               {{ selected_record.get_status_display }}
             </span>
+            {% if selected_record.is_good_example %}<span class="badge text-bg-warning text-dark" title="{{ selected_record.good_example_note }}"><i class="bi bi-star-fill me-1"></i>良い例</span>{% endif %}
+            {% if can_mark_example and selected_record.status == 'confirmed' %}
+            <button class="btn btn-sm btn-outline-warning" title="{% if selected_record.is_good_example %}良い記録の例から外す{% else %}この日誌を良い記録の例にする（名前を伏せて「記録の例」に出す）{% endif %}"
+                    data-bs-toggle="modal" data-bs-target="#goodExampleModal">
+              <i class="bi bi-star{% if selected_record.is_good_example %}-fill{% endif %}"></i>
+            </button>
+            {% endif %}
             <button class="btn btn-sm btn-outline-secondary" title="この日誌をテンプレートにして他の{{ terms.beneficiary }}でも使う"
                     data-bs-toggle="modal" data-bs-target="#saveTemplateModal">
               <i class="bi bi-files"></i>
@@ -693,6 +700,9 @@
         {{ selected_record.activity_viewpoints|json_script:"selectedViewpoints" }}
         {% if selected_record.activity_name or selected_record.activity_aim or selected_record.activity_viewpoints or selected_record.activity_reflection %}
         <div class="detail-section">
+        {% if selected_record.status == 'draft' and required_missing %}
+        <div class="alert alert-warning small py-2 mb-2"><i class="bi bi-list-check me-1"></i>確定の前のチェック：{% for m in required_missing %}{{ m }}{% if not forloop.last %}／{% endif %}{% endfor %}<a href="{% url 'records:examples' %}" class="ms-2" target="_blank" rel="noopener">記録の例</a></div>
+        {% endif %}
           <div class="detail-section-label">活動・めあて</div>
           {% if selected_record.activity_name %}
           <p class="detail-section-text mb-1"><strong>活動：</strong>{{ selected_record.activity_name }}</p>
@@ -893,7 +903,7 @@
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <form method="post" action="{% url 'records:create' beneficiary.pk %}"
-            enctype="multipart/form-data"
+            enctype="multipart/form-data" data-journal-check="{{ journal_check_json }}"
             x-data="journalCreateForm('{% url 'records:ai_generate_all' %}', '{% url 'records:ai_activity_plan' %}')"
             @submit.prevent="submitForm($el)">
         {% csrf_token %}
@@ -1087,6 +1097,7 @@
                       placeholder="例：ハロウィンの工作でかぼちゃを折り紙で作った。最初は難しそうにしていたが、声かけすると集中して取り組み、完成時はとても嬉しそうだった。送迎あり。（キーワードだけでも可：折り紙のかぼちゃ 声かけで集中 完成して笑顔）"></textarea>
             <input type="hidden" name="observation_memo" :value="memo">
             {% include 'records/_length_guide.html' with id='journalLengthCreate' %}
+            <div class="small mt-1"><a href="{% url 'records:examples' %}" target="_blank" rel="noopener"><i class="bi bi-lightbulb me-1"></i>良い記録の例を見る</a>{% if journal_check.rules %}<span class="text-muted ms-2">（確定するのに要る項目は、下の「確定の前のチェック」）</span>{% endif %}</div>
             <div class="mt-2 text-end">
               <button type="button" class="ai-btn px-4 py-2" style="font-size:0.82rem;"
                       @click="generateAll()"
@@ -1133,6 +1144,7 @@
             </div>
             {% endif %}
             {% endfor %}
+            {% if journal_check.rules %}<div data-journal-check-box></div>{% endif %}
             <!-- ステータス ＋ LINE送信（Alpine.jsで連動） -->
             <div x-data="{ confirmed: false }">
               <label class="form-label small fw-semibold">状態</label>
@@ -1203,7 +1215,7 @@
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <form method="post" action="{% url 'records:update' selected_record.pk %}"
-            enctype="multipart/form-data"
+            enctype="multipart/form-data" data-journal-check="{{ journal_check_json }}"
             data-concurrency="daily_record:{{ selected_record.pk }}"
             @submit.prevent="submitForm($el)"
             x-data="journalEditForm(
@@ -1431,6 +1443,7 @@
             <textarea id="memoTextareaEdit" class="form-control" rows="3" x-model="memo"
                       placeholder="例：今日は工作でリース作り。はさみの使い方を練習しながら取り組んだ。最後まで集中できていた。"></textarea>
             {% include 'records/_length_guide.html' with id='journalLengthEdit' %}
+            <div class="small mt-1"><a href="{% url 'records:examples' %}" target="_blank" rel="noopener"><i class="bi bi-lightbulb me-1"></i>良い記録の例を見る</a></div>
             <div class="mt-2 text-end">
               <button type="button" class="ai-btn px-4 py-2" style="font-size:0.82rem;"
                       @click="generateAll()" :disabled="generating">
@@ -1482,6 +1495,7 @@
             {% if 'support' not in journal_sections %}<input type="hidden" name="support_text" :value="result.support">{% endif %}
             {% if 'reaction' not in journal_sections %}<input type="hidden" name="reaction_text" :value="result.reaction">{% endif %}
             {% if 'parent_message' not in journal_sections %}<input type="hidden" name="parent_message_draft" :value="result.parent_message">{% endif %}
+            {% if journal_check.rules %}<div data-journal-check-box></div>{% endif %}
             <!-- 状態 ＋ LINE送信（Alpine.jsで連動） -->
             <div x-data="{ confirmed: {% if selected_record.status == 'confirmed' %}true{% else %}false{% endif %} }">
               <label class="form-label small fw-semibold">状態</label>
@@ -1597,6 +1611,33 @@
 </form>{% endif %}
 {% include 'esignatures/signature_modal.html' with target_type='daily_record' target_id=selected_record.pk guardians=beneficiary.guardians.all %}
 
+<!-- ===== 良い記録の例 ===== -->
+{% if can_mark_example %}
+<div class="modal fade" id="goodExampleModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="{% url 'records:good_example' selected_record.pk %}">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold"><i class="bi bi-star me-2"></i>良い記録の例</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted">「記録の例」の画面に、この日誌を新人の職員向けの良い例として出します。{{ beneficiary.full_name }}さんの名前は <code>{名前}</code> に伏せて出します（ほかの子の名前が文にあれば、先に直してください）。</p>
+          <label class="form-label small fw-semibold">どこが良いか（任意・200 字まで）</label>
+          <input type="text" name="note" class="form-control" maxlength="200" value="{{ selected_record.good_example_note }}" placeholder="例：声かけの言葉と、そのあとの本人の行動がそのまま書けている">
+        </div>
+        <div class="modal-footer">
+          {% if selected_record.is_good_example %}<button type="submit" name="action" value="remove" class="btn btn-outline-danger me-auto">例から外す</button>{% endif %}
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">キャンセル</button>
+          <button type="submit" name="action" value="add" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>{% if selected_record.is_good_example %}理由を直す{% else %}良い例にする{% endif %}</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <!-- ===== テンプレートに保存 ===== -->
 <div class="modal fade" id="saveTemplateModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
@@ -1632,6 +1673,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{% static 'js/journal-check.js' %}?v=1"></script>
 <script>
 // ===== ライトボックス =====
 function openLightbox(src) {

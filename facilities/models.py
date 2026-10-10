@@ -87,6 +87,9 @@ class Facility(models.Model):
     use_line = models.BooleanField(default=True, verbose_name='LINE連携を使う')
     # 日誌を「確定」で保存したとき、保護者向けメッセージを保護者の LINE へ自動で送る（利用者ごとに送らない設定ができる）
     line_auto_send = models.BooleanField(default=False, verbose_name='日誌を確定したら保護者へ LINE を自動で送る')
+    # 日誌を確定するのに要る項目（records/quality.py の RULES のキー）と、観察・支援・反応の文の最低字数（0 は見ない）
+    journal_required = models.JSONField(default=list, blank=True, verbose_name='日誌を確定するのに要る項目')
+    journal_min_chars = models.PositiveSmallIntegerField(default=0, verbose_name='観察・支援・反応の最低字数')
     use_reservation = models.BooleanField(default=False, verbose_name='予約管理を使う',
                                           help_text='1日の枠・キャンセル待ち・公式LINEからの申し込みを扱います。')
     use_therapy_record = models.BooleanField(default=False, verbose_name='療育記録を使う',

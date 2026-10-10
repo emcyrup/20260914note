@@ -132,6 +132,9 @@ class DailyRecord(models.Model):
 
     status     = models.CharField(max_length=10, choices=STATUS_CHOICES,
                                   default=STATUS_DRAFT, verbose_name='状態')
+    # 「良い記録の例」に出す（records/quality.py。名前は伏せて出す）。管理者・児発管が選ぶ
+    is_good_example   = models.BooleanField(default=False, verbose_name='良い記録の例に出す')
+    good_example_note = models.CharField(max_length=200, blank=True, verbose_name='良い例の理由（どこが良いか）')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
