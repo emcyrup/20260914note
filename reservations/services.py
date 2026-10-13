@@ -520,7 +520,7 @@ def cancel_reservation(res, notify=True, base=''):
 
 
 @transaction.atomic
-def move_reservation(res, new_day, note=None, base='', start_time=None, notify=True, share_seat=None):
+def move_reservation(res, new_day, note=None, base='', start_time=None, notify=True, share_seat=None, allow_pairs=False):
     """
     予約の日にち（時間枠のときは時刻も）を変える（職員の操作）。
     もとの日はキャンセル待ちを繰り上げ、新しい日は空きがなければキャンセル待ちにする。
@@ -528,6 +528,7 @@ def move_reservation(res, new_day, note=None, base='', start_time=None, notify=T
     `notify=False` なら、顧客への変更のお知らせ・グループへの増減・空きのお知らせを積まない
     （月間予定表を組んでいる途中の手直しで、確定前の予定を保護者に流さないため）。
     `share_seat` を渡すと「きょうだいと1枠にまとめる」も変える（渡さなければ、枠が変わるときは まとめない に戻す）。
+    `allow_pairs=True` は、職員が共演NG と分かったうえで同じ枠に入れるとき（月間予定表のドラッグ。画面では赤く出る）
     """
     facility = res.facility
     setting = get_setting(facility)
@@ -557,7 +558,7 @@ def move_reservation(res, new_day, note=None, base='', start_time=None, notify=T
         raise ReservationError(f'{jp_date(new_day)} の {res.display_name} さんの予約はすでにあります。')
     st = day_state(facility, new_day, setting)
     with_sibling = sibling_in_slot(res.beneficiary, new_day, new_time, exclude_pk=res.pk, siblings=st['siblings'])
-    if not with_sibling:        # きょうだいの日は、共演NG があっても止めない（印は出る）
+    if not with_sibling and not allow_pairs:   # きょうだいの日・職員が確かめたときは、共演NG があっても止めない（印は出る）
         names = pair_conflicts(res.beneficiary, new_day, exclude_pk=res.pk, start_time=new_time)
         if names:
             raise pair_error(new_day, res.display_name, names, new_time)

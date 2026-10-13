@@ -209,6 +209,10 @@
             <label class="form-check-label" for="beneficiary_tools">利用者情報：前後の利用者へ送るボタン・資料の編集中に別の画面へ移るときの警告・「書類から分かっていること」の削除</label>
           </div>
           <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="schedule_tools" id="schedule_tools" {% if facility.schedule_tools %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="schedule_tools">予定づくり：共演NG の印をまとめて付ける・月間予定表の上に編集中の日時・ドラッグで共演NG の人と同じ枠に入れたら赤く（確かめてから入れる）</label>
+          </div>
+          <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_transport" id="use_transport" {% if facility.use_transport %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_transport">送迎・配車（車両・運転手の登録、利用者ごとの送迎の設定、日ごとの配車表と印刷）</label>
           </div>

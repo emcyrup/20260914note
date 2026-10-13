@@ -812,11 +812,12 @@
 
           <!-- 同じ時間にできない利用者（共演NG） -->
           {% if edit_form.fields.cannot_pair.queryset %}
-          <div class="mb-3">
+          <div class="mb-3" data-check-group>
             <label class="form-label small fw-semibold d-block">同じ時間にできない{{ terms.beneficiary }}（共演NG） <span class="text-muted fw-normal">（印を付けた人とは、予約も月間予定表も同じ時間枠に入れません。時間がずれていれば同じ日でも入れられます。相手の側にも同じ印が付きます）</span></label>
-            <div class="border rounded p-2" style="max-height:160px;overflow:auto;">
+            {% include 'beneficiaries/_pair_tools.html' %}
+            <div class="border rounded p-2 cg-list" style="max-height:160px;overflow:auto;">
               {% for b in edit_form.fields.cannot_pair.queryset %}
-              <label class="form-check form-check-inline small mb-1"><input type="checkbox" class="form-check-input" name="cannot_pair" value="{{ b.pk }}" {% if b.pk in pair_ids %}checked{% endif %}>{{ b.full_name }}</label>
+              <label class="form-check form-check-inline small mb-1" data-kana="{{ b.full_name_kana }}"><input type="checkbox" class="form-check-input" name="cannot_pair" value="{{ b.pk }}" {% if b.pk in pair_ids %}checked{% endif %}>{{ b.full_name }}</label>
               {% endfor %}
             </div>
           </div>

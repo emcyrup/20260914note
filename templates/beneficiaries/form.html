@@ -159,10 +159,13 @@
       <div class="card-body">
         <h6 class="card-title fw-bold mb-1">同じ時間にできない{{ terms.beneficiary }}（共演NG）</h6>
         <div class="small text-muted mb-2">印を付けた人とは、予約も月間予定表も同じ日の同じ時間枠に入れません。時間がずれていれば同じ日でも入れられます（時間枠の無い事業所では同じ日に入れません）。相手の側にも同じ印が付きます。</div>
-        <div class="border rounded p-2" style="max-height:200px;overflow:auto;">
+        <div data-check-group>
+        {% include 'beneficiaries/_pair_tools.html' %}
+        <div class="border rounded p-2 cg-list" style="max-height:200px;overflow:auto;">
           {% for b in form.fields.cannot_pair.queryset %}
-          <label class="form-check form-check-inline small mb-1"><input type="checkbox" class="form-check-input" name="cannot_pair" value="{{ b.pk }}" {% if b.pk in pair_ids %}checked{% endif %}>{{ b.full_name }}</label>
+          <label class="form-check form-check-inline small mb-1" data-kana="{{ b.full_name_kana }}"><input type="checkbox" class="form-check-input" name="cannot_pair" value="{{ b.pk }}" {% if b.pk in pair_ids %}checked{% endif %}>{{ b.full_name }}</label>
           {% endfor %}
+        </div>
         </div>
       </div>
     </div>

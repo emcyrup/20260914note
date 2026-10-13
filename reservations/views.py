@@ -1397,11 +1397,13 @@ class MonthlyScheduleSwapView(SlotModeMixin, View):
         back = redirect('reservations:monthly_schedule', year=year, month=month)
         res_a = get_object_or_404(Reservation, pk=to_int(request.POST.get('a'), -1), facility=facility)
         action = request.POST.get('action')
+        # 共演NG の人と同じ枠に入れるのは、職員が画面で確かめたときだけ（Facility.schedule_tools。画面では赤く出る）
+        allow_pairs = facility.schedule_tools and request.POST.get('allow_pairs') == '1'
         try:
             if action == 'swap':
                 res_b = get_object_or_404(Reservation, pk=to_int(request.POST.get('b'), -1), facility=facility)
                 touched = [(res_a.beneficiary, res_a.date), (res_b.beneficiary, res_b.date)]
-                monthly.swap_reservations(res_a, res_b)
+                monthly.swap_reservations(res_a, res_b, allow_pairs=allow_pairs)
                 msg = (f'{res_a.display_name} さんと {res_b.display_name} さんを入れ替えました'
                        f'（{services.jp_date(res_a.date)} {res_a.time_label} ⇄ '
                        f'{services.jp_date(res_b.date)} {res_b.time_label}）。')
@@ -1421,7 +1423,7 @@ class MonthlyScheduleSwapView(SlotModeMixin, View):
                     messages.error(request, '移す先の日にちが正しくありません。')
                     return back
                 touched = [(res_a.beneficiary, res_a.date)]
-                res_a = monthly.move_on_schedule(res_a, day, to_int(request.POST.get('hour'), -1))
+                res_a = monthly.move_on_schedule(res_a, day, to_int(request.POST.get('hour'), -1), allow_pairs=allow_pairs)
                 msg = f'{res_a.display_name} さんを {services.jp_date(res_a.date)} {res_a.time_label} へ移しました。'
             else:
                 messages.error(request, '操作を選んでください。')
@@ -1436,6 +1438,15 @@ class MonthlyScheduleSwapView(SlotModeMixin, View):
         if refreshed:
             msg += ' 送信待ちの「ご利用日が決まりました」も書き直しました。'
         messages.success(request, msg)
+        if allow_pairs:
+            moved = [res_a] + ([res_b] if action == 'swap' else [])
+            for r in moved:
+                if r.beneficiary is None:
+                    continue
+                names = services.pair_conflicts(r.beneficiary, r.date, exclude_pk=r.pk, start_time=r.start_time)
+                if names:
+                    messages.warning(request, f'{services.jp_date(r.date)} {r.time_label} は {r.display_name} さんと '
+                                              f'{"・".join(names)} さんが同じ時間です（共演NG）。予定表では赤く出ます。')
         _warn_limit(request, facility, res_a.date)
         return back
 

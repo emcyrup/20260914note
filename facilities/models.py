@@ -102,6 +102,9 @@ class Facility(models.Model):
     # 利用者情報の画面の追加（2026-10-13 ゆあーず）：前後の利用者へ送るボタン、資料の編集中に別の画面へ移るときの警告、
     # 「書類から分かっていること」の削除ボタン
     beneficiary_tools = models.BooleanField(default=False, verbose_name='利用者情報：前後の利用者へ送る・編集中の警告・分かったことの削除')
+    # 予定づくりの追加（2026-10-13 ゆあーず）：共演NG の印をまとめて付ける、月間予定表の上に編集中の日時、
+    # 月間予定表のドラッグで共演NG の人と同じ枠に入れられる（確かめてから。赤く表示）
+    schedule_tools = models.BooleanField(default=False, verbose_name='予定づくり：共演NG の一括の印・編集中の日時の表示・ドラッグで共演NG を赤く')
     use_transport = models.BooleanField(default=False, verbose_name='送迎・配車を使う',
                                         help_text='車両と運転手を登録し、利用者ごとの送迎（迎え・送り・場所）から日ごとの配車表を作ります。')
     use_dev_assessment = models.BooleanField(default=False, verbose_name='5領域アセスメントを使う',

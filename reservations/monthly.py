@@ -416,10 +416,11 @@ def _other_on_day(res, day):
 
 
 @transaction.atomic
-def swap_reservations(res_a, res_b):
+def swap_reservations(res_a, res_b, allow_pairs=False):
     """
     月間予定表で2人の枠を入れ替える（日にちと時刻を交換する）。
     1人ずつ入れ替えるので、どの枠の人数も変わらない。保護者へのお知らせは積まない。
+    allow_pairs=True は、職員が共演NG と分かったうえで入れ替えるとき（画面では赤く出る）
     """
     if res_a.pk == res_b.pk:
         raise services.ReservationError('同じ予約を選んでいます。')
@@ -442,7 +443,7 @@ def swap_reservations(res_a, res_b):
                 f'{services.jp_date(res_a.date)} には {res_b.display_name} さんのほかの予約があります。')
     # 同じ時間にできない利用者（入れ替える相手の予約は動くので除く。自分の予約も動くので除く）
     for res, (day, start), other in ((res_a, b_slot, res_b), (res_b, a_slot, res_a)):
-        names = services.pair_conflicts(res.beneficiary, day, exclude_pk=other.pk, start_time=start)
+        names = [] if allow_pairs else services.pair_conflicts(res.beneficiary, day, exclude_pk=other.pk, start_time=start)
         if names:
             raise services.pair_error(day, res.display_name, names, start)
     res_a.date, res_a.start_time = b_slot
@@ -453,7 +454,7 @@ def swap_reservations(res_a, res_b):
     return res_a, res_b
 
 
-def move_on_schedule(res, day, hour, share_seat=False):
+def move_on_schedule(res, day, hour, share_seat=False, allow_pairs=False):
     """
     月間予定表の空いている枠へ移す。保護者へのお知らせは積まない（キャンセル待ちの繰り上げはする）。
     share_seat=True はきょうだいの箱に重ねたとき：その枠のきょうだいと1枠にまとめる（席を増やさない）
@@ -476,7 +477,8 @@ def move_on_schedule(res, day, hour, share_seat=False):
             raise services.ReservationError(f'{services.jp_date(day)} {hour}時 の枠は満員です。入れ替えを使ってください。')
         if res.date == day and res.hour == hour:
             return services.set_share_seat(res, share_seat)
-        return services.move_reservation(res, day, start_time=datetime.time(hour, 0), notify=False, share_seat=share_seat)
+        return services.move_reservation(res, day, start_time=datetime.time(hour, 0), notify=False, share_seat=share_seat,
+                                         allow_pairs=allow_pairs)
 
 
 # ---------------------------------------------------------------- 月間予定表
@@ -492,6 +494,7 @@ def month_schedule(facility, year, month, setting=None):
     by_slot = {}
     waiting = {}
     siblings = services.sibling_map(facility)
+    pairs = services.pair_map(facility)          # 共演NG の相手（ドラッグ中に、入れると共演NG になる枠を赤くするため）
     for res in services.mark_pairs(facility, month_reservations(facility, year, month, statuses=Reservation.ACTIVE_STATUSES)):
         key = (res.date, res.hour)
         if res.status == Reservation.STATUS_CONFIRMED:
@@ -520,6 +523,7 @@ def month_schedule(facility, year, month, setting=None):
                 boxes += [None] * (setting.slot_capacity - len(boxes))
                 for r in rows:
                     r.sibling_ids = ','.join(str(x) for x in sorted(siblings.get(r.beneficiary_id, ())))
+                    r.pair_ids = ','.join(str(x) for x in sorted(pairs.get(r.beneficiary_id, ())))
                 slots.append({'hour': h, 'label': hour_label(h), 'active': h in day_hours,
                               'reservations': rows, 'boxes': boxes, 'seats': len(groups),
                               'waiting': waiting.get((day, h), []),

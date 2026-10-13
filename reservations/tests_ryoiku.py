@@ -1872,3 +1872,80 @@ class SiblingDayTests(TestCase):
         res = Reservation.objects.get(beneficiary=a)
         self.assertEqual((res.start_time, res.status, res.share_seat), (datetime.time(9), 'confirmed', True))
         self.assertEqual(services.slot_state(self.f, datetime.date(2026, 10, 3), 9)['seats'], 3)
+
+
+class ScheduleToolsTests(TestCase):
+    """ゆあーずの依頼（2026-10-13。Facility.schedule_tools）：共演NG の一括の印・編集中の日時・ドラッグで共演NG を赤く"""
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        self.f.schedule_tools = True
+        self.f.save()
+        self.user = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        d = datetime.date(2018, 1, 1)
+        self.a = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', last_name_kana='あおき', date_of_birth=d)
+        self.b = Beneficiary.objects.create(facility=self.f, last_name='木村', first_name='空', last_name_kana='きむら', date_of_birth=d)
+        self.c = Beneficiary.objects.create(facility=self.f, last_name='佐藤', first_name='花', last_name_kana='さとう', date_of_birth=d)
+        self.a.cannot_pair.add(self.b)
+        self.day = datetime.date(2026, 10, 6)
+        self.swap = reverse('reservations:monthly_schedule_swap', args=[2026, 10])
+        self.page = reverse('reservations:monthly_schedule', args=[2026, 10])
+
+    def test_move_into_ng_slot_after_confirm_shows_red(self):
+        services.create_reservation(self.f, self.b, self.day, start_time=10)
+        ra, _ = services.create_reservation(self.f, self.a, self.day, start_time=11)
+        page = self.client.get(self.page)
+        self.assertContains(page, f'data-pairs="{self.b.pk}"')                 # ドラッグ中に赤くするための相手
+        self.assertContains(page, 'id="ms-editing"')                          # ヘッダーの編集中の日時
+        self.assertContains(page, 'name="allow_pairs"')
+        # 画面で確かめていない（allow_pairs なし）ときは、これまでどおり止める
+        res = self.client.post(self.swap, {'action': 'move', 'a': ra.pk, 'date': '2026-10-06', 'hour': '10'}, follow=True)
+        self.assertContains(res, '木村 空')
+        ra.refresh_from_db()
+        self.assertEqual(ra.start_time.hour, 11)
+        # 確かめたら入れる。注意を出し、予定表では赤く
+        res = self.client.post(self.swap, {'action': 'move', 'a': ra.pk, 'date': '2026-10-06', 'hour': '10', 'allow_pairs': '1'}, follow=True)
+        self.assertContains(res, 'へ移しました')
+        self.assertContains(res, '青木 子 さんと 木村 空 さんが同じ時間です（共演NG）')
+        ra.refresh_from_db()
+        self.assertEqual(ra.start_time.hour, 10)
+        page = self.client.get(self.page).content.decode()
+        self.assertEqual(page.count(' pair"'), 2)                             # 2人とも赤い印
+        self.assertIn('組み合わせNG：木村 空 さんと同じ時間', page)
+
+    def test_swap_into_ng_slot(self):
+        services.create_reservation(self.f, self.b, self.day, start_time=10)
+        rc, _ = services.create_reservation(self.f, self.c, self.day, start_time=10)
+        ra, _ = services.create_reservation(self.f, self.a, self.day, start_time=11)
+        res = self.client.post(self.swap, {'action': 'swap', 'a': ra.pk, 'b': rc.pk, 'allow_pairs': '1'}, follow=True)
+        self.assertContains(res, '入れ替えました')
+        self.assertContains(res, '同じ時間です（共演NG）')
+        ra.refresh_from_db()
+        self.assertEqual(ra.start_time.hour, 10)
+
+    def test_switch_off_keeps_old_behavior(self):
+        Facility.objects.filter(pk=self.f.pk).update(schedule_tools=False)
+        services.create_reservation(self.f, self.b, self.day, start_time=10)
+        ra, _ = services.create_reservation(self.f, self.a, self.day, start_time=11)
+        self.client.post(self.swap, {'action': 'move', 'a': ra.pk, 'date': '2026-10-06', 'hour': '10', 'allow_pairs': '1'})
+        ra.refresh_from_db()
+        self.assertEqual(ra.start_time.hour, 11)                               # 切り替えがオフなら止める
+        page = self.client.get(self.page)
+        self.assertNotContains(page, 'id="ms-editing"')
+        self.assertNotContains(self.client.get(reverse('beneficiaries:detail', args=[self.a.pk])), 'cg-all')
+
+    def test_pair_bulk_tools_on_edit(self):
+        res = self.client.get(reverse('beneficiaries:detail', args=[self.a.pk]))
+        self.assertContains(res, 'data-check-group')
+        self.assertContains(res, '見えている人に印')
+        self.assertContains(res, 'data-kana="きむら')
+        self.assertContains(res, 'js/check-group.js')
+        res = self.client.get(reverse('beneficiaries:update', args=[self.a.pk]))
+        self.assertContains(res, '見えている人の印を外す')
+        # まとめて印を付けて保存（相手の側にも付く）
+        self.client.post(reverse('beneficiaries:update', args=[self.a.pk]), {
+            'last_name': '青木', 'first_name': '子', 'date_of_birth': '2018-01-01', 'status': 'active', 'gender': 'male',
+            'cannot_pair': [self.b.pk, self.c.pk]})
+        self.assertEqual(set(self.a.cannot_pair.values_list('pk', flat=True)), {self.b.pk, self.c.pk})
+        self.assertEqual(list(self.c.cannot_pair.all()), [self.a])

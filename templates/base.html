@@ -515,7 +515,8 @@
 <script src="{% static 'js/asis-notice.js' %}?v=1"></script>
 {% url 'ai_assist:wording_check' as wording_url %}{% if wording_url %}<script>window.WORDING_CHECK_URL = '{{ wording_url }}';</script>
 <script src="{% static 'js/wording-check.js' %}?v=1"></script>
-<script src="{% static 'js/unsaved-warn.js' %}?v=1"></script>{% endif %}{% endif %}
+<script src="{% static 'js/unsaved-warn.js' %}?v=1"></script>
+<script src="{% static 'js/check-group.js' %}?v=1"></script>{% endif %}{% endif %}
 {% block extra_js %}{% endblock %}
 
 {% if user.is_authenticated and user.ui_theme != 'simple' and not reservation_only %}

@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
 {% block title %}{{ year }}年{{ month }}月 月間予定表 — 放課後等デイサービス業務支援{% endblock %}
-{% block page_title %}{{ year }}年 {{ month }}月 月間予定表{% endblock %}
+{% block page_title %}{{ year }}年 {{ month }}月 月間予定表{% if user.facility.schedule_tools %}<span id="ms-editing" class="ms-editing" aria-live="polite"></span>{% endif %}{% endblock %}
 {% block nav_reservations %}active{% endblock %}
 {% block nav_reservations_only %}active{% endblock %}
 
@@ -38,6 +38,11 @@
   [draggable="true"][data-res] { cursor: grab; }
   .ms-dragging { opacity: .45; }
   .ms-drop-ok { outline: 2px dashed var(--color-primary); outline-offset: -2px; background: var(--color-primary-bg) !important; }
+  .ms-drop-ng { outline: 2px solid #b02a37; outline-offset: -2px; background: #fde2e2 !important; color: #b02a37 !important; }   /* 入れると共演NG になる枠 */
+  .ms-editing { display: inline-block; margin-left: 12px; font-size: .8rem; font-weight: 600; color: var(--lake-text, #5a3a22);
+                background: var(--color-primary-bg, #f3efe7); border-radius: 6px; padding: 1px 8px; vertical-align: middle; }
+  .ms-editing:empty { display: none; }
+  .ms-editing.ng { color: #fff; background: #b02a37; }
   .ms-total { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: .85rem; background: rgba(255,255,255,.7); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
   .ms-sum { font-weight: 700; background: rgba(243,239,231,.9); }
   .ms-short { display: block; font-size: .62rem; color: var(--color-danger); font-weight: 700; line-height: 1.1; white-space: nowrap; }
@@ -157,7 +162,7 @@
   <form method="post" action="{% url 'reservations:monthly_schedule_swap' year month %}" id="ms-swap-form" class="d-none">
     {% csrf_token %}
     <input type="hidden" name="action"><input type="hidden" name="a"><input type="hidden" name="b">
-    <input type="hidden" name="date"><input type="hidden" name="hour">
+    <input type="hidden" name="date"><input type="hidden" name="hour"><input type="hidden" name="allow_pairs" value="">
   </form>
   {% if facility.is_ryoiku %}
   <div id="ms-att-bar" class="alert alert-success py-2 small mb-3">
@@ -220,8 +225,8 @@
                     {% elif r %}{% include 'reservations/_ms_name.html' with cls='ms-box' %}
                     {% else %}<a class="ms-box empty" data-date="{{ d.date|date:'Y-m-d' }}" data-hour="{{ s.hour }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}?hour={{ s.hour }}" title="{{ d.date|date:'n/j' }} {{ s.label }} に追加">＋</a>{% endif %}
                   {% endfor %}
-                  {% for r in s.over %}<a class="ms-box over" data-res="{{ r.pk }}" data-name="{{ r.display_name }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">{{ r.display_name }}（超過）</a>{% endfor %}
-                  {% for r in s.waiting %}<a class="ms-box wait" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">待 {{ r.display_name }}</a>{% endfor %}
+                  {% for r in s.over %}<a class="ms-box over{% if r.pair_names %} pair{% endif %}" data-res="{{ r.pk }}" data-name="{{ r.display_name }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">{{ r.display_name }}（超過）</a>{% endfor %}
+                  {% for r in s.waiting %}<a class="ms-box wait{% if r.pair_names %} pair{% endif %}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">待 {{ r.display_name }}</a>{% endfor %}
                 </td>
                 {% endif %}
               {% endif %}{% endfor %}
@@ -309,10 +314,52 @@
   function reset() {
     if (picked) picked.classList.remove('picked');
     picked = null; msg.textContent = first;
+    if (typeof showEditing === 'function') showEditing('');
   }
+  var TOOLS = {% if user.facility.schedule_tools %}true{% else %}false{% endif %};   // 共演NG を確かめて入れる・編集中の日時（ゆあーず）
   function submit(fields) {
     Object.keys(fields).forEach(function (k) { form.elements[k].value = fields[k]; });
+    form.elements.allow_pairs.value = TOOLS ? '1' : '';
     form.submit();
+  }
+  // 共演NG：src をその枠へ入れたら（入れ替えなら相手も src の枠へ）同じ枠になる共演NG の人の名前
+  function slotBoxes(date, hour) {
+    return Array.prototype.slice.call(document.querySelectorAll('[data-res][data-date="' + date + '"][data-hour="' + hour + '"]'));
+  }
+  function pairsOf(el) { return (el.dataset.pairs || '').split(',').filter(Boolean); }
+  function ngNames(src, target) {
+    if (!src || !target || !target.dataset.date) return [];
+    var out = [];
+    function check(mover, date, hour, skip) {
+      var mine = pairsOf(mover);
+      if (!mine.length) return;
+      slotBoxes(date, hour).forEach(function (o) {
+        if (skip.indexOf(o) >= 0 || !o.dataset.b) return;
+        if (mine.indexOf(o.dataset.b) >= 0) out.push(mover.dataset.name + '・' + o.dataset.name);
+      });
+    }
+    var swap = !!target.dataset.res;
+    check(src, target.dataset.date, target.dataset.hour, swap ? [src, target] : [src]);
+    if (swap) check(target, src.dataset.date, src.dataset.hour, [src, target]);
+    return out.filter(function (x, i) { return out.indexOf(x) === i; });
+  }
+  function ngText(names) { return names.length ? '\n\n※共演NG：' + names.join('／') + ' が同じ時間になります（予定表では赤く出ます）。' : ''; }
+  // 画面の上（ヘッダー）に、いま触っている日時を出す
+  var editing = document.getElementById('ms-editing');
+  var WD = ['日', '月', '火', '水', '木', '金', '土'];
+  function whenOf(el) {
+    if (!el) return '';
+    var w = el.dataset.when || '';
+    if (el.dataset.date) {
+      var d = new Date(el.dataset.date + 'T00:00:00'), t = w.split(' ').slice(1).join(' ');
+      w = (d.getMonth() + 1) + '/' + d.getDate() + '（' + WD[d.getDay()] + '）' + (t ? ' ' + t : '');
+    }
+    return w;
+  }
+  function showEditing(text, ng) {
+    if (!editing) return;
+    editing.textContent = text ? '編集中：' + text : '';
+    editing.classList.toggle('ng', !!ng);
   }
   document.getElementById('ms-swap-toggle').addEventListener('click', function () {
     body.classList.toggle('ms-swap'); body.classList.remove('ms-att'); hideAtt(); reset();
@@ -415,11 +462,11 @@
         dropMenu.style.top = (r.bottom + window.scrollY + 2) + 'px';
         return;
       }
-      if (confirm(src.dataset.name + '（' + src.dataset.when + '）と ' + target.dataset.name + '（' + target.dataset.when + '）を入れ替えます。よろしいですか？')) {
+      if (confirm(src.dataset.name + '（' + src.dataset.when + '）と ' + target.dataset.name + '（' + target.dataset.when + '）を入れ替えます。よろしいですか？' + ngText(TOOLS ? ngNames(src, target) : []))) {
         submit({action: 'swap', a: src.dataset.res, b: target.dataset.res});
       }
     } else if (target.dataset.date) {
-      if (confirm(src.dataset.name + ' を ' + src.dataset.when + ' から ' + target.dataset.when + ' へ移します。よろしいですか？')) {
+      if (confirm(src.dataset.name + ' を ' + src.dataset.when + ' から ' + target.dataset.when + ' へ移します。よろしいですか？' + ngText(TOOLS ? ngNames(src, target) : []))) {
         submit({action: 'move', a: src.dataset.res, date: target.dataset.date, hour: target.dataset.hour});
       }
     }
@@ -432,7 +479,7 @@
     pending = null;
   });
   var dragSrc = null, overEl = null;
-  function clearOver() { if (overEl) overEl.classList.remove('ms-drop-ok'); overEl = null; }
+  function clearOver() { if (overEl) { overEl.classList.remove('ms-drop-ok'); overEl.classList.remove('ms-drop-ng'); } overEl = null; }
   document.addEventListener('dragstart', function (e) {
     var a = e.target.closest && e.target.closest('[data-res]');
     if (!a || body.classList.contains('ms-att')) { if (a) e.preventDefault(); return; }
@@ -442,14 +489,33 @@
   document.addEventListener('dragend', function () {
     if (dragSrc) dragSrc.classList.remove('ms-dragging');
     dragSrc = null; clearOver();
+    if (TOOLS) showEditing(picked ? picked.dataset.name + ' ' + whenOf(picked) + '（選んでいます）' : '');
   });
+  // 名前・「＋」の上に来たら、その日時（と名前）をヘッダーに出す。表の外に出たら、選んでいる人だけに戻す
+  if (TOOLS) {
+    document.addEventListener('mouseover', function (e) {
+      if (dragSrc) return;
+      var box = e.target.closest && e.target.closest('.ms-week [data-when]');
+      if (box) { showEditing(whenOf(box) + (box.dataset.name ? '　' + box.dataset.name : '　（空き）')); return; }
+      if (!e.target.closest || !e.target.closest('.ms-week')) showEditing(picked ? picked.dataset.name + ' ' + whenOf(picked) + '（選んでいます）' : '');
+    });
+    document.addEventListener('focusin', function (e) {
+      var box = e.target.closest && e.target.closest('.ms-week [data-when]');
+      if (box) showEditing(whenOf(box) + (box.dataset.name ? '　' + box.dataset.name : '　（空き）'));
+    });
+  }
   document.addEventListener('dragover', function (e) {
     if (!dragSrc) return;
     var t = e.target.closest && e.target.closest('[data-res], .ms-box.empty[data-date]');
     if (!t || t === dragSrc) { clearOver(); return; }
     e.preventDefault();
     try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
-    if (overEl !== t) { clearOver(); overEl = t; t.classList.add('ms-drop-ok'); }
+    if (overEl !== t) {
+      clearOver(); overEl = t;
+      var ng = TOOLS ? ngNames(dragSrc, t) : [];
+      t.classList.add(ng.length ? 'ms-drop-ng' : 'ms-drop-ok');
+      if (TOOLS) showEditing(dragSrc.dataset.name + ' ' + whenOf(dragSrc) + ' → ' + whenOf(t) + (ng.length ? '　共演NG：' + ng.join('／') : ''), ng.length);
+    }
   });
   document.addEventListener('drop', function (e) {
     if (!dragSrc) return;
@@ -474,6 +540,7 @@
     if (box.dataset.res) {
       if (!picked) {
         picked = box; box.classList.add('picked');
+        if (TOOLS) showEditing(box.dataset.name + ' ' + whenOf(box) + '（選んでいます）');
         msg.textContent = box.dataset.name + '（' + box.dataset.when + '）を選びました。入れ替える相手の名前か、移す先の「＋」を押してください。';
       } else if (picked === box) {
         reset();
@@ -481,7 +548,7 @@
         dropOn(picked, box);
       }
     } else if (box.dataset.date && picked) {
-      if (confirm(picked.dataset.name + ' を ' + picked.dataset.when + ' から ' + box.dataset.when + ' へ移します。よろしいですか？')) {
+      if (confirm(picked.dataset.name + ' を ' + picked.dataset.when + ' から ' + box.dataset.when + ' へ移します。よろしいですか？' + ngText(TOOLS ? ngNames(picked, box) : []))) {
         submit({action: 'move', a: picked.dataset.res, date: box.dataset.date, hour: box.dataset.hour});
       }
     }
