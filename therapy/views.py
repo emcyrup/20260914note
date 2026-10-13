@@ -236,7 +236,22 @@ class ChildView(TherapyEnabledMixin, View):
             from reservations.models import Reservation
             day_res = Reservation.objects.filter(facility=facility, beneficiary=beneficiary, date=default_date,
                                                  status__in=Reservation.ACTIVE_STATUSES).order_by('status', 'pk').first()
+        # 音声入力を今日の記録へ直接入れる事業所：入れる先（今日の記録。複数あれば最後のもの。無ければ今日の新しい記録の欄）
+        voice_direct = facility.therapy_voice_direct
+        today = datetime.date.today()
+        today_rec = today_hour = None
+        if voice_direct:
+            today_rec = (TherapyRecord.objects.filter(beneficiary=beneficiary, date=today).select_related('staff')
+                         .order_by('-time', '-pk').first())
+            if today_rec is None and facility.use_reservation:
+                from reservations.models import Reservation
+                res = (Reservation.objects.filter(facility=facility, beneficiary=beneficiary, date=today,
+                                                  status__in=Reservation.ACTIVE_STATUSES, start_time__isnull=False)
+                       .order_by('start_time').first())
+                today_hour = res.start_time.hour if res else None
         return render(request, self.template_name, {
+            'voice_direct': voice_direct, 'today': today, 'today_rec': today_rec, 'today_hour': today_hour,
+            'today_in_list': bool(today_rec and any(r.pk == today_rec.pk for r in records)),
             'dup': dup, 'day_res': day_res,
             'beneficiary': beneficiary, 'profile': profile, 'records': records, 'ym': ym, 'months': months,
             'date_from': date_from, 'date_to': date_to, 'filtered': filtered, 'filter_query': filter_query,
@@ -453,6 +468,26 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
 - 前置き・あいさつ・まとめの文・見出し・箇条書き・英語・絵文字・マークダウンは使わない
 - 返すのは整えた文だけ"""
 
+    # 音声入力を今日の記録へ直接入れるとき（Facility.therapy_voice_direct）：整文だけ＋やったこと・事実・様子に分ける
+    RECORD_PROMPT = f"""あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
+職員がその日の療育について話した言葉（音声入力の文字）を、読める書き言葉に整え、療育記録の欄に分けます。要約はしません。
+{AS_IS_RULES}
+【整え方】
+- 上の約束のとおり、言いよどみ・くだけた言葉を消し、文末を断定の形にする。句読点を付ける。話した順のまま
+- 漢字・かなの変換の誤り（音声入力の聞き違い）は、前後から明らかなときだけ直す
+- 文を短くしたり、まとめたり、内容を言いかえたりしない。話したことは1文も落とさない
+
+【分け方】
+- activities：話に出てきた「やったこと（活動・遊び・課題）」の名前。話に出てきた言葉のまま短く（例：ウレタン棒、ブロック）。出てきた順に5つまで。無ければ空
+- body（事実：したこと）：何をしたか・職員がどう関わったか・回数や順番
+- situation（様子：どうだったか）：子どもの表情・動き・言ったこと（「」でそのまま）・職員が「〜と思う」と感じたこと
+- 整えた文はすべて body か situation のどちらか一方に入れる（両方に同じ文を入れない。どちらにも入れずに落とさない）。それぞれ話した順のまま
+- どちらか分からない文は body に入れる
+
+【返し方】
+次の形の JSON だけを返す（前置き・説明・マークダウンは付けない）：
+{{"activities": ["…"], "body": "…", "situation": "…"}}"""
+
     def post(self, request, pk):
         beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
         text = request.POST.get('text', '').strip()
@@ -460,6 +495,8 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
         detail = mode == 'detail'
         if not text:
             return JsonResponse({'error': '留意点が空です。先に音声入力か文字で入れてください。'}, status=400)
+        if mode == 'record':
+            return self.record(beneficiary, text)
         refs, reference = 0, ''
         if mode == 'tidy':      # 整文だけ：書類の内容は混ぜない
             raw, error = _ask_ai(self.TIDY_PROMPT, f'【{beneficiary.full_name}さんについて職員が話したこと】\n{text[:CAUTIONS_MAX]}', 4096)
@@ -481,6 +518,16 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
         # 原文（と参考にした書類）に無い助言・評価の言い回しがあれば知らせる
         return JsonResponse({'result': result, 'references': refs, **asis.check(text + '\n' + reference, result)})
 
+    def record(self, beneficiary, text):
+        """話した言葉 → {'activities', 'body', 'situation'}（整文だけ。書類の内容は混ぜない）。分けられなければ全部を body に"""
+        raw, error = _ask_ai(self.RECORD_PROMPT, f'【{beneficiary.full_name}さんの今日の療育について職員が話したこと】\n{text[:CAUTIONS_MAX]}', 4096)
+        if error:
+            return error
+        data = parse_record_split(raw)
+        if not (data['body'] or data['situation'] or data['activities']):
+            return JsonResponse({'error': 'AIの返答が空でした。もう一度お試しください。'}, status=500)
+        return JsonResponse({**data, **asis.check(text, data['body'] + '\n' + data['situation'])})
+
     @staticmethod
     def tidy(raw):
         """行頭の記号をそろえ、空行を除く"""
@@ -490,6 +537,34 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
             if line:
                 lines.append(f'・{line}')
         return '\n'.join(lines)
+
+
+def parse_record_split(raw):
+    """AI の返答（JSON）→ {'activities': [5つまで], 'body', 'situation'}。JSON で返らなかったときは、整えた文として全部を body に"""
+    import json
+    text = (raw or '').strip()
+    m = re.search(r'\{.*\}', text, re.S)
+    data = None
+    if m:
+        try:
+            data = json.loads(m.group(0))
+        except ValueError:
+            data = None
+    if not isinstance(data, dict):
+        body = re.sub(r'\n{3,}', '\n\n', clean_ai_text(text)).strip()
+        return {'activities': [], 'body': body[:4000], 'situation': ''}
+
+    def clean(value):
+        return re.sub(r'\n{3,}', '\n\n', clean_ai_text(str(value or ''))).strip()[:4000]
+    acts = data.get('activities') or []
+    if isinstance(acts, str):
+        acts = re.split(r'[、,\n]', acts)
+    activities = []
+    for a in acts:
+        a = clean_ai_text(str(a or ''), keep_newlines=False).strip().lstrip('・-①②③④⑤ ').strip()[:100]
+        if a and a not in activities:
+            activities.append(a)
+    return {'activities': activities[:ACTIVITY_MAX], 'body': clean(data.get('body')), 'situation': clean(data.get('situation'))}
 
 
 class CautionsFigureView(TherapyEnabledMixin, View):

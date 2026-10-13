@@ -1,4 +1,4 @@
-{% comment %}療育記録の入力欄（追加・修正で共通）。rec が None なら追加用{% endcomment %}
+{% comment %}療育記録の入力欄（追加・修正で共通）。rec が None なら追加用。today_slot は「これまでの記録」の今日の新しい記録の欄（音声入力を直接入れる事業所）{% endcomment %}
 <div class="col-6 col-md-3">
   <label class="form-label small fw-semibold">日付</label>
   <input type="date" name="date" class="form-control form-control-sm" value="{% if rec %}{{ rec.date|date:'Y-m-d' }}{% else %}{{ default_date|date:'Y-m-d' }}{% endif %}" required>
@@ -23,7 +23,7 @@
 </div>
 <div class="col-12">
   <label class="form-label small fw-semibold">やったこと（①〜⑤）</label>
-  {% if not rec and activity_chips %}
+  {% if not rec and not today_slot and activity_chips %}
   <div class="th-suggest" aria-label="よく使うやったこと">
     <span class="th-suggest-lbl">よく使う</span>
     {% for a in activity_chips %}<button type="button" class="th-suggest-btn" data-activity="{{ a }}">{{ a }}</button>{% endfor %}
@@ -35,7 +35,7 @@
       <div class="input-group input-group-sm">
         <span class="input-group-text">{% if i == 1 %}①{% elif i == 2 %}②{% elif i == 3 %}③{% elif i == 4 %}④{% else %}⑤{% endif %}</span>
         <input type="text" name="activity_{{ i }}" class="form-control" maxlength="100" list="activity-options" autocomplete="off"
-               value="{% if rec %}{% for a in rec.activities %}{% if forloop.counter == i %}{{ a }}{% endif %}{% endfor %}{% else %}{% for a in default_activities %}{% if forloop.counter == i %}{{ a }}{% endif %}{% endfor %}{% endif %}"
+               value="{% if rec %}{% for a in rec.activities %}{% if forloop.counter == i %}{{ a }}{% endif %}{% endfor %}{% elif not today_slot %}{% for a in default_activities %}{% if forloop.counter == i %}{{ a }}{% endif %}{% endfor %}{% endif %}"
                placeholder="{% if i == 1 %}例：ウレタン棒{% elif i == 2 %}例：ブロック{% endif %}">
       </div>
     </div>
@@ -43,28 +43,34 @@
   </div>
 </div>
 <div class="col-12">
-  {% if rec %}
+  {% if today_slot %}
+  <label class="form-label small fw-semibold" for="today-body">記録（事実：したこと）</label>
+  <textarea name="body" id="today-body" class="form-control form-control-sm" rows="4" placeholder="何を・どのようにしたか（例：ウレタン棒で10回打ち合った。「あと1回」と声をかけた）"></textarea>
+  {% elif rec %}
   <label class="form-label small fw-semibold">記録（事実：したこと）</label>
   <textarea name="body" class="form-control form-control-sm" rows="4" placeholder="何を・どのようにしたか（例：ウレタン棒で10回打ち合った。「あと1回」と声をかけた）">{{ rec.body }}</textarea>
   {% else %}
   <div class="d-flex justify-content-between align-items-end flex-wrap gap-2 mb-1">
     <label class="form-label small fw-semibold mb-0" for="record-body">記録（事実：したこと）</label>
-    <button type="button" class="btn btn-sm btn-outline-primary" id="record-summary"
+    {% if not voice_direct %}<button type="button" class="btn btn-sm btn-outline-primary" id="record-summary"
             data-url="{% url 'therapy:record_summary' beneficiary.pk %}"
-            title="留意点のうち、やったこと（①〜⑤）に関係するところを、留意点の言葉のまま記録の最後に足します"><i class="bi bi-magic"></i> 留意点から記録に追記</button>
+            title="留意点のうち、やったこと（①〜⑤）に関係するところを、留意点の言葉のまま記録の最後に足します"><i class="bi bi-magic"></i> 留意点から記録に追記</button>{% endif %}
   </div>
   <div id="record-summary-note" class="alert alert-info small py-1 px-2 mb-1 d-none">
     <span class="msg"></span>
     <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline d-none" id="record-undo">追記を取り消す</button>
   </div>
   <textarea name="body" id="record-body" class="form-control form-control-sm" rows="4" placeholder="何を・どのようにしたか（例：ウレタン棒で10回打ち合った。「あと1回」と声をかけた）">{{ default_body }}</textarea>
-  <div class="form-text">「やったこと」を入れてから「留意点から記録に追記」を押すと、留意点のうち今日の活動に関係するところを、<b>留意点の言葉のまま</b>（言いかえ・飾りの言葉・AI の見解は足さずに。500字まで）最後に足します。足したあとはそのまま保存します（入れ直したいときは、下の「これまでの記録」の「直す」から）。</div>
+  {% if not voice_direct %}<div class="form-text">「やったこと」を入れてから「留意点から記録に追記」を押すと、留意点のうち今日の活動に関係するところを、<b>留意点の言葉のまま</b>（言いかえ・飾りの言葉・AI の見解は足さずに。500字まで）最後に足します。足したあとはそのまま保存します（入れ直したいときは、下の「これまでの記録」の「直す」から）。</div>{% endif %}
   {% endif %}
 </div>
 {% if rec %}<div class="col-12">
   <label class="form-label small fw-semibold mb-0" for="sit-{{ rec.pk }}">様子（どうだったか）</label>
   <textarea name="situation" id="sit-{{ rec.pk }}" class="form-control form-control-sm" rows="3" placeholder="見えたこと・聞こえた言葉をそのまま（例：「もう1回」と言った。途中で座りこみ、声をかけると立った）">{{ rec.situation }}</textarea>
   <div class="form-text">2段の記録：上の「事実」に<b>何をしたか</b>、ここに<b>どうだったか</b>（見えたこと・子どもの言葉）を書きます。あとで読む人が誤解しないよう、「〜するとよい」「〜が大切」などの方針・評価は書かず、あったことだけを書きます。</div>
+</div>{% elif today_slot %}<div class="col-12">
+  <label class="form-label small fw-semibold mb-0" for="today-situation">様子（どうだったか）</label>
+  <textarea name="situation" id="today-situation" class="form-control form-control-sm" rows="3" placeholder="見えたこと・聞こえた言葉をそのまま（例：「もう1回」と言った。途中で座りこみ、声をかけると立った）"></textarea>
 </div>{% else %}<div class="col-12">
   <label class="form-label small fw-semibold mb-0" for="record-situation">様子（どうだったか）</label>
   <textarea name="situation" id="record-situation" class="form-control form-control-sm" rows="3" placeholder="見えたこと・聞こえた言葉をそのまま（例：「もう1回」と言った。途中で座りこみ、声をかけると立った）">{{ default_situation }}</textarea>

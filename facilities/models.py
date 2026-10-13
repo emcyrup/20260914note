@@ -94,6 +94,9 @@ class Facility(models.Model):
                                           help_text='1日の枠・キャンセル待ち・公式LINEからの申し込みを扱います。')
     use_therapy_record = models.BooleanField(default=False, verbose_name='療育記録を使う',
                                              help_text='利用者ごとの留意点と、1回ごとの療育の記録（やったこと①〜⑤・担当・本文）。用紙と同じ形で印刷できます。')
+    # 療育記録の音声入力を、留意点の欄ではなく「これまでの記録」の今日の記録へ直接入れる（整文してやったこと・事実・様子に分ける）。
+    # 留意点の欄・AI のボタン（詳しくまとめる・短く要約・整文だけ）・見取り図は画面に出さない（2026-10-13 ゆあーず）
+    therapy_voice_direct = models.BooleanField(default=False, verbose_name='療育記録：音声入力を今日の記録へ直接入れる')
     use_transport = models.BooleanField(default=False, verbose_name='送迎・配車を使う',
                                         help_text='車両と運転手を登録し、利用者ごとの送迎（迎え・送り・場所）から日ごとの配車表を作ります。')
     use_dev_assessment = models.BooleanField(default=False, verbose_name='5領域アセスメントを使う',

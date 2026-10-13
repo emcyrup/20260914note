@@ -740,3 +740,93 @@ class ReservationLinkTests(TestCase):
         page = self.client.get(reverse('therapy:index') + '?date=2026-10-02')
         self.assertContains(page, '記録がまだ 1 人')
         self.assertContains(page, '当日追加 1')
+
+
+@override_settings(ANTHROPIC_API_KEY='test')
+class VoiceDirectTests(TestCase):
+    """音声入力を今日の記録へ直接入れる（Facility.therapy_voice_direct。2026-10-13 ゆあーず）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_therapy_record=True, therapy_voice_direct=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子',
+                                              last_name_kana='あおき', date_of_birth=datetime.date(2019, 4, 1))
+        TherapyProfile.objects.create(beneficiary=self.kid, cautions='【工作】\n・はさみ：見守る')
+        self.url = reverse('therapy:child', args=[self.kid.pk])
+        self.ai_url = reverse('therapy:cautions_summary', args=[self.kid.pk])
+
+    def test_page_hides_cautions_and_has_today_slot(self):
+        res = self.client.get(self.url)
+        self.assertContains(res, 'id="voice-direct-btn"')
+        self.assertContains(res, 'data-voice-target="voice-buffer"')
+        for hidden in ('詳しくまとめる', '短く要約', 'id="cautions-tidy"', '見取り図と表', '留意点を保存', '留意点から記録に追記', 'はさみ：見守る'):
+            self.assertNotContains(res, hidden)
+        # 今日の記録がまだ無い：これまでの記録の上に今日の新しい記録の欄（保存は「保存する」で）
+        self.assertContains(res, 'id="today-form"')
+        self.assertContains(res, 'data-form="#today-form"')
+        self.assertContains(res, 'id="today-body"')
+        self.assertContains(res, f'value="{datetime.date.today():%Y-%m-%d}"')
+        # 今日の記録がある：その記録の直す欄へ入れる（新しい欄は出さない）
+        rec = TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date.today(), body='朝の記録')
+        res = self.client.get(self.url)
+        self.assertNotContains(res, 'id="today-form"')
+        self.assertContains(res, f'data-form="#edit{rec.pk} form"')
+        # 月で絞って今日が一覧に無くても、今日の記録は出す
+        res = self.client.get(self.url + '?ym=2020-01')
+        self.assertContains(res, f'id="rec{rec.pk}"')
+        # 切り替えがオフの事業所はこれまでどおり
+        Facility.objects.filter(pk=self.f.pk).update(therapy_voice_direct=False)
+        res = self.client.get(self.url)
+        self.assertContains(res, '詳しくまとめる')
+        self.assertContains(res, 'はさみ：見守る')
+        self.assertNotContains(res, 'voice-direct-btn')
+
+    def test_today_slot_saves_as_new_record(self):
+        self.client.post(self.url, {'action': 'add', 'date': datetime.date.today().isoformat(),
+                                    'activity_1': 'ブロック', 'body': 'ブロックを積んだ。', 'situation': '「できた」と言った。'})
+        rec = TherapyRecord.objects.get(beneficiary=self.kid)
+        self.assertEqual((rec.activities[0], rec.body, rec.situation), ('ブロック', 'ブロックを積んだ。', '「できた」と言った。'))
+        self.assertEqual(TherapyProfile.objects.get(beneficiary=self.kid).cautions, '【工作】\n・はさみ：見守る')   # 留意点はそのまま
+
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_record_mode_splits_into_fields(self, client_cls):
+        client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(type='text', text=(
+            '{"activities": ["ウレタン棒", "ブロック", "ウレタン棒"], "body": "ウレタン棒で10回打ち合った。\\nブロックを積んだ。",'
+            ' "situation": "「もう1回」と言った。"}'))])
+        res = self.client.post(self.ai_url, {'mode': 'record', 'text': 'えーと、ウレタン棒でめっちゃ打ち合って、10回。もう1回って言ってた。ブロックも積んだ'})
+        self.assertEqual(res.status_code, 200, res.content)
+        d = res.json()
+        self.assertEqual(d['activities'], ['ウレタン棒', 'ブロック'])
+        self.assertEqual(d['body'], 'ウレタン棒で10回打ち合った。\nブロックを積んだ。')
+        self.assertEqual(d['situation'], '「もう1回」と言った。')
+        kwargs = client_cls.return_value.messages.create.call_args.kwargs
+        self.assertIn('話したことは1文も落とさない', kwargs['system'])
+        self.assertIn('青木 子さん', kwargs['messages'][0]['content'])
+        self.assertFalse(TherapyRecord.objects.exists())           # 返すだけで保存はしない
+
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_record_mode_falls_back_to_body(self, client_cls):
+        client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(type='text', text='ブロックを積んだ。意欲的に取り組む様子が見られた。')])
+        d = self.client.post(self.ai_url, {'mode': 'record', 'text': 'ブロック積んだ'}).json()
+        self.assertEqual((d['activities'], d['body'], d['situation']), ([], 'ブロックを積んだ。意欲的に取り組む様子が見られた。', ''))
+        self.assertEqual(d['added'], ['意欲的に', '様子が見られ'])      # 話した言葉に無い言い回しは画面で知らせる
+
+    def test_parse_record_split(self):
+        from therapy.views import parse_record_split
+        self.assertEqual(parse_record_split('```json\n{"activities": "①ウレタン棒、ブロック", "body": "a", "situation": ""}\n```'),
+                         {'activities': ['ウレタン棒', 'ブロック'], 'body': 'a', 'situation': ''})
+        self.assertEqual(parse_record_split('{"activities": ["1","2","3","4","5","6"], "body": "", "situation": "b"}')['activities'],
+                         ['1', '2', '3', '4', '5'])
+        self.assertEqual(parse_record_split('{壊れた'), {'activities': [], 'body': '{壊れた', 'situation': ''})
+
+    def test_settings_switch(self):
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, 'name="therapy_voice_direct"')
+        self.client.post(reverse('facilities:feature_settings'), {'use_therapy_record': 'on', 'journal_sections': ['observation']})
+        self.f.refresh_from_db()
+        self.assertFalse(self.f.therapy_voice_direct)
+        self.client.post(reverse('facilities:feature_settings'), {'use_therapy_record': 'on', 'therapy_voice_direct': 'on',
+                                                                   'journal_sections': ['observation']})
+        self.f.refresh_from_db()
+        self.assertTrue(self.f.therapy_voice_direct)
