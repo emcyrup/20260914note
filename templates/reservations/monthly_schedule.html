@@ -96,6 +96,18 @@
   body.ms-fit .ms-users > div:first-child { text-align: left; }
   body.ms-fit .ms-users .badge { display: none; }
   .ms-show-fit { display: none; }
+  /* ゆあーず：右の一覧を小さく（幅を固定して狭く・文字を小さく・数字の列を詰める）。予定表をそのぶん広く */
+  #ms-area.ms-compact .ms-users { font-size: .68rem; line-height: 1.25; padding: 2px 6px; gap: 2px; grid-template-columns: 1fr repeat(4, 22px); }
+  #ms-area.ms-compact .ms-users.with-att { grid-template-columns: 1fr repeat(5, 22px); }
+  #ms-area.ms-compact .ms-users > div { text-align: right; white-space: nowrap; }
+  #ms-area.ms-compact .ms-users > div:first-child { text-align: left; white-space: normal; word-break: break-all; }
+  #ms-area.ms-compact .ms-users .badge { font-size: .52rem !important; padding: 1px 3px; }
+  #ms-area.ms-compact .ms-short, #ms-area.ms-compact .ms-over { display: block; font-size: .55rem; }
+  #ms-area.ms-compact #ms-side .small, #ms-area.ms-compact #ms-side .form-text { font-size: .66rem; }
+  #ms-area.ms-compact #ms-side .card-body { padding: 6px 8px; }
+  #ms-area.ms-compact .ms-staff-row label { flex-basis: 52px; font-size: .68rem; }
+  #ms-area.ms-compact .ms-staff-list { padding: 0 8px; }
+  #ms-area.ms-compact .ms-staff-row .form-control { font-size: .7rem; padding: 1px 4px; }
   /* 全体表示は画面いっぱい：左のメニュー・上の帯・お知らせ・ほかのボタンを消し、箱の高さを画面の高さに合わせる（--ms-bh） */
   body.ms-fit .sidebar, body.ms-fit .topbar, body.ms-fit .flash-messages, body.ms-fit .ai-chat-fab { display: none !important; }
   body.ms-fit .main-area { margin-left: 0 !important; }
@@ -112,6 +124,8 @@
   @media (min-width: 992px) {
     body.ms-fit #ms-main { flex: 0 0 calc(100% - 250px); max-width: calc(100% - 250px); }
     body.ms-fit #ms-side { flex: 0 0 250px; max-width: 250px; position: sticky; top: 8px; align-self: flex-start; max-height: calc(100vh - 16px); overflow-y: auto; }
+    #ms-area.ms-compact #ms-main { flex: 0 0 calc(100% - 210px); max-width: calc(100% - 210px); }
+    #ms-area.ms-compact #ms-side { flex: 0 0 210px; max-width: 210px; }
   }
 </style>
 {% endblock %}
@@ -214,7 +228,7 @@
     <span class="text-muted d-none d-md-inline ms-hide-fit"><i class="bi bi-arrows-move me-1"></i>名前はドラッグで動かせます（名前に重ねると入れ替え、きょうだいに重ねると1枠にまとめる、「＋」に置くと移動）</span>
   </div>
 
-  <div class="row g-3" id="ms-area">
+  <div class="row g-3{% if facility.is_ryoiku %} ms-compact{% endif %}" id="ms-area">
     <div class="col-lg-9" id="ms-main">
       {% for week in schedule.weeks %}
       <table class="ms-week" style="--cap: {{ schedule.capacity }};">
