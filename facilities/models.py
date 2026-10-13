@@ -97,6 +97,8 @@ class Facility(models.Model):
     # 療育記録の音声入力を、留意点の欄ではなく「これまでの記録」の今日の記録へ直接入れる（整文してやったこと・事実・様子に分ける）。
     # 留意点の欄・AI のボタン（詳しくまとめる・短く要約・整文だけ）・見取り図は画面に出さない（2026-10-13 ゆあーず）
     therapy_voice_direct = models.BooleanField(default=False, verbose_name='療育記録：音声入力を今日の記録へ直接入れる')
+    # 書類を AI で読み取ったあとの「療育記録の AI で参考にする」を「療育記録に反映する」と呼び、読み取った直後は印なしにする（2026-10-13 ゆあーず）
+    knowledge_reflect = models.BooleanField(default=False, verbose_name='書類の読み取り：「療育記録に反映する」は初めは印なし')
     use_transport = models.BooleanField(default=False, verbose_name='送迎・配車を使う',
                                         help_text='車両と運転手を登録し、利用者ごとの送迎（迎え・送り・場所）から日ごとの配車表を作ります。')
     use_dev_assessment = models.BooleanField(default=False, verbose_name='5領域アセスメントを使う',

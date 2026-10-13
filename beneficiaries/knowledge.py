@@ -228,6 +228,8 @@ def make_draft(beneficiary, data, user=None, document=None, assessment=None):
         points='\n'.join(f'・{x}' for x in points),
         text=clean_ai_text(data.get('full_text', ''))[:TEXT_MAX],
         proposals=proposals, created_by=user,
+        # 「療育記録に反映する」を初めは印なしにする事業所（ゆあーず）では、読み取った直後は参考にしない
+        use_in_ai=not getattr(b.facility, 'knowledge_reflect', False),
     )
 
 

@@ -35,7 +35,7 @@
     </div>
     {% for w in p.warnings %}<div class="alert alert-danger small py-2 mt-2 mb-0"><i class="bi bi-exclamation-triangle me-1"></i>{{ w }}</div>{% endfor %}
     {% if p.unreadable %}<div class="alert alert-warning small py-2 mt-2 mb-0">読み取りで迷ったところ：{{ p.unreadable }}</div>{% endif %}
-    {% if not k.is_saved %}<div class="small text-muted mt-2">AI が書類から取り出した内容です。書類と見比べて直してから「保存する」を押してください。保存するまで台帳は変わらず、療育記録にも反映しません。</div>{% endif %}
+    {% if not k.is_saved %}<div class="small text-muted mt-2">AI が書類から取り出した内容です。書類と見比べて直してから「保存する」を押してください。保存するまで台帳は変わらず、療育記録の AI も使いません。</div>{% endif %}
   </div>
 
   <form method="post" data-concurrency="knowledge:{{ k.pk }}" data-concurrency-lazy>
@@ -60,8 +60,8 @@
         </div>
         <div class="col-12">
           <label class="form-check small mb-0"><input type="checkbox" class="form-check-input" name="use_in_ai" value="1" {% if k.use_in_ai %}checked{% endif %}>
-            療育記録に反映する</label>
-          <div class="form-text">印を付けると、この子の療育記録を AI で作るとき（記録の文など）に、上の要約と「支援で気をつけること」、今日の活動に関係しそうな書類の文字を参考に渡します（ほかのお子さまには使いません）。基本は反映しません。</div>
+            {% if user.facility.knowledge_reflect %}療育記録に反映する{% else %}療育記録の AI（留意点の要約・記録の文）で参考にする{% endif %}</label>
+          <div class="form-text">{% if user.facility.knowledge_reflect %}印を付けると、{% endif %}この子の療育記録を AI で作るとき、上の要約と「支援で気をつけること」、今日の活動に関係しそうな書類の文字を参考に渡します（ほかのお子さまには使いません）。{% if user.facility.knowledge_reflect %}基本は反映しません。{% endif %}</div>
         </div>
       </div>
     </div>

@@ -199,6 +199,11 @@
             <label class="form-check-label" for="therapy_voice_direct">療育記録の音声入力を、今日の記録へ直接入れる
               <span class="small text-muted">（話し終えると書き言葉に整え、「これまでの記録」の今日の記録のやったこと・事実・様子に入れる。保存は「保存する」で。留意点の欄・まとめるボタン・見取り図は出さない）</span></label>
           </div>
+          <div class="form-check mb-1 ms-4">
+            <input type="checkbox" class="form-check-input" name="knowledge_reflect" id="knowledge_reflect" {% if facility.knowledge_reflect %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="knowledge_reflect">書類を AI で読み取ったとき、「療育記録に反映する」は初めは印なしにする
+              <span class="small text-muted">（オフのときは「療育記録の AI で参考にする」の名前で、初めから印あり）</span></label>
+          </div>
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_transport" id="use_transport" {% if facility.use_transport %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_transport">送迎・配車（車両・運転手の登録、利用者ごとの送迎の設定、日ごとの配車表と印刷）</label>

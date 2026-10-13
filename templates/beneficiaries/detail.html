@@ -287,7 +287,7 @@
                 <span class="min-w-0"><span class="doc-name d-block">{{ d.label }}</span><span class="doc-meta d-block">{{ d.created_at|date:'Y/n/j' }}{% if d.uploaded_by %}・{{ d.uploaded_by }}{% endif %}</span></span>
               </a>
               {% if d.read_k %}<a href="{% url 'beneficiaries:knowledge_review' beneficiary.pk d.read_k.pk %}" class="badge {% if d.read_k.is_saved %}text-bg-success{% else %}text-bg-warning{% endif %} text-decoration-none" title="読み取った内容を見る・直す">{% if d.read_k.is_saved %}読み取り済み{% else %}確認待ち{% endif %}</a>
-              {% elif d.readable and ai_ready %}<form method="post" action="{% url 'beneficiaries:knowledge_read' beneficiary.pk %}" class="kn-read">{% csrf_token %}<input type="hidden" name="source" value="document"><input type="hidden" name="source_pk" value="{{ d.pk }}"><button class="btn btn-sm btn-outline-primary py-0 text-nowrap" title="診断書などを AI で読み取ります。台帳への反映と、療育記録に反映するかは、読み取ったあとの画面で選びます"><i class="bi bi-magic me-1"></i>AIで読み取る</button></form>{% endif %}
+              {% elif d.readable and ai_ready %}<form method="post" action="{% url 'beneficiaries:knowledge_read' beneficiary.pk %}" class="kn-read">{% csrf_token %}<input type="hidden" name="source" value="document"><input type="hidden" name="source_pk" value="{{ d.pk }}"><button class="btn btn-sm btn-outline-primary py-0 text-nowrap" title="診断書などを AI で読み取り、台帳への反映と療育記録の AI の参考にします（どれを使うかは読み取ったあとの画面で選びます）"><i class="bi bi-magic me-1"></i>AIで読み取る</button></form>{% endif %}
               <button type="button" class="btn btn-sm btn-outline-secondary py-0 doc-rename-btn" title="名前を変える" data-target="doc-rename-{{ d.pk }}"><i class="bi bi-pencil"></i></button>
               <form method="post" action="{% url 'beneficiaries:document_delete' beneficiary.pk d.pk %}" onsubmit="return confirm('「{{ d.label|escapejs }}」を削除します。よろしいですか？');">
                 {% csrf_token %}<button class="btn btn-sm btn-outline-danger py-0" title="削除"><i class="bi bi-trash"></i></button>
@@ -375,7 +375,7 @@
       <div class="info-card">
         <div class="mb-2">
           <div class="section-title mb-0">書類から分かっていること</div>
-          <div class="small text-muted">基本情報の「書類・画像」やアセスメント・資料に付けた診断書・意見書・検査結果などを「AIで読み取る」と、ここに残ります。{% if user.facility.use_therapy_record %}「療育記録に反映」にしたものだけ、療育記録の AI がこの子の分を参考にします（基本は反映しません）。{% endif %}</div>
+          <div class="small text-muted">基本情報の「書類・画像」やアセスメント・資料に付けた診断書・意見書・検査結果などを「AIで読み取る」と、ここに残ります。{% if user.facility.use_therapy_record %}{% if user.facility.knowledge_reflect %}「療育記録に反映」にしたものだけ、療育記録の AI がこの子の分を参考にします（基本は反映しません）。{% else %}療育記録の AI（留意点の要約・記録の文）が、この子の分だけを参考にします。{% endif %}{% endif %}</div>
         </div>
         {% for k in knowledge_drafts %}
         <div class="alert alert-warning small py-2 mb-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
@@ -390,11 +390,11 @@
               <span class="badge asm-kind">{{ k.kind }}</span>
               <span class="fw-semibold ms-1">{{ k.label }}</span>
               <span class="small text-muted ms-1">{% if k.issuer %}{{ k.issuer }}・{% endif %}{% if k.doc_date %}{{ k.doc_date|date:'Y/n/j' }}{% else %}{{ k.created_at|date:'Y/n/j' }} 読み取り{% endif %}</span>
-              {% if k.use_in_ai %}<span class="badge text-bg-success ms-1" style="font-size:.68rem;">療育記録に反映</span>{% else %}<span class="badge text-bg-light text-muted ms-1" style="font-size:.68rem;">療育記録に反映しない</span>{% endif %}
+              {% if user.facility.knowledge_reflect %}{% if k.use_in_ai %}<span class="badge text-bg-success ms-1" style="font-size:.68rem;">療育記録に反映</span>{% else %}<span class="badge text-bg-light text-muted ms-1" style="font-size:.68rem;">療育記録に反映しない</span>{% endif %}{% elif k.use_in_ai %}<span class="badge text-bg-success ms-1" style="font-size:.68rem;">AIの参考</span>{% else %}<span class="badge text-bg-light text-muted ms-1" style="font-size:.68rem;">AIでは使わない</span>{% endif %}
               {% if k.applied %}<span class="small text-muted ms-1">台帳に反映：{{ k.applied|join:'・' }}</span>{% endif %}
             </div>
             <div class="d-flex gap-1 flex-shrink-0">
-              <form method="post" action="{% url 'beneficiaries:knowledge_toggle' beneficiary.pk k.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary py-0" title="療育記録に反映する／しない">{% if k.use_in_ai %}反映しない{% else %}療育記録に反映する{% endif %}</button></form>
+              <form method="post" action="{% url 'beneficiaries:knowledge_toggle' beneficiary.pk k.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary py-0" {% if user.facility.knowledge_reflect %}title="療育記録に反映する／しない">{% if k.use_in_ai %}反映しない{% else %}療育記録に反映する{% endif %}{% else %}title="療育記録の AI で参考にする／しない">{% if k.use_in_ai %}AIで使わない{% else %}AIの参考にする{% endif %}{% endif %}</button></form>
               <a href="{% url 'beneficiaries:knowledge_review' beneficiary.pk k.pk %}" class="btn btn-sm btn-outline-secondary py-0" title="見る・直す"><i class="bi bi-pencil"></i></a>
             </div>
           </div>

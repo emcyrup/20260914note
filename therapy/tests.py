@@ -827,6 +827,8 @@ class VoiceDirectTests(TestCase):
         self.f.refresh_from_db()
         self.assertFalse(self.f.therapy_voice_direct)
         self.client.post(reverse('facilities:feature_settings'), {'use_therapy_record': 'on', 'therapy_voice_direct': 'on',
-                                                                   'journal_sections': ['observation']})
+                                                                   'knowledge_reflect': 'on', 'journal_sections': ['observation']})
         self.f.refresh_from_db()
         self.assertTrue(self.f.therapy_voice_direct)
+        self.assertTrue(self.f.knowledge_reflect)
+        self.assertContains(self.client.get(reverse('facilities:settings')), 'name="knowledge_reflect" id="knowledge_reflect" checked')

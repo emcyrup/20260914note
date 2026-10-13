@@ -742,6 +742,34 @@ class KnowledgeTests(TestCase):
 
     @mock.patch('beneficiaries.knowledge.anthropic.Anthropic')
     @override_settings(ANTHROPIC_API_KEY='test-key')
+    def test_reflect_switch_starts_unchecked(self, client_cls):
+        # ゆあーず（Facility.knowledge_reflect）：「療育記録に反映する」の言い方で、読み取った直後は印なし（2026-10-13）
+        from .models import BeneficiaryKnowledge
+        Facility.objects.filter(pk=self.f.pk).update(knowledge_reflect=True)
+        self._read(client_cls)
+        k = BeneficiaryKnowledge.objects.get()
+        self.assertFalse(k.use_in_ai)
+        page = self.client.get(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]))
+        self.assertContains(page, '療育記録に反映する</label>')
+        self.assertContains(page, '基本は反映しません')
+        self.assertNotContains(page, 'name="use_in_ai" value="1" checked')
+        self.assertNotContains(page, 'で参考にする</label>')
+        res = self.client.post(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]),
+                               {'action': 'save', 'summary': k.summary, 'points': k.points, 'text': k.text}, follow=True)
+        self.assertContains(res, '療育記録には反映しません')
+        k.refresh_from_db()
+        self.assertEqual((k.status, k.use_in_ai), ('saved', False))
+        detail = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
+        self.assertContains(detail, '療育記録に反映しない</span>')
+        self.assertContains(detail, '>療育記録に反映する</button>')
+        self.assertNotContains(detail, 'AIの参考')
+        res = self.client.post(reverse('beneficiaries:knowledge_toggle', args=[self.kid.pk, k.pk]), follow=True)
+        self.assertContains(res, '療育記録に反映します')
+        k.refresh_from_db()
+        self.assertTrue(k.use_in_ai)
+
+    @mock.patch('beneficiaries.knowledge.anthropic.Anthropic')
+    @override_settings(ANTHROPIC_API_KEY='test-key')
     def test_read_review_save_and_apply(self, client_cls):
         from therapy.models import TherapyProfile
         from .models import BeneficiaryKnowledge
@@ -771,10 +799,10 @@ class KnowledgeTests(TestCase):
         self.assertContains(page, 'name="apply_assessment"')
         detail = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
         self.assertContains(detail, '確認待ち')
-        # 「療育記録に反映する」は、読み取った直後は印なし（基本は反映しない。2026-10-13 ゆあーず）
-        self.assertFalse(k.use_in_ai)
-        self.assertContains(page, '療育記録に反映する</label>')
-        self.assertNotContains(page, 'name="use_in_ai" value="1" checked')
+        # ほかの事業所はこれまでどおり：「療育記録の AI で参考にする」が初めから印あり
+        self.assertTrue(k.use_in_ai)
+        self.assertContains(page, '療育記録の AI（留意点の要約・記録の文）で参考にする</label>')
+        self.assertContains(page, 'name="use_in_ai" value="1" checked')
         # 保存：印を付けたもの（障害種別・留意点）だけ反映。備考は印なし
         res = self.client.post(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]), {
             'action': 'save', 'kind': '診断書', 'title': '診断書', 'doc_date': '2026-04-10', 'issuer': 'こども発達クリニック',
@@ -801,7 +829,7 @@ class KnowledgeTests(TestCase):
         detail = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
         self.assertContains(detail, '書類から分かっていること')
         self.assertContains(detail, '読み取り済み')
-        self.assertContains(detail, '療育記録に反映</span>')
+        self.assertContains(detail, 'AIの参考')
         # 同じ書類を読み直して保存すると入れ替わる
         self._read(client_cls)
         k2 = BeneficiaryKnowledge.objects.get(status='draft')

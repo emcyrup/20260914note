@@ -1130,20 +1130,26 @@ class KnowledgeReviewView(ImportRyoikuMixin, View):
             msg += '台帳に反映：' + '・'.join(applied) + '。'
         elif was_draft:
             msg += '台帳は変えていません。'
-        msg += '療育記録に反映します。' if k.use_in_ai else '療育記録には反映しません。'
+        if request.user.facility.knowledge_reflect:
+            msg += '療育記録に反映します。' if k.use_in_ai else '療育記録には反映しません。'
+        else:
+            msg += '療育記録の AI が参考にします。' if k.use_in_ai else '療育記録の AI では使いません。'
         messages.success(request, msg)
         return redirect(back)
 
 
 class KnowledgeToggleView(ImportRyoikuMixin, View):
-    """療育記録に反映する／しない を切り替える"""
+    """療育記録の AI で参考にする（療育記録に反映する）／しない を切り替える"""
 
     def post(self, request, beneficiary_pk, pk):
         beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
         k = get_object_or_404(beneficiary.knowledge, pk=pk)
         k.use_in_ai = not k.use_in_ai
         k.save(update_fields=['use_in_ai', 'updated_at'])
-        messages.success(request, f'「{k.label}」を療育記録に{"反映します" if k.use_in_ai else "反映しないようにしました"}。')
+        if request.user.facility.knowledge_reflect:
+            messages.success(request, f'「{k.label}」を療育記録に{"反映します" if k.use_in_ai else "反映しないようにしました"}。')
+        else:
+            messages.success(request, f'「{k.label}」を療育記録の AI で{"参考にします" if k.use_in_ai else "使わないようにしました"}。')
         return redirect(f"{reverse('beneficiaries:detail', args=[beneficiary.pk])}#knowledge")
 
 
