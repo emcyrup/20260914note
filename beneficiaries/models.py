@@ -484,7 +484,8 @@ class BeneficiaryKnowledge(models.Model):
     text = models.TextField(blank=True, verbose_name='書類の文字')
     proposals = models.JSONField(default=dict, blank=True, verbose_name='台帳への反映案')
     applied = models.JSONField(default=list, blank=True, verbose_name='台帳に反映したもの')
-    use_in_ai = models.BooleanField(default=True, verbose_name='療育記録の AI で参考にする')
+    # 療育記録に反映する（療育記録の AI の参考にする）。2026-10-13 ゆあーず：しない方を基本に
+    use_in_ai = models.BooleanField(default=False, verbose_name='療育記録に反映する')
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_DRAFT, verbose_name='状態')
     created_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name='+', verbose_name='読み取った職員')

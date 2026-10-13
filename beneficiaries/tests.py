@@ -771,6 +771,10 @@ class KnowledgeTests(TestCase):
         self.assertContains(page, 'name="apply_assessment"')
         detail = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
         self.assertContains(detail, '確認待ち')
+        # 「療育記録に反映する」は、読み取った直後は印なし（基本は反映しない。2026-10-13 ゆあーず）
+        self.assertFalse(k.use_in_ai)
+        self.assertContains(page, '療育記録に反映する</label>')
+        self.assertNotContains(page, 'name="use_in_ai" value="1" checked')
         # 保存：印を付けたもの（障害種別・留意点）だけ反映。備考は印なし
         res = self.client.post(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]), {
             'action': 'save', 'kind': '診断書', 'title': '診断書', 'doc_date': '2026-04-10', 'issuer': 'こども発達クリニック',
@@ -797,7 +801,7 @@ class KnowledgeTests(TestCase):
         detail = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
         self.assertContains(detail, '書類から分かっていること')
         self.assertContains(detail, '読み取り済み')
-        self.assertContains(detail, 'AIの参考')
+        self.assertContains(detail, '療育記録に反映</span>')
         # 同じ書類を読み直して保存すると入れ替わる
         self._read(client_cls)
         k2 = BeneficiaryKnowledge.objects.get(status='draft')
@@ -857,7 +861,7 @@ class KnowledgeTests(TestCase):
         from . import knowledge
         from .models import BeneficiaryKnowledge
         other = Beneficiary.objects.create(facility=self.f, last_name='井上', first_name='太郎', date_of_birth=datetime.date(2018, 5, 1))
-        k = BeneficiaryKnowledge.objects.create(beneficiary=self.kid, kind='診断書', title='診断書', issuer='こども発達クリニック',
+        k = BeneficiaryKnowledge.objects.create(beneficiary=self.kid, use_in_ai=True, kind='診断書', title='診断書', issuer='こども発達クリニック',
                                                 summary='聴覚過敏がある。', points='・大きな音の活動ではイヤーマフを使う',
                                                 text=self.READ['full_text'] + '\n' + 'その他の記載。' * 80, status='saved')
         knowledge.reindex(k)
@@ -889,7 +893,7 @@ class KnowledgeInTherapyAiTests(TestCase):
         StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
         self.client.login(username='ryo', password='pw12345678')
         self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
-        k = BeneficiaryKnowledge.objects.create(beneficiary=self.kid, kind='診断書', title='診断書', summary='聴覚過敏がある。',
+        k = BeneficiaryKnowledge.objects.create(beneficiary=self.kid, use_in_ai=True, kind='診断書', title='診断書', summary='聴覚過敏がある。',
                                                 points='・大きな音の活動ではイヤーマフを使う', text='太鼓の音で耳をふさぐ。', status='saved')
         knowledge.reindex(k)
 
