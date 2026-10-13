@@ -99,12 +99,23 @@
 <div style="max-width: 900px; margin: 0 auto;" class="px-2">
 
   <!-- パンくず -->
-  <div class="mb-3">
+  <div class="mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
     <a href="{% url 'beneficiaries:list' %}" class="text-muted small text-decoration-none">
       <i class="bi bi-people me-1"></i>{{ terms.beneficiary }}一覧
     </a>
     <span class="text-muted small mx-1">/</span>
     <span class="small">{{ beneficiary.full_name }}</span>
+    </div>
+    {% if nav_total %}
+    <nav class="d-flex align-items-center gap-1 bnav" aria-label="前後の{{ terms.beneficiary }}">
+      {% if prev_b %}<a href="{% url 'beneficiaries:detail' prev_b.pk %}" class="btn btn-sm btn-outline-secondary" title="前の{{ terms.beneficiary }}（一覧の 50 音順）" rel="prev"><i class="bi bi-chevron-left"></i><span class="d-none d-sm-inline ms-1">{{ prev_b.full_name }}</span></a>
+      {% else %}<span class="btn btn-sm btn-outline-secondary disabled" aria-disabled="true"><i class="bi bi-chevron-left"></i></span>{% endif %}
+      <span class="small text-muted px-1" title="{{ beneficiary.get_status_display }}の{{ terms.beneficiary }}の中で">{{ nav_pos }} / {{ nav_total }}</span>
+      {% if next_b %}<a href="{% url 'beneficiaries:detail' next_b.pk %}" class="btn btn-sm btn-outline-secondary" title="次の{{ terms.beneficiary }}（一覧の 50 音順）" rel="next"><span class="d-none d-sm-inline me-1">{{ next_b.full_name }}</span><i class="bi bi-chevron-right"></i></a>
+      {% else %}<span class="btn btn-sm btn-outline-secondary disabled" aria-disabled="true"><i class="bi bi-chevron-right"></i></span>{% endif %}
+    </nav>
+    {% endif %}
   </div>
 
   <!-- ヘッダーカード -->
@@ -293,7 +304,7 @@
                 {% csrf_token %}<button class="btn btn-sm btn-outline-danger py-0" title="削除"><i class="bi bi-trash"></i></button>
               </form>
             </div>
-            <form method="post" action="{% url 'beneficiaries:document_rename' beneficiary.pk d.pk %}" class="doc-rename d-none" id="doc-rename-{{ d.pk }}">
+            <form method="post" action="{% url 'beneficiaries:document_rename' beneficiary.pk d.pk %}" class="doc-rename d-none" id="doc-rename-{{ d.pk }}"{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
               {% csrf_token %}
               <div class="input-group input-group-sm">
                 <input type="text" name="title" class="form-control" maxlength="100" value="{{ d.label }}" placeholder="書類の名前" required>
@@ -396,6 +407,7 @@
             <div class="d-flex gap-1 flex-shrink-0">
               <form method="post" action="{% url 'beneficiaries:knowledge_toggle' beneficiary.pk k.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary py-0" {% if user.facility.knowledge_reflect %}title="療育記録に反映する／しない">{% if k.use_in_ai %}反映しない{% else %}療育記録に反映する{% endif %}{% else %}title="療育記録の AI で参考にする／しない">{% if k.use_in_ai %}AIで使わない{% else %}AIの参考にする{% endif %}{% endif %}</button></form>
               <a href="{% url 'beneficiaries:knowledge_review' beneficiary.pk k.pk %}" class="btn btn-sm btn-outline-secondary py-0" title="見る・直す"><i class="bi bi-pencil"></i></a>
+              {% if user.facility.beneficiary_tools %}<form method="post" action="{% url 'beneficiaries:knowledge_delete' beneficiary.pk k.pk %}" onsubmit="return confirm('「{{ k.label|escapejs }}」を削除します。\n読み取った要約と、療育記録の AI に渡す内容が消えます（台帳に反映した内容と、元の書類はそのまま残ります）。よろしいですか？');">{% csrf_token %}<button class="btn btn-sm btn-outline-danger py-0" title="削除"><i class="bi bi-trash"></i></button></form>{% endif %}
             </div>
           </div>
           {% if k.summary %}<div class="small mt-1">{{ k.summary }}</div>{% endif %}
@@ -492,7 +504,7 @@
           </button>
         </div>
         <div class="collapse" id="asmNew">
-          <form method="post" action="{% url 'beneficiaries:assessment_create' beneficiary.pk %}" enctype="multipart/form-data" class="asm-form row g-2 mb-3">
+          <form method="post" action="{% url 'beneficiaries:assessment_create' beneficiary.pk %}" enctype="multipart/form-data" class="asm-form row g-2 mb-3"{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
             {% csrf_token %}
             {% include 'beneficiaries/_assessment_fields.html' with a=None prefix='new' %}
             <div class="col-12 text-end"><button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>登録する</button></div>
@@ -524,7 +536,7 @@
           </div>
           {% endif %}
           <div class="collapse" id="asmEdit{{ a.pk }}">
-            <form method="post" action="{% url 'beneficiaries:assessment_update' beneficiary.pk a.pk %}" enctype="multipart/form-data" class="asm-form row g-2 mt-2 p-2 rounded" style="background:var(--color-primary-bg);" data-concurrency="beneficiary_assessment:{{ a.pk }}" data-concurrency-lazy>
+            <form method="post" action="{% url 'beneficiaries:assessment_update' beneficiary.pk a.pk %}" enctype="multipart/form-data" class="asm-form row g-2 mt-2 p-2 rounded" style="background:var(--color-primary-bg);" data-concurrency="beneficiary_assessment:{{ a.pk }}" data-concurrency-lazy{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
               {% csrf_token %}{% version_field a %}
               {% include 'beneficiaries/_assessment_fields.html' with a=a prefix=a.pk %}
               <div class="col-12 text-end"><button class="btn btn-sm btn-primary">保存する</button></div>

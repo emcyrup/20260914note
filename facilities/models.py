@@ -99,6 +99,9 @@ class Facility(models.Model):
     therapy_voice_direct = models.BooleanField(default=False, verbose_name='療育記録：音声入力を今日の記録へ直接入れる')
     # 書類を AI で読み取ったあとの「療育記録の AI で参考にする」を「療育記録に反映する」と呼び、読み取った直後は印なしにする（2026-10-13 ゆあーず）
     knowledge_reflect = models.BooleanField(default=False, verbose_name='書類の読み取り：「療育記録に反映する」は初めは印なし')
+    # 利用者情報の画面の追加（2026-10-13 ゆあーず）：前後の利用者へ送るボタン、資料の編集中に別の画面へ移るときの警告、
+    # 「書類から分かっていること」の削除ボタン
+    beneficiary_tools = models.BooleanField(default=False, verbose_name='利用者情報：前後の利用者へ送る・編集中の警告・分かったことの削除')
     use_transport = models.BooleanField(default=False, verbose_name='送迎・配車を使う',
                                         help_text='車両と運転手を登録し、利用者ごとの送迎（迎え・送り・場所）から日ごとの配車表を作ります。')
     use_dev_assessment = models.BooleanField(default=False, verbose_name='5領域アセスメントを使う',

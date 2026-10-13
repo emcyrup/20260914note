@@ -24,7 +24,7 @@
 <div class="px-2" style="max-width: 980px;">
   <nav class="small mb-2"><a href="{% url 'beneficiaries:list' %}">{{ terms.beneficiary }}情報</a> › <a href="{% url 'beneficiaries:detail' beneficiary.pk %}#dev-assessments">{{ beneficiary.full_name }}</a> › 5領域アセスメント</nav>
 
-  <form method="post" {% if sheet.pk %}data-concurrency="dev_assessment:{{ sheet.pk }}"{% endif %}>
+  <form method="post" {% if sheet.pk %}data-concurrency="dev_assessment:{{ sheet.pk }}"{% endif %}{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
     {% csrf_token %}{% if sheet.pk %}{% version_field sheet %}{% endif %}
     <div class="da-card">
       <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">

@@ -32,7 +32,7 @@
   </div>
   {% endif %}
 
-  <form method="post" class="dt-card" {% if test.pk %}data-concurrency="dev_test:{{ test.pk }}"{% endif %}>
+  <form method="post" class="dt-card" {% if test.pk %}data-concurrency="dev_test:{{ test.pk }}"{% endif %}{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
     {% csrf_token %}{% if test.pk %}{% version_field test %}{% endif %}
     {% if from_ai %}<div class="alert alert-warning small py-1 px-2">AI が「{{ test.source_label }}」から読み取った下書きです。数値を書類と見比べてください（まだ保存していません）。</div>{% endif %}
     <input type="hidden" name="source_label" value="{{ test.source_label }}">

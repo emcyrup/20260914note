@@ -25,6 +25,25 @@ from config.pdf import pdf_or_html
 # =============================================
 # 利用者一覧
 # =============================================
+def list_order(qs):
+    """利用者一覧の並び：50 音順。ふりがなの無い人は最後（かなが空だと先頭に来てしまうので）"""
+    return qs.annotate(no_kana=db_models.Case(db_models.When(last_name_kana='', then=1), default=0,
+                                              output_field=db_models.IntegerField())) \
+             .order_by('no_kana', 'last_name_kana', 'first_name_kana', 'last_name', 'first_name', 'pk')
+
+
+def neighbors(b):
+    """利用者の画面の前後（一覧と同じ 50 音順で、同じ在籍状況の人の中で）：(前の人, 次の人, 何人目, 人数)"""
+    ids = list(list_order(Beneficiary.objects.filter(facility=b.facility, status=b.status)).values_list('pk', flat=True))
+    if b.pk not in ids:
+        return None, None, 0, len(ids)
+    i = ids.index(b.pk)
+    people = Beneficiary.objects.in_bulk([x for x in (ids[i - 1] if i > 0 else None, ids[i + 1] if i + 1 < len(ids) else None) if x])
+    prev_b = people.get(ids[i - 1]) if i > 0 else None
+    next_b = people.get(ids[i + 1]) if i + 1 < len(ids) else None
+    return prev_b, next_b, i + 1, len(ids)
+
+
 class BeneficiaryListView(LoginRequiredMixin, ListView):
     """
     利用者一覧。ログインユーザーの施設に紐づく利用者のみ表示する。
@@ -58,10 +77,7 @@ class BeneficiaryListView(LoginRequiredMixin, ListView):
             qs = qs.filter(cond)
         elif row == '他':
             qs = qs.filter(last_name_kana='')
-        # 50 音順。ふりがなの無い人は最後（かなが空だと先頭に来てしまうので）
-        return qs.annotate(no_kana=db_models.Case(db_models.When(last_name_kana='', then=1), default=0,
-                                                  output_field=db_models.IntegerField())) \
-                 .order_by('no_kana', 'last_name_kana', 'first_name_kana', 'last_name', 'first_name', 'pk')
+        return list_order(qs)
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -402,6 +418,8 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
         ctx['guardians'] = b.guardians.all()
         ctx['status_choices'] = Beneficiary.STATUS_CHOICES
         facility = self.request.user.facility
+        if facility.beneficiary_tools:
+            ctx['prev_b'], ctx['next_b'], ctx['nav_pos'], ctx['nav_total'] = neighbors(b)
         if facility.is_ryoiku and b.status == 'active' and reservation_enabled(facility):
             # 「今日の予定に追加」：きょうの時間枠と空き（reservations/views.py の AddTodayView で予約を作る）
             from reservations.services import add_today_choices
@@ -1136,6 +1154,21 @@ class KnowledgeReviewView(ImportRyoikuMixin, View):
             msg += '療育記録の AI が参考にします。' if k.use_in_ai else '療育記録の AI では使いません。'
         messages.success(request, msg)
         return redirect(back)
+
+
+class KnowledgeDeleteView(ImportRyoikuMixin, View):
+    """「書類から分かっていること」を1件消す（読み取った要約・小片）。台帳に反映した内容と、元の書類はそのまま（Facility.beneficiary_tools）"""
+
+    def post(self, request, beneficiary_pk, pk):
+        beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        k = get_object_or_404(beneficiary.knowledge, pk=pk)
+        if not request.user.facility.beneficiary_tools:
+            messages.error(request, 'この事業所では「書類から分かっていること」の削除を使っていません（施設設定で入れられます）。')
+            return redirect(f"{reverse('beneficiaries:detail', args=[beneficiary_pk])}#knowledge")
+        label = k.label
+        k.delete()
+        messages.success(request, f'「{label}」を削除しました（台帳に反映した内容と、元の書類はそのままです。書類はもう一度「AIで読み取る」ができます）。')
+        return redirect(f"{reverse('beneficiaries:detail', args=[beneficiary_pk])}#knowledge")
 
 
 class KnowledgeToggleView(ImportRyoikuMixin, View):

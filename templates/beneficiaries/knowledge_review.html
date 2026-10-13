@@ -38,7 +38,7 @@
     {% if not k.is_saved %}<div class="small text-muted mt-2">AI が書類から取り出した内容です。書類と見比べて直してから「保存する」を押してください。保存するまで台帳は変わらず、療育記録の AI も使いません。</div>{% endif %}
   </div>
 
-  <form method="post" data-concurrency="knowledge:{{ k.pk }}" data-concurrency-lazy>
+  <form method="post" data-concurrency="knowledge:{{ k.pk }}" data-concurrency-lazy{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
     {% csrf_token %}{% version_field k %}
     <div class="info-card mb-3">
       <div class="row g-2">

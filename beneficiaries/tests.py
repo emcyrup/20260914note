@@ -1719,3 +1719,89 @@ class LeftListTests(TestCase):
         self.assertRedirects(res, url)
         self.b.refresh_from_db()
         self.assertEqual((self.b.status, self.b.discharge_date), ('active', None))
+
+
+class BeneficiaryToolsTests(TestCase):
+    """ゆあーずの依頼（2026-10-13。Facility.beneficiary_tools）：前後の利用者へ送る・資料の編集中の警告・分かったことの削除。書類の名前の変更（画像・PDF）"""
+
+    def setUp(self):
+        import shutil
+        import tempfile
+        self.media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media, ignore_errors=True)
+        self.override = override_settings(MEDIA_ROOT=self.media)
+        self.override.enable()
+        self.addCleanup(self.override.disable)
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True,
+                                         use_dev_assessment=True, use_daily_ops=True, beneficiary_tools=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.login(username='ryo', password='pw12345678')
+
+        def kid(last, first, kana, status='active'):
+            return Beneficiary.objects.create(facility=self.f, last_name=last, first_name=first, last_name_kana=kana,
+                                              date_of_birth=datetime.date(2019, 4, 1), status=status)
+        self.a, self.b, self.c = kid('青木', '子', 'あおき'), kid('井上', '子', 'いのうえ'), kid('上田', '子', 'うえだ')
+        self.nokana = kid('山田', '子', '')
+        self.left = kid('江藤', '子', 'えとう', status='inactive')
+
+    def detail(self, b):
+        return self.client.get(reverse('beneficiaries:detail', args=[b.pk]))
+
+    def test_prev_next_follow_list_order_within_status(self):
+        res = self.detail(self.b)
+        self.assertContains(res, f'href="/users/{self.a.pk}/" class="btn btn-sm btn-outline-secondary" title="前の')
+        self.assertContains(res, f'href="/users/{self.c.pk}/" class="btn btn-sm btn-outline-secondary" title="次の')
+        self.assertContains(res, '2 / 4')
+        res = self.detail(self.a)                       # 先頭：前は押せない
+        self.assertContains(res, '1 / 4')
+        self.assertContains(res, 'bi-chevron-left"></i></span>')
+        res = self.detail(self.nokana)                  # ふりがなの無い人は一覧と同じく最後
+        self.assertContains(res, '4 / 4')
+        self.assertContains(res, f'href="/users/{self.c.pk}/"')
+        res = self.detail(self.left)                    # 退所した人は退所した人の中で
+        self.assertContains(res, '1 / 1')
+        Facility.objects.filter(pk=self.f.pk).update(beneficiary_tools=False)   # ほかの事業所には出ない
+        self.assertNotContains(self.detail(self.b), 'aria-label="前後の')
+
+    def test_unsaved_warning_marks_material_forms(self):
+        from .models import BeneficiaryAssessment
+        BeneficiaryAssessment.objects.create(beneficiary=self.a, date=datetime.date(2026, 9, 1), title='面談', content='x')
+        res = self.detail(self.a)
+        self.assertContains(res, 'js/unsaved-warn.js')
+        self.assertEqual(res.content.decode().count('data-unsaved-warn'), 2)        # 追加と直す
+        self.assertContains(self.client.get(reverse('beneficiaries:dev_test_create', args=[self.a.pk])), 'data-unsaved-warn')
+        Facility.objects.filter(pk=self.f.pk).update(beneficiary_tools=False)
+        self.assertNotContains(self.detail(self.a), 'data-unsaved-warn')
+
+    def test_rename_image_and_pdf(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from .models import BeneficiaryDocument
+        png = b'\x89PNG\r\n\x1a\n' + b'0' * 20
+        self.client.post(reverse('beneficiaries:document_upload', args=[self.a.pk]),
+                         {'files': [SimpleUploadedFile('IMG_0001.png', png, 'image/png'), SimpleUploadedFile('scan.pdf', b'%PDF-1.4 x', 'application/pdf')]})
+        for d, new in zip(BeneficiaryDocument.objects.filter(beneficiary=self.a).order_by('pk'), ('受給者証（表）', '診断書 2026')):
+            res = self.client.post(reverse('beneficiaries:document_rename', args=[self.a.pk, d.pk]), {'title': new}, follow=True)
+            self.assertContains(res, f'書類の名前を「{new}」にしました')
+            self.assertContains(res, f'value="{new}"')                  # 名前を変える欄にも新しい名前
+            d.refresh_from_db()
+            self.assertEqual(d.label, new)
+        res = self.detail(self.a)
+        self.assertContains(res, '受給者証（表）')
+        self.assertContains(res, '診断書 2026')
+        self.assertContains(res, 'data-target="doc-rename-')
+
+    def test_delete_knowledge(self):
+        from .models import BeneficiaryKnowledge
+        k = BeneficiaryKnowledge.objects.create(beneficiary=self.a, kind='診断書', title='診断書', summary='聴覚過敏', status='saved')
+        res = self.detail(self.a)
+        self.assertContains(res, reverse('beneficiaries:knowledge_delete', args=[self.a.pk, k.pk]))
+        res = self.client.post(reverse('beneficiaries:knowledge_delete', args=[self.a.pk, k.pk]), follow=True)
+        self.assertContains(res, '「診断書」を削除しました')
+        self.assertFalse(BeneficiaryKnowledge.objects.filter(pk=k.pk).exists())
+        # ほかの子の分は消せない。切り替えがオフの事業所は消せない
+        k2 = BeneficiaryKnowledge.objects.create(beneficiary=self.b, kind='診断書', title='別の子', status='saved')
+        self.assertEqual(self.client.post(reverse('beneficiaries:knowledge_delete', args=[self.a.pk, k2.pk])).status_code, 404)
+        Facility.objects.filter(pk=self.f.pk).update(beneficiary_tools=False)
+        self.client.post(reverse('beneficiaries:knowledge_delete', args=[self.b.pk, k2.pk]))
+        self.assertTrue(BeneficiaryKnowledge.objects.filter(pk=k2.pk).exists())
+        self.assertNotContains(self.detail(self.b), reverse('beneficiaries:knowledge_delete', args=[self.b.pk, k2.pk]))
