@@ -507,7 +507,7 @@
           <form method="post" action="{% url 'beneficiaries:assessment_create' beneficiary.pk %}" enctype="multipart/form-data" class="asm-form row g-2 mb-3"{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
             {% csrf_token %}
             {% include 'beneficiaries/_assessment_fields.html' with a=None prefix='new' %}
-            <div class="col-12 text-end"><button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>登録する</button></div>
+            <div class="col-12 text-end">{% if user.facility.beneficiary_tools %}<button type="button" class="btn btn-sm btn-outline-secondary me-1" data-discard-close="#asmNew"><i class="bi bi-x-lg me-1"></i>変更を破棄して閉じる</button>{% endif %}<button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>登録する</button></div>
           </form>
         </div>
         {% for a in assessments %}
@@ -539,7 +539,7 @@
             <form method="post" action="{% url 'beneficiaries:assessment_update' beneficiary.pk a.pk %}" enctype="multipart/form-data" class="asm-form row g-2 mt-2 p-2 rounded" style="background:var(--color-primary-bg);" data-concurrency="beneficiary_assessment:{{ a.pk }}" data-concurrency-lazy{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
               {% csrf_token %}{% version_field a %}
               {% include 'beneficiaries/_assessment_fields.html' with a=a prefix=a.pk %}
-              <div class="col-12 text-end"><button class="btn btn-sm btn-primary">保存する</button></div>
+              <div class="col-12 text-end">{% if user.facility.beneficiary_tools %}<button type="button" class="btn btn-sm btn-outline-secondary me-1" data-discard-close="#asmEdit{{ a.pk }}"><i class="bi bi-x-lg me-1"></i>変更を破棄して閉じる</button>{% endif %}<button class="btn btn-sm btn-primary">保存する</button></div>
             </form>
           </div>
         </div>

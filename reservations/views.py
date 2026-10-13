@@ -8,7 +8,7 @@ from io import StringIO
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.conf import settings
-from django.http import HttpResponse, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -86,7 +86,10 @@ class CalendarView(ReservationEnabledMixin, View):
         inbox = LineInbox.objects.filter(facility=facility, status=LineInbox.STATUS_PENDING).count()
         requests_count = BookingRequest.objects.filter(facility=facility,
                                                        status=BookingRequest.STATUS_PENDING).count()
+        # 名前で探す（Facility.schedule_tools）：その人のこの月の利用希望と予約の日
+        who = monthly.who_index(facility, year, month) if facility.schedule_tools else None
         return render(request, self.template_name, {
+            'who': who,
             'year': year, 'month': month, 'weeks': weeks, 'today': today, 'setting': setting,
             'pending_notices': pending, 'pending_inbox': inbox, 'pending_requests': requests_count,
             'weekday_rows': setting.weekday_rows(), 'facility': facility,
@@ -1381,6 +1384,28 @@ class DailyLogPdfView(RyoikuOnlyMixin, View):
         ctx = {'pages': pages, 'facility': facility, 'start': start, 'end': end, 'year': year, 'month': month}
         name = f'業務日誌_{start:%Y-%m-%d}〜{end:%Y-%m-%d}'
         return pdf_or_html(request, 'reservations/pdf/daily_log.html', ctx, name)
+
+
+class MonthlyScheduleResetView(SlotModeMixin, View):
+    """月間予定表のやり直し（Facility.schedule_tools）：scope=assigned は利用希望から割り当てた予約、all はこの月の予約すべて"""
+
+    def post(self, request, year, month):
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        if not facility.schedule_tools:
+            raise Http404
+        scope = monthly.RESET_ALL if request.POST.get('scope') == 'all' else monthly.RESET_ASSIGNED
+        deleted, kept = monthly.reset_month(facility, year, month, scope)
+        what = 'の予約' if scope == monthly.RESET_ALL else 'の、利用希望から割り当てた予約'
+        if deleted:
+            msg = f'{month}月{what}を {deleted} 件消しました。'
+            if kept:
+                msg += f'（今日より前の日・実績を入れた・療育記録のある予約 {kept} 件は残しました）'
+            messages.success(request, msg + '「利用希望から割り当てる」で作り直せます。')
+        else:
+            messages.info(request, f'{month}月{what}で消せるものはありません'
+                                   + (f'（今日より前の日・実績を入れた・療育記録のある予約 {kept} 件は残します）。' if kept else '。'))
+        return redirect('reservations:monthly_schedule', year=year, month=month)
 
 
 class MonthlyScheduleSwapView(SlotModeMixin, View):

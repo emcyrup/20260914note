@@ -1949,3 +1949,86 @@ class ScheduleToolsTests(TestCase):
             'cannot_pair': [self.b.pk, self.c.pk]})
         self.assertEqual(set(self.a.cannot_pair.values_list('pk', flat=True)), {self.b.pk, self.c.pk})
         self.assertEqual(list(self.c.cannot_pair.all()), [self.a])
+
+    # ---- 2026-10-13 の打ち合わせから：名前で探す・月の予定のやり直し
+    def _res(self, b, day, hour, **fields):
+        r, _ = services.create_reservation(self.f, b, day, start_time=hour, notify=False)
+        if fields:
+            Reservation.objects.filter(pk=r.pk).update(**fields)
+            r.refresh_from_db()
+        return r
+
+    def test_reset_month_keeps_past_attended_and_recorded(self):
+        from therapy.models import TherapyRecord
+        tue, wed, fri = datetime.date(2026, 10, 13), datetime.date(2026, 10, 14), datetime.date(2026, 10, 16)
+        req = Reservation.SOURCE_REQUEST
+        past = self._res(self.a, self.day, 10, source=req)                     # 今日より前
+        r1 = self._res(self.a, tue, 10, source=req)
+        r2 = self._res(self.b, wed, 11, source=req)
+        att = self._res(self.b, tue, 13, source=req, attendance=Reservation.ATT_ATTENDED)   # 実績あり
+        staff = self._res(self.c, tue, 14)                                     # 職員が入れた
+        wait = self._res(self.c, wed, 14, status=Reservation.STATUS_WAITLIST)
+        rec = self._res(self.c, fri, 10, source=req)
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.c, date=fri, reservation=rec)   # 療育記録あり
+        today = datetime.date(2026, 10, 10)
+        self.assertEqual(monthly.reset_month(self.f, 2026, 10, monthly.RESET_ASSIGNED, today=today), (2, 3))
+        left = set(Reservation.objects.values_list('pk', flat=True))
+        self.assertEqual(left, {past.pk, att.pk, staff.pk, wait.pk, rec.pk})
+        self.assertNotIn(r1.pk, left)
+        self.assertNotIn(r2.pk, left)
+        # すべて：職員が入れた予約とキャンセル待ちも消す
+        self.assertEqual(monthly.reset_month(self.f, 2026, 10, monthly.RESET_ALL, today=today), (2, 3))
+        self.assertEqual(set(Reservation.objects.values_list('pk', flat=True)), {past.pk, att.pk, rec.pk})
+
+    def test_reset_month_rewrites_month_notice(self):
+        tue = datetime.date(2026, 10, 13)
+        past = self._res(self.a, self.day, 10, source=Reservation.SOURCE_REQUEST)
+        r1 = self._res(self.a, tue, 10, source=Reservation.SOURCE_REQUEST)
+        req = MonthlyRequest.objects.create(facility=self.f, beneficiary=self.a, year=2026, month=10, desired_count=2)
+        notice = monthly._queue_month_notice(self.f, self.s, req, [past, r1])   # 送信待ち（手渡し）の「ご利用日が決まりました」
+        self.assertIn(services.jp_date(tue), notice.body)
+        monthly.reset_month(self.f, 2026, 10, monthly.RESET_ASSIGNED, today=datetime.date(2026, 10, 10))
+        notice.refresh_from_db()
+        self.assertNotIn(services.jp_date(tue), notice.body)
+        self.assertIn(services.jp_date(self.day), notice.body)
+
+    def test_reset_view(self):
+        day = datetime.date(2030, 10, 8)
+        self._res(self.a, day, 10, source=Reservation.SOURCE_REQUEST)
+        self._res(self.b, day, 11)
+        url = reverse('reservations:monthly_schedule_reset', args=[2030, 10])
+        self.assertContains(self.client.get(reverse('reservations:monthly_schedule', args=[2030, 10])), url)
+        res = self.client.post(url, {'scope': 'assigned'}, follow=True)
+        self.assertContains(res, '10月の、利用希望から割り当てた予約を 1 件消しました。')
+        self.assertEqual(Reservation.objects.count(), 1)
+        res = self.client.post(url, {'scope': 'all'}, follow=True)
+        self.assertContains(res, '10月の予約を 1 件消しました。')
+        self.assertFalse(Reservation.objects.exists())
+        Facility.objects.filter(pk=self.f.pk).update(schedule_tools=False)
+        self.assertEqual(self.client.post(url, {'scope': 'all'}).status_code, 404)
+        self.assertNotContains(self.client.get(reverse('reservations:monthly_schedule', args=[2030, 10])), url)
+
+    def test_name_search(self):
+        self._res(self.a, self.day, 10)
+        MonthlyRequest.objects.create(facility=self.f, beneficiary=self.a, year=2026, month=10, desired_count=4)
+        # 月間予定表：名前とふりがなで探せる
+        page = self.client.get(self.page)
+        self.assertContains(page, 'data-nf="青木 子 あおき')
+        self.assertContains(page, 'data-name-filter="#ms-main"')
+        self.assertContains(page, 'js/name-filter.js')
+        # 利用希望の一覧
+        page = self.client.get(reverse('reservations:monthly_requests', args=[2026, 10]))
+        self.assertContains(page, 'data-name-filter="#mr-list"')
+        self.assertContains(page, 'data-nf="木村 空 きむら')
+        # カレンダー：その人の利用希望と予約の日
+        page = self.client.get(reverse('reservations:calendar_month', args=[2026, 10]))
+        self.assertContains(page, 'id="rz-find"')
+        who = {p['name']: p for p in page.context['who']}
+        self.assertEqual(who['青木 子']['req']['n'], 4)
+        self.assertEqual(who['青木 子']['days'], [{'d': 6, 't': '10:00', 'w': False}])
+        self.assertIsNone(who['木村 空']['req'])
+        Facility.objects.filter(pk=self.f.pk).update(schedule_tools=False)
+        page = self.client.get(reverse('reservations:calendar_month', args=[2026, 10]))
+        self.assertNotContains(page, 'id="rz-find"')
+        self.assertNotContains(self.client.get(self.page), 'data-name-filter')
+        self.assertNotContains(self.client.get(reverse('reservations:monthly_requests', args=[2026, 10])), 'data-name-filter')

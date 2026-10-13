@@ -188,6 +188,27 @@ def request_rows(facility, year, month, setting=None):
 pair_map = services.pair_map
 
 
+def who_index(facility, year, month):
+    """
+    予約カレンダーの「名前で探す」（Facility.schedule_tools）：在籍中の利用者ごとに、この月の利用希望（届いたか・希望回数・入口）と
+    予約（確定・キャンセル待ち）の日時。画面の JavaScript で絞る
+    """
+    requests = {r.beneficiary_id: r for r in MonthlyRequest.objects.filter(facility=facility, year=year, month=month)}
+    days = {}
+    for res in month_reservations(facility, year, month, statuses=Reservation.ACTIVE_STATUSES):
+        if res.beneficiary_id:
+            days.setdefault(res.beneficiary_id, []).append(
+                {'d': res.date.day, 't': res.time_label, 'w': res.status == Reservation.STATUS_WAITLIST})
+    out = []
+    for b in Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE).order_by('last_name_kana', 'first_name_kana', 'pk'):
+        req = requests.get(b.pk)
+        out.append({'name': b.full_name, 'kana': b.full_name_kana, 'pk': b.pk,
+                    'req': None if req is None else {'n': req.desired_count, 'src': req.get_source_display(),
+                                                     'ng': req.is_ng_mode},
+                    'days': days.get(b.pk, [])})
+    return out
+
+
 def schedule_rows(rows):
     """
     月間予定表の右の一覧に出す人：希望回数が 1 回以上か、その月に予約がある人だけ。
@@ -403,6 +424,36 @@ def refresh_month_notice(facility, beneficiary, year, month, setting=None):
     notice.body = _month_notice_body(setting, month, beneficiary, mine, req.desired_count if req else 0)
     notice.save(update_fields=['body'])
     return notice
+
+
+RESET_ASSIGNED = 'assigned'   # 利用希望から割り当てた予約だけ
+RESET_ALL = 'all'             # この月の予約すべて（キャンセル待ちも）
+
+
+def reset_month(facility, year, month, scope=RESET_ASSIGNED, today=None):
+    """
+    月間予定表のやり直し（Facility.schedule_tools）：この月の予約をまとめて消す。戻り値 (消した数, 残した数)。
+    残すもの：今日より前の日・実績を入れた予約・療育記録に結びついた予約（記録をなくさないため）。
+    消した予約の送信待ちのお知らせも消し、「ご利用日が決まりました」はいまの予約に合わせて書き直す（無くなれば消す）。
+    """
+    today = today or datetime.date.today()
+    first, last = month_range(year, month)
+    statuses = (Reservation.STATUS_CONFIRMED,) if scope == RESET_ASSIGNED else Reservation.ACTIVE_STATUSES
+    qs = Reservation.objects.filter(facility=facility, date__gte=first, date__lte=last, status__in=statuses)
+    if scope == RESET_ASSIGNED:
+        qs = qs.filter(source=Reservation.SOURCE_REQUEST)
+    total = qs.count()
+    target = qs.filter(date__gte=today, attendance='').exclude(therapy_records__isnull=False)
+    people = {r.beneficiary for r in target.select_related('beneficiary') if r.beneficiary_id}
+    with transaction.atomic():
+        ReservationNotice.objects.filter(reservation__in=target, status__in=(
+            ReservationNotice.STATUS_PENDING, ReservationNotice.STATUS_MANUAL)).delete()
+        deleted = target.count()
+        Reservation.objects.filter(pk__in=list(target.values_list('pk', flat=True))).delete()
+    setting = services.get_setting(facility)
+    for b in people:
+        refresh_month_notice(facility, b, year, month, setting)
+    return deleted, total - deleted
 
 
 # ---------------------------------------------------------------- 予定表の手直し（入れ替え・移動）

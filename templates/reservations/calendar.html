@@ -22,6 +22,10 @@
   .rz-left { font-size: 0.78rem; font-weight: 700; }
   .rz-left.ok { color: #1c7c54; } .rz-left.none { color: var(--color-danger); }
   .rz-wait { font-size: 0.68rem; color: #8a6d1f; }
+  .rz-cell.rz-hit { outline: 3px solid #f0b400; outline-offset: -3px; background: #fff3c4; }   /* 名前で探した人の予約の日 */
+  .rz-who-t { font-size: .72rem; font-weight: 700; color: #5a3a22; }
+  .rz-find { max-width: 16em; }
+  #rz-who .who-pick { margin: 2px 4px 2px 0; }
   @media (max-width: 768px) { .rz-cell { height: 66px; } .rz-day { font-size: 0.8rem; } .rz-left { font-size: 0.68rem; } }
 </style>
 {% endblock %}
@@ -52,6 +56,16 @@
     </div>
   </div>
 
+  {% if who is not None %}
+  <div class="card mb-2"><div class="card-body py-2">
+    <div class="d-flex align-items-center flex-wrap gap-2">
+      <input type="search" id="rz-find" class="form-control form-control-sm rz-find" placeholder="名前で探す（ふりがなでも）" aria-label="{{ terms.beneficiary }}の名前で探す" autocomplete="off">
+      <span class="small text-muted">{{ month }}月の利用希望が届いているか・予約の日を見られます（予約の日はカレンダーに黄色で出ます）</span>
+    </div>
+    <div id="rz-who" class="small mt-1" aria-live="polite"></div>
+  </div></div>
+  {{ who|json_script:"rz-who-data" }}
+  {% endif %}
   <div class="card mb-3"><div class="card-body p-2">
     <table class="rz-table">
       <thead><tr><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th class="text-primary">土</th><th class="text-danger">日</th></tr></thead>
@@ -60,9 +74,9 @@
         <tr>
           {% for d in week %}
           {% if d %}
-          <td class="rz-cell {% if d.is_today %}today{% endif %} {% if d.closed %}closed{% elif d.full %}full{% endif %}"
+          <td class="rz-cell {% if d.is_today %}today{% endif %} {% if d.closed %}closed{% elif d.full %}full{% endif %}" data-day="{{ d.day }}"
               onclick="location.href='{% url 'reservations:day' year month d.day %}'">
-            <div class="rz-day {% if d.is_sunday %}sun{% elif d.is_saturday %}sat{% endif %}">{{ d.day }}</div>
+            <div class="rz-day {% if d.is_sunday %}sun{% elif d.is_saturday %}sat{% endif %}">{{ d.day }}</div>{% if who is not None %}<div class="rz-who-t"></div>{% endif %}
             {% if d.closed %}
               <div class="rz-left">休</div>
             {% else %}
@@ -284,4 +298,56 @@
     </form>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{% if who is not None %}
+<script>
+(function () {
+  // 名前で探す：その人の利用希望（届いたか・希望回数）と予約の日。予約の日はカレンダーに黄色で出す
+  var people = JSON.parse(document.getElementById('rz-who-data').textContent);
+  var input = document.getElementById('rz-find'), out = document.getElementById('rz-who');
+  var norm = window.NameFilter ? window.NameFilter.norm : function (s) { return String(s || '').replace(/\s+/g, ''); };
+  var month = {{ month }};
+  function esc(t) { var d = document.createElement('div'); d.textContent = t == null ? '' : String(t); return d.innerHTML; }
+  function clearCells() {
+    document.querySelectorAll('.rz-cell.rz-hit').forEach(function (td) { td.classList.remove('rz-hit'); });
+    document.querySelectorAll('.rz-who-t').forEach(function (el) { el.textContent = ''; });
+  }
+  function show(p) {
+    clearCells();
+    var req = p.req ? '<span class="badge text-bg-success">利用希望 届いています</span> 希望 ' + esc(p.req.n) + ' 回（' + esc(p.req.src) + '）' + (p.req.ng ? '・来られない日の用紙' : '')
+                    : '<span class="badge text-bg-secondary">利用希望 まだ届いていません</span>';
+    var conf = p.days.filter(function (x) { return !x.w; }), wait = p.days.filter(function (x) { return x.w; });
+    var list = conf.map(function (x) { return month + '/' + x.d + (x.t ? ' ' + x.t : ''); }).join('、');
+    out.innerHTML = '<b>' + esc(p.name) + '</b>　' + req + '<br>予約 ' + conf.length + ' 件' + (list ? '：' + esc(list) : '') +
+      (wait.length ? '　キャンセル待ち：' + esc(wait.map(function (x) { return month + '/' + x.d + (x.t ? ' ' + x.t : ''); }).join('、')) : '');
+    p.days.forEach(function (x) {
+      var td = document.querySelector('.rz-cell[data-day="' + x.d + '"]');
+      if (!td) return;
+      td.classList.add('rz-hit');
+      var t = td.querySelector('.rz-who-t');
+      if (t) t.textContent = (x.w ? '待 ' : '') + (x.t || '予約');
+    });
+  }
+  function find() {
+    var q = norm(input.value);
+    clearCells();
+    if (!q) { out.innerHTML = ''; return; }
+    var hits = people.filter(function (p) { return norm(p.name + p.kana).indexOf(q) >= 0; });
+    if (!hits.length) { out.innerHTML = '<span class="text-muted">見つかりません（在籍中の方だけを探します）</span>'; return; }
+    if (hits.length === 1) { show(hits[0]); return; }
+    out.innerHTML = hits.length + ' 人：' + hits.slice(0, 20).map(function (p, i) {
+      return '<button type="button" class="btn btn-sm btn-outline-secondary py-0 who-pick" data-i="' + people.indexOf(p) + '">' + esc(p.name) + '</button>';
+    }).join('') + (hits.length > 20 ? '…' : '');
+  }
+  input.addEventListener('input', find);
+  input.addEventListener('keydown', function (e) { if (e.key === 'Escape') { input.value = ''; find(); } });
+  out.addEventListener('click', function (e) {
+    var b = e.target.closest('.who-pick');
+    if (b) show(people[+b.dataset.i]);
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

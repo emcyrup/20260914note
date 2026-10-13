@@ -1777,9 +1777,13 @@ class BeneficiaryToolsTests(TestCase):
         res = self.detail(self.a)
         self.assertContains(res, 'js/unsaved-warn.js')
         self.assertEqual(res.content.decode().count('data-unsaved-warn'), 2)        # 追加と直す
+        # 「変更を破棄して閉じる」（2026-10-13 の打ち合わせ）：追加と直すの欄に
+        self.assertContains(res, 'data-discard-close="#asmNew"')
+        self.assertEqual(res.content.decode().count('変更を破棄して閉じる'), 2)
         self.assertContains(self.client.get(reverse('beneficiaries:dev_test_create', args=[self.a.pk])), 'data-unsaved-warn')
         Facility.objects.filter(pk=self.f.pk).update(beneficiary_tools=False)
         self.assertNotContains(self.detail(self.a), 'data-unsaved-warn')
+        self.assertNotContains(self.detail(self.a), 'data-discard-close')
 
     def test_rename_image_and_pdf(self):
         from django.core.files.uploadedfile import SimpleUploadedFile

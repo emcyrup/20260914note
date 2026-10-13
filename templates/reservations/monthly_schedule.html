@@ -43,6 +43,9 @@
                 background: var(--color-primary-bg, #f3efe7); border-radius: 6px; padding: 1px 8px; vertical-align: middle; }
   .ms-editing:empty { display: none; }
   .ms-editing.ng { color: #fff; background: #b02a37; }
+  #ms-main.nf-on [data-nf]:not(.nf-hit) { opacity: .25; }                       /* 名前で探す：ほかの名前を薄く */
+  #ms-main .nf-hit { outline: 3px solid #f0b400; outline-offset: -1px; background: #fff3c4 !important; }
+  .ms-find { width: 11em; }
   .ms-total { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: .85rem; background: rgba(255,255,255,.7); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
   .ms-sum { font-weight: 700; background: rgba(243,239,231,.9); }
   .ms-short { display: block; font-size: .62rem; color: var(--color-danger); font-weight: 700; line-height: 1.1; white-space: nowrap; }
@@ -143,6 +146,20 @@
         {% csrf_token %}
         <button class="btn btn-primary btn-sm"><i class="bi bi-magic me-1"></i>利用希望から割り当てる</button>
       </form>
+      {% if facility.schedule_tools %}
+      <div class="dropdown ms-hide-fit">
+        <button type="button" class="btn btn-outline-danger btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-arrow-counterclockwise me-1"></i>やり直す</button>
+        <form method="post" action="{% url 'reservations:monthly_schedule_reset' year month %}" class="dropdown-menu dropdown-menu-end p-2 small" style="min-width: 300px;" id="ms-reset-form">
+          {% csrf_token %}
+          <div class="fw-bold mb-1">{{ month }}月の予定をまとめて消す</div>
+          <div class="text-muted mb-2">今日より前の日・実績を入れた予約・療育記録に結びついた予約は残します。保護者へのお知らせは積みません（送信待ちの「ご利用日が決まりました」は書き直し、予約が無くなった方の分は消します）。</div>
+          <button class="btn btn-sm btn-outline-danger w-100 mb-1" name="scope" value="assigned"
+                  onclick="return confirm('{{ month }}月の、利用希望から割り当てた予約を消します。\n職員・保護者が入れた予約とキャンセル待ちは残します。よろしいですか？');">利用希望から割り当てた予約だけ消す</button>
+          <button class="btn btn-sm btn-danger w-100" name="scope" value="all"
+                  onclick="return confirm('{{ month }}月の予約をすべて消します（キャンセル待ちも）。\n元に戻せません。よろしいですか？');">すべての予約を消す（キャンセル待ちも）</button>
+        </form>
+      </div>
+      {% endif %}
     </div>
   </div>
 
@@ -189,6 +206,7 @@
   </div>
   {% endif %}
   <div class="ms-total mb-2" id="ms-total">
+    {% if facility.schedule_tools %}<span class="d-inline-flex align-items-center gap-1"><input type="search" class="form-control form-control-sm ms-find" placeholder="名前で探す" aria-label="名前で探す（ふりがなでも）" data-name-filter="#ms-main" data-nf-mode="mark" data-nf-count="#ms-find-count"><span id="ms-find-count" class="small fw-bold" aria-live="polite"></span></span>{% endif %}
     <span><i class="bi bi-calendar-check me-1"></i>{{ month }}月の予約 合計 <strong>{{ schedule.total }}</strong> 件</span>
     {% if facility.is_ryoiku %}<span>来た <strong>{{ schedule.total_attended }}</strong></span>{% endif %}
     <span>空き枠 <strong>{{ schedule.total_free }}</strong></span>
@@ -225,8 +243,8 @@
                     {% elif r %}{% include 'reservations/_ms_name.html' with cls='ms-box' %}
                     {% else %}<a class="ms-box empty" data-date="{{ d.date|date:'Y-m-d' }}" data-hour="{{ s.hour }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}?hour={{ s.hour }}" title="{{ d.date|date:'n/j' }} {{ s.label }} に追加">＋</a>{% endif %}
                   {% endfor %}
-                  {% for r in s.over %}<a class="ms-box over{% if r.pair_names %} pair{% endif %}" data-res="{{ r.pk }}" data-name="{{ r.display_name }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">{{ r.display_name }}（超過）</a>{% endfor %}
-                  {% for r in s.waiting %}<a class="ms-box wait{% if r.pair_names %} pair{% endif %}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">待 {{ r.display_name }}</a>{% endfor %}
+                  {% for r in s.over %}<a class="ms-box over{% if r.pair_names %} pair{% endif %}" data-res="{{ r.pk }}" data-name="{{ r.display_name }}" data-nf="{{ r.display_name }} {% if r.beneficiary_id %}{{ r.beneficiary.full_name_kana }}{% endif %}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">{{ r.display_name }}（超過）</a>{% endfor %}
+                  {% for r in s.waiting %}<a class="ms-box wait{% if r.pair_names %} pair{% endif %}" data-nf="{{ r.display_name }} {% if r.beneficiary_id %}{{ r.beneficiary.full_name_kana }}{% endif %}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">待 {{ r.display_name }}</a>{% endfor %}
                 </td>
                 {% endif %}
               {% endif %}{% endfor %}

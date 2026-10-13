@@ -45,12 +45,19 @@
     お休み：{{ setting.closed_weekdays_text|default:'なし' }}／{{ setting.hours_text }}／1枠 {{ setting.slot_capacity }} 人。
   </div></div>
 
-  <div class="card">
+  {% if facility.schedule_tools %}
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <input type="search" class="form-control form-control-sm" style="max-width: 16em;" placeholder="名前で探す（ふりがなでも）" aria-label="{{ terms.beneficiary }}の名前で探す"
+           data-name-filter="#mr-list" data-nf-count="#mr-find-count" autocomplete="off">
+    <span id="mr-find-count" class="small fw-bold" aria-live="polite"></span>
+  </div>
+  {% endif %}
+  <div class="card" id="mr-list">
     <div class="row-list-item row-list-head mr-item">
       <div>{{ terms.beneficiary }}</div><div>希望回数</div><div>○の枠</div><div>確定</div><div>残り</div><div>入口</div><div></div>
     </div>
     {% for r in rows %}
-    <div class="row-list-item mr-item {% if not r.request %}mr-none{% endif %}">
+    <div class="row-list-item mr-item {% if not r.request %}mr-none{% endif %}" data-nf="{{ r.beneficiary.full_name }} {{ r.beneficiary.full_name_kana }}">
       <div><a href="{% url 'reservations:monthly_request_edit' year month r.beneficiary.pk %}" class="fw-bold">{{ r.beneficiary.full_name }}</a>
         {% if r.ng_days %}<span class="badge text-bg-danger ms-1" title="来られない日：{% for d in r.ng_days %}{{ d|date:'n/j' }}{% if not forloop.last %}・{% endif %}{% endfor %}">NG児童</span>{% endif %}{% if r.pair_names %}<span class="badge text-bg-warning ms-1" title="同じ時間にできない：{{ r.pair_names|join:'・' }}">組合せ</span>{% endif %}
         {% if r.granted %}<span class="small text-muted ms-1 text-nowrap">支給量 {{ r.granted }}日</span>{% endif %}</div>

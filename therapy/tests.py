@@ -756,6 +756,15 @@ class VoiceDirectTests(TestCase):
         self.url = reverse('therapy:child', args=[self.kid.pk])
         self.ai_url = reverse('therapy:cautions_summary', args=[self.kid.pk])
 
+    def test_wording_check_switch(self):
+        # 言葉づかいの注意（保存のときの「気になる言葉があります」）：Facility.therapy_no_wording で出さない（2026-10-13 の打ち合わせ）
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date(2026, 9, 1), body='前の記録')
+        self.assertContains(self.client.get(self.url), 'data-wording')
+        Facility.objects.filter(pk=self.f.pk).update(therapy_no_wording=True)
+        res = self.client.get(self.url)
+        self.assertNotContains(res, 'data-wording')
+        self.assertContains(res, 'th-save-form')
+
     def test_page_hides_cautions_and_has_today_slot(self):
         res = self.client.get(self.url)
         self.assertContains(res, 'id="voice-direct-btn"')

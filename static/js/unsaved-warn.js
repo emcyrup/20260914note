@@ -10,6 +10,21 @@
   'use strict';
   if (window.UnsavedWarn) return;
   var MESSAGE = '編集中の内容があります（まだ保存していません）。\n保存せずにこの画面を離れますか？';
+  // 「変更を破棄して閉じる」（<button data-discard-close="#閉じる欄">）：書きかけを開いたときの中身に戻して欄を閉じる
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-discard-close]');
+    if (!b) return;
+    var form = b.closest('form');
+    if (form) {
+      if (form._uwInitial !== undefined && state(form) !== form._uwInitial &&
+          !window.confirm('書きかけの内容を消して閉じます。よろしいですか？')) return;
+      form.reset();
+      form.querySelectorAll('.wording-banner, .asis-notice').forEach(function (el) { el.remove(); });
+    }
+    var box = document.querySelector(b.getAttribute('data-discard-close'));
+    if (box && window.bootstrap && window.bootstrap.Collapse) window.bootstrap.Collapse.getOrCreateInstance(box, {toggle: false}).hide();
+    else if (box) box.classList.remove('show');
+  });
   var forms = Array.prototype.slice.call(document.querySelectorAll('form[data-unsaved-warn]'));
   if (!forms.length) return;
   var leaving = false;

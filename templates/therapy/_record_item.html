@@ -20,7 +20,7 @@
       <div class="th-body"><span class="th-lbl">様子</span>{{ rec.situation }}</div>
       {% elif rec.body %}<div class="th-body">{{ rec.body }}</div>{% endif %}
       <div class="th-edit {% if edit_pk != rec.pk %}d-none{% endif %}" id="edit{{ rec.pk }}" data-draft-reveal>
-        <form method="post" class="row g-2 th-save-form" data-wording data-draft="therapy-rec:{{ rec.pk }}" data-concurrency="therapy_record:{{ rec.pk }}" data-concurrency-lazy>
+        <form method="post" class="row g-2 th-save-form" {% if not user.facility.therapy_no_wording %}data-wording{% endif %} data-draft="therapy-rec:{{ rec.pk }}" data-concurrency="therapy_record:{{ rec.pk }}" data-concurrency-lazy>
           {% csrf_token %}<input type="hidden" name="action" value="edit"><input type="hidden" name="record" value="{{ rec.pk }}">{% version_field rec %}
           {% if unsaved_record and unsaved_record.pk == rec.pk %}
           <div class="col-12"><div class="alert alert-warning small py-2 mb-0">

@@ -204,13 +204,17 @@
             <label class="form-check-label" for="knowledge_reflect">書類を AI で読み取ったとき、「療育記録に反映する」は初めは印なしにする
               <span class="small text-muted">（「療育記録の『留意点』に足す」は画面に出さず、いつも足す。オフのときは「療育記録の AI で参考にする」の名前で、初めから印あり）</span></label>
           </div>
+          <div class="form-check mb-1 ms-4">
+            <input type="checkbox" class="form-check-input" name="therapy_no_wording" id="therapy_no_wording" {% if facility.therapy_no_wording %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="therapy_no_wording">療育記録を保存するとき、言葉づかいの注意（「気になる言葉があります」）を出さない</label>
+          </div>
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="beneficiary_tools" id="beneficiary_tools" {% if facility.beneficiary_tools %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="beneficiary_tools">利用者情報：前後の利用者へ送るボタン・資料の編集中に別の画面へ移るときの警告・「書類から分かっていること」の削除</label>
           </div>
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="schedule_tools" id="schedule_tools" {% if facility.schedule_tools %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
-            <label class="form-check-label" for="schedule_tools">予定づくり：共演NG の印をまとめて付ける・月間予定表の上に編集中の日時・ドラッグで共演NG の人と同じ枠に入れたら赤く（確かめてから入れる）</label>
+            <label class="form-check-label" for="schedule_tools">予定づくり：共演NG の印をまとめて付ける・月間予定表の上に編集中の日時・ドラッグで共演NG の人と同じ枠に入れたら赤く（確かめてから入れる）・利用希望／カレンダー／月間予定表で名前で探す・月の予定をまとめて消してやり直す</label>
           </div>
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_transport" id="use_transport" {% if facility.use_transport %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
