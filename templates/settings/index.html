@@ -202,7 +202,7 @@
           <div class="form-check mb-1 ms-4">
             <input type="checkbox" class="form-check-input" name="knowledge_reflect" id="knowledge_reflect" {% if facility.knowledge_reflect %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="knowledge_reflect">書類を AI で読み取ったとき、「療育記録に反映する」は初めは印なしにする
-              <span class="small text-muted">（オフのときは「療育記録の AI で参考にする」の名前で、初めから印あり）</span></label>
+              <span class="small text-muted">（「療育記録の『留意点』に足す」は画面に出さず、いつも足す。オフのときは「療育記録の AI で参考にする」の名前で、初めから印あり）</span></label>
           </div>
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="beneficiary_tools" id="beneficiary_tools" {% if facility.beneficiary_tools %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>

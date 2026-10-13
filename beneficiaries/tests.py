@@ -754,9 +754,17 @@ class KnowledgeTests(TestCase):
         self.assertContains(page, '基本は反映しません')
         self.assertNotContains(page, 'name="use_in_ai" value="1" checked')
         self.assertNotContains(page, 'で参考にする</label>')
+        # 留意点に足す：画面には出さず、印ありのまま送る
+        self.assertNotContains(page, '「留意点」に足す')
+        self.assertContains(page, '<input type="hidden" name="apply_cautions" value="1">')
+        self.assertContains(page, 'name="cautions_add" value="')
         res = self.client.post(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]),
-                               {'action': 'save', 'summary': k.summary, 'points': k.points, 'text': k.text}, follow=True)
+                               {'action': 'save', 'summary': k.summary, 'points': k.points, 'text': k.text,
+                                'apply_cautions': '1', 'cautions_add': k.proposals['cautions_add']['text']}, follow=True)
         self.assertContains(res, '療育記録には反映しません')
+        self.assertContains(res, '台帳に反映：留意点')
+        from therapy.models import TherapyProfile
+        self.assertIn('イヤーマフ', TherapyProfile.objects.get(beneficiary=self.kid).cautions)
         k.refresh_from_db()
         self.assertEqual((k.status, k.use_in_ai), ('saved', False))
         detail = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))

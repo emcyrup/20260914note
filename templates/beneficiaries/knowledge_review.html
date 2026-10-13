@@ -69,7 +69,10 @@
     {% if not k.is_saved %}
     <div class="info-card mb-3">
       <div class="section-title mb-2">台帳に反映する</div>
-      {% if p.disability_type or p.is_severe or p.notes_add or p.cautions_add %}
+      {% if p.cautions_add and therapy and user.facility.knowledge_reflect %}{# ゆあーず：留意点へは画面に出さずに足す（印あり） #}
+      <input type="hidden" name="apply_cautions" value="1"><input type="hidden" name="cautions_add" value="{{ p.cautions_add.text }}">
+      {% endif %}
+      {% if p.disability_type or p.is_severe or p.notes_add or p.cautions_add and therapy and not user.facility.knowledge_reflect %}
       <div class="small text-muted mb-2">印を付けたものだけ、保存するときに台帳へ入れます。文は直せます。</div>
       {% if p.disability_type %}
       <div class="kr-apply">
@@ -90,7 +93,7 @@
         <textarea name="notes_add" class="form-control form-control-sm" rows="4">{{ p.notes_add.text }}</textarea>
       </div>
       {% endif %}
-      {% if p.cautions_add and therapy %}
+      {% if p.cautions_add and therapy and not user.facility.knowledge_reflect %}
       <div class="kr-apply">
         <label class="form-check fw-semibold mb-1"><input type="checkbox" class="form-check-input" name="apply_cautions" value="1" {% if p.cautions_add.checked %}checked{% endif %}>療育記録の「留意点」に足す</label>
         <textarea name="cautions_add" class="form-control form-control-sm" rows="4">{{ p.cautions_add.text }}</textarea>
