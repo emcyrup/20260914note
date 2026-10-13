@@ -23,8 +23,8 @@
   .bx { display: inline-block; box-sizing: border-box; height: {{ sz.box }}px; line-height: {{ sz.box }}px; padding: 0 1px; border-right: 1px dotted #999; white-space: nowrap; overflow: hidden; vertical-align: top; }
   .bx.last { border-right: 0; }
   .wl { display: block; background: #fff3c4; padding: 0 2px; white-space: nowrap; overflow: hidden; line-height: {{ sz.box }}px; }
-  table.u th, table.u td { padding: 1px 3px; font-size: {{ sz.user }}px; white-space: nowrap; overflow: hidden; }
-  table.u th:first-child { width: 46%; }
+  table.u th, table.u td { padding: {{ sz.upad }}; font-size: {{ sz.user }}px; white-space: nowrap; overflow: hidden; }
+  table.u th:first-child { width: {% if facility.is_ryoiku %}48%{% else %}46%{% endif %}; }
   table.u td.n { text-align: right; }
   {% if not pdf %}@media print { body { zoom: {% if paper == 'a4' %}0.94{% else %}0.66{% endif %}; } }{% endif %}
 </style>

@@ -1479,16 +1479,23 @@ class MonthlyScheduleSwapView(SlotModeMixin, View):
 A4_5, A4_6, A3_5, A3_6 = 11, 9, 16, 14   # 箱の高さ（px）：A4・A3 × 5 週まで・6 週
 
 
-def schedule_pdf_sizes(paper, weeks):
+def schedule_pdf_sizes(paper, weeks, compact=False):
     """
     月間予定表 PDF の文字と箱の大きさ（px）。A3・A4 とも横 1 枚に収める（A4 は A3 の約 0.7 倍）。
     6 週ある月は箱を低くする。変えたら 5 週・6 週の月の PDF が 1 ページか確かめる（tests_ryoiku）
+    compact（ゆあーず）は右の利用者の表を小さく（幅・文字・余白）して、そのぶん予定表を広く
     """
     if paper == 'a4':
-        return {'font': 7, 'th': 7, 'title': 12, 'time': 24, 'side': 150, 'gap': 158, 'user': 6.8,
-                'box': A4_5 if weeks <= 5 else A4_6}
-    return {'font': 10, 'th': 10, 'title': 16, 'time': 34, 'side': 230, 'gap': 242, 'user': 9.5,
-            'box': A3_5 if weeks <= 5 else A3_6}
+        sz = {'font': 7, 'th': 7, 'title': 12, 'time': 24, 'side': 150, 'gap': 158, 'user': 6.8, 'upad': '1px 3px',
+              'box': A4_5 if weeks <= 5 else A4_6}
+        if compact:
+            sz.update(side=118, gap=124, user=5.4, upad='0 2px')
+        return sz
+    sz = {'font': 10, 'th': 10, 'title': 16, 'time': 34, 'side': 230, 'gap': 242, 'user': 9.5, 'upad': '1px 3px',
+          'box': A3_5 if weeks <= 5 else A3_6}
+    if compact:
+        sz.update(side=160, gap=168, user=7.2, upad='0 2px')
+    return sz
 
 
 class MonthlySchedulePdfView(SlotModeMixin, View):
@@ -1507,6 +1514,6 @@ class MonthlySchedulePdfView(SlotModeMixin, View):
                'year': year, 'month': month, 'paper': paper,
                'has_staff': any(d['staff'] for w in schedule['weeks'] for d in w['days']),
                'box_pct': 100 // max(int(schedule['capacity'] or 1), 1),
-               'sz': schedule_pdf_sizes(paper, len(schedule['weeks']))}
+               'sz': schedule_pdf_sizes(paper, len(schedule['weeks']), compact=facility.is_ryoiku)}
         return pdf_or_html(request, 'reservations/pdf/monthly_schedule.html', ctx,
                            f'{year}年{month}月_月間予定表' + ('_A4' if paper == 'a4' else ''))
