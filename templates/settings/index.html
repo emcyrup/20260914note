@@ -217,6 +217,10 @@
             <label class="form-check-label" for="schedule_tools">予定づくり：共演NG の印をまとめて付ける・月間予定表の上に編集中の日時・ドラッグで共演NG の人と同じ枠に入れたら赤く（確かめてから入れる）・利用希望／カレンダー／月間予定表で名前で探す・月の予定をまとめて消してやり直す</label>
           </div>
           <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="plan_no_ai" id="plan_no_ai" {% if facility.plan_no_ai %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="plan_no_ai">個別支援計画：AI で文を作らない（日誌からの下書き・メモからの整文を出さない）。代わりに、最新のアセスメントと期間の療育記録をアセスメントの欄にそのまま入れて直す</label>
+          </div>
+          <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_transport" id="use_transport" {% if facility.use_transport %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_transport">送迎・配車（車両・運転手の登録、利用者ごとの送迎の設定、日ごとの配車表と印刷）</label>
           </div>

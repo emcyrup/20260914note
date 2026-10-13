@@ -107,6 +107,8 @@ class Facility(models.Model):
     schedule_tools = models.BooleanField(default=False, verbose_name='予定づくり：共演NG の一括の印・編集中の日時・ドラッグで共演NG を赤く・名前で探す・月の予定のやり直し')
     # 療育記録の画面で、保存のときの言葉づかいのチェック（data-wording）をしない（ゆあーずの依頼 2026-10-13）
     therapy_no_wording = models.BooleanField(default=False, verbose_name='療育記録：保存のときの言葉づかいの注意を出さない')
+    # 個別支援計画の AI（日誌からの下書き・欄ごとの整文）を出さず、台帳と療育記録の内容をそのまま欄に入れる（ゆあーずの依頼 2026-10-13）
+    plan_no_ai = models.BooleanField(default=False, verbose_name='個別支援計画：AI の下書き・整文を出さず、療育記録とアセスメントを欄に入れる')
     use_transport = models.BooleanField(default=False, verbose_name='送迎・配車を使う',
                                         help_text='車両と運転手を登録し、利用者ごとの送迎（迎え・送り・場所）から日ごとの配車表を作ります。')
     use_dev_assessment = models.BooleanField(default=False, verbose_name='5領域アセスメントを使う',

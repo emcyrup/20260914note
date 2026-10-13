@@ -149,7 +149,13 @@ class PlanStepView(PlanMixin, View):
             'can_reopen': plan.can_reopen_step(self.n),
             'is_last': self.n == SupportPlan.STEP_MONITORING,
             'ai_enabled': bool(settings.ANTHROPIC_API_KEY),
+            # AI で文を作らない事業所（Facility.plan_no_ai）：下書きの代わりに、台帳と療育記録の内容を欄に入れる
+            'plan_no_ai': plan.facility.plan_no_ai,
         }
+        if self.n == SupportPlan.STEP_ASSESSMENT and plan.facility.plan_no_ai:
+            from datetime import timedelta
+            ctx['fill_start'] = date.today() - timedelta(days=182)
+            ctx['fill_end'] = date.today()
         if self.n == SupportPlan.STEP_DRAFT:
             edit_id = self.request.GET.get('goal')
             editing = plan.goals.filter(pk=edit_id).first() if edit_id else None
@@ -435,6 +441,8 @@ class AssessmentDraftView(PlanMixin, View):
         from . import ai
 
         plan = self.get_plan(pk)
+        if plan.facility.plan_no_ai:
+            return JsonResponse({'error': 'この事業所では、支援計画の文を AI で作りません。'}, status=403)
         if plan.current_step != SupportPlan.STEP_ASSESSMENT:
             return JsonResponse({'error': 'アセスメントは完了済みです。'}, status=400)
         if not settings.ANTHROPIC_API_KEY:
@@ -459,6 +467,28 @@ class AssessmentDraftView(PlanMixin, View):
         return JsonResponse({'draft': data, 'records': n, 'months': months})
 
 
+class AssessmentFillView(PlanMixin, View):
+    """
+    アセスメントの欄に入れる内容（JSON。Facility.plan_no_ai）：最新のアセスメント・5領域・留意点・書類の要約と、期間の療育記録を
+    そのまま返す（AI は使わない）。画面で欄の後ろに足し、職員が直して保存する
+    """
+
+    def get(self, request, pk):
+        from django.http import JsonResponse
+
+        from . import sources
+        plan = self.get_plan(pk)
+        if not plan.facility.plan_no_ai:
+            return JsonResponse({'error': 'この事業所では使っていません。'}, status=404)
+        if plan.current_step != SupportPlan.STEP_ASSESSMENT:
+            return JsonResponse({'error': 'アセスメントは完了済みです。'}, status=400)
+        start, end = _period_from_request(request)
+        data = sources.assessment_material(plan.beneficiary, start, end)
+        if not (data['condition'] or data['wishes'] or data['notes']):
+            return JsonResponse({'error': f'入れる内容がありません（アセスメント・資料、5領域アセスメント、留意点、{start:%Y/%-m/%-d}〜{end:%Y/%-m/%-d} の療育記録のどれもありません）。'}, status=404)
+        return JsonResponse(data)
+
+
 class PlanDraftView(PlanMixin, View):
     """期間の日誌から原案（方針・目標）を下書きし、根拠の記録をひもづける"""
 
@@ -468,6 +498,9 @@ class PlanDraftView(PlanMixin, View):
         from . import ai
 
         plan = self.get_plan(pk)
+        if plan.facility.plan_no_ai:
+            messages.error(request, 'この事業所では、支援計画の文を AI で作りません。')
+            return redirect('support_plans:step', pk=pk, n=2)
         if plan.current_step != SupportPlan.STEP_DRAFT:
             messages.error(request, '原案の下書きはステップ2の間だけ作れます。')
             return redirect('support_plans:detail', pk=pk)
@@ -523,7 +556,7 @@ class PlanSheetView(PlanMixin, View):
             'values': sheet.plan_values(plan, draft), 'goal_cells': [(k, label) for k, label, _w, _h in sheet.GOAL_CELLS],
             'rows': sheet.goal_rows(plan), 'type_choices': PlanGoal.TYPE_CHOICES,
             'assessment': plan.get_step(SupportPlan.STEP_ASSESSMENT),
-            'ai_enabled': bool(settings.ANTHROPIC_API_KEY), 'today': date.today(),
+            'ai_enabled': bool(settings.ANTHROPIC_API_KEY) and not plan.facility.plan_no_ai, 'today': date.today(),
         })
 
     def get(self, request, pk):
@@ -561,6 +594,8 @@ class PlanSheetAiView(PlanMixin, View):
 
         from . import ai, sheet
         plan = self.get_plan(pk)
+        if plan.facility.plan_no_ai:
+            return JsonResponse({'error': 'この事業所では、支援計画の文を AI で作りません。'}, status=403)
         if not settings.ANTHROPIC_API_KEY:
             return JsonResponse({'error': 'AIを使う設定（ANTHROPIC_API_KEY）がサーバーにありません。'}, status=500)
         over = trial.check(plan.facility)

@@ -427,3 +427,83 @@ class SheetEditorTests(PlanFlowTestBase):
             self.assertIn('友だちと一緒に遊べるようになりたい', calls[1].kwargs['messages'][0]['content'])   # アセスメントが前提
         res = self.client.post(reverse('support_plans:sheet_ai', args=[self.plan.pk]), data=json.dumps({'items': []}), content_type='application/json')
         self.assertEqual(res.status_code, 400)
+
+
+class PlanNoAiTests(PlanFlowTestBase):
+    """AI で文を作らない事業所（Facility.plan_no_ai。2026-10-13 ゆあーずの打ち合わせ）：下書き・整文を出さず、台帳と療育記録をそのまま欄に入れる"""
+
+    def setUp(self):
+        super().setUp()
+        Facility.objects.filter(pk=self.facility.pk).update(plan_no_ai=True, use_therapy_record=True)
+        self.facility.refresh_from_db()
+        self.fill_url = reverse('support_plans:fill_assessment', args=[self.plan.pk])
+
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    def test_ai_hidden_and_refused(self):
+        res = self.client.get(self.step_url(1))
+        self.assertNotContains(res, '過去の日誌から AI で下書き')
+        self.assertContains(res, 'アセスメントと療育記録を欄に入れる')
+        self.assertContains(res, self.fill_url)
+        with mock.patch('support_plans.ai.assessment_draft') as draft:
+            res = self.client.post(reverse('support_plans:ai_assessment', args=[self.plan.pk]), {'months': 6})
+            self.assertEqual(res.status_code, 403)
+            draft.assert_not_called()
+        self.fill_assessment(); self.plan.complete_step(1, self.user)
+        res = self.client.get(self.step_url(2))
+        self.assertNotContains(res, '期間の日誌から AI で原案の下書き')
+        self.assertNotContains(res, 'メモから欄の文を作る')
+        with mock.patch('support_plans.ai.plan_draft') as draft:
+            self.client.post(reverse('support_plans:ai_draft', args=[self.plan.pk]))
+            draft.assert_not_called()
+        res = self.client.get(reverse('support_plans:sheet', args=[self.plan.pk]))
+        self.assertNotContains(res, 'メモから欄の文を作る')
+        self.assertNotContains(res, 'sh-memo-go')
+        with mock.patch('support_plans.ai.compose_cells') as compose:
+            res = self.client.post(reverse('support_plans:sheet_ai', args=[self.plan.pk]),
+                                   json.dumps({'items': [{'field': 'policy', 'memo': 'x'}]}), content_type='application/json')
+            self.assertEqual(res.status_code, 403)
+            compose.assert_not_called()
+
+    def test_fill_from_ledger_and_therapy_records(self):
+        from beneficiaries.models import BeneficiaryAssessment, BeneficiaryKnowledge, DevelopmentAssessment
+        from therapy.models import TherapyProfile, TherapyRecord
+        self.assertEqual(self.client.get(self.fill_url).status_code, 404)           # 入れるものが無い
+        BeneficiaryAssessment.objects.create(beneficiary=self.b, date=date(2026, 4, 1), title='前の面談', content='古い内容')
+        BeneficiaryAssessment.objects.create(beneficiary=self.b, date=date(2026, 9, 1), title='9月の面談', content='音に敏感。工作が好き。')
+        DevelopmentAssessment.objects.create(beneficiary=self.b, date=date(2026, 9, 10), strengths='ブロック',
+                                             domains={'motor': {'rating': 3, 'now': 'はさみは見守りで使える'}},
+                                             wishes_child='サッカーがしたい', wishes_family='友だちと遊べるように')
+        TherapyProfile.objects.create(beneficiary=self.b, cautions='・大きな音のときはイヤーマフ')
+        BeneficiaryKnowledge.objects.create(beneficiary=self.b, title='診断書', summary='自閉スペクトラム症の診断', status='saved', use_in_ai=True)
+        BeneficiaryKnowledge.objects.create(beneficiary=self.b, title='反映しない書類', summary='出さない', status='saved', use_in_ai=False)
+        TherapyRecord.objects.create(facility=self.facility, beneficiary=self.b, date=date(2026, 9, 20),
+                                     activities=['ブロック', 'はさみ'], body='線に沿って切った', situation='「できた」と言った')
+        TherapyRecord.objects.create(facility=self.facility, beneficiary=self.b, date=date(2026, 5, 1), body='期間の外')
+        data = self.client.get(self.fill_url, {'start': '2026-07-01', 'end': '2026-09-30'}).json()
+        self.assertIn('【アセスメント・資料 2026/9/1「9月の面談」】\n音に敏感。工作が好き。', data['condition'])
+        self.assertNotIn('古い内容', data['condition'])
+        self.assertIn('・運動・感覚（3 一部の支援・声かけが必要）：はさみは見守りで使える', data['condition'])
+        self.assertIn('・強み・好きなこと：ブロック', data['condition'])
+        self.assertIn('大きな音のときはイヤーマフ', data['condition'])
+        self.assertIn('・診断書：自閉スペクトラム症の診断', data['condition'])
+        self.assertNotIn('出さない', data['condition'])
+        self.assertEqual(data['wishes'], '【本人の希望】\nサッカーがしたい\n\n【家族の希望】\n友だちと遊べるように')
+        self.assertIn('【療育記録 2026/7/1〜2026/9/30（1 件）】', data['notes'])
+        self.assertIn('・9/20　①ブロック ②はさみ　記録：線に沿って切った　様子：「できた」と言った', data['notes'])
+        self.assertNotIn('期間の外', data['notes'])
+        self.assertEqual(data['records'], 1)
+        # 欄に入れて直したものは、ふつうに保存でき、原案の画面で見られる
+        self.fill_assessment()
+        a = self.plan.get_step(1)
+        a.notes = data['notes']
+        a.save()
+        self.plan.complete_step(1, self.user)
+        self.assertContains(self.client.get(self.step_url(2)), '線に沿って切った')
+        self.assertEqual(self.client.get(self.fill_url).status_code, 400)          # アセスメントが済んだら入れない
+
+    def test_switch_off(self):
+        Facility.objects.filter(pk=self.facility.pk).update(plan_no_ai=False)
+        self.assertEqual(self.client.get(self.fill_url).status_code, 404)
+        res = self.client.get(self.step_url(1))
+        self.assertContains(res, '過去の日誌から AI で下書き')
+        self.assertNotContains(res, 'アセスメントと療育記録を欄に入れる')

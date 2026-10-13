@@ -84,16 +84,17 @@
           {% if n == 2 %}
           {% if not readonly %}
           <div class="alert alert-light border small py-2 mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <span><i class="bi bi-table me-1"></i>いつもの計画書の形で書きたいときは、<b>様式のまま編集</b>が使えます（欄を直接直す・メモから欄の文を作る。ここの入力と同じ内容です）。</span>
+            <span><i class="bi bi-table me-1"></i>いつもの計画書の形で書きたいときは、<b>様式のまま編集</b>が使えます（欄を直接直す{% if not plan_no_ai %}・メモから欄の文を作る{% endif %}。ここの入力と同じ内容です）。</span>
             <a href="{% url 'support_plans:sheet' plan.pk %}" class="btn btn-sm btn-outline-primary">様式のまま編集</a>
           </div>
           {% endif %}
-          <details class="mb-3">
+          <details class="mb-3"{% if plan_no_ai %} open{% endif %}>
             <summary class="small fw-bold" style="cursor:pointer;">アセスメントの内容を見る（面談 {{ assessment.interview_date|date:'Y/n/j' }}）</summary>
             <div class="small mt-2" style="white-space:pre-wrap;">
               <div class="fw-bold text-muted">心身の状況</div>{{ assessment.condition }}
               <div class="fw-bold text-muted mt-2">置かれている環境</div>{{ assessment.environment }}
               <div class="fw-bold text-muted mt-2">希望する生活</div>{{ assessment.wishes }}
+              {% if plan_no_ai and assessment.notes %}<div class="fw-bold text-muted mt-2">その他の情報（療育記録など）</div>{{ assessment.notes }}{% endif %}
             </div>
           </details>
           {% endif %}
@@ -133,7 +134,26 @@
             </div>
           </form>
           {% endif %}
-          {% if n == 1 and not readonly %}
+          {% if n == 1 and not readonly and plan_no_ai %}
+          <div class="p-3 rounded-3 mb-3" style="background: var(--paper);" id="fillBox">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+              <div>
+                <div class="fw-bold"><i class="bi bi-box-arrow-in-down me-1"></i>アセスメントと療育記録を欄に入れる</div>
+                <div class="small text-muted">AI は使わず、書いてある内容をそのまま入れます。いまの欄の後ろに足すので、読んで直してから保存してください。<br>
+                  心身の状況 ← 最新のアセスメント・資料／5領域アセスメント／療育記録の留意点／「療育記録に反映する」書類の要約　希望する生活 ← 5領域アセスメントの本人・家族の希望　その他の情報 ← 期間の療育記録</div>
+              </div>
+              <div class="d-flex gap-2 align-items-center flex-wrap">
+                <label class="small" for="fillStart">療育記録の期間</label>
+                <input type="date" id="fillStart" value="{{ fill_start|date:'Y-m-d' }}" class="form-control form-control-sm" style="width:auto;">
+                <span class="small">〜</span>
+                <input type="date" id="fillEnd" value="{{ fill_end|date:'Y-m-d' }}" class="form-control form-control-sm" style="width:auto;" aria-label="この日まで">
+                <button type="button" class="btn btn-sm btn-primary" id="fillBtn"><i class="bi bi-box-arrow-in-down me-1"></i>欄に入れる</button>
+              </div>
+            </div>
+            <div id="fillMsg" class="small mt-1" aria-live="polite"></div>
+          </div>
+          {% endif %}
+          {% if n == 1 and not readonly and not plan_no_ai %}
           <div class="p-3 rounded-3 mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2" style="background: var(--paper);">
             <div>
               <div class="fw-bold"><i class="bi bi-stars me-1"></i>過去の日誌から AI で下書き</div>
@@ -150,7 +170,7 @@
             <div id="aiAssessMsg" class="small w-100"></div>
           </div>
           {% endif %}
-          {% if n == 2 and not readonly %}
+          {% if n == 2 and not readonly and not plan_no_ai %}
           <form method="post" action="{% url 'support_plans:ai_draft' plan.pk %}" class="p-3 rounded-3 mb-3" style="background: var(--paper);"
                 onsubmit="this.querySelector('button[type=submit]').disabled=true;this.querySelector('button[type=submit]').textContent='作成中…（30秒ほど）';">
             {% csrf_token %}
@@ -393,7 +413,35 @@
 {% endblock %}
 
 {% block extra_js %}
-{% if n == 1 and not readonly %}
+{% if n == 1 and not readonly and plan_no_ai %}
+<script>
+(function () {
+  // アセスメントと療育記録を欄に入れる（AI なし）：いまの欄の後ろに足す。保存は「保存する」で
+  const btn = document.getElementById('fillBtn'), msg = document.getElementById('fillMsg');
+  const fields = {condition: 'id_condition', wishes: 'id_wishes', notes: 'id_notes'};
+  btn.addEventListener('click', async function () {
+    btn.disabled = true; msg.textContent = '読み込んでいます…'; msg.className = 'small mt-1 text-muted';
+    try {
+      const q = new URLSearchParams({start: document.getElementById('fillStart').value, end: document.getElementById('fillEnd').value});
+      const res = await fetch('{% url "support_plans:fill_assessment" plan.pk %}?' + q, {credentials: 'same-origin'});
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) { msg.textContent = data.error || `サーバーエラー (${res.status})`; msg.className = 'small mt-1 text-danger'; return; }
+      for (const [k, id] of Object.entries(fields)) {
+        const el = document.getElementById(id), text = (data[k] || '').trim();
+        if (!el || !text) continue;
+        el.value = el.value.trim() ? el.value.replace(/\s+$/, '') + '\n\n' + text : text;
+        el.dispatchEvent(new Event('input', {bubbles: true}));
+      }
+      msg.textContent = '入れました（' + data.sources.join('・') + '）。読んで直してから「保存」を押してください。';
+      msg.className = 'small mt-1 text-success';
+      const first = document.getElementById(fields.condition); if (first) first.scrollIntoView({block: 'center', behavior: 'smooth'});
+    } catch (e) { msg.textContent = '通信エラー: ' + e.message; msg.className = 'small mt-1 text-danger'; }
+    finally { btn.disabled = false; }
+  });
+})();
+</script>
+{% endif %}
+{% if n == 1 and not readonly and not plan_no_ai %}
 <script>
 (function () {
   const btn = document.getElementById('aiAssessBtn'); if (!btn) return;
