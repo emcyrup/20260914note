@@ -787,6 +787,8 @@ class VoiceDirectTests(TestCase):
         self.assertIn(f'class="th-edit th-edit-inline" id="edit{old.pk}"', page)
         self.assertNotIn('title="修正"', page)
         self.assertIn('class="th-edit th-edit-inline" id="edit-today"', page)
+        self.assertIn('class="card th-compact" id="records"', page)      # コンパクトに出す（見出しは見た目だけ消す）
+        self.assertIn('class="row g-1 th-acts"', page)
         old.delete()
         # 今日の記録がある：その記録の直す欄へ入れる（新しい欄は出さない）
         rec = TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date.today(), body='朝の記録')

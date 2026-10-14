@@ -25,7 +25,27 @@
   .th-chip { font-size: 0.8rem; padding: 2px 9px; border-radius: 999px; background: var(--color-primary-bg); color: var(--lake-text); border: 1px solid rgba(0,0,0,0.06); }
   .th-body { white-space: pre-wrap; line-height: 1.7; }
   .th-edit { background: rgba(243,239,231,0.55); border-radius: 8px; padding: 12px; margin-top: 10px; }
-  .th-edit.th-edit-inline { background: transparent; padding: 4px 0 0; margin-top: 6px; }   /* ゆあーず：修正を押さずにそのまま直す */
+  .th-edit.th-edit-inline { background: transparent; padding: 2px 0 0; margin-top: 4px; }   /* ゆあーず：修正を押さずにそのまま直す */
+  /* ゆあーず：そのまま直す欄をコンパクトに（見出しは見た目だけ消して読み上げには残す・日付〜担当は横に詰める・記録の欄は文の長さに合わせる） */
+  #records.th-compact .th-rec { padding: 8px 14px; }
+  .th-edit-inline .form-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .th-edit-inline .row.g-2, .th-edit-inline.row.g-2, .th-edit-inline form.row { --bs-gutter-y: .3rem; }
+  .th-edit-inline .th-top { flex: 0 0 auto; width: auto; max-width: 100%; }
+  .th-edit-inline .th-top input[type=date] { width: 9.5em; }
+  .th-edit-inline .th-top input[name=staff_name] { width: 9em; }
+  .th-edit-inline .form-text, .th-edit-inline .th-save-hint { display: none; }
+  .th-edit-inline textarea { min-height: 0; }
+  .th-edit-inline .th-save-btn { padding: 1px 10px; }
+  @media (max-width: 575.98px) { .th-edit-inline .th-acts > div { flex: 0 0 50%; width: 50%; } }   /* スマートフォン：やったことは 2 つずつ */
+  @media (min-width: 992px) {   /* パソコン：日付の見出しと削除を、日付〜担当の欄と同じ行に */
+    #records.th-compact .th-rec { position: relative; }
+    #records.th-compact .th-rec-head { position: absolute; left: 14px; right: 14px; top: 14px; pointer-events: none; }
+    #records.th-compact .th-rec-head .th-rec-btns { pointer-events: auto; }
+    #records.th-compact .th-rec-head .th-rec-meta { display: none; }
+    .th-edit-inline .th-top:not(.th-top ~ .th-top) { margin-left: 218px; }
+    .th-edit-inline .th-top .form-control, .th-edit-inline .th-top .form-select { min-height: 0; height: 32px; padding-top: 2px; padding-bottom: 2px; }
+    .th-edit-inline { margin-top: 0; }
+  }
   .th-list-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
   .th-list-head select { width: auto; }
   .thf-hint { font-size: 0.78rem; color: #8a8378; font-weight: 400; }
@@ -147,7 +167,7 @@
     </form>
   </div></div>
 
-  <div class="card" id="records">
+  <div class="card{% if voice_direct %} th-compact{% endif %}" id="records">
     <div class="card-body pb-2 th-list-head">
       <div class="th-card-title"><i class="bi bi-journal-text"></i>これまでの記録{% if ym %}（{{ ym }}）{% endif %}{% if date_from or date_to %}（{{ date_from|date:'n/j'|default:'' }}〜{{ date_to|date:'n/j'|default:'' }}）{% endif %}<span class="th-rec-meta">{{ records|length }} 件</span></div>
       <form method="get" class="th-filter" aria-label="記録を絞る">
@@ -193,6 +213,21 @@
 {% endblock %}
 
 {% block extra_js %}
+{% if voice_direct %}
+<script>
+(function () {
+  // そのまま直す欄（ゆあーず）：記録・様子の欄の高さを文の長さに合わせる（2〜12 行）。書き足すと伸びる
+  function fit(ta) {
+    var lines = ta.value.split('\n').reduce(function (n, l) { return n + Math.max(1, Math.ceil(l.length / 60)); }, 0);
+    ta.rows = Math.max(2, Math.min(12, lines));
+  }
+  document.querySelectorAll('.th-edit-inline textarea').forEach(fit);
+  document.addEventListener('input', function (e) {
+    if (e.target.matches && e.target.matches('.th-edit-inline textarea')) fit(e.target);
+  });
+})();
+</script>
+{% endif %}
 <datalist id="activity-options">{% for a in activity_suggestions %}<option value="{{ a }}">{% endfor %}</datalist>
 <script>
 (function () {

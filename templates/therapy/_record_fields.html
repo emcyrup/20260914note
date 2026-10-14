@@ -1,25 +1,25 @@
 {% comment %}療育記録の入力欄（追加・修正で共通）。rec が None なら追加用。today_slot は「これまでの記録」の今日の新しい記録の欄（音声入力を直接入れる事業所）{% endcomment %}
-<div class="col-6 col-md-3">
+<div class="col-6 col-md-3 th-top">
   <label class="form-label small fw-semibold">日付</label>
-  <input type="date" name="date" class="form-control form-control-sm" value="{% if rec %}{{ rec.date|date:'Y-m-d' }}{% else %}{{ default_date|date:'Y-m-d' }}{% endif %}" required>
+  <input type="date" name="date" class="form-control form-control-sm" aria-label="日付" value="{% if rec %}{{ rec.date|date:'Y-m-d' }}{% else %}{{ default_date|date:'Y-m-d' }}{% endif %}" required>
 </div>
-<div class="col-6 col-md-2">
+<div class="col-6 col-md-2 th-top">
   <label class="form-label small fw-semibold">時刻</label>
   <select name="time" class="form-select form-select-sm" aria-label="時刻（時）">
     <option value="">—</option>
     {% for h in hour_choices %}<option value="{{ h }}" {% if rec %}{% if rec.time and rec.time.hour == h %}selected{% endif %}{% elif default_hour == h %}selected{% endif %}>{{ h }}時</option>{% endfor %}
   </select>
 </div>
-<div class="col-6 col-md-4">
+<div class="col-6 col-md-4 th-top">
   <label class="form-label small fw-semibold">担当</label>
-  <select name="staff" class="form-select form-select-sm">
+  <select name="staff" class="form-select form-select-sm" aria-label="担当">
     <option value="">— 名前を書く —</option>
     {% for s in staff_list %}<option value="{{ s.pk }}" {% if rec and rec.staff_id == s.pk %}selected{% elif not rec and s.pk == user.pk %}selected{% endif %}>{{ s }}</option>{% endfor %}
   </select>
 </div>
-<div class="col-6 col-md-3">
+<div class="col-6 col-md-3 th-top">
   <label class="form-label small fw-semibold">担当（名前）</label>
-  <input type="text" name="staff_name" class="form-control form-control-sm" value="{% if rec %}{{ rec.staff_name }}{% endif %}" placeholder="アカウントがない人">
+  <input type="text" name="staff_name" class="form-control form-control-sm" aria-label="担当（名前）" value="{% if rec %}{{ rec.staff_name }}{% endif %}" placeholder="アカウントがない人">
 </div>
 <div class="col-12">
   <label class="form-label small fw-semibold">やったこと（①〜⑤）</label>
@@ -29,7 +29,7 @@
     {% for a in activity_chips %}<button type="button" class="th-suggest-btn" data-activity="{{ a }}">{{ a }}</button>{% endfor %}
   </div>
   {% endif %}
-  <div class="row g-1">
+  <div class="row g-1 th-acts">
     {% for i in activity_range %}
     <div class="col-12 col-sm-6 col-lg">
       <div class="input-group input-group-sm">
