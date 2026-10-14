@@ -2,6 +2,8 @@
 
 対象: `https://<アドレス>/`（仮：`michinote.kyotaku.ai-labo.cloud`）→ プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn `0.0.0.0:<ポート>`（仮：8036）→ プロバイダ管理の PostgreSQL（DB `michinotekyotaku`、ユーザー `ai_labo_dbuser`）。
 
+**居宅介護の機能（画面の型「居宅介護」・`homecare` アプリ）は `kyotaku` ブランチだけにあり、ゆあーず・オウル（`ryoiku`）には入れません**（2026-10-14 の依頼）。ゆあーず・オウルと共通の部分を直したときは、`ryoiku` の変更を `kyotaku` に取り込んで配備します。
+
 ゆあーず（`~/michinoteyours`・8030）・オウル（`~/michinoteowl`・8034）と**同じサーバー・同じ仕組み**で、置き場所・ポート・DB・`.env` が違うだけです。venv（`~/env`）は共用します。DB が別なので、居宅介護の利用者・記録はゆあーず・オウルからは見えません。
 
 | | オウル | 居宅介護 |
@@ -9,7 +11,7 @@
 | 置き場所 | `~/michinoteowl` | `~/michinotekyotaku` |
 | Gunicorn | `0.0.0.0:8034` | `0.0.0.0:<ポート>`（仮 8036） |
 | DB | `michinoteowl` | `michinotekyotaku`（同じユーザー・同じパスワード） |
-| 配備 | Deploy (owl) | Deploy (kyotaku)（`ryoiku` への push で、ゆあーず・オウルと一緒に） |
+| 配備 | Deploy (owl)（`ryoiku` への push） | Deploy (kyotaku)（**`kyotaku` ブランチ**への push） |
 | 管理 | Manage (owl) | Manage (kyotaku) |
 
 秘密情報（DB パスワード、`SECRET_KEY`、Anthropic キー、SSH 秘密鍵、管理者のパスワード）はサーバーの `.env`・GitHub Secrets だけに置きます（リポジトリ・Notion・チャット・Actions のログには書かない）。
@@ -42,12 +44,12 @@ SSH は同じサーバーなので `YOURS_DEPLOY_*` をそのまま使います�
 
 ## 3. 初回の配備（Actions から。サーバーに入らなくてよい）
 
-Actions → **Deploy (kyotaku)** → Run workflow（ブランチ `ryoiku`）。初回は `~/michinotekyotaku` に clone し、`.env` を `deploy/.env.kyotaku-aws.example` から作ります。
+Actions → **Deploy (kyotaku)** → Run workflow（ブランチ **`kyotaku`**）。初回は `~/michinotekyotaku` に clone し、`.env` を `deploy/.env.kyotaku-aws.example` から作ります。
 
 - `SECRET_KEY` はサーバー上で生成、アドレスとポートは Secrets の値に置き換え
 - `DB_PASSWORD`・`ANTHROPIC_API_KEY`・`AI_TEXT_MODEL`・`AI_PLAN_MODEL`・`GOOGLE_SPEECH_API_KEY`・`SPEECH_BACKEND`・`WHISPER_*` は `~/michinoteyours/.env` から写す（ログには項目名だけ出る）
 
-そのあと `deploy/venv-deploy.sh` が `pip install` → `migrate` → `collectstatic` → Gunicorn 起動 → `https://<アドレス>/healthz/` の確認まで行います。2 回目以降は `.env` を上書きしません。以後は `ryoiku` への push で、ゆあーず・オウルと一緒に配備されます。
+そのあと `deploy/venv-deploy.sh` が `pip install` → `migrate` → `collectstatic` → Gunicorn 起動 → `https://<アドレス>/healthz/` の確認まで行います。2 回目以降は `.env` を上書きしません。以後は `kyotaku` ブランチへの push で配備されます。
 
 ## 4. 事業所と管理者を作る
 

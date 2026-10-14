@@ -2,7 +2,8 @@
 # 居宅介護の事業所（仮の名前「居宅介護（仮）」）を AWS 共用サーバー（ゆあーずと同じサーバー）へデプロイ
 #   https://<KYOTAKU_DOMAIN>/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 0.0.0.0:<.env の PORT。雛形は 8036>
 #   置き場所 ~/michinotekyotaku、DB michinotekyotaku（ユーザー ai_labo_dbuser）。venv（~/env）はゆあーずと共用
-#   ブランチ ryoiku への push（ゆあーずと同じ push で両方に配備される）、または Actions から手動実行（任意のブランチ）
+#   ブランチ kyotaku への push、または Actions から手動実行（ブランチ kyotaku を選ぶ）。居宅介護の機能は kyotaku ブランチだけにあり、
+#   ゆあーず・オウル（ryoiku）には入れない。共通部分の修正は ryoiku から kyotaku へ取り込む
 #   サーバー側は deploy/venv-deploy.sh が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行う
 #   手順は docs/DEPLOY_AWS_KYOTAKU.md
 #
@@ -21,7 +22,7 @@ name: Deploy (kyotaku)
 
 on:
   push:
-    branches: [ryoiku]
+    branches: [kyotaku]
   workflow_dispatch:
     inputs:
       ref:
