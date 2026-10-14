@@ -1,4 +1,4 @@
-# 居宅介護の事業所を AWS 共用サーバーで動かす手順（ゆあーず・オウルと同じサーバー・別ポート・別 DB）
+# 居宅介護の事業所「居宅介護支援事業所コト」を AWS 共用サーバーで動かす手順（ゆあーず・オウルと同じサーバー・別ポート・別 DB）
 
 対象: `https://<アドレス>/`（仮：`michinote.kyotaku.ai-labo.cloud`）→ プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn `0.0.0.0:<ポート>`（仮：8036）→ プロバイダ管理の PostgreSQL（DB `michinotekyotaku`、ユーザー `ai_labo_dbuser`）。
 
@@ -53,7 +53,7 @@ Actions → **Deploy (kyotaku)** → Run workflow（ブランチ **`kyotaku`**�
 
 ## 4. 事業所と管理者を作る
 
-Actions → **Manage (kyotaku)** → Run workflow：`task=create_facility`、事業所名「居宅介護（仮）」（既定）、管理者 `kyotaku`（既定）。パスワードは Secrets の `KYOTAKU_ADMIN_PASSWORD`。「サンプルデータも入れる」に印を付けると、架空の利用者 3 人・今月の訪問・計画が入ります（実データを入れる前に利用者情報から消す）。
+Actions → **Manage (kyotaku)** → Run workflow：`task=create_facility`、事業所名「居宅介護支援事業所コト」（既定）、管理者 `kyotaku`（既定）。パスワードは Secrets の `KYOTAKU_ADMIN_PASSWORD`。「サンプルデータも入れる」に印を付けると、架空の利用者 3 人・今月の訪問・計画が入ります（実データを入れる前に利用者情報から消す）。
 
 そのあと `https://<アドレス>/` に `kyotaku` でログインし、施設設定で事業所名（正式な名前）・事業所番号・住所・電話を入れます。
 

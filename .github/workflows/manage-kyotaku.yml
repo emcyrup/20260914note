@@ -1,7 +1,7 @@
 # =============================================
 # 居宅介護の事業所 AWS 共用サーバーでの管理コマンド（Actions の画面から実行する）
 #   Deploy (kyotaku) と同じ Secrets（KYOTAKU_*。無ければ YOURS_* を使う）で SSH し、~/michinotekyotaku の manage.py を実行する
-#   - create_facility : 事業所「居宅介護（仮）」と管理者を作る（--preset kyotaku。架空のサンプルデータも入れられる）
+#   - create_facility : 事業所「居宅介護支援事業所コト」と管理者を作る（--preset kyotaku。架空のサンプルデータも入れられる）
 #   - set_password    : 管理者（職員）のパスワードを設定する
 #   - list            : 事業所の一覧を表示する
 #   - delete_facility : 利用者・予約の無い事業所を、職員アカウント・設定ごと消す（facility_id）
@@ -31,7 +31,7 @@ on:
       facility_name:
         description: "事業所名（create_facility）"
         type: string
-        default: "居宅介護（仮）"
+        default: "居宅介護支援事業所コト"
       admin_username:
         description: "管理者のユーザー名（create_facility・set_password）"
         type: string
