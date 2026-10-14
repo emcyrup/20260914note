@@ -495,6 +495,49 @@ def fix_pairs_message(moved, left):
     return ' '.join(parts)
 
 
+def pair_check(facility, today=None):
+    """
+    共演NG の確認（Facility.schedule_tools）：全期間の有効な予約（確定・キャンセル待ち）で、共演NG の 2 人が同じ日・同じ時間枠にいる組。
+    在籍中でない利用者との登録も見る（予約を入れるときの判定・「ほかの時刻へ移す」は在籍中どうしの確定した予約だけ）。
+    戻り値 {'pairs'（登録の組数）, 'inactive_pairs'（在籍中でない人を含む組）, 'future': [{year, month, rows, fixable}], 'past': [row]}
+    row = {'a', 'b'（予約）, 'sibling', 'movable'（「ほかの時刻へ移す」の対象）}
+    """
+    today = today or datetime.date.today()
+    links = Beneficiary.cannot_pair.through.objects.filter(from_beneficiary__facility=facility)
+    ng = {}
+    for a, b in links.values_list('from_beneficiary_id', 'to_beneficiary_id'):
+        ng.setdefault(a, set()).add(b)
+        ng.setdefault(b, set()).add(a)
+    pairs = {frozenset((a, b)) for a, others in ng.items() for b in others}
+    active = set(Beneficiary.objects.filter(pk__in=ng, status=Beneficiary.STATUS_ACTIVE).values_list('pk', flat=True))
+    out = {'pairs': len(pairs), 'inactive_pairs': sum(1 for p in pairs if not p <= active), 'future': [], 'past': []}
+    if not ng:
+        return out
+    sib = services.sibling_map(facility)
+    by_day = {}
+    for r in (Reservation.objects.filter(facility=facility, status__in=Reservation.ACTIVE_STATUSES, beneficiary_id__in=ng)
+              .select_related('beneficiary', 'customer').order_by('date', 'start_time', 'pk')):
+        by_day.setdefault(r.date, []).append(r)
+    months = {}
+    for day in sorted(by_day):
+        rs = by_day[day]
+        for i, a in enumerate(rs):
+            for b in rs[i + 1:]:
+                if b.beneficiary_id not in ng[a.beneficiary_id] or not services.same_time(a.start_time, b.start_time):
+                    continue
+                row = {'a': a, 'b': b, 'sibling': b.beneficiary_id in sib.get(a.beneficiary_id, ()),
+                       'movable': day >= today and {a.beneficiary_id, b.beneficiary_id} <= active
+                       and a.status == b.status == Reservation.STATUS_CONFIRMED}
+                if day < today:
+                    out['past'].append(row)
+                else:
+                    months.setdefault((day.year, day.month), []).append(row)
+    out['past'].reverse()      # 過去は新しい順に
+    out['future'] = [{'year': y, 'month': m, 'rows': rows, 'fixable': sum(1 for r in rows if r['movable'])}
+                     for (y, m), rows in sorted(months.items())]
+    return out
+
+
 RESET_ASSIGNED = 'assigned'   # 利用希望から割り当てた予約だけ
 RESET_ALL = 'all'             # この月の予約すべて（キャンセル待ちも）
 

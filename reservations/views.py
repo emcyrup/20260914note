@@ -1405,7 +1405,24 @@ class MonthlyScheduleFixPairsView(SlotModeMixin, View):
             (messages.warning if left else messages.success)(request, monthly.fix_pairs_message(moved, left))
         else:
             messages.info(request, f'{month}月（今日から先）に、共演NG で同じ時間の組はありません。')
+        if request.POST.get('next') == 'check':
+            return redirect('reservations:pair_check')
         return redirect('reservations:monthly_schedule', year=year, month=month)
+
+
+class PairCheckView(SlotModeMixin, View):
+    """共演NG の確認（Facility.schedule_tools）：これまでの予約も含めて、共演NG の 2 人が同じ時間枠にいる組の一覧"""
+
+    def get(self, request):
+        facility = request.user.facility
+        if not facility.schedule_tools:
+            raise Http404
+        today = datetime.date.today()
+        check = monthly.pair_check(facility, today)
+        return render(request, 'reservations/pair_check.html', {
+            'check': check, 'today': today, 'facility': facility,
+            'future_count': sum(len(m['rows']) for m in check['future']),
+        })
 
 
 class MonthlyScheduleResetView(SlotModeMixin, View):

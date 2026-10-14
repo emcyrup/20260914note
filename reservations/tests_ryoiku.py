@@ -2084,3 +2084,43 @@ class ScheduleToolsTests(TestCase):
         html = self.client.get(reverse('reservations:monthly_schedule_pdf', args=[2026, 10]) + '?fmt=html&paper=a4')
         self.assertContains(html, '延べ利用数 <b>2</b> 回（2 名）')
         self.assertContains(html, '<tr class="sum"><td>合計（2名）</td>')
+
+    def test_pair_check_lists_future_and_past(self):
+        url = reverse('reservations:pair_check')
+        self.assertContains(self.client.get(self.page), url)                    # 月間予定表から開ける
+        page = self.client.get(url)
+        self.assertContains(page, '今日から先に、共演NG で同じ時間の組はありません')
+        future = datetime.date(2030, 10, 8)
+        ra, rb = self._pair_at_same_hour(future, [10, 11], [10, 11])
+        past = datetime.date(2020, 10, 6)
+        pa = self._res(self.a, past, datetime.time(13, 0))
+        pb = self._res(self.b, past, datetime.time(14, 0))
+        Reservation.objects.filter(pk__in=[pa.pk, pb.pk]).update(start_time=datetime.time(10, 0), attendance=Reservation.ATT_ATTENDED)
+        self._res(self.c, future, datetime.time(10, 0))                         # 共演NG でない人は出ない
+        check = monthly.pair_check(self.f)
+        self.assertEqual((check['pairs'], len(check['future']), len(check['past'])), (1, 1, 1))
+        self.assertTrue(check['future'][0]['rows'][0]['movable'])
+        page = self.client.get(url)
+        self.assertContains(page, '2030年10月')
+        self.assertContains(page, '青木 子')
+        self.assertContains(page, '実績：来た')
+        self.assertNotContains(page, '佐藤 花')
+        # 開くだけでは変わらない。一覧から移すと、一覧へ戻る
+        self.assertEqual(Reservation.objects.get(pk=ra.pk).start_time.hour, 10)
+        res = self.client.post(reverse('reservations:monthly_schedule_fix_pairs', args=[2030, 10]), {'next': 'check'}, follow=True)
+        self.assertContains(res, '利用希望のほかの時刻へ移しました')
+        self.assertContains(res, '今日から先に、共演NG で同じ時間の組はありません')
+        self.assertEqual(len(monthly.pair_check(self.f)['past']), 1)          # 過去は動かさない
+
+    def test_pair_check_waitlist_and_inactive_not_movable(self):
+        day = datetime.date(2030, 10, 8)
+        ra, rb = self._pair_at_same_hour(day, [10, 11], [10, 11])
+        Reservation.objects.filter(pk=rb.pk).update(status=Reservation.STATUS_WAITLIST)
+        row = monthly.pair_check(self.f)['future'][0]['rows'][0]
+        self.assertFalse(row['movable'])
+        self.assertContains(self.client.get(reverse('reservations:pair_check')), '移す対象外')
+
+    def test_pair_check_only_schedule_tools(self):
+        self.f.schedule_tools = False
+        self.f.save()
+        self.assertEqual(self.client.get(reverse('reservations:pair_check')).status_code, 404)

@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+
+{% block title %}共演NG の確認 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}共演NG の確認{% endblock %}
+{% block nav_reservations %}active{% endblock %}
+{% block nav_reservations_only %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .pc-table td, .pc-table th { vertical-align: middle; }
+  .pc-table .pc-when { white-space: nowrap; width: 9.5em; }
+  .pc-tag { font-size: .72rem; border-radius: 3px; padding: 0 4px; margin-left: 4px; background: #eee; color: #555; white-space: nowrap; }
+  .pc-tag.wait { background: #fff7df; color: #8a6d1f; }
+  .pc-tag.att { background: #eef6ef; color: #2f7d4e; }
+  .pc-tag.off { background: #e6e6e6; color: #666; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 980px;">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <a href="{% url 'reservations:monthly_schedule' today.year today.month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left me-1"></i>月間予定表へ</a>
+    <span class="small text-muted">共演NG の登録 <b>{{ check.pairs }}</b> 組{% if check.inactive_pairs %}（うち在籍中でない人を含む組 {{ check.inactive_pairs }}）{% endif %}・今日 {{ today|date:'n/j' }}</span>
+  </div>
+  <p class="small text-muted">
+    これまでの予約も含めて、共演NG（利用者情報の「同じ時間にできない利用者」）の 2 人が、同じ日・同じ時間枠に入っている予約を並べます。
+    確定とキャンセル待ちの予約を見ます（取り消した予約は見ません）。この画面を開くだけでは、何も変わりません。
+  </p>
+
+  <h2 class="h6 fw-bold mt-4">今日から先 <span class="badge {% if future_count %}bg-danger{% else %}bg-success{% endif %}">{{ future_count }} 組</span></h2>
+  {% for m in check.future %}
+  <div class="card mb-3">
+    <div class="card-header py-2 d-flex align-items-center flex-wrap gap-2">
+      <b>{{ m.year }}年{{ m.month }}月</b><span class="small">{{ m.rows|length }} 組</span>
+      <a href="{% url 'reservations:monthly_schedule' m.year m.month %}" class="btn btn-outline-secondary btn-sm py-0 ms-auto">月間予定表で見る</a>
+      {% if m.fixable %}
+      <form method="post" action="{% url 'reservations:monthly_schedule_fix_pairs' m.year m.month %}"
+            onsubmit="return confirm('{{ m.month }}月の、共演NG で同じ時間の組を、どちらかの利用希望（同じ日）のほかの時刻へ移します。保護者へのお知らせは積みません。よろしいですか？');">
+        {% csrf_token %}<input type="hidden" name="next" value="check">
+        <button class="btn btn-danger btn-sm py-0">利用希望のほかの時刻へ移す</button>
+      </form>
+      {% endif %}
+    </div>
+    {% include 'reservations/_pair_check_rows.html' with rows=m.rows %}
+  </div>
+  {% empty %}
+  <p class="alert alert-success py-2 small"><i class="bi bi-check-circle me-1"></i>今日から先に、共演NG で同じ時間の組はありません。</p>
+  {% endfor %}
+  {% if future_count %}
+  <p class="small text-muted">「利用希望のほかの時刻へ移す」は、在籍中どうし・確定どうしで、実績を入れていない予約が対象です。移す先が無い組・対象でない組（印の付いた組）は、月間予定表の「入れ替え・移動」で直してください。</p>
+  {% endif %}
+
+  <h2 class="h6 fw-bold mt-4">過去 <span class="badge bg-secondary">{{ check.past|length }} 組</span></h2>
+  {% if check.past %}
+  <p class="small text-muted mb-2">新しい順。過去の予約は動かしません（記録として残します）。</p>
+  <div class="card mb-3">{% include 'reservations/_pair_check_rows.html' with rows=check.past %}</div>
+  {% else %}
+  <p class="small text-muted">過去に、共演NG で同じ時間だった組はありません。</p>
+  {% endif %}
+</div>
+{% endblock %}
