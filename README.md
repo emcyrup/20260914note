@@ -192,7 +192,7 @@ Webhook の URL は事業所ごとで、施設設定の LINE 欄と、予約の�
 - **居宅介護計画**（`CarePlan`）：希望・心身と生活の状況・課題・長期／短期目標・週間のサービス内容（曜日・時間・種類・内容）・留意事項・説明と同意。前の計画を写して始められる。AI では作文しない。A4 で印刷
 - **実績記録票**：月 × 利用者。計画（予定）の時刻・時間数と、サービス提供時間・算定時間数（30 分単位の目安：予定の時間。実際が短いときは実際）・派遣人数・利用者確認欄・備考、種類ごとの合計と契約支給量（超えると赤）。A4 横で印刷。正式な算定は請求のきまりで確かめる
 - 書類の AI 読み取り（利用者情報）と議事録はゆあーずと同じ
-- 配備：ゆあーず・オウルと同じサーバーに別のアドレス・ポート・DB で（`docs/DEPLOY_AWS_KYOTAKU.md`。Deploy (kyotaku)・Manage (kyotaku)。プロバイダ側の準備が済んで Secrets `KYOTAKU_READY=true` を入れるまでは配備しない）
+- 配備：開発環境のサーバーに別のアドレス・ポート・DB で（`https://st-kaigonote.kyotaku.ai-labo.cloud/`・8039・DB `kaigonotekyotaku`。`docs/DEPLOY_AWS_KYOTAKU.md`。ブランチ `kyotaku` への push で Deploy (kyotaku)、事業所づくりなどは Manage (kyotaku)）
 
 ### 予約管理だけを別サーバーで動かす（横展開）
 
