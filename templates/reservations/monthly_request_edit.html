@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% load concurrency %}
 
-{% block title %}{{ month }}月 予約利用希望 {{ beneficiary.full_name }} — 放課後等デイサービス業務支援{% endblock %}
+{% block title %}{{ month }}月 予約利用希望 {{ beneficiary.full_name }} — {{ app_label|default:"放課後等デイサービス業務支援" }}{% endblock %}
 {% block page_title %}{{ month }}月 予約利用希望 — {{ beneficiary.full_name }}{% endblock %}
 {% block nav_reservations %}active{% endblock %}
 {% block nav_reservations_only %}active{% endblock %}

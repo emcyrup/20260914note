@@ -1,0 +1,110 @@
+{% extends 'base.html' %}
+{% block title %}サービス提供記録 {{ visit.beneficiary.full_name }} — {{ app_label }}{% endblock %}
+{% block page_title %}サービス提供記録{% endblock %}
+{% block extra_css %}{% include 'homecare/_style.html' %}
+<style>
+  .hc-tasks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 10px; }
+  .hc-tasks label { padding: 6px 4px; border-radius: 6px; }
+  .hc-tasks input:checked + span { font-weight: 700; color: #1f6a3a; }
+  .hc-now { white-space: nowrap; }
+</style>{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 760px;">
+  <div class="card mb-3"><div class="card-body py-2">
+    <div><span class="hc-name">{{ visit.beneficiary.full_name }}</span> さん　<span class="hc-type {{ visit.service_type }}">{{ visit.get_service_type_display }}</span> <span class="hc-st {{ visit.status }}">{{ visit.get_status_display }}</span></div>
+    <div class="small text-muted">{{ day_label }}　予定 {{ visit.time_label }}{% if visit.plan_note %}　{{ visit.plan_note }}{% endif %}</div>
+    {% if profile.cautions %}<div class="alert alert-warning small py-2 px-2 mt-2 mb-0" style="white-space: pre-line;"><b>援助の留意点</b>　{{ profile.cautions }}</div>{% endif %}
+  </div></div>
+
+  {% if visit.status == 'cancelled' %}
+  <div class="alert alert-secondary">この訪問は中止にしました{% if visit.cancel_reason %}（{{ visit.cancel_reason }}）{% endif %}。
+    <form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="action" value="reopen"><button class="btn btn-sm btn-outline-secondary ms-2">予定に戻す</button></form></div>
+  {% else %}
+  <form method="post" class="card" id="hc-record"><div class="card-body">
+    {% csrf_token %}
+    <div class="row g-2 mb-3 align-items-end">
+      <div class="col-6 col-sm-4"><label class="form-label fw-semibold" for="hc-as">開始（実際）</label>
+        <div class="input-group"><input type="time" name="actual_start" id="hc-as" class="form-control" value="{{ as_value }}" required>
+          <button type="button" class="btn btn-outline-secondary hc-now" data-now="hc-as">今</button></div></div>
+      <div class="col-6 col-sm-4"><label class="form-label fw-semibold" for="hc-ae">終了（実際）</label>
+        <div class="input-group"><input type="time" name="actual_end" id="hc-ae" class="form-control" value="{{ ae_value }}" required>
+          <button type="button" class="btn btn-outline-secondary hc-now" data-now="hc-ae">今</button></div></div>
+      <div class="col-12 col-sm-4 small text-muted">初めは予定の時刻が入っています。違ったら直してください。</div>
+    </div>
+
+    <div class="fw-semibold mb-1">したこと</div>
+    {% for group, items in task_groups %}
+    <div class="small text-muted mt-1">{{ group }}</div>
+    <div class="hc-tasks">{% for k, label in items %}<label class="form-check"><input type="checkbox" class="form-check-input" name="tasks" value="{{ k }}" {% if k in checked %}checked{% endif %}><span>{{ label }}</span></label>{% endfor %}</div>
+    {% endfor %}
+
+    <div class="fw-semibold mt-3 mb-1">体調</div>
+    <div class="row g-2 mb-1">
+      <div class="col-6 col-sm-3"><label class="form-label small mb-0" for="hc-t">体温（℃）</label><input type="number" step="0.1" min="30" max="45" inputmode="decimal" name="temperature" id="hc-t" class="form-control" value="{{ visit.temperature|default_if_none:'' }}"></div>
+      <div class="col-6 col-sm-4"><label class="form-label small mb-0">血圧（上／下）</label><div class="input-group"><input type="number" name="bp_high" min="40" max="300" inputmode="numeric" class="form-control" aria-label="血圧（上）" value="{{ visit.bp_high|default_if_none:'' }}"><span class="input-group-text">/</span><input type="number" name="bp_low" min="20" max="200" inputmode="numeric" class="form-control" aria-label="血圧（下）" value="{{ visit.bp_low|default_if_none:'' }}"></div></div>
+      <div class="col-6 col-sm-2"><label class="form-label small mb-0" for="hc-p">脈拍</label><input type="number" name="pulse" min="20" max="250" inputmode="numeric" id="hc-p" class="form-control" value="{{ visit.pulse|default_if_none:'' }}"></div>
+      <div class="col-6 col-sm-3"><label class="form-label small mb-0" for="hc-c">顔色・体調</label>
+        <select name="condition" id="hc-c" class="form-select">{% for k, label in conditions %}<option value="{{ k }}" {% if visit.condition == k %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    </div>
+
+    <div class="d-flex justify-content-between align-items-end mt-3 mb-1 flex-wrap gap-2">
+      <label class="fw-semibold" for="hc-body">様子・特記事項</label>
+      <div class="d-flex gap-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-voice-target="hc-body" data-voice-note="hc-voice-note"><i class="bi bi-mic"></i> 音声入力</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="hc-tidy" title="話した言葉を書き言葉に整えます（内容は変えません）"><i class="bi bi-magic"></i> 書き言葉に整える</button>
+      </div>
+    </div>
+    <div id="hc-voice-note" class="alert alert-warning small py-1 px-2 mb-2 d-none"></div>
+    <textarea name="body" id="hc-body" class="form-control" rows="5" placeholder="本人の様子・言葉、家族からの話、気づいたこと、次回への申し送り">{{ visit.body }}</textarea>
+    <div id="hc-tidy-msg" class="small mt-1" aria-live="polite"></div>
+    {% if prev %}<details class="small mt-2"><summary>前回（{{ prev.date|date:'n/j' }}）の記録</summary><div class="mt-1" style="white-space: pre-line;">{% if prev.task_labels %}したこと：{{ prev.task_labels|join:'、' }}
+{% endif %}{{ prev.body|default:'（様子の記入なし）' }}</div></details>{% endif %}
+
+    <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
+      <a href="{% url 'homecare:day' %}?d={{ visit.date|date:'Y-m-d' }}" class="btn btn-outline-secondary">戻る</a>
+      <button class="btn btn-primary btn-lg"><i class="bi bi-check2 me-1"></i>記録を保存する</button>
+    </div>
+  </div></form>
+
+  {% if visit.status == 'planned' %}
+  <form method="post" class="d-flex gap-2 align-items-center mt-3 flex-wrap" onsubmit="return confirm('この訪問を中止にします。よろしいですか？');">
+    {% csrf_token %}<input type="hidden" name="action" value="cancel">
+    <input type="text" name="cancel_reason" class="form-control form-control-sm" style="max-width: 320px;" maxlength="200" placeholder="中止の理由（例：入院のため・本人の体調不良）" aria-label="中止の理由">
+    <button class="btn btn-sm btn-outline-danger">中止にする</button>
+  </form>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+(function () {
+  document.querySelectorAll('[data-now]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var d = new Date(), el = document.getElementById(b.dataset.now);
+      el.value = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    });
+  });
+  var btn = document.getElementById('hc-tidy'); if (!btn) return;
+  var box = document.getElementById('hc-body'), msg = document.getElementById('hc-tidy-msg'), before = null;
+  btn.addEventListener('click', async function () {
+    var text = box.value.trim();
+    if (!text) { msg.textContent = '先に様子を話すか書いてください。'; msg.className = 'small mt-1 text-danger'; return; }
+    btn.disabled = true; msg.textContent = '整えています…'; msg.className = 'small mt-1 text-muted';
+    try {
+      var res = await fetch('{% url "homecare:tidy" %}', {method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value},
+        body: JSON.stringify({text: text})});
+      var d = await res.json().catch(function () { return {}; });
+      if (!res.ok || d.error) { msg.textContent = d.error || ('整えられませんでした（' + res.status + '）'); msg.className = 'small mt-1 text-danger'; return; }
+      before = box.value; box.value = d.text;
+      msg.innerHTML = '書き言葉に整えました。確かめて、違うところは直してください。 <button type="button" class="btn btn-link btn-sm p-0 align-baseline" id="hc-undo">元に戻す</button>'
+        + (d.added && d.added.length ? '<div class="text-danger">話していない言い回し（' + d.added.map(function (x) { var s = document.createElement('span'); s.textContent = x; return '「' + s.innerHTML + '」'; }).join('') + '）が入りました。要らなければ消してください。</div>' : '');
+      msg.className = 'small mt-1 text-success';
+      document.getElementById('hc-undo').addEventListener('click', function () { if (before !== null) box.value = before; msg.textContent = '元に戻しました。'; msg.className = 'small mt-1 text-muted'; });
+    } catch (e) { msg.textContent = '通信エラー：' + e.message; msg.className = 'small mt-1 text-danger'; }
+    finally { btn.disabled = false; }
+  });
+})();
+</script>
+{% endblock %}

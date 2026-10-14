@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}訪問予定 {{ year }}年{{ month }}月 — {{ app_label }}{% endblock %}
+{% block page_title %}訪問予定　{{ year }}年{{ month }}月{% endblock %}
+{% block extra_css %}{% include 'homecare/_style.html' %}
+<style>
+  .hc-cal { table-layout: fixed; width: 100%; border-collapse: collapse; background: #fff; }
+  .hc-cal th { text-align: center; font-size: .8rem; padding: 4px; background: rgba(243,239,231,.9); }
+  .hc-cal td { vertical-align: top; border: 1px solid #dee2e6; height: 96px; padding: 3px; font-size: .74rem; }
+  .hc-cal td.out { background: #f8f9fa; color: #aaa; }
+  .hc-cal td.today { background: var(--color-primary-bg, #eef6f2); }
+  .hc-d { display: flex; justify-content: space-between; font-weight: 700; }
+  .hc-d a { text-decoration: none; }
+  .hc-cal .sun .hc-d > span { color: #c0392b; } .hc-cal .sat .hc-d > span { color: #2b6cb0; }
+  .hc-v { display: block; border-radius: 4px; padding: 1px 3px; margin-top: 2px; text-decoration: none; color: inherit; background: #fff3c4; line-height: 1.25; }
+  .hc-v.done { background: #dff1e5; } .hc-v.cancelled { background: #eee; color: #888; text-decoration: line-through; }
+  .hc-v .t { font-variant-numeric: tabular-nums; font-weight: 600; }
+  @media (max-width: 768px) { .hc-cal td { height: 70px; font-size: .62rem; } .hc-v .k { display: none; } }
+</style>{% endblock %}
+{% block content %}
+<div class="px-2">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="btn-group">
+      <a href="{% url 'homecare:month' prev.year prev.month %}{% if who %}?b={{ who.pk }}{% endif %}" class="btn btn-outline-secondary btn-sm" aria-label="前の月"><i class="bi bi-chevron-left"></i></a>
+      <a href="{% url 'homecare:month_now' %}" class="btn btn-outline-secondary btn-sm">今月</a>
+      <a href="{% url 'homecare:month' next.year next.month %}{% if who %}?b={{ who.pk }}{% endif %}" class="btn btn-outline-secondary btn-sm" aria-label="次の月"><i class="bi bi-chevron-right"></i></a>
+    </div>
+    <form method="get" class="d-flex gap-2 align-items-center">
+      <select name="b" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="{{ terms.beneficiary }}で絞る">
+        <option value="">全員</option>
+        {% for p in people %}<option value="{{ p.pk }}" {% if who and who.pk == p.pk %}selected{% endif %}>{{ p.full_name }}</option>{% endfor %}
+      </select>
+    </form>
+    <a href="{% url 'homecare:visit_new' %}{% if who %}?b={{ who.pk }}{% endif %}" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg me-1"></i>訪問を入れる</a>
+  </div>
+  <div class="small text-muted mb-2">{% if who %}{{ who.full_name }}さん：{% endif %}訪問 {{ count }} 件・予定の時間 {{ hours|floatformat:1 }} 時間（中止を除く）。日付を押すとその日に入れられます。黄＝予定・緑＝記録ずみ。</div>
+  <table class="hc-cal">
+    <thead><tr><th class="text-danger">日</th><th>月</th><th>火</th><th>水</th><th>木</th><th>金</th><th class="text-primary">土</th></tr></thead>
+    <tbody>
+      {% for week in weeks %}<tr>
+        {% for c in week %}
+        <td class="{% if not c.in_month %}out{% endif %}{% if c.date == today %} today{% endif %}{% if forloop.first %} sun{% elif forloop.last %} sat{% endif %}">
+          <div class="hc-d"><span>{{ c.date.day }}</span>{% if c.in_month %}<a href="{% url 'homecare:visit_new' %}?d={{ c.date|date:'Y-m-d' }}{% if who %}&b={{ who.pk }}{% endif %}" title="{{ c.date|date:'n/j' }} に訪問を入れる" aria-label="{{ c.date|date:'n/j' }} に訪問を入れる">＋</a>{% endif %}</div>
+          {% for v in c.visits %}<a class="hc-v {{ v.status }}" href="{% if v.status == 'planned' %}{% url 'homecare:visit_edit' v.pk %}{% else %}{% url 'homecare:record' v.pk %}{% endif %}" title="{{ v.time_label }} {{ v.beneficiary.full_name }}（{{ v.get_service_type_display }}・{{ v.get_status_display }}）"><span class="t">{{ v.start_time|time:'H:i' }}</span> {{ v.beneficiary.last_name }}<span class="k">（{{ v.short_type }}）</span></a>{% endfor %}
+        </td>
+        {% endfor %}
+      </tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

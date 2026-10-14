@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}{{ terms.beneficiary }}を Excel・CSV から取り込む — 放課後等デイサービス業務支援{% endblock %}
+{% block title %}{{ terms.beneficiary }}を Excel・CSV から取り込む — {{ app_label|default:"放課後等デイサービス業務支援" }}{% endblock %}
 {% block page_title %}{{ terms.beneficiary }}を Excel・CSV から取り込む{% endblock %}
 {% block nav_beneficiaries %}active{% endblock %}
 

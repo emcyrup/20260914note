@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% load static concurrency %}
 
-{% block title %}議事録 — 放課後等デイサービス業務支援{% endblock %}
+{% block title %}議事録 — {{ app_label|default:"放課後等デイサービス業務支援" }}{% endblock %}
 {% block page_title %}議事録{% endblock %}
 {% block nav_minutes %}active{% endblock %}
 

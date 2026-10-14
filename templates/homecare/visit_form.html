@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block title %}{% if visit %}訪問の予定を直す{% else %}訪問を入れる{% endif %} — {{ app_label }}{% endblock %}
+{% block page_title %}{% if visit %}訪問の予定を直す{% else %}訪問を入れる{% endif %}{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 640px;">
+  {% for e in errors %}<div class="alert alert-danger py-2 small">{{ e }}</div>{% endfor %}
+  <form method="post" class="card"><div class="card-body">
+    {% csrf_token %}
+    <div class="mb-3">
+      <label class="form-label fw-semibold" for="hc-b">{{ terms.beneficiary }}</label>
+      <select name="beneficiary" id="hc-b" class="form-select" required>
+        <option value="">選ぶ</option>
+        {% for p in people %}<option value="{{ p.pk }}" {% if v.beneficiary == p.pk|stringformat:'s' %}selected{% endif %}>{{ p.full_name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="row g-2 mb-3">
+      <div class="col-12 col-sm-5"><label class="form-label fw-semibold" for="hc-d">日付</label>
+        <input type="date" name="date" id="hc-d" class="form-control" value="{{ v.date|date:'Y-m-d' }}" required></div>
+      <div class="col-6 col-sm-3"><label class="form-label fw-semibold" for="hc-s">開始</label>
+        <input type="time" name="start_time" id="hc-s" class="form-control" value="{{ v.start_time }}" step="300" required></div>
+      <div class="col-6 col-sm-4"><label class="form-label fw-semibold" for="hc-e">終了</label>
+        <input type="time" name="end_time" id="hc-e" class="form-control" value="{{ v.end_time }}" step="300" required></div>
+    </div>
+    <div class="mb-3">
+      <div class="form-label fw-semibold">サービスの種類</div>
+      {% for k, label in types %}<label class="form-check form-check-inline"><input type="radio" class="form-check-input" name="service_type" value="{{ k }}" {% if v.service_type == k %}checked{% endif %}>{{ label }}</label>{% endfor %}
+    </div>
+    <div class="mb-3"><label class="form-label fw-semibold" for="hc-n">予定のメモ（任意）</label>
+      <input type="text" name="plan_note" id="hc-n" class="form-control" maxlength="200" value="{{ v.plan_note|default:'' }}" placeholder="例：通院（〇〇病院）・入浴あり"></div>
+    {% if not visit %}
+    <label class="form-check mb-3"><input type="checkbox" class="form-check-input" name="repeat" value="1">この月の同じ曜日（この日より後）にも入れる</label>
+    {% endif %}
+    <div class="d-flex justify-content-between flex-wrap gap-2">
+      <a href="{% if visit %}{% url 'homecare:month' visit.date.year visit.date.month %}{% else %}{% url 'homecare:month_now' %}{% endif %}" class="btn btn-outline-secondary">戻る</a>
+      <button class="btn btn-primary"><i class="bi bi-check2 me-1"></i>{% if visit %}保存する{% else %}入れる{% endif %}</button>
+    </div>
+  </div></form>
+  {% if visit %}
+  <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
+    <a href="{% url 'homecare:record' visit.pk %}" class="btn btn-outline-primary btn-sm">サービス提供記録へ</a>
+    <form method="post" onsubmit="return confirm('この訪問を消します（記録も消えます）。中止のときは消さずに、記録の画面の「中止にする」を使ってください。よろしいですか？');">
+      {% csrf_token %}<input type="hidden" name="action" value="delete">
+      <button class="btn btn-link text-danger btn-sm">この訪問を消す</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
