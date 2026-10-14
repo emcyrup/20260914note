@@ -32,6 +32,7 @@ urlpatterns = [
     path('<int:year>/<int:month>/yotei/', views.MonthlyScheduleView.as_view(), name='monthly_schedule'),
     path('<int:year>/<int:month>/yotei/swap/', views.MonthlyScheduleSwapView.as_view(), name='monthly_schedule_swap'),
     path('<int:year>/<int:month>/yotei/reset/', views.MonthlyScheduleResetView.as_view(), name='monthly_schedule_reset'),
+    path('<int:year>/<int:month>/yotei/fixpairs/', views.MonthlyScheduleFixPairsView.as_view(), name='monthly_schedule_fix_pairs'),
     path('<int:year>/<int:month>/yotei/pdf/', views.MonthlySchedulePdfView.as_view(), name='monthly_schedule_pdf'),
     path('<int:year>/<int:month>/yotei/staff/', views.MonthlyDayStaffView.as_view(), name='monthly_day_staff'),
     path('<int:year>/<int:month>/yotei/nisshi/', views.DailyLogPdfView.as_view(), name='daily_log_pdf'),

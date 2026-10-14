@@ -6,5 +6,9 @@
         {% endfor %}
         {% for i in "12345678" %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>{% endfor %}
       </tbody>
+      <tfoot>
+        <tr class="sum"><td>合計（{{ totals.people }}名）</td><td class="n">{{ totals.desired }}</td><td class="n">{{ totals.confirmed }}</td><td class="n">{{ totals.remaining }}</td><td class="n">{% if totals.granted is not None %}{{ totals.granted }}{% endif %}</td></tr>
+      </tfoot>
     </table>
+    <div class="sum-note">延べ利用数 <b>{{ totals.confirmed }}</b> 回（{{ totals.people }} 名）</div>
     <div class="small muted" style="margin-top:4px;">{{ facility.name }}</div>

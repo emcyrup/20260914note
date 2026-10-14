@@ -426,6 +426,75 @@ def refresh_month_notice(facility, beneficiary, year, month, setting=None):
     return notice
 
 
+def pair_overlaps(facility, year, month, today=None):
+    """共演NG の 2 人が同じ日・同じ時間枠にいる組（今日から先の確定した予約）。[(予約a, 予約b)]"""
+    today = today or datetime.date.today()
+    pairs = pair_map(facility)
+    if not pairs:
+        return []
+    by_slot = {}
+    for r in month_reservations(facility, year, month):
+        if r.beneficiary_id and r.hour is not None and r.date >= today:
+            by_slot.setdefault((r.date, r.hour), []).append(r)
+    out = []
+    for key in sorted(by_slot):
+        rows = by_slot[key]
+        out += [(a, b) for i, a in enumerate(rows) for b in rows[i + 1:] if b.beneficiary_id in pairs.get(a.beneficiary_id, ())]
+    return out
+
+
+def fix_pair_slots(facility, year, month, setting=None, today=None):
+    """
+    共演NG の 2 人が同じ時間枠にいるとき、どちらかを、その人の利用希望で○の付いた同じ日のほかの時刻へ移す
+    （空きがあり、移った先にも共演NG の人がいない枠。早い時刻から）。実績を入れた予約・きょうだいと 1 枠の予約は動かさない。
+    保護者へのお知らせは積まず、送信待ちの「ご利用日が決まりました」は書き直す。
+    戻り値 (moved: [(予約, 前の時), ...], left: [(予約a, 予約b), ...] 動かせなかった組)
+    """
+    setting = setting or services.get_setting(facility)
+    requests = {r.beneficiary_id: r for r in MonthlyRequest.objects.filter(facility=facility, year=year, month=month)}
+    moved, left, done = [], [], set()
+    for a, b in pair_overlaps(facility, year, month, today):
+        if a.pk in done or b.pk in done:
+            continue
+        ok = False
+        for res in (a, b):
+            req = requests.get(res.beneficiary_id)
+            if req is None or res.attendance or res.share_seat:
+                continue
+            old = res.hour
+            for hour in req.wish_hours(res.date, setting):
+                if hour == old:
+                    continue
+                try:
+                    move_on_schedule(res, res.date, hour)
+                except services.ReservationError:
+                    continue
+                moved.append((res, old))
+                done.add(res.pk)
+                ok = True
+                break
+            if ok:
+                break
+        if not ok:
+            left.append((a, b))
+    for b in {r.beneficiary for r, _ in moved if r.beneficiary_id}:
+        refresh_month_notice(facility, b, year, month, setting)
+    return moved, left
+
+
+def fix_pairs_message(moved, left):
+    """fix_pair_slots の結果を、画面に出す文に"""
+    parts = []
+    if moved:
+        parts.append('共演NG で同じ時間だったので、利用希望のほかの時刻へ移しました：'
+                     + '、'.join(f'{services.jp_date(r.date)} {r.display_name} さん {old}時→{r.hour}時' for r, old in moved) + '。')
+    if left:
+        parts.append('利用希望にほかの空いた時刻が無く、移せなかった共演NG：'
+                     + '、'.join(f'{services.jp_date(a.date)} {a.hour}時 {a.display_name} さんと {b.display_name} さん' for a, b in left)
+                     + '（予定表で赤く出ます。入れ替えで直してください）。')
+    return ' '.join(parts)
+
+
 RESET_ASSIGNED = 'assigned'   # 利用希望から割り当てた予約だけ
 RESET_ALL = 'all'             # この月の予約すべて（キャンセル待ちも）
 

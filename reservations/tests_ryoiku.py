@@ -2032,3 +2032,55 @@ class ScheduleToolsTests(TestCase):
         self.assertNotContains(page, 'id="rz-find"')
         self.assertNotContains(self.client.get(self.page), 'data-name-filter')
         self.assertNotContains(self.client.get(reverse('reservations:monthly_requests', args=[2026, 10])), 'data-name-filter')
+
+    # ---- 2026-10-14：共演NG で同じ時間の組を、利用希望のほかの時刻へ移す・PDF の延べ利用数
+    def _pair_at_same_hour(self, day, wishes_a, wishes_b, hour=10):
+        ra = self._res(self.a, day, 13)
+        rb = self._res(self.b, day, 14)
+        hh = datetime.time(hour, 0)
+        Reservation.objects.filter(pk__in=[ra.pk, rb.pk]).update(start_time=hh)     # 前にできていた重なり（あとから共演NG にした等）
+        MonthlyRequest.objects.create(facility=self.f, beneficiary=self.a, year=day.year, month=day.month, desired_count=1,
+                                      wishes={day.isoformat(): wishes_a})
+        MonthlyRequest.objects.create(facility=self.f, beneficiary=self.b, year=day.year, month=day.month, desired_count=1,
+                                      wishes={day.isoformat(): wishes_b})
+        ra.refresh_from_db(); rb.refresh_from_db()
+        return ra, rb
+
+    def test_fix_pair_slots_moves_to_other_wished_hour(self):
+        day = datetime.date(2030, 10, 8)
+        ra, rb = self._pair_at_same_hour(day, [10, 11], [10, 11])
+        self.assertEqual(len(monthly.pair_overlaps(self.f, 2030, 10)), 1)
+        page = self.client.get(reverse('reservations:monthly_schedule', args=[2030, 10]))
+        self.assertContains(page, '共演NG で同じ時間の組が <b>1</b> 組')
+        res = self.client.post(reverse('reservations:monthly_schedule_fix_pairs', args=[2030, 10]), follow=True)
+        self.assertContains(res, '利用希望のほかの時刻へ移しました')
+        hours = sorted(Reservation.objects.filter(pk__in=[ra.pk, rb.pk]).values_list('start_time__hour', flat=True))
+        self.assertEqual(hours, [10, 11])
+        self.assertEqual(monthly.pair_overlaps(self.f, 2030, 10), [])
+        self.assertNotContains(self.client.get(reverse('reservations:monthly_schedule', args=[2030, 10])), '共演NG で同じ時間の組が')
+
+    def test_fix_pair_slots_leaves_when_no_other_wish(self):
+        day = datetime.date(2030, 10, 8)
+        ra, rb = self._pair_at_same_hour(day, [10], [10])
+        moved, left = monthly.fix_pair_slots(self.f, 2030, 10)
+        self.assertEqual((moved, len(left)), ([], 1))
+        self.assertIn('移せなかった共演NG', monthly.fix_pairs_message(moved, left))
+        # 実績を入れた予約は動かさない
+        Reservation.objects.filter(pk=ra.pk).update(attendance=Reservation.ATT_ATTENDED)
+        MonthlyRequest.objects.filter(beneficiary=self.a).update(wishes={day.isoformat(): [10, 11]})
+        moved, left = monthly.fix_pair_slots(self.f, 2030, 10)
+        self.assertEqual((moved, len(left)), ([], 1))
+
+    def test_assign_fixes_pairs_afterwards(self):
+        day = datetime.date(2030, 10, 8)
+        ra, rb = self._pair_at_same_hour(day, [10, 11], [10, 11])
+        res = self.client.post(reverse('reservations:monthly_requests', args=[2030, 10]), follow=True)
+        self.assertContains(res, '利用希望のほかの時刻へ移しました')
+        self.assertEqual(monthly.pair_overlaps(self.f, 2030, 10), [])
+
+    def test_pdf_users_total(self):
+        self._res(self.a, self.day, 10)
+        self._res(self.c, self.day, 11)
+        html = self.client.get(reverse('reservations:monthly_schedule_pdf', args=[2026, 10]) + '?fmt=html&paper=a4')
+        self.assertContains(html, '延べ利用数 <b>2</b> 回（2 名）')
+        self.assertContains(html, '<tr class="sum"><td>合計（2名）</td>')
