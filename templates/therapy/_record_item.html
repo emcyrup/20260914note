@@ -1,4 +1,5 @@
-{% load concurrency %}{% comment %}「これまでの記録」の1件（表示と直す欄）。child.html の一覧と、今日の記録の欄で使う{% endcomment %}
+{% load concurrency %}{% comment %}「これまでの記録」の1件（表示と直す欄）。child.html の一覧と、今日の記録の欄で使う。
+voice_direct（ゆあーず）の事業所は「修正」を押さずに、はじめから直す欄で出す（2026-10-14）{% endcomment %}
     <div class="th-rec" id="rec{{ rec.pk }}">
       <div class="th-rec-head">
         <div>
@@ -6,20 +7,22 @@
           {% if rec.staff_label %}<span class="th-rec-meta">担当 {{ rec.staff_label }}</span>{% endif %}
         </div>
         <div class="th-rec-btns">
-          <button type="button" class="btn btn-sm btn-outline-secondary" title="修正" aria-label="修正"
-                  onclick="document.getElementById('edit{{ rec.pk }}').classList.toggle('d-none')"><i class="bi bi-pencil"></i><span class="d-none d-sm-inline ms-1">修正</span></button>
+          {% if not voice_direct %}<button type="button" class="btn btn-sm btn-outline-secondary" title="修正" aria-label="修正"
+                  onclick="document.getElementById('edit{{ rec.pk }}').classList.toggle('d-none')"><i class="bi bi-pencil"></i><span class="d-none d-sm-inline ms-1">修正</span></button>{% endif %}
           <form method="post" onsubmit="return confirm('{{ rec.date|date:'n/j' }} の記録を削除します。よろしいですか？');">
             {% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="record" value="{{ rec.pk }}">
             <button class="btn btn-sm btn-outline-danger" title="削除" aria-label="削除"><i class="bi bi-trash"></i><span class="d-none d-sm-inline ms-1">削除</span></button>
           </form>
         </div>
       </div>
+      {% if not voice_direct %}
       {% if rec.activity_list %}<div class="th-chips">{% for a in rec.activity_list %}<span class="th-chip">{{ a }}</span>{% endfor %}</div>{% endif %}
       {% if rec.situation %}
       {% if rec.body %}<div class="th-body"><span class="th-lbl">事実</span>{{ rec.body }}</div>{% endif %}
       <div class="th-body"><span class="th-lbl">様子</span>{{ rec.situation }}</div>
       {% elif rec.body %}<div class="th-body">{{ rec.body }}</div>{% endif %}
-      <div class="th-edit {% if edit_pk != rec.pk %}d-none{% endif %}" id="edit{{ rec.pk }}" data-draft-reveal>
+      {% endif %}
+      <div class="th-edit{% if voice_direct %} th-edit-inline{% elif edit_pk != rec.pk %} d-none{% endif %}" id="edit{{ rec.pk }}" data-draft-reveal>
         <form method="post" class="row g-2 th-save-form" {% if not user.facility.therapy_no_wording %}data-wording{% endif %} data-draft="therapy-rec:{{ rec.pk }}" data-concurrency="therapy_record:{{ rec.pk }}" data-concurrency-lazy>
           {% csrf_token %}<input type="hidden" name="action" value="edit"><input type="hidden" name="record" value="{{ rec.pk }}">{% version_field rec %}
           {% if unsaved_record and unsaved_record.pk == rec.pk %}

@@ -783,6 +783,10 @@ class VoiceDirectTests(TestCase):
         old = TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date(2026, 9, 1), body='前', situation='前の様子')
         page = self.client.get(self.url).content.decode()
         self.assertIn(f'id="sit-{old.pk}"', page)                  # 前に様子を書いた記録だけ、様子の欄を残す
+        # これまでの記録は「修正」を押さずに、はじめから直す欄で出す（2026-10-14）
+        self.assertIn(f'class="th-edit th-edit-inline" id="edit{old.pk}"', page)
+        self.assertNotIn('title="修正"', page)
+        self.assertIn('class="th-edit th-edit-inline" id="edit-today"', page)
         old.delete()
         # 今日の記録がある：その記録の直す欄へ入れる（新しい欄は出さない）
         rec = TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date.today(), body='朝の記録')
@@ -800,6 +804,10 @@ class VoiceDirectTests(TestCase):
         self.assertNotContains(res, 'voice-direct-btn')
         self.assertContains(res, 'id="record-situation"')
         self.assertContains(res, '記録（事実：したこと）')
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date(2026, 9, 2), body='前')
+        res = self.client.get(self.url)
+        self.assertContains(res, 'title="修正"')                       # オフの事業所は「修正」で開く
+        self.assertNotContains(res, 'class="th-edit th-edit-inline"')
 
     def test_today_slot_saves_as_new_record(self):
         self.client.post(self.url, {'action': 'add', 'date': datetime.date.today().isoformat(),

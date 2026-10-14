@@ -25,6 +25,7 @@
   .th-chip { font-size: 0.8rem; padding: 2px 9px; border-radius: 999px; background: var(--color-primary-bg); color: var(--lake-text); border: 1px solid rgba(0,0,0,0.06); }
   .th-body { white-space: pre-wrap; line-height: 1.7; }
   .th-edit { background: rgba(243,239,231,0.55); border-radius: 8px; padding: 12px; margin-top: 10px; }
+  .th-edit.th-edit-inline { background: transparent; padding: 4px 0 0; margin-top: 6px; }   /* ゆあーず：修正を押さずにそのまま直す */
   .th-list-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
   .th-list-head select { width: auto; }
   .thf-hint { font-size: 0.78rem; color: #8a8378; font-weight: 400; }
@@ -169,9 +170,8 @@
     <div class="th-rec" id="rec-today">
       <div class="th-rec-head">
         <div><span class="th-rec-date">{{ today|date:'Y年n月j日' }}（{{ today|date:'D' }}）</span><span class="th-rec-meta">今日の記録はまだありません。上の「音声入力」で話すと、ここに入ります（手で書いても保存できます）</span></div>
-        <div class="th-rec-btns"><button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('edit-today').classList.toggle('d-none')"><i class="bi bi-pencil"></i><span class="d-none d-sm-inline ms-1">書く</span></button></div>
       </div>
-      <div class="th-edit d-none" id="edit-today" data-draft-reveal>
+      <div class="th-edit th-edit-inline" id="edit-today" data-draft-reveal>
         <form method="post" id="today-form" class="row g-2 th-save-form" {% if not user.facility.therapy_no_wording %}data-wording{% endif %} data-new="1" data-draft="therapy-today:{{ beneficiary.pk }}:{{ today|date:'Ymd' }}" data-draft-new>
           {% csrf_token %}<input type="hidden" name="action" value="add">
           <div class="col-12" data-draft-banner></div>
