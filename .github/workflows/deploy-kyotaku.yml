@@ -1,5 +1,5 @@
 # =============================================
-# 居宅介護の事業所（仮の名前「居宅介護（仮）」）を AWS 共用サーバー（ゆあーずと同じサーバー）へデプロイ
+# 居宅介護の事業所「居宅介護支援事業所コト」を AWS 共用サーバー（ゆあーずと同じサーバー）へデプロイ
 #   https://<KYOTAKU_DOMAIN>/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 0.0.0.0:<.env の PORT。雛形は 8036>
 #   置き場所 ~/michinotekyotaku、DB michinotekyotaku（ユーザー ai_labo_dbuser）。venv（~/env）はゆあーずと共用
 #   ブランチ kyotaku への push、または Actions から手動実行（ブランチ kyotaku を選ぶ）。居宅介護の機能は kyotaku ブランチだけにあり、
