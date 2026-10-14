@@ -4,7 +4,7 @@
 #   例: AWS 開発環境 https://st-michinotedemo.ai-labo.cloud/ → Gunicorn 0.0.0.0:8029（~/michinotedemo）
 #       ゆあーず       https://michinote.yours.ai-labo.cloud/  → Gunicorn 0.0.0.0:8030（~/michinoteyours）
 #       オウル         https://michinote.owl.ai-labo.cloud/    → Gunicorn 0.0.0.0:8034（~/michinoteowl）
-#       居宅介護       https://michinote.kyotaku.ai-labo.cloud/（仮）→ Gunicorn 0.0.0.0:8036（仮。~/michinotekyotaku）
+#       コト（居宅介護。開発環境のサーバー）https://st-kaigonote.kyotaku.ai-labo.cloud/ → Gunicorn 0.0.0.0:8039（~/kaigonotekyotaku）
 #
 # 使い方（サーバー上で）
 #   bash ~/michinotedemo/deploy/venv-deploy.sh            # 現在のブランチの最新に更新して再起動

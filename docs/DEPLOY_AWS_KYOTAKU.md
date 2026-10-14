@@ -1,20 +1,21 @@
-# 居宅介護の事業所「居宅介護支援事業所コト」を AWS 共用サーバーで動かす手順（ゆあーず・オウルと同じサーバー・別ポート・別 DB）
+# 居宅介護の事業所「居宅介護支援事業所コト」を AWS 開発環境のサーバーで動かす手順（開発環境と同じサーバー・別ポート・別 DB）
 
-対象: `https://<アドレス>/`（仮：`michinote.kyotaku.ai-labo.cloud`）→ プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn `0.0.0.0:<ポート>`（仮：8036）→ プロバイダ管理の PostgreSQL（DB `michinotekyotaku`、ユーザー `ai_labo_dbuser`）。
+対象: `https://st-kaigonote.kyotaku.ai-labo.cloud/` → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn `0.0.0.0:8039` → プロバイダ管理の PostgreSQL（DB `kaigonotekyotaku`、ユーザー `st_ai_labo_dbuser`）。2026-10-14 にプロバイダ側で設定ずみ（nginx・HTTPS・ポート 8039・DB）。
 
 **居宅介護の機能（画面の型「居宅介護」・`homecare` アプリ）は `kyotaku` ブランチだけにあり、ゆあーず・オウル（`ryoiku`）には入れません**（2026-10-14 の依頼）。ゆあーず・オウルと共通の部分を直したときは、`ryoiku` の変更を `kyotaku` に取り込んで配備します。
 
-ゆあーず（`~/michinoteyours`・8030）・オウル（`~/michinoteowl`・8034）と**同じサーバー・同じ仕組み**で、置き場所・ポート・DB・`.env` が違うだけです。venv（`~/env`）は共用します。DB が別なので、居宅介護の利用者・記録はゆあーず・オウルからは見えません。
+開発環境（`docs/DEPLOY_AWS_DEV.md`。`~/michinotedemo`・8029・DB `michinotedemo`）と**同じサーバー・同じ仕組み**で、置き場所・ポート・DB・`.env` が違うだけです。venv（`~/env`）は共用します。DB が別なので、コトの利用者・記録は開発環境・ゆあーず・オウルからは見えません。
 
-| | オウル | 居宅介護 |
+| | 開発環境 | コト（居宅介護） |
 |---|---|---|
-| 置き場所 | `~/michinoteowl` | `~/michinotekyotaku` |
-| Gunicorn | `0.0.0.0:8034` | `0.0.0.0:<ポート>`（仮 8036） |
-| DB | `michinoteowl` | `michinotekyotaku`（同じユーザー・同じパスワード） |
-| 配備 | Deploy (owl)（`ryoiku` への push） | Deploy (kyotaku)（**`kyotaku` ブランチ**への push） |
-| 管理 | Manage (owl) | Manage (kyotaku) |
+| アドレス | `st-michinotedemo.ai-labo.cloud` | `st-kaigonote.kyotaku.ai-labo.cloud` |
+| 置き場所 | `~/michinotedemo` | `~/kaigonotekyotaku` |
+| Gunicorn | `0.0.0.0:8029` | `0.0.0.0:8039` |
+| DB | `michinotedemo` | `kaigonotekyotaku`（同じユーザー `st_ai_labo_dbuser`・同じパスワード） |
+| 配備 | Deploy (dev)（`develop` への push） | Deploy (kyotaku)（**`kyotaku` ブランチ**への push） |
+| 管理 | Manage (dev) | Manage (kyotaku) |
 
-秘密情報（DB パスワード、`SECRET_KEY`、Anthropic キー、SSH 秘密鍵、管理者のパスワード）はサーバーの `.env`・GitHub Secrets だけに置きます（リポジトリ・Notion・チャット・Actions のログには書かない）。
+秘密情報（DB パスワード、`SECRET_KEY`、Anthropic キー、SSH 秘密鍵、管理者のパスワード）はサーバーの `.env`・GitHub Secrets だけに置きます（リポジトリ・Notion・Actions のログには書かない）。DB パスワードは開発環境と同じユーザーなので、初回の配備でサーバーの中で `~/michinotedemo/.env` から写します。
 
 ## 画面と機能（画面の型「居宅介護」＝ `Facility.LAYOUT_KYOTAKU`、`create_facility --preset kyotaku`）
 
@@ -24,38 +25,34 @@
 - 書類の AI 読み取り（利用者情報）・音声入力と「書き言葉に整える」（サービス提供記録の様子）・議事録はそのまま使える
 - 計画は AI で作文しない（`plan_no_ai`）
 
-## 1. 準備（プロバイダ側。まだ）
+## 1. 準備（プロバイダ側。2026-10-14 に設定ずみ）
 
-- アドレスを決める（例 `michinote.kyotaku.ai-labo.cloud`）
-- nginx：そのアドレス → `127.0.0.1:<ポート>`（HTTPS。`X-Forwarded-Proto`・`client_max_body_size 100m`・`proxy_read_timeout 300s` はゆあーずと同じ）
-- PostgreSQL：DB `michinotekyotaku`、ユーザー `ai_labo_dbuser`（ゆあーずと同じユーザー）
-- ポート番号（ほかと重ならない番号。8036 が空いていればそれ）
+- nginx：`st-kaigonote.kyotaku.ai-labo.cloud` → `127.0.0.1:8039`（HTTPS）
+- PostgreSQL：DB `kaigonotekyotaku`、ユーザー `st_ai_labo_dbuser`（開発環境と同じユーザー）
 
 ## 2. GitHub Secrets（Settings → Secrets and variables → Actions）
 
+SSH は同じサーバーなので開発環境の `DEV_DEPLOY_*` をそのまま使います（別にしたいときだけ `KYOTAKU_DEPLOY_*`）。追加で要るのは管理者のパスワードだけです。
+
 | 名前 | 入れるもの |
 |---|---|
-| `KYOTAKU_DOMAIN` | 決まったアドレス（`michinote.kyotaku.ai-labo.cloud` のままなら不要） |
-| `KYOTAKU_PORT` | ポート番号（8036 なら不要） |
-| `KYOTAKU_ADMIN_PASSWORD` | 管理者の最初のパスワード（create_facility・set_password で使う。済んだら消してよい） |
-| `KYOTAKU_READY` | `true`（**1 の準備が済んでから**登録する。無いあいだは Deploy (kyotaku) は配備をスキップする） |
-
-SSH は同じサーバーなので `YOURS_DEPLOY_*` をそのまま使います（別にしたいときだけ `KYOTAKU_DEPLOY_*`）。
+| `KYOTAKU_ADMIN_PASSWORD` | 管理者 `kyotaku` のパスワード（set_password で使う。済んだら消してよい） |
+| `KYOTAKU_DOMAIN`・`KYOTAKU_PORT` | アドレス・ポートを変えるときだけ（既定は上の表） |
 
 ## 3. 初回の配備（Actions から。サーバーに入らなくてよい）
 
-Actions → **Deploy (kyotaku)** → Run workflow（ブランチ **`kyotaku`**）。初回は `~/michinotekyotaku` に clone し、`.env` を `deploy/.env.kyotaku-aws.example` から作ります。
+Actions → **Deploy (kyotaku)** → Run workflow（ブランチ **`kyotaku`**）。初回は `~/kaigonotekyotaku` に clone し、`.env` を `deploy/.env.kyotaku-aws.example` から作ります。
 
-- `SECRET_KEY` はサーバー上で生成、アドレスとポートは Secrets の値に置き換え
-- `DB_PASSWORD`・`ANTHROPIC_API_KEY`・`AI_TEXT_MODEL`・`AI_PLAN_MODEL`・`GOOGLE_SPEECH_API_KEY`・`SPEECH_BACKEND`・`WHISPER_*` は `~/michinoteyours/.env` から写す（ログには項目名だけ出る）
+- `SECRET_KEY` はサーバー上で生成
+- `DB_PASSWORD`・`ANTHROPIC_API_KEY`・`AI_TEXT_MODEL`・`AI_PLAN_MODEL`・`GOOGLE_SPEECH_API_KEY`・`SPEECH_BACKEND`・`WHISPER_*` は `~/michinotedemo/.env` から写す（ログには項目名だけ出る）
 
-そのあと `deploy/venv-deploy.sh` が `pip install` → `migrate` → `collectstatic` → Gunicorn 起動 → `https://<アドレス>/healthz/` の確認まで行います。2 回目以降は `.env` を上書きしません。以後は `kyotaku` ブランチへの push で配備されます。
+そのあと `deploy/venv-deploy.sh` が `pip install` → `migrate` → `collectstatic` → Gunicorn 起動 → `https://st-kaigonote.kyotaku.ai-labo.cloud/healthz/` の確認まで行います。2 回目以降は `.env` を上書きしません。以後は `kyotaku` ブランチへの push で配備されます。
 
 ## 4. 事業所と管理者を作る
 
-Actions → **Manage (kyotaku)** → Run workflow：`task=create_facility`、事業所名「居宅介護支援事業所コト」（既定）、管理者 `kyotaku`（既定）。パスワードは Secrets の `KYOTAKU_ADMIN_PASSWORD`。「サンプルデータも入れる」に印を付けると、架空の利用者 3 人・今月の訪問・計画が入ります（実データを入れる前に利用者情報から消す）。
+Actions → **Manage (kyotaku)** → Run workflow：`task=create_facility`、事業所名「居宅介護支援事業所コト」（既定）、管理者 `kyotaku`（既定）。パスワードは Secrets の `KYOTAKU_ADMIN_PASSWORD`（未登録ならランダムな仮の値になるので、登録してから `task=set_password` を実行する）。「サンプルデータも入れる」に印を付けると、架空の利用者 3 人・今月の訪問・計画が入ります（実データを入れる前に利用者情報から消す）。
 
-そのあと `https://<アドレス>/` に `kyotaku` でログインし、施設設定で事業所名（正式な名前）・事業所番号・住所・電話を入れます。
+そのあと `https://st-kaigonote.kyotaku.ai-labo.cloud/` に `kyotaku` でログインし、施設設定で事業所番号・住所・電話を入れます。
 
 ## 5. サーバー再起動のとき
 
