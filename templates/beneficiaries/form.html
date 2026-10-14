@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% load concurrency %}
 
-{% block title %}{{ page_title }} — {{ app_label|default:"放課後等デイサービス業務支援" }}{% endblock %}
+{% block title %}{{ page_title }} — 放課後等デイサービス業務支援{% endblock %}
 {% block page_title %}{{ page_title }}{% endblock %}
 {% block nav_beneficiaries %}active{% endblock %}
 
@@ -99,14 +99,12 @@
                    class="form-control" placeholder="例：自閉スペクトラム症">
           </div>
           <div class="col-12">
-{% if not features.kyotaku %}
             <div class="form-check">
               <input type="checkbox" name="is_severe" id="is_severe" class="form-check-input" {% if form.is_severe.value %}checked{% endif %}>
               <label for="is_severe" class="form-check-label">重症心身障害児（重身）
                 <span class="text-muted small">— 日誌が重身用になり、請求は重身の基本報酬単位数を使います</span>
               </label>
             </div>
-            {% endif %}
             {% if features.line %}
             <div class="form-check">
               <input type="checkbox" name="line_send_journal" id="line_send_journal" class="form-check-input" {% if form.line_send_journal.value or not form.instance.pk %}checked{% endif %}>
@@ -130,7 +128,7 @@
     </div>
 
     <!-- 利用予定曜日 -->
-    <div class="card mb-3"{% if features.kyotaku %} hidden{% endif %}>
+    <div class="card mb-3">
       <div class="card-body">
         <h6 class="card-title fw-bold mb-3">利用予定曜日</h6>
         <p class="small text-muted mb-2">予定管理で月間スケジュールを一括生成する際に使います</p>

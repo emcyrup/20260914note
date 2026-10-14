@@ -42,7 +42,6 @@ INSTALLED_APPS = [
     'planbook',
     'therapy',
     'minutes',
-    'homecare',
     'transport',
     'surveys',
     'daily',

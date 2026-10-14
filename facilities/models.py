@@ -43,11 +43,9 @@ class Facility(models.Model):
     LAYOUT_STANDARD = 'standard'
     LAYOUT_PLANBOOK = 'planbook'
     LAYOUT_RYOIKU = 'ryoiku'
-    LAYOUT_KYOTAKU = 'kyotaku'
     LAYOUT_CHOICES = [(LAYOUT_STANDARD, '標準（記録・予定・請求まで全部）'),
                       (LAYOUT_PLANBOOK, '計画書中心（シンプル：利用者・完了期日一覧・スタッフ・保護者・連絡帳・施設）'),
-                      (LAYOUT_RYOIKU, '療育（ゆあーず：基本機能＝ホーム・利用者情報・予約・療育記録・議事録・LINE連携／お試し＝記録・支援計画）'),
-                      (LAYOUT_KYOTAKU, '居宅介護（ホームヘルプ：訪問予定・サービス提供記録・居宅介護計画・実績記録票。職員 1 人向け）')]
+                      (LAYOUT_RYOIKU, '療育（ゆあーず：基本機能＝ホーム・利用者情報・予約・療育記録・議事録・LINE連携／お試し＝記録・支援計画）')]
     layout = models.CharField(max_length=20, choices=LAYOUT_CHOICES, default=LAYOUT_STANDARD, verbose_name='画面の型')
     # 地域区分（請求単価計算に使用）
     region_category = models.CharField(
@@ -163,10 +161,6 @@ class Facility(models.Model):
     @property
     def is_ryoiku(self):
         return self.layout == self.LAYOUT_RYOIKU
-
-    @property
-    def is_kyotaku(self):
-        return self.layout == self.LAYOUT_KYOTAKU
 
     @property
     def unit_price(self):
