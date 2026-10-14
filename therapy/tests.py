@@ -776,6 +776,14 @@ class VoiceDirectTests(TestCase):
         self.assertContains(res, 'data-form="#today-form"')
         self.assertContains(res, 'id="today-body"')
         self.assertContains(res, f'value="{datetime.date.today():%Y-%m-%d}"')
+        # 記録は 1 つ（2026-10-14）：様子の欄は出さない
+        self.assertNotContains(res, 'id="today-situation"')
+        self.assertNotContains(res, 'id="record-situation"')
+        self.assertContains(res, '>記録</label>')
+        old = TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date(2026, 9, 1), body='前', situation='前の様子')
+        page = self.client.get(self.url).content.decode()
+        self.assertIn(f'id="sit-{old.pk}"', page)                  # 前に様子を書いた記録だけ、様子の欄を残す
+        old.delete()
         # 今日の記録がある：その記録の直す欄へ入れる（新しい欄は出さない）
         rec = TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date.today(), body='朝の記録')
         res = self.client.get(self.url)
@@ -790,6 +798,8 @@ class VoiceDirectTests(TestCase):
         self.assertContains(res, '詳しくまとめる')
         self.assertContains(res, 'はさみ：見守る')
         self.assertNotContains(res, 'voice-direct-btn')
+        self.assertContains(res, 'id="record-situation"')
+        self.assertContains(res, '記録（事実：したこと）')
 
     def test_today_slot_saves_as_new_record(self):
         self.client.post(self.url, {'action': 'add', 'date': datetime.date.today().isoformat(),
@@ -807,10 +817,13 @@ class VoiceDirectTests(TestCase):
         self.assertEqual(res.status_code, 200, res.content)
         d = res.json()
         self.assertEqual(d['activities'], ['ウレタン棒', 'ブロック'])
-        self.assertEqual(d['body'], 'ウレタン棒で10回打ち合った。\nブロックを積んだ。')
-        self.assertEqual(d['situation'], '「もう1回」と言った。')
+        # 記録は 1 つ（2026-10-14）：様子に分けて返ってきても記録の後ろに足す
+        self.assertEqual(d['body'], 'ウレタン棒で10回打ち合った。\nブロックを積んだ。\n「もう1回」と言った。')
+        self.assertEqual(d['situation'], '')
         kwargs = client_cls.return_value.messages.create.call_args.kwargs
         self.assertIn('話したことは1文も落とさない', kwargs['system'])
+        self.assertIn('1 つの記録にする', kwargs['system'])
+        self.assertNotIn('"situation"', kwargs['system'])
         self.assertIn('青木 子さん', kwargs['messages'][0]['content'])
         self.assertFalse(TherapyRecord.objects.exists())           # 返すだけで保存はしない
 

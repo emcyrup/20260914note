@@ -470,7 +470,7 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
 
     # 音声入力を今日の記録へ直接入れるとき（Facility.therapy_voice_direct）：整文だけ＋やったこと・事実・様子に分ける
     RECORD_PROMPT = f"""あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
-職員がその日の療育について話した言葉（音声入力の文字）を、読める書き言葉に整え、療育記録の欄に分けます。要約はしません。
+職員がその日の療育について話した言葉（音声入力の文字）を、読める書き言葉に整え、「やったこと」を抜き出します。要約はしません。
 {AS_IS_RULES}
 【整え方】
 - 上の約束のとおり、言いよどみ・くだけた言葉を消し、文末を断定の形にする。句読点を付ける。話した順のまま
@@ -479,14 +479,11 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
 
 【分け方】
 - activities：話に出てきた「やったこと（活動・遊び・課題）」の名前。話に出てきた言葉のまま短く（例：ウレタン棒、ブロック）。出てきた順に5つまで。無ければ空
-- body（事実：したこと）：何をしたか・職員がどう関わったか・回数や順番
-- situation（様子：どうだったか）：子どもの表情・動き・言ったこと（「」でそのまま）・職員が「〜と思う」と感じたこと
-- 整えた文はすべて body か situation のどちらか一方に入れる（両方に同じ文を入れない。どちらにも入れずに落とさない）。それぞれ話した順のまま
-- どちらか分からない文は body に入れる
+- body（記録）：整えた文を全部、話した順のまま 1 つの記録にする（したこと・子どもの様子・言ったこと（「」でそのまま）を分けない）
 
 【返し方】
 次の形の JSON だけを返す（前置き・説明・マークダウンは付けない）：
-{{"activities": ["…"], "body": "…", "situation": "…"}}"""
+{{"activities": ["…"], "body": "…"}}"""
 
     def post(self, request, pk):
         beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
@@ -524,9 +521,13 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
         if error:
             return error
         data = parse_record_split(raw)
-        if not (data['body'] or data['situation'] or data['activities']):
+        # 記録は 1 つにまとめる（2026-10-14 ゆあーず）：様子に分けて返ってきても記録の後ろに足す
+        if data['situation']:
+            data['body'] = (data['body'] + '\n' + data['situation']).strip()
+            data['situation'] = ''
+        if not (data['body'] or data['activities']):
             return JsonResponse({'error': 'AIの返答が空でした。もう一度お試しください。'}, status=500)
-        return JsonResponse({**data, **asis.check(text, data['body'] + '\n' + data['situation'])})
+        return JsonResponse({**data, **asis.check(text, data['body'])})
 
     @staticmethod
     def tidy(raw):
