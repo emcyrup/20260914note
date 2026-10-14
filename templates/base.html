@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}放課後等デイサービス業務支援{% endblock %}</title>
+  <title>{% block title %}{{ app_label|default:"放課後等デイサービス業務支援" }}{% endblock %}</title>
 
   {% load static %}
 
@@ -67,7 +67,7 @@
       </div>
       <div>
         <div class="sidebar-brand-name">{{ user.facility.name|default:"放デイ業務支援" }}</div>
-        <div class="sidebar-brand-sub">{% if reservation_only %}予約の受付{% else %}放課後等デイサービス{% endif %}</div>
+        <div class="sidebar-brand-sub">{% if reservation_only %}予約の受付{% elif features.kyotaku %}居宅介護{% else %}放課後等デイサービス{% endif %}</div>
       </div>
     </a>
 
@@ -149,6 +149,53 @@
           <i class="bi bi-gear"></i><span>施設設定</span>
         </a>
       </li>
+      {% elif features.kyotaku %}
+      {% with rm=request.resolver_match %}
+      <!-- 居宅介護（ホームヘルプ）：職員 1 人向け。職員の管理の画面は出さない -->
+      <li class="sidebar-nav-label">訪問</li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'homecare' and rm.url_name == 'day' %}active{% endif %}" href="{% url 'homecare:day' %}">
+          <i class="bi bi-house-heart"></i><span>きょうの訪問</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'homecare' and rm.url_name in 'month visit_new visit_edit' %}active{% endif %}" href="{% url 'homecare:month_now' %}">
+          <i class="bi bi-calendar3"></i><span>訪問予定</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'homecare' and rm.url_name in 'records record' %}active{% endif %}" href="{% url 'homecare:records' %}">
+          <i class="bi bi-journal-check"></i><span>サービス提供記録</span>
+        </a>
+      </li>
+      <li class="sidebar-nav-label">利用者・書類</li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'beneficiaries' or rm.url_name == 'person' %}active{% endif %}" href="{% url 'beneficiaries:list' %}">
+          <i class="bi bi-people"></i><span>利用者情報</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'homecare' and rm.url_name|slice:':4' == 'plan' %}active{% endif %}" href="{% url 'homecare:plans' %}">
+          <i class="bi bi-file-earmark-text"></i><span>居宅介護計画</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'homecare' and rm.url_name|slice:':7' == 'jisseki' %}active{% endif %}" href="{% url 'homecare:jisseki_now' %}">
+          <i class="bi bi-table"></i><span>実績記録票</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'minutes' %}active{% endif %}" href="{% url 'minutes:index' %}" target="_blank" rel="noopener" title="別のタブで開きます">
+          <i class="bi bi-mic"></i><span>議事録 <i class="bi bi-box-arrow-up-right" style="font-size:0.7em;opacity:0.7;"></i></span>
+        </a>
+      </li>
+      <li class="sidebar-nav-label nav-secondary">設定</li>
+      <li class="nav-secondary">
+        <a class="sidebar-nav-item {% if rm.app_name == 'facilities' and rm.url_name == 'settings' %}active{% endif %}" href="{% url 'facilities:settings' %}">
+          <i class="bi bi-gear"></i><span>施設設定</span>
+        </a>
+      </li>
+      {% endwith %}
       {% elif features.ryoiku %}
       {% with rm=request.resolver_match %}
       <!-- 療育の事業所（ゆあーず）：基本機能／お試し／設定 -->
@@ -432,7 +479,7 @@
       {% block topbar_nav %}{% endblock %}
       <div class="d-flex align-items-center gap-2 flex-shrink-0">
         {% block topbar_actions %}{% endblock %}
-        {% if reservation_only or features.planbook %}
+        {% if reservation_only or features.planbook or features.kyotaku %}
         {% elif user.ui_theme == 'simple' %}
         <a href="{% url 'accounts:theme' %}" class="btn-memo" title="画面の見た目"><i class="bi bi-palette"></i><span>画面</span></a>
         {% else %}
@@ -520,7 +567,7 @@
 <script src="{% static 'js/name-filter.js' %}?v=1"></script>{% endif %}{% endif %}
 {% block extra_js %}{% endblock %}
 
-{% if user.is_authenticated and user.ui_theme != 'simple' and not reservation_only %}
+{% if user.is_authenticated and user.ui_theme != 'simple' and not reservation_only and not features.kyotaku %}
 {% include 'ai_assist/_chat_widget.html' %}
 {% endif %}
 

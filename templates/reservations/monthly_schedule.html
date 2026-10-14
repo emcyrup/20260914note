@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}{{ year }}年{{ month }}月 月間予定表 — 放課後等デイサービス業務支援{% endblock %}
+{% block title %}{{ year }}年{{ month }}月 月間予定表 — {{ app_label|default:"放課後等デイサービス業務支援" }}{% endblock %}
 {% block page_title %}{{ year }}年 {{ month }}月 月間予定表{% if user.facility.schedule_tools %}<span id="ms-editing" class="ms-editing" aria-live="polite"></span>{% endif %}{% endblock %}
 {% block nav_reservations %}active{% endblock %}
 {% block nav_reservations_only %}active{% endblock %}

@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}ホーム — 放課後等デイサービス業務支援{% endblock %}
+{% block title %}ホーム — {{ app_label|default:"放課後等デイサービス業務支援" }}{% endblock %}
 {% block page_title %}ホーム{% endblock %}
 {% block nav_home %}active{% endblock %}
 

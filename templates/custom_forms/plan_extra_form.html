@@ -2,7 +2,7 @@
 {% load concurrency %}
 {% load form_extras %}
 
-{% block title %}様式の追加項目 — 放課後等デイサービス業務支援{% endblock %}
+{% block title %}様式の追加項目 — {{ app_label|default:"放課後等デイサービス業務支援" }}{% endblock %}
 {% block page_title %}{{ plan.beneficiary.full_name }} さんの計画：様式の追加項目{% endblock %}
 {% block nav_plans %}active{% endblock %}
 

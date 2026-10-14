@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 
-{% block title %}{{ plan.beneficiary.full_name }} {{ plan.title }} — 放課後等デイサービス業務支援{% endblock %}
+{% block title %}{{ plan.beneficiary.full_name }} {{ plan.title }} — {{ app_label|default:"放課後等デイサービス業務支援" }}{% endblock %}
 {% block page_title %}{{ plan.beneficiary.full_name }} さんの{{ plan.title }}{% endblock %}
 {% block nav_plans %}active{% endblock %}
 

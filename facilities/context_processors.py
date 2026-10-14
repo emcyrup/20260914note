@@ -40,7 +40,7 @@ def branding(request):
     if facility is None:
         return {'terms': dict(DEFAULT_TERMS), 'branding': {'logo': None, 'color': ''},
                 'features': {'billing': True, 'schedule': True, 'line': True, 'reservation': False, 'form_set': 'standard',
-                             'planbook': False, 'therapy': False, 'ryoiku': False}, 'journal_sections': [],
+                             'planbook': False, 'therapy': False, 'ryoiku': False, 'kyotaku': False}, 'journal_sections': [],
                 **standalone_context(), **developer_context(user)}
     return {
         'terms': get_terms(user),
@@ -49,7 +49,8 @@ def branding(request):
                      'reservation': facility.use_reservation, 'form_set': facility.form_set,
                      'planbook': facility.is_planbook, 'therapy': facility.use_therapy_record,
                      'transport': facility.use_transport, 'dev_assessment': facility.use_dev_assessment, 'survey': facility.use_survey, 'daily': facility.use_daily_ops,
-                     'ryoiku': facility.is_ryoiku},
+                     'ryoiku': facility.is_ryoiku, 'kyotaku': facility.is_kyotaku},
+        'app_label': '居宅介護業務支援' if facility.is_kyotaku else '放課後等デイサービス業務支援',
         'trial_ai': _trial_ai(facility),
         'planbook_unread': _planbook_unread(facility) if facility.is_planbook else 0,
         'pending_staff_count': _pending_staff(user, facility),

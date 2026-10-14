@@ -34,6 +34,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         facility = getattr(request.user, 'facility', None)
         if facility is not None and facility.is_planbook:
             return redirect('planbook:students')
+        # 居宅介護の画面では、きょうの訪問がホーム
+        if facility is not None and facility.is_kyotaku:
+            return redirect('homecare:day')
         return super().get(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
