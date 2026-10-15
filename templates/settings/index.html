@@ -324,7 +324,7 @@
               <span>直近</span><input type="number" name="question_window" class="form-control form-control-sm" style="width:80px;" min="1" max="50" value="{{ question_setting.window|default:10 }}" {% if not is_admin %}disabled{% endif %}>
               <span>回の記録で、個別の質問の「はい」が</span><input type="number" name="question_rate" class="form-control form-control-sm" style="width:80px;" min="1" max="100" value="{{ question_setting.rate|default:80 }}" {% if not is_admin %}disabled{% endif %}><span>% 以上なら、次のレベルへ上げる</span>
             </div>
-            <div class="form-text">個別の質問は利用者情報の画面で、レベルごとに入れます（個別支援計画の目標から AI が案を出せます）。</div>
+            <div class="form-text">個別の質問は利用者情報の画面で、レベルごとに入れます（日誌と個別支援計画の目標から AI が案を出せます）。</div>
           </div>
         </div>
       </div>

@@ -130,6 +130,26 @@ class QuestionTests(TestCase):
         self.assertIn('友だちに自分から声をかける', sent)
         self.assertNotIn('青木', sent)                                 # 名前は送らない
 
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    def test_suggest_uses_journals(self):
+        url = reverse('records:child_questions_suggest', args=[self.b.pk])
+        self._save(datetime.date(2026, 10, 1), ['yes', 'yes', 'yes', 'yes', 'no', 'neutral'])
+        DailyRecord.objects.filter(beneficiary=self.b).update(
+            activity_name='かるた', observation_text='青木さんは札を取られると泣いて部屋を出た。', reaction_memo='空くんは順番を待てなかった')
+        reply = SimpleNamespace(content=[SimpleNamespace(type='text', text='{"levels": [["負けても席に戻れた"]]}')])
+        with mock.patch('records.question_views.anthropic.Anthropic') as m:
+            m.return_value.messages.create.return_value = reply
+            res = self.client.post(url)                               # 計画が無くても日誌があれば作れる
+            sent = m.return_value.messages.create.call_args.kwargs['messages'][0]['content']
+        self.assertEqual(res.json()['levels'], ['負けても席に戻れた'])
+        self.assertIn('【日誌（直近 1 回・古い順）】', sent)
+        self.assertIn('かるた', sent)
+        self.assertIn('札を取られると泣いて部屋を出た', sent)
+        self.assertIn('あいさつできた=いいえ', sent)
+        self.assertIn('個別「順番を待てた」：0／1／0', sent)
+        self.assertNotIn('青木', sent)                                 # 名前は {名前} に伏せる
+        self.assertNotIn('空くん', sent)
+
     def test_settings_save(self):
         res = self.client.post(reverse('facilities:feature_settings'), {
             'journal_sections': ['activity', 'observation'], 'question_form': '1', 'question_enabled': 'on',
