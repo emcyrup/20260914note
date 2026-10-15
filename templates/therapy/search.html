@@ -92,7 +92,7 @@
         </form>
       </div>
       {% if rec.activity_list %}<div class="th-chips">{% for a in rec.activity_list %}<span class="th-chip">{{ a }}</span>{% endfor %}</div>{% endif %}
-      {% if rec.body %}<div class="th-hit-body">{{ rec.body }}</div>{% endif %}
+      {% if rec.body %}<div class="th-hit-body">{{ rec.body }}</div>{% endif %}{% if rec.situation %}<div class="th-hit-body"><b>様子</b> {{ rec.situation }}</div>{% endif %}
     </div>
     {% empty %}
     <div class="text-center text-muted py-4 border-top">当てはまる記録はありません。条件を減らしてみてください。</div>

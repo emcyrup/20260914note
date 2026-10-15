@@ -195,6 +195,15 @@ class Command(BaseCommand):
         bens.delete()
         StaffMemo.objects.filter(facility=facility, content__in=MEMOS).delete()
         self._reset_reservations(facility)
+        # 送迎・配車のサンプル（送迎の設定・配車は利用者・予約の削除で一緒に消える）
+        from transport.models import Driver, Vehicle
+        Vehicle.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()
+        Driver.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()
+        from surveys.models import SelfEvaluation, Survey
+        SelfEvaluation.objects.filter(facility=facility, summary__contains=SAMPLE_MARK).delete()
+        from daily.models import ClassGroup
+        ClassGroup.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()      # 健康の記録・注意・発達検査は利用者と一緒に消える
+        Survey.objects.filter(facility=facility, intro__contains=SAMPLE_MARK).delete()
         self.stdout.write(f'サンプル利用者 {n} 名と関連データを削除しました')
 
     def _reset_reservations(self, facility):
@@ -397,7 +406,7 @@ class Command(BaseCommand):
             StaffMemo.objects.get_or_create(facility=facility, content=content, defaults={'author': staff})
         counts['スタッフメモ'] = len(MEMOS)
 
-        # --- 事業所様式（はぴねす様式の施設だけ）---
+        # --- 事業所様式（はびりす様式の施設だけ）---
         if facility.form_set == Facility.FORM_SET_HAPPINESS:
             counts.update(self._create_custom_forms(facility, beneficiaries, staff, today))
 
@@ -413,7 +422,201 @@ class Command(BaseCommand):
         if facility.use_therapy_record:
             counts.update(self._create_therapy(facility, beneficiaries, staff, today, rng))
 
+        # --- 送迎・配車と 5領域アセスメント（施設設定で使う施設だけ。オウル）---
+        if getattr(facility, 'use_transport', False):
+            counts.update(self._create_transport(facility, beneficiaries, today, rng))
+        if getattr(facility, 'use_dev_assessment', False):
+            counts.update(self._create_dev_assessments(facility, beneficiaries, staff, today, rng))
+        if getattr(facility, 'use_survey', False):
+            counts.update(self._create_surveys(facility, staff, today, rng))
+        if getattr(facility, 'use_daily_ops', False):
+            counts.update(self._create_daily(facility, beneficiaries, staff, today, rng))
+
         return counts
+
+    # ------------------------------------------------------------------
+    def _create_daily(self, facility, beneficiaries, staff, today, rng):
+        """毎日の運営の見本：クラス 2 つ（今週の計画と、過ぎた日の記録）、健康の記録（ここ 5 日の予約・在籍の子）、健康の注意、発達検査"""
+        from beneficiaries.models import DevelopmentTest
+        from daily.models import ClassGroup, GroupSession, HealthLog, HealthProfile
+        from daily.views import apply_to_therapy, day_children, monday_of
+        half = max(1, len(beneficiaries) // 2)
+        groups = [
+            ClassGroup.objects.create(facility=facility, name='ひよこ組', color='#c0703b', weekdays=[0, 2, 4], start_time=datetime.time(10, 0),
+                                      note=SAMPLE_MARK, order=0),
+            ClassGroup.objects.create(facility=facility, name='うさぎ組', color='#6a8f3c', weekdays=[1, 3], start_time=datetime.time(13, 30),
+                                      note=SAMPLE_MARK, order=1),
+        ]
+        groups[0].members.set(beneficiaries[:half])
+        groups[1].members.set(beneficiaries[half:])
+        plans = [
+            ('友だちと順番を守って遊ぶ', ['朝の会（名前呼び）', 'サーキット遊び', 'ボール転がし', '手遊び歌', '帰りの会'], 'マット・平均台・ボール'),
+            ('手指を使って遊ぶ', ['朝の会', '粘土あそび', 'シール貼り', '絵本の読み聞かせ', '帰りの会'], '粘土・シール・絵本'),
+            ('見通しを持って活動を切り替える', ['朝の会（スケジュール確認）', '感触あそび', 'リズム遊び', 'おやつ', '帰りの会'], 'スケジュール表・タイマー・楽器'),
+        ]
+        bodies = ['サーキットでは平均台を一人で渡れる子が増えた。待つ場面ではタイマーを見せると座って待てた。',
+                  '粘土は丸める・伸ばすを楽しんだ。シール貼りは線の上に貼ることに挑戦した。',
+                  'スケジュール表で次の活動を確かめてから移動できた。リズム遊びでは太鼓を順番に叩けた。']
+        monday = monday_of(today)
+        n_sessions = n_applied = 0
+        for g in groups:
+            for k, wd in enumerate(g.weekdays):
+                d = monday + datetime.timedelta(days=wd)
+                aim, acts, mats = plans[(k + g.order) % len(plans)]
+                s = GroupSession.objects.create(group=g, date=d, start_time=g.start_time, aim=aim, activities=acts, materials=mats,
+                                                staff_name=str(staff) if staff else '', created_by=staff)
+                n_sessions += 1
+                if d < today:
+                    members = list(g.members.all())
+                    s.body = bodies[(k + g.order) % len(bodies)]
+                    s.present = [m.pk for m in members]
+                    if members:
+                        s.notes = {str(members[0].pk): '自分から友だちにボールを渡せた。'}
+                    s.save()
+                    if facility.use_therapy_record and s.present:
+                        apply_to_therapy(s, staff)
+                        n_applied += 1
+        # 健康の注意（2 人）
+        HealthProfile.objects.update_or_create(beneficiary=beneficiaries[0], defaults={'allergies': '卵・乳（除去食）', 'other': SAMPLE_MARK})
+        if len(beneficiaries) > 2:
+            HealthProfile.objects.update_or_create(beneficiary=beneficiaries[2], defaults={'medications': '昼食後に抗てんかん薬（保護者から預かる）', 'seizure': '発作時は横向きに寝かせて時間を計る', 'other': SAMPLE_MARK})
+        # 健康の記録（ここ 5 日。きょうは半分だけ）
+        n_logs = 0
+        meals = ['all', 'all', 'most', 'half', 'little']
+        moods = ['good', 'good', 'normal', 'tired']
+        for back in range(4, -1, -1):
+            d = today - datetime.timedelta(days=back)
+            kids = day_children(facility, d) or [(b, None) for b in beneficiaries[:4]]     # 予約の無い日は見本の 4 人
+            for i, (b, _t) in enumerate(kids):
+                if back == 0 and i % 2:
+                    continue
+                temp = rng.choice(['36.4', '36.6', '36.8', '36.5', '37.0', '36.7'])
+                if back == 2 and i == 0:
+                    temp = '37.6'
+                HealthLog.objects.update_or_create(beneficiary=b, date=d, defaults={
+                    'facility': facility, 'temp_arrival': temp, 'meal': rng.choice(meals), 'urine': rng.choice([1, 2, 3]),
+                    'stool': rng.choice([0, 0, 1]), 'nap_minutes': rng.choice([None, 30, 45, 60]), 'mood': rng.choice(moods),
+                    'note': f'お迎えまで元気に過ごしました。{SAMPLE_MARK}' if i == 0 else SAMPLE_MARK,
+                    'handed_to': rng.choice(['母', '父', '送迎']), 'recorded_by': staff})
+                n_logs += 1
+        # 発達検査（2 人。半年前と最近）
+        n_tests = 0
+        for i, b in enumerate(beneficiaries[:2]):
+            for back, step in ((200, 0), (20, 1)):
+                d = today - datetime.timedelta(days=back)
+                ca = (d.year - b.date_of_birth.year) * 12 + d.month - b.date_of_birth.month
+                base = [70, 78, 65] if i == 0 else [85, 80, 74]
+                qs = [q + step * rng.choice([3, 5, 6]) for q in base]
+                DevelopmentTest.objects.create(
+                    beneficiary=b, test='kshiki', test_other='新版K式発達検査2020', date=d, examiner='こども発達クリニック',
+                    ca_months=ca, overall_quotient=round(sum(qs) / 3), overall_age_months=round(ca * sum(qs) / 300),
+                    results=[{'label': lab, 'age_months': round(ca * q / 100), 'quotient': q} for lab, q in zip(DevelopmentTest.DOMAINS['kshiki'], qs)],
+                    note=f'言語・社会の領域にゆっくりさがみられる。{SAMPLE_MARK}', created_by=staff)
+                n_tests += 1
+        return {'クラス': len(groups), 'クラスの活動（今週）': n_sessions, '療育記録に写した活動': n_applied,
+                '健康の記録': n_logs, '発達検査': n_tests}
+
+    # ------------------------------------------------------------------
+    def _create_surveys(self, facility, staff, today, rng):
+        """アンケートの見本：今年度の保護者評価（回答 8 件）と従業者評価（回答 3 件）、自己評価（途中まで）"""
+        from surveys.models import SelfEvaluation, Survey, SurveyResponse, fiscal_label, fiscal_year_of
+        from surveys.questions import default_questions
+        year = fiscal_year_of(today)
+        service = Survey.SERVICE_JIHATSU if '児童発達支援' in facility.name else Survey.SERVICE_HOUDAY
+        g = Survey.objects.create(facility=facility, kind=Survey.KIND_GUARDIAN, service=service, fiscal_year=year,
+                                  title=f'{fiscal_label(year)} 保護者評価', intro=f'よりよい支援のため、ご意見をお聞かせください。{SAMPLE_MARK}',
+                                  questions=default_questions(Survey.KIND_GUARDIAN, service), closes_on=today + datetime.timedelta(days=14), created_by=staff)
+        st = Survey.objects.create(facility=facility, kind=Survey.KIND_STAFF, service=service, fiscal_year=year,
+                                   title=f'{fiscal_label(year)} 従業者評価', intro=f'日頃の支援を振り返って答えてください。{SAMPLE_MARK}',
+                                   questions=default_questions(Survey.KIND_STAFF, service), closes_on=today + datetime.timedelta(days=14), created_by=staff)
+        g_comments = {3: 'もう少し広いと安心です', 8: '季節の行事が楽しみです', 13: '連絡帳で様子が分かり助かっています', 22: '送迎の時間が分かると助かります'}
+        frees = ['いつもありがとうございます。', '送迎がとても助かっています。', '保護者同士で話せる機会があるとうれしいです。']
+        for i in range(8):
+            answers = {str(q['no']): rng.choices(['yes', 'neutral', 'no', 'unknown'], weights=[7, 2, 0.5, 1.5])[0] for q in g.questions}
+            comments = {str(no): c for no, c in g_comments.items() if rng.random() < 0.3}
+            SurveyResponse.objects.create(survey=g, answers=answers, comments=comments, free_text=frees[i] if i < len(frees) else '')
+        for i in range(3):
+            answers = {str(q['no']): rng.choices(['yes', 'no'], weights=[8, 2])[0] for q in st.questions}
+            comments = {'1': '＋部屋を活動ごとに区切って使っている'} if i == 0 else ({'9': '研修に出る時間がとりにくい'} if i == 1 else {})
+            SurveyResponse.objects.create(survey=st, answers=answers, comments=comments)
+        ev = SelfEvaluation.objects.create(facility=facility, fiscal_year=year, service=service, guardian_survey=g, staff_survey=st,
+                                           summary=f'保護者からは活動や連絡に高い評価をいただいた。職員の研修時間の確保と保護者同士の交流の機会づくりを来年度の改善目標とする。{SAMPLE_MARK}',
+                                           created_by=staff)
+        ev.seed_items()
+        ev.fill_from_staff()
+        ev.save()
+        return {'アンケート（保護者評価・従業者評価）': 2, 'アンケートの回答': 11, '自己評価': 1}
+
+    # ------------------------------------------------------------------
+    def _create_transport(self, facility, beneficiaries, today, rng):
+        """送迎・配車のサンプル：車両 2 台・運転手 2 人・利用者ごとの送迎の設定・きょうの配車の一部"""
+        from transport.models import DIRECTION_DROPOFF, DIRECTION_PICKUP, Driver, TransportAssignment, TransportProfile, Vehicle
+        drivers = [Driver.objects.get_or_create(facility=facility, name=name, defaults={'note': SAMPLE_MARK, 'order': i})[0]
+                   for i, name in enumerate(['佐藤 運転手', '鈴木 運転手'])]
+        vehicles = [
+            Vehicle.objects.get_or_create(facility=facility, name='ハイエース（白）',
+                                          defaults={'capacity': 6, 'plate': '白', 'default_driver': drivers[0], 'note': SAMPLE_MARK, 'order': 0})[0],
+            Vehicle.objects.get_or_create(facility=facility, name='軽ワゴン',
+                                          defaults={'capacity': 3, 'plate': '銀', 'default_driver': drivers[1],
+                                                    'note': f'チャイルドシート 1 つ {SAMPLE_MARK}', 'order': 1})[0],
+        ]
+        places = ['南小学校', '北小学校', '中央こども園', '自宅']
+        n_profiles = 0
+        for i, b in enumerate(beneficiaries):
+            if i % 5 == 4:          # 5 人に 1 人は送迎なし
+                continue
+            TransportProfile.objects.update_or_create(beneficiary=b, defaults={
+                'pickup': True, 'pickup_place': b.school_name or places[i % len(places)],
+                'pickup_time': datetime.time(14, 30 + 5 * (i % 4)),
+                'dropoff': i % 3 != 2, 'dropoff_place': '自宅', 'dropoff_time': datetime.time(17, 0 + 10 * (i % 3)),
+                'default_vehicle': vehicles[i % 2], 'note': 'チャイルドシート' if i % 4 == 0 else '',
+            })
+            n_profiles += 1
+        # きょうの確定した予約の 2 件だけ、配車表でその日の変更を入れておく（時刻を変える・送りなし）
+        n_assign = 0
+        if facility.use_reservation:
+            from reservations.models import Reservation
+            todays = list(Reservation.objects.filter(facility=facility, date=today, status=Reservation.STATUS_CONFIRMED,
+                                                     beneficiary__isnull=False).order_by('start_time', 'pk')[:2])
+            for k, r in enumerate(todays):
+                if k == 0:
+                    TransportAssignment.objects.update_or_create(reservation=r, direction=DIRECTION_PICKUP, defaults={
+                        'time': datetime.time(14, 45), 'place': '南小学校 正門', 'note': '先生に声かけ', 'vehicle': vehicles[0], 'driver': drivers[0]})
+                else:
+                    TransportAssignment.objects.update_or_create(reservation=r, direction=DIRECTION_DROPOFF, defaults={'skip': True, 'note': '保護者が迎えに来る'})
+                n_assign += 1
+        return {'車両': len(vehicles), '運転手': len(drivers), '送迎の設定': n_profiles, 'きょうの配車の変更': n_assign}
+
+    # ------------------------------------------------------------------
+    def _create_dev_assessments(self, facility, beneficiaries, staff, today, rng):
+        """5領域アセスメントのサンプル：先頭 4 人に 2 枚ずつ（半年前と先月。評価が少し上がる）"""
+        from beneficiaries.models import DevelopmentAssessment as DA
+        nows = {
+            'health': ['食事は自分で食べる。着替えはボタンに時間がかかる。', '着替えは手順表を見ながら自分でできるようになった。'],
+            'motor': ['走ると転びやすい。はさみは一回切り。', 'バランスボールで姿勢を保てる時間が延びた。はさみで線に沿って切れる。'],
+            'cognition': ['活動の切り替えに時間がかかる。', 'タイマーと絵カードで見通しを持てると切り替えられる。'],
+            'language': ['二語文で要求できる。質問には単語で答える。', '三語文が増えた。「なんで？」の質問が出てきた。'],
+            'social': ['大人とは関われるが、友だちとは並行遊びが中心。', '友だちと順番を守ってボールを転がし合える。'],
+        }
+        goals = {
+            'health': '着替えの手順表を使い、自分で最後までできることを増やす', 'motor': '粗大運動の遊びで体幹を育て、はさみの連続切りへ',
+            'cognition': '絵カードで予定を示し、終わりの合図で切り替える', 'language': '遊びの中で三語文をモデルで示す',
+            'social': '小集団の遊びで順番とルールを経験する',
+        }
+        n = 0
+        for i, b in enumerate(beneficiaries[:4]):
+            base = {k: 2 + ((i + j) % 3) for j, (k, _) in enumerate(DA.DOMAINS)}
+            for when, step in ((today - datetime.timedelta(days=180), 0), (today - datetime.timedelta(days=30), 1)):
+                domains = {k: {'rating': min(5, base[k] + step), 'now': nows[k][step], 'goal': goals[k]} for k, _ in DA.DOMAINS}
+                DA.objects.create(
+                    beneficiary=b, date=when, assessed_by=staff, created_by=staff, interviewed_with='保護者（母）', domains=domains,
+                    strengths=['電車が好き。数字に強い。', '歌とダンスが好き。', '絵本をよく覚えている。', '工作が得意。'][i % 4],
+                    concerns=['大きな音が苦手。', '初めての場所で固まる。', '負けると泣いてしまう。', '偏食が強い。'][i % 4],
+                    wishes_child='友だちと遊びたい', wishes_family='集団に慣れてほしい。就学に向けて見通しを持って動けるように。',
+                    summary='視覚的な手がかりを増やし、見通しを持って活動に取り組めるようにする。' + ('前回より切り替えが早くなった。' if step else ''),
+                )
+                n += 1
+        return {'5領域アセスメント': n}
 
     # ------------------------------------------------------------------
     def _create_planbook(self, facility, beneficiaries, staff, today):
@@ -752,7 +955,7 @@ class Command(BaseCommand):
 
     # ------------------------------------------------------------------
     def _create_custom_forms(self, facility, beneficiaries, staff, today):
-        """はぴねす様式のサンプル：関係機関連携加算Ⅱ報告書・専門的支援実施計画書・計画書の追加項目"""
+        """はびりす様式のサンプル：関係機関連携加算Ⅱ報告書・専門的支援実施計画書・計画書の追加項目"""
         from custom_forms.models import AgencyMeetingReport, SpecializedSupportPlan
         D = datetime.timedelta
         counts = {}

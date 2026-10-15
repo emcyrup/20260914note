@@ -1,0 +1,33 @@
+# =============================================
+# オウルの公開 URL を外から確かめる（手動実行だけ）
+#   Actions → Site check (owl) → Run workflow
+#   healthz の応答と、3MB の送信が nginx で 413 にならないか（client_max_body_size の確認）を出す。
+#   サーバーには入らない（Secrets 不要）。
+# =============================================
+name: Site check (owl)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BASE_URL: ${{ secrets.OWL_SITE_URL || 'https://michinote.owl.ai-labo.cloud' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: healthz
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$BASE_URL/healthz/" || true)
+          echo "healthz: $code"
+          [ "$code" = "200" ]
+      - name: 3MB upload is not rejected by nginx (413)
+        run: |
+          head -c 3000000 /dev/zero > big.bin
+          # ログイン画面への POST。CSRF で 403 になるのが正常（nginx が止めると 413）
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 -X POST -F "f=@big.bin" "$BASE_URL/accounts/login/" || true)
+          echo "3MB POST: $code（403 なら nginx を通ってアプリまで届いている。413 なら client_max_body_size が足りない）"
+          [ "$code" != "413" ]

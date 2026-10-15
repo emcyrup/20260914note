@@ -85,15 +85,47 @@ class Facility(models.Model):
     use_schedule = models.BooleanField(default=True, verbose_name='予定（来所予定・出欠）を使う',
                                        help_text='月のカレンダーに来所予定を入れて出欠を付ける画面。予約管理で枠を扱う事業所は使わなくてよい。')
     use_line = models.BooleanField(default=True, verbose_name='LINE連携を使う')
+    # 日誌を「確定」で保存したとき、保護者向けメッセージを保護者の LINE へ自動で送る（利用者ごとに送らない設定ができる）
+    line_auto_send = models.BooleanField(default=False, verbose_name='日誌を確定したら保護者へ LINE を自動で送る')
+    # 日誌を確定するのに要る項目（records/quality.py の RULES のキー）と、観察・支援・反応の文の最低字数（0 は見ない）
+    journal_required = models.JSONField(default=list, blank=True, verbose_name='日誌を確定するのに要る項目')
+    journal_min_chars = models.PositiveSmallIntegerField(default=0, verbose_name='観察・支援・反応の最低字数')
     use_reservation = models.BooleanField(default=False, verbose_name='予約管理を使う',
                                           help_text='1日の枠・キャンセル待ち・公式LINEからの申し込みを扱います。')
     use_therapy_record = models.BooleanField(default=False, verbose_name='療育記録を使う',
                                              help_text='利用者ごとの留意点と、1回ごとの療育の記録（やったこと①〜⑤・担当・本文）。用紙と同じ形で印刷できます。')
+    # 療育記録の音声入力を、留意点の欄ではなく「これまでの記録」の今日の記録へ直接入れる（整文してやったこと・事実・様子に分ける）。
+    # 留意点の欄・AI のボタン（詳しくまとめる・短く要約・整文だけ）・見取り図は画面に出さない（2026-10-13 ゆあーず）
+    therapy_voice_direct = models.BooleanField(default=False, verbose_name='療育記録：音声入力を今日の記録へ直接入れる')
+    # 書類を AI で読み取ったあとの「療育記録の AI で参考にする」を「療育記録に反映する」と呼び、読み取った直後は印なしにする（2026-10-13 ゆあーず）
+    knowledge_reflect = models.BooleanField(default=False, verbose_name='書類の読み取り：「療育記録に反映する」は初めは印なし')
+    # 利用者情報の画面の追加（2026-10-13 ゆあーず）：前後の利用者へ送るボタン、資料の編集中に別の画面へ移るときの警告、
+    # 「書類から分かっていること」の削除ボタン
+    beneficiary_tools = models.BooleanField(default=False, verbose_name='利用者情報：前後の利用者へ送る・編集中の警告・分かったことの削除')
+    # 予定づくりの追加（2026-10-13 ゆあーず）：共演NG の印をまとめて付ける、月間予定表の上に編集中の日時、
+    # 月間予定表のドラッグで共演NG の人と同じ枠に入れられる（確かめてから。赤く表示）
+    schedule_tools = models.BooleanField(default=False, verbose_name='予定づくり：共演NG の一括の印・編集中の日時・ドラッグで共演NG を赤く・名前で探す・月の予定のやり直し')
+    # 療育記録の画面で、保存のときの言葉づかいのチェック（data-wording）をしない（ゆあーずの依頼 2026-10-13）
+    therapy_no_wording = models.BooleanField(default=False, verbose_name='療育記録：保存のときの言葉づかいの注意を出さない')
+    # 個別支援計画の AI（日誌からの下書き・欄ごとの整文）を出さず、台帳と療育記録の内容をそのまま欄に入れる（ゆあーずの依頼 2026-10-13）
+    plan_no_ai = models.BooleanField(default=False, verbose_name='個別支援計画：AI の下書き・整文を出さず、療育記録とアセスメントを欄に入れる')
+    use_transport = models.BooleanField(default=False, verbose_name='送迎・配車を使う',
+                                        help_text='車両と運転手を登録し、利用者ごとの送迎（迎え・送り・場所）から日ごとの配車表を作ります。')
+    use_dev_assessment = models.BooleanField(default=False, verbose_name='5領域アセスメントを使う',
+                                             help_text='健康・生活／運動・感覚／認知・行動／言語・コミュニケーション／人間関係・社会性の5領域を5段階で評価する用紙。利用者情報から作り、A4で印刷できます。')
+    use_survey = models.BooleanField(default=False, verbose_name='アンケート・自己評価を使う',
+                                     help_text='保護者評価アンケート（ログインなしの回答ページ・LINE や QR で配る・集計）と事業所の自己評価、公表用の PDF。ガイドラインで年 1 回の実施と公表が求められているもの。')
+    use_daily_ops = models.BooleanField(default=False, verbose_name='毎日の運営を使う',
+                                        help_text='クラス（小集団）の週間の活動計画と当日の記録（各児の療育記録に写す）、健康・生活の記録（体温・食事・排せつ・午睡・服薬と引き渡しカード）、発達検査の結果の推移。')
     # ログイン画面の「職員として新しく登録」で使うコード（空なら受け付けない）。登録した人は管理者が承認するまでログインできない
     staff_signup_code = models.CharField(max_length=12, blank=True, db_index=True, verbose_name='職員登録コード')
     # 「お試し」の機能（記録の AI・支援計画の AI）を使える回数。0 なら制限なし。使った回数は trial_ai_used
     trial_ai_limit = models.PositiveSmallIntegerField(default=0, verbose_name='お試しの AI の回数の上限（0＝制限なし）')
     trial_ai_used = models.PositiveIntegerField(default=0, verbose_name='お試しの AI を使った回数')
+    # 音声入力（サーバーの Whisper）に渡す「よく使う言葉」。職員や利用者の名前・活動名は自動で足すので、それ以外の専門用語など
+    speech_words = models.TextField(blank=True, verbose_name='音声入力でよく使う言葉')
+    # 言葉づかいの辞書（ai_assist/wording.py）。1 行に「言葉=言いかえ」。行頭「-」で標準の辞書から外す
+    word_rules = models.TextField(blank=True, verbose_name='言葉づかいの辞書（保存前に知らせる言葉）')
     # オンにすると、ログイン画面の「職員として新しく登録」をコードなしで受け付ける（承認は管理者が行う）
     staff_signup_open = models.BooleanField(default=False, verbose_name='職員登録コードなしで申し込みを受け付ける')
     # 日誌で AI が作る項目と、その順番（空なら標準の順番で全部）
@@ -101,7 +133,7 @@ class Facility(models.Model):
     # 事業所固有の帳票様式（標準以外を選ぶと「事業所様式」メニューが出る）
     FORM_SET_STANDARD = 'standard'
     FORM_SET_HAPPINESS = 'happiness'
-    FORM_SET_CHOICES = [(FORM_SET_STANDARD, '標準'), (FORM_SET_HAPPINESS, 'はぴねす様式（関係機関連携報告書・個別支援計画書 別紙1／詳細版・専門的支援実施計画書）')]
+    FORM_SET_CHOICES = [(FORM_SET_STANDARD, '標準'), (FORM_SET_HAPPINESS, 'はびりす様式（関係機関連携報告書・個別支援計画書 別紙1／詳細版・専門的支援実施計画書）')]
     form_set = models.CharField(max_length=20, choices=FORM_SET_CHOICES, default=FORM_SET_STANDARD, verbose_name='帳票様式')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

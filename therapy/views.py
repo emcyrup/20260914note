@@ -1,5 +1,6 @@
 """療育記録の画面（発達支援ルーム　ゆあーず）"""
 import datetime
+import re
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -7,12 +8,16 @@ from django.db.models import Count, Max, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
+from django.urls import reverse
 from django.views import View
 
 from accounts.models import StaffAccount
+from ai_assist import asis
 from ai_assist.quick import ask_ai as _ask_ai, tidy_sections
 from ai_assist.text import clean_ai_text
+from beneficiaries.knowledge import context_for as knowledge_context, usable as knowledge_usable
 from beneficiaries.models import Beneficiary
+from config.concurrency import check_conflict, keep_unsaved, pop_unsaved
 from config.utils import to_int
 
 from . import figure
@@ -43,14 +48,24 @@ def _parse_date(value, default=None):
 
 
 def _parse_time(value):
-    value = (value or '').strip().replace('：', ':')
+    """時刻は「時」だけで持つ（「15」「15:00」「15:40」→ 15時。分は使わない）"""
+    value = (value or '').strip().replace('：', ':').replace('時', '')
     if not value:
         return None
     try:
-        h, _, m = value.partition(':')
-        return datetime.time(int(h), int(m or 0))
+        return datetime.time(int(value.partition(':')[0]))
     except ValueError:
         return None
+
+
+HOUR_CHOICES = range(7, 22)     # 療育記録の時刻（時）の選択肢
+
+
+def hour_choices(*hours):
+    """時の選択肢。範囲の外の時（前の記録など）があれば足す"""
+    out = set(HOUR_CHOICES)
+    out.update(h for h in hours if h is not None)
+    return sorted(out)
 
 
 def _activities_from_post(post):
@@ -124,18 +139,20 @@ def search_records(facility, params):
         # 「やったこと」は JSON で保存されている（SQLite では日本語が \uXXXX になる）ので、DB ではなく Python で照らす
         words = [w.lower() for w in q.replace('　', ' ').split()]
         records = [r for r in records
-                   if all(w in (r.body + ' ' + ' '.join(a for a in (r.activities or []) if isinstance(a, str))).lower()
+                   if all(w in (r.text_for_search + ' ' + ' '.join(a for a in (r.activities or []) if isinstance(a, str))).lower()
                           for w in words)]
     return records, {'child': child, 'staff': staff, 'q': q, 'ym': ym, 'from': start, 'to': end}
 
 
 def _todays_reservations(facility, day):
-    """その日の予約（予約管理を使う事業所）。療育記録をすぐ書けるように並べる"""
+    """その日の予約（予約管理を使う事業所）。療育記録をすぐ書けるように並べる。
+    当日に足した人も出す：キャンセル待ちでも実績が「来た」なら出し、台帳に未登録の人は「台帳と結びつける」へ案内する"""
     if not facility.use_reservation:
         return []
     from reservations.models import Reservation
-    return list(Reservation.objects.filter(facility=facility, date=day, status=Reservation.STATUS_CONFIRMED,
-                                           beneficiary__isnull=False)
+    return list(Reservation.objects.filter(facility=facility, date=day)
+                .filter(Q(status=Reservation.STATUS_CONFIRMED)
+                        | Q(status=Reservation.STATUS_WAITLIST, attendance=Reservation.ATT_ATTENDED))
                 .select_related('beneficiary').order_by('start_time', 'created_at'))
 
 
@@ -161,6 +178,9 @@ class IndexView(TherapyEnabledMixin, View):
             'day': day, 'prev_day': day - datetime.timedelta(days=1), 'next_day': day + datetime.timedelta(days=1),
             'reservations': reservations, 'children': children,
             'written_count': sum(1 for r in reservations if r.written),
+            'unwritten': [r for r in reservations if not r.written],
+            'added_today': sum(1 for r in reservations if r.note == '当日追加'),
+            'reserved_ids': {r.beneficiary_id for r in reservations if r.beneficiary_id},
             'today_records': (TherapyRecord.objects.filter(facility=facility, date=day)
                               .select_related('beneficiary', 'staff').order_by('time', 'pk')),
         })
@@ -206,19 +226,58 @@ class ChildView(TherapyEnabledMixin, View):
         filter_query = '&'.join(f'{k}={v}' for k, v in (('ym', ym), ('from', date_from and date_from.isoformat()),
                                                            ('to', date_to and date_to.isoformat())) if v)
         default_date = _parse_date(request.GET.get('date'), datetime.date.today())
-        default_time = request.GET.get('time', '')
+        default_t = _parse_time(request.GET.get('time'))
+        default_hour = default_t.hour if default_t else None
+        dup = TherapyRecord.objects.filter(beneficiary=beneficiary, pk=to_int(request.GET.get('dup'), -1)).first()
+        # 予約とのつながり：その日の予約があるのに記録がまだ無ければ知らせる
+        same_day = [r for r in records if r.date == default_date]
+        day_res = None
+        if facility.use_reservation and not same_day:
+            from reservations.models import Reservation
+            day_res = Reservation.objects.filter(facility=facility, beneficiary=beneficiary, date=default_date,
+                                                 status__in=Reservation.ACTIVE_STATUSES).order_by('status', 'pk').first()
+        # 音声入力を今日の記録へ直接入れる事業所：入れる先（今日の記録。複数あれば最後のもの。無ければ今日の新しい記録の欄）
+        voice_direct = facility.therapy_voice_direct
+        today = datetime.date.today()
+        today_rec = today_hour = None
+        if voice_direct:
+            today_rec = (TherapyRecord.objects.filter(beneficiary=beneficiary, date=today).select_related('staff')
+                         .order_by('-time', '-pk').first())
+            if today_rec is None and facility.use_reservation:
+                from reservations.models import Reservation
+                res = (Reservation.objects.filter(facility=facility, beneficiary=beneficiary, date=today,
+                                                  status__in=Reservation.ACTIVE_STATUSES, start_time__isnull=False)
+                       .order_by('start_time').first())
+                today_hour = res.start_time.hour if res else None
         return render(request, self.template_name, {
+            'voice_direct': voice_direct, 'today': today, 'today_rec': today_rec, 'today_hour': today_hour,
+            'today_in_list': bool(today_rec and any(r.pk == today_rec.pk for r in records)),
+            'dup': dup, 'day_res': day_res,
             'beneficiary': beneficiary, 'profile': profile, 'records': records, 'ym': ym, 'months': months,
             'date_from': date_from, 'date_to': date_to, 'filtered': filtered, 'filter_query': filter_query,
             'activity_suggestions': suggestions, 'activity_chips': suggestions[:ACTIVITY_CHIP_MAX],
             'staff_list': StaffAccount.objects.filter(facility=facility, is_active=True).order_by('display_name', 'username'),
-            'default_date': default_date, 'default_time': default_time,
+            'default_date': default_date, 'default_hour': default_hour,
+            'hour_choices': hour_choices(default_hour, *(r.time.hour for r in records if r.time)),
             'default_activities': list(copy_rec.activities or []) if copy_rec else [],
-            'default_body': (copy_rec.body if copy_rec else ''), 'copy_rec': copy_rec,
+            'default_body': (copy_rec.body if copy_rec else ''), 'default_situation': (copy_rec.situation if copy_rec else ''),
+            'copy_rec': copy_rec,
             'activity_range': range(1, ACTIVITY_MAX + 1), 'edit_pk': to_int(request.GET.get('edit')),
             'cautions_rows': min(max(len((profile.cautions if profile else '').splitlines()) + 1, 4), 24),
             'fig': figure.build(profile.cautions if profile else '', beneficiary.full_name),
+            'knowledge_count': knowledge_usable(beneficiary).count(),
+            # 他の職員の保存と重なって保存できなかった内容（1回だけ見せる）
+            'unsaved_cautions': pop_unsaved(request, 'therapy_profile', beneficiary.pk),
+            'unsaved_record': self._unsaved_record(request, records),
         })
+
+    @staticmethod
+    def _unsaved_record(request, records):
+        for rec in records:
+            data = pop_unsaved(request, 'therapy_record', rec.pk)
+            if data is not None:
+                return dict(data, pk=rec.pk)
+        return None
 
     def post(self, request, pk):
         facility = request.user.facility
@@ -228,8 +287,16 @@ class ChildView(TherapyEnabledMixin, View):
         action = p.get('action', 'add')
 
         if action == 'cautions':
-            profile, _ = TherapyProfile.objects.get_or_create(beneficiary=beneficiary)
-            profile.cautions = p.get('cautions', '').strip()[:CAUTIONS_MAX]
+            profile = TherapyProfile.objects.filter(beneficiary=beneficiary).first()
+            text = p.get('cautions', '').strip()[:CAUTIONS_MAX]
+            conflict = check_conflict(request, profile)
+            if conflict:            # 開いたあとに他の職員（または書類の読み取り）が留意点を保存していた
+                keep_unsaved(request, 'therapy_profile', beneficiary.pk, {'text': text})
+                messages.error(request, conflict + '（入れた文は留意点の下に残してあります）')
+                return back
+            if profile is None:
+                profile, _ = TherapyProfile.objects.get_or_create(beneficiary=beneficiary)
+            profile.cautions = text
             profile.save()
             messages.success(request, '留意点を保存しました。')
             return back
@@ -244,28 +311,63 @@ class ChildView(TherapyEnabledMixin, View):
         if day is None:
             messages.error(request, '日付を入れてください。')
             return back
+        if action == 'add' and not any(_activities_from_post(p)) and not p.get('body', '').strip() \
+                and not p.get('situation', '').strip():
+            messages.error(request, '「やったこと」か「記録」（事実・様子）を入れてから保存してください。')
+            return back
         staff = StaffAccount.objects.filter(facility=facility, pk=to_int(p.get('staff'), -1)).first()
         fields = {
             'date': day, 'time': _parse_time(p.get('time')), 'staff': staff,
             'staff_name': p.get('staff_name', '').strip()[:50] if staff is None else '',
             'activities': _activities_from_post(p), 'body': p.get('body', '').strip()[:4000],
         }
+        if 'situation' in p:     # 2段の記録の「様子」（無い画面から送られたときは変えない）
+            fields['situation'] = p.get('situation', '').strip()[:4000]
         if action == 'edit':
             rec = get_object_or_404(TherapyRecord, pk=to_int(p.get('record'), -1), beneficiary=beneficiary)
+            conflict = check_conflict(request, rec)
+            if conflict:
+                keep_unsaved(request, 'therapy_record', rec.pk, {'text': '\n'.join(x for x in (fields['body'], fields.get('situation', '')) if x),
+                                                                 'activities': [a for a in fields['activities'] if a]})
+                messages.error(request, conflict + '（入れた記録は、その記録の直す欄の下に残してあります）')
+                return redirect(f"{reverse('therapy:child', args=[pk])}?edit={rec.pk}#rec{rec.pk}")
             for k, v in fields.items():
                 setattr(rec, k, v)
             rec.save()
             messages.success(request, f'{day:%-m/%-d} の療育記録を保存しました。')
             return back
 
+        # 二重の確認：同じ日（同じ時刻）の記録がすでにあれば、「もう1件として保存」の印が無いかぎり保存しない
+        # （入れた文は下書きの自動保存が戻す）
+        same = TherapyRecord.objects.filter(beneficiary=beneficiary, date=day)
+        if fields['time'] is not None:
+            same = same.filter(Q(time=fields['time']) | Q(time__isnull=True))
+        dup = same.order_by('pk').first()
+        if dup and p.get('dup_ok') != '1':
+            messages.warning(request, f'{day:%-m/%-d} の療育記録はすでにあります（{dup.time_label or "時刻なし"}）。二重にならないよう保存していません。'
+                                      '直すなら下の「これまでの記録」の「直す」から。別の回として足すなら「もう1件として保存する」に印を付けて保存してください。')
+            return redirect(f"{reverse('therapy:child', args=[pk])}?date={day:%Y-%m-%d}&dup={dup.pk}#add")
         reservation = None
         if facility.use_reservation:
+            # 予約とのつながり：その日の確定の予約（無ければ来所したキャンセル待ち。当日追加もここで結びつく）
             from reservations.models import Reservation
-            reservation = Reservation.objects.filter(facility=facility, beneficiary=beneficiary, date=day,
-                                                     status=Reservation.STATUS_CONFIRMED).first()
+            reservation = (Reservation.objects.filter(facility=facility, beneficiary=beneficiary, date=day, status=Reservation.STATUS_CONFIRMED).first()
+                           or Reservation.objects.filter(facility=facility, beneficiary=beneficiary, date=day, status=Reservation.STATUS_WAITLIST,
+                                                         attendance=Reservation.ATT_ATTENDED).first())
         TherapyRecord.objects.create(facility=facility, beneficiary=beneficiary, reservation=reservation,
                                      created_by=request.user, **fields)
-        messages.success(request, f'{day:%-m/%-d} の療育記録を追加しました。')
+        if p.get('auto') == '1':
+            # 「留意点から記録に追記」のあとの自動保存。画面の留意点（保存前のものも）を一緒に保存する
+            profile, _ = TherapyProfile.objects.get_or_create(beneficiary=beneficiary)
+            cautions = p.get('cautions', '').strip()[:CAUTIONS_MAX]
+            if 'cautions' in p and cautions != profile.cautions:
+                profile.cautions = cautions
+                profile.save()
+            messages.success(request, f'{day:%-m/%-d} の療育記録を留意点から作って保存しました'
+                                      f'{"（留意点も保存）" if "cautions" in p else ""}。'
+                                      '直すときは下の「これまでの記録」の「直す」からできます。')
+            return redirect(f"{reverse('therapy:child', args=[pk])}#records")
+        messages.success(request, f'{day:%-m/%-d} の療育記録を保存しました。')
         return back
 
 
@@ -296,69 +398,136 @@ class PdfView(TherapyEnabledMixin, View):
         return pdf_or_html(request, 'therapy/pdf/record.html', ctx, name)
 
 
+# AI でまとめるときの共通の約束：内容は職員の言葉のまま（飾り・見解で意味が変わらないように）、言葉づかいは書き言葉に
+# （2026-10-09 ゆあーず：話し言葉そのままでは読みにくい。「めっちゃ」「なんか」は消し、文末は「〜だった」「〜だと思う」の断定で）
+AS_IS_RULES = """
+【いちばん大事なこと：内容はありのままに、言葉づかいは書き言葉に】
+- 入力に無いことは書かない。AI の見解・解釈・評価・助言・一般論を足さない
+- 入力に無い飾りや評価の言い回しを足さない（例：「しっかり」「積極的に」「意欲的に」「楽しそうに」「落ち着いて」「〜が見られた」
+  「〜と考えられる」「〜が大切」「成長が感じられる」「〜に留意して取り組む」など）
+- 内容・事実・順番・程度は変えない。言いかえて意味がずれないようにする。分かりにくいところは、意味を変えずに残す
+- 話し言葉は読みやすい書き言葉に直す：
+  - 「えー」「あの」「なんか」「まあ」「〜みたいな」「〜って感じ」などの言いよどみ・つなぎの言葉、言い直し、同じことのくり返しは消す
+  - 「めっちゃ」「すごい」「やばい」などのくだけた程度の言葉は「とても」「かなり」などの書き言葉にする（程度は落とさない）
+  - 「〜してた」「〜してる」は「〜していた」「〜している」に。「〜じゃない」は「〜ではない」に
+  - 文末は断定の形で終える（「〜した」「〜だった」「〜している」「〜だと思う」）。「です・ます」や「〜でした」は使わない。
+    職員が「〜と思う」「〜かもしれない」と言ったところは、その確かさのまま「〜だと思う」「〜かもしれない」で残す
+  - 子どもの言葉・職員の声かけの「」の中は、話したとおりに残す
+"""
+
+
 class CautionsSummaryView(TherapyEnabledMixin, View):
     """
     留意点の要約。音声入力などで話し言葉のまま入った文を、用紙に載せる短い箇条書きに整えて返す。
     画面ではテキスト欄を書き換えるだけで、保存は職員が「留意点を保存」を押して行う。
     """
 
-    SYSTEM_PROMPT = """あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
-職員が話した言葉や走り書きのメモから、その子の「留意点」（療育のときに職員が気をつけること）を作ります。
-
-【書き方（必ず守る）】
-- 1行に1項目の箇条書きにする。各行の先頭は「・」。3〜7項目、1項目は40字程度まで
-- 体言止めか「〜する」で短く書く。敬語やあいさつ、前置き、まとめの文は書かない
-- 入力にある事実だけを書く。推測や一般論、入力に無い対応方法を足さない
-- 同じ内容は1つにまとめ、「えー」「あの」などの言いよどみや言い直しは除く
-- 苦手なこと・危険につながること・配慮のしかたを先に、好きなこと・得意なことをあとに並べる
-- 常用漢字とひらがな・カタカナで書く。英語・絵文字・記号（★ ※ → など）・マークダウンは使わない
-- 人名・物の名前は入力の表記のまま
+    SYSTEM_PROMPT = f"""あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
+職員が話した言葉や走り書きのメモを、その子の「留意点」（療育のときに職員が気をつけること）の箇条書きにします。
+{AS_IS_RULES}
+【書き方】
+- 1行に1項目の箇条書きにする。各行の先頭は「・」。話した順・書いた順のまま並べる（並べかえない）
+- 長い文は句点（。）や読点のところで分けて別の項目にしてよい。そのとき言葉は変えない
+- 前置き・あいさつ・まとめの文は書かない
+- 英語・絵文字・記号（★ ※ → など）・マークダウンは使わない。人名・物の名前は入力の表記のまま
+- 【書類から分かっていること（参考）】が付いているときは、メモと関係する配慮や安全にかかわること（服薬・発作・アレルギー・苦手な刺激など）だけを、
+  書類の言葉のまま「（書類）」を付けて足してよい。メモと同じことは足さない。診断名を並べたり、医学的な判断を足したりしない
 - 返すのは箇条書きだけ"""
 
-    DETAIL_PROMPT = """あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
-職員が話した言葉（療育の場面のようす・気づき・その子について気をつけること）を、
-あとから読んだ職員が場面を思い浮かべられるように、**詳しく**整理して書き直します。
-
-【形（必ず守る）】
+    DETAIL_PROMPT = f"""あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
+職員が話した言葉（療育の場面のようす・気づき・その子について気をつけること）を、場面ごとに分けて書き直します。
+あとから読んだ職員が、話した人が言ったとおりに場面を思い浮かべられるようにします。
+{AS_IS_RULES}
+【形】
 【概要】
-（全体を1〜2文で）
+（話の中で全体について言ったことがあるときだけ、その言葉で1〜2文。無ければこの見出しごと書かない）
 
 【場面や活動の名前】
-・小見出し：内容を1〜3文で
-・小見出し：内容
-（場面・活動・部屋ごとに【】の見出しを分ける。話に出てきた順に並べる）
-
-【全体のまとめ】
-（全体の経過・変化を1〜3文で）
+・小見出し：話した内容を書き言葉で
+・小見出し：話した内容を書き言葉で
+（場面・活動・部屋ごとに【】の見出しを分ける。話に出てきた順に並べる。小見出しは話に出てきた言葉を使う）
 
 【気をつけること】
-・（話の中で職員が「気をつける」「〜するとよい」「苦手」などと言ったことだけ。無ければこの見出しごと書かない）
+・（話の中で職員が「気をつける」「〜するとよい」「苦手」などと言ったことだけ、その内容のまま。無ければこの見出しごと書かない）
 
 【書き方】
-- 子どもの言葉・職員の声かけは「」で、話したとおりに残す（例：「出して」と模倣した）
-- 何をしたら・どうなったか（促し → 反応）が分かるように書く。回数や順番も話にあれば残す
-- 常体（〜した。〜する。）で書く。敬語・あいさつ・前置きは書かない
-- 話に無いことは足さない。推測や評価のことば（「成長が見られた」など）は、話した人が言ったときだけ書く
-- 「えー」「あの」などの言いよどみ、言い直し、同じ話のくり返しは除く
-- 常用漢字とひらがな・カタカナで書く。英語・絵文字・マークダウン（# や ** ）は使わない。見出しは【】、項目は「・」だけを使う
-- 返すのは整理した文だけ"""
+- 子どもの言葉・職員の声かけは「」で、話したとおりに残す
+- 何をしたら・どうなったか、回数や順番も、話にあればそのまま残す
+- 文末は「〜した」「〜だった」の断定の形。敬語・あいさつ・前置き・全体のまとめや感想は書かない
+- 英語・絵文字・マークダウン（# や ** ）は使わない。見出しは【】、項目は「・」だけを使う
+- 返すのは書き直した文だけ"""
+
+    TIDY_PROMPT = f"""あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
+職員が話した言葉（音声入力の文字）を、読める書き言葉の文章に整えるだけの作業をします。箇条書き・見出し・要約にはしません。
+{AS_IS_RULES}
+【整え方（これ以外はしない）】
+- 上の約束のとおり、言いよどみ・くだけた言葉を消し、文末を断定の形にする
+- 句読点（、。）を付け、話の区切りで改行する。話した順のまま
+- 漢字・かなの変換の誤り（音声入力の聞き違い）は、前後から明らかなときだけ直す。分からないときはそのまま
+- 文を短くしたり、まとめたり、内容を言いかえたりしない（直すのは言葉づかいだけ）
+- 前置き・あいさつ・まとめの文・見出し・箇条書き・英語・絵文字・マークダウンは使わない
+- 返すのは整えた文だけ"""
+
+    # 音声入力を今日の記録へ直接入れるとき（Facility.therapy_voice_direct）：整文だけ＋やったこと・事実・様子に分ける
+    RECORD_PROMPT = f"""あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
+職員がその日の療育について話した言葉（音声入力の文字）を、読める書き言葉に整え、「やったこと」を抜き出します。要約はしません。
+{AS_IS_RULES}
+【整え方】
+- 上の約束のとおり、言いよどみ・くだけた言葉を消し、文末を断定の形にする。句読点を付ける。話した順のまま
+- 漢字・かなの変換の誤り（音声入力の聞き違い）は、前後から明らかなときだけ直す
+- 文を短くしたり、まとめたり、内容を言いかえたりしない。話したことは1文も落とさない
+
+【分け方】
+- activities：話に出てきた「やったこと（活動・遊び・課題）」の名前。話に出てきた言葉のまま短く（例：ウレタン棒、ブロック）。出てきた順に5つまで。無ければ空
+- body（記録）：整えた文を全部、話した順のまま 1 つの記録にする（したこと・子どもの様子・言ったこと（「」でそのまま）を分けない）
+
+【返し方】
+次の形の JSON だけを返す（前置き・説明・マークダウンは付けない）：
+{{"activities": ["…"], "body": "…"}}"""
 
     def post(self, request, pk):
         beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
         text = request.POST.get('text', '').strip()
-        detail = request.POST.get('mode') == 'detail'
+        mode = request.POST.get('mode')
+        detail = mode == 'detail'
         if not text:
             return JsonResponse({'error': '留意点が空です。先に音声入力か文字で入れてください。'}, status=400)
-        if detail:
+        if mode == 'record':
+            return self.record(beneficiary, text)
+        refs, reference = 0, ''
+        if mode == 'tidy':      # 整文だけ：書類の内容は混ぜない
+            raw, error = _ask_ai(self.TIDY_PROMPT, f'【{beneficiary.full_name}さんについて職員が話したこと】\n{text[:CAUTIONS_MAX]}', 4096)
+        elif detail:     # 話したことの整理なので、書類の内容は混ぜない
             raw, error = _ask_ai(self.DETAIL_PROMPT, f'【{beneficiary.full_name}さんについて職員が話したこと】\n{text[:CAUTIONS_MAX]}', 4096)
         else:
-            raw, error = _ask_ai(self.SYSTEM_PROMPT, f'【{beneficiary.full_name}さんについてのメモ】\n{text[:CAUTIONS_MAX]}', 1024)
+            reference, refs = knowledge_context(beneficiary, text)
+            content = f'【{beneficiary.full_name}さんについてのメモ】\n{text[:CAUTIONS_MAX]}' + (f'\n\n{reference}' if reference else '')
+            raw, error = _ask_ai(self.SYSTEM_PROMPT, content, 1024)
         if error:
             return error
-        result = tidy_sections(raw) if detail else self.tidy(raw)
+        if mode == 'tidy':
+            result = re.sub(r'\n{3,}', '\n\n', clean_ai_text(raw)).strip()
+        else:
+            result = tidy_sections(raw) if detail else self.tidy(raw)
         if not result:
             return JsonResponse({'error': 'AIの返答が空でした。もう一度お試しください。'}, status=500)
-        return JsonResponse({'result': result[:CAUTIONS_MAX]})
+        result = result[:CAUTIONS_MAX]
+        # 原文（と参考にした書類）に無い助言・評価の言い回しがあれば知らせる
+        return JsonResponse({'result': result, 'references': refs, **asis.check(text + '\n' + reference, result)})
+
+    def record(self, beneficiary, text):
+        """話した言葉 → {'activities', 'body', 'situation'}（整文だけ。書類の内容は混ぜない）。分けられなければ全部を body に"""
+        raw, error = _ask_ai(self.RECORD_PROMPT, f'【{beneficiary.full_name}さんの今日の療育について職員が話したこと】\n{text[:CAUTIONS_MAX]}', 4096)
+        if error:
+            return error
+        data = parse_record_split(raw)
+        # 記録は 1 つにまとめる（2026-10-14 ゆあーず）：様子に分けて返ってきても記録の後ろに足す
+        if data['situation']:
+            data['body'] = (data['body'] + '\n' + data['situation']).strip()
+            data['situation'] = ''
+        if not (data['body'] or data['activities']):
+            return JsonResponse({'error': 'AIの返答が空でした。もう一度お試しください。'}, status=500)
+        return JsonResponse({**data, **asis.check(text, data['body'])})
 
     @staticmethod
     def tidy(raw):
@@ -369,6 +538,34 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
             if line:
                 lines.append(f'・{line}')
         return '\n'.join(lines)
+
+
+def parse_record_split(raw):
+    """AI の返答（JSON）→ {'activities': [5つまで], 'body', 'situation'}。JSON で返らなかったときは、整えた文として全部を body に"""
+    import json
+    text = (raw or '').strip()
+    m = re.search(r'\{.*\}', text, re.S)
+    data = None
+    if m:
+        try:
+            data = json.loads(m.group(0))
+        except ValueError:
+            data = None
+    if not isinstance(data, dict):
+        body = re.sub(r'\n{3,}', '\n\n', clean_ai_text(text)).strip()
+        return {'activities': [], 'body': body[:4000], 'situation': ''}
+
+    def clean(value):
+        return re.sub(r'\n{3,}', '\n\n', clean_ai_text(str(value or ''))).strip()[:4000]
+    acts = data.get('activities') or []
+    if isinstance(acts, str):
+        acts = re.split(r'[、,\n]', acts)
+    activities = []
+    for a in acts:
+        a = clean_ai_text(str(a or ''), keep_newlines=False).strip().lstrip('・-①②③④⑤ ').strip()[:100]
+        if a and a not in activities:
+            activities.append(a)
+    return {'activities': activities[:ACTIVITY_MAX], 'body': clean(data.get('body')), 'situation': clean(data.get('situation'))}
 
 
 class CautionsFigureView(TherapyEnabledMixin, View):
@@ -393,32 +590,33 @@ class CautionsFigurePrintView(TherapyEnabledMixin, View):
                       {'beneficiary': beneficiary, 'profile': profile, 'fig': fig, 'facility': request.user.facility})
 
 
-RECORD_SUMMARY_MIN = 100   # 「記録」に足す文の長さ（文字）
-RECORD_SUMMARY_MAX = 500
+RECORD_SUMMARY_MAX = 500   # 「記録」に足す文の長さ（文字）の上限。短いぶんには足さない
 
 
 class RecordSummaryView(TherapyEnabledMixin, View):
     """
-    「記録を追加する」の補助。留意点を、その日のやったこと（①〜⑤）に照らして 100〜500 字の文にまとめて返す。
-    画面では「記録」の欄の末尾に足すだけで、保存は職員が「追加する」を押して行う。
+    「記録を追加する」の補助。留意点のうち、その日のやったこと（①〜⑤）に関係するところを、留意点の言葉のまま 500 字以内で返す。
+    画面では「記録」の欄の末尾に足し、そのまま保存する（あとから「直す」で直せる）。
     """
 
     SYSTEM_PROMPT = f"""あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
-その子の「留意点」（療育のときに職員が気をつけること）を、今日の「やったこと（活動）」に照らしてまとめ、
-療育記録の「記録」の欄に書く文を作ります。
-
-【内容】
-- 留意点のうち、今日の活動に関係するものを選び、どの活動でどう気をつけるかが分かるように書く
-- 活動の名前は入力の表記のまま使う（①②などの番号は付けない）
-- 今日の活動に関係しない留意点は、大事なもの（安全・体調にかかわること）だけ短く添える
+その子の「留意点」（療育のときに職員が気をつけること）から、今日の「やったこと（活動）」に関係するところを選び、
+療育記録の「記録」の欄に足す文を作ります。
+{AS_IS_RULES}
+【選び方】
+- 留意点のうち、今日の活動に関係するものを選ぶ。今日の活動に関係しないものは、安全・体調にかかわることだけ選ぶ
 - 「記録（書きかけ）」があれば読んで、そこに書いてあることは繰り返さない
 
-【書き方（必ず守る）】
-- {RECORD_SUMMARY_MIN}字以上{RECORD_SUMMARY_MAX}字以内の、です・ます を使わない文（「〜に留意して取り組む。」「〜のため、〜する。」のような常体）
-- 箇条書き・見出し・前置き・あいさつは書かない。段落は1〜3つ
-- 入力にある事実だけを使う。子どものようす・反応・できたこと・結果は入力に無いので書かない（推測しない）
-- 入力に無い対応方法や一般論を足さない。留意点が短いときは、無理に長くせず{RECORD_SUMMARY_MIN}字に近い長さでよい
-- 常用漢字とひらがな・カタカナで書く。英語・絵文字・記号（★ ※ → など）・マークダウンは使わない
+【書き方】
+- 1つの活動につき1段落。段落は「活動名：」で始め、その活動に関係する留意点の内容をそのまま続ける（活動名は入力の表記のまま。①②などの番号は付けない）
+- 文末は「〜する」「〜だった」などの断定の形。「です・ます」は使わない
+- 安全・体調にかかわることは、最後の段落に「全体：」で始めて、留意点の言葉のまま書く
+- 留意点の文と文をつなぐための言葉（「〜に留意して取り組む」「〜のため、〜する」など）や、まとめの文を足さない
+- 子どものようす・反応・できたこと・結果は入力に無いので書かない
+- 全体で{RECORD_SUMMARY_MAX}字以内。留意点が短ければ短いままでよい（長くするために言葉を足さない）
+- 【書類から分かっていること（参考）】が付いているときは、今日の活動に関係する配慮（感覚の特性・服薬・発作・体調など）だけを、
+  書類の言葉のまま「（書類）」を付けて使ってよい。診断名を並べたり医学的な判断を加えたりしない
+- 箇条書き・見出し・前置き・あいさつ・英語・絵文字・記号（★ ※ → など）・マークダウンは使わない
 - 返すのは記録に書く文だけ"""
 
     def post(self, request, pk):
@@ -441,13 +639,17 @@ class RecordSummaryView(TherapyEnabledMixin, View):
             + '【今日のやったこと】\n' + '\n'.join(f'・{a}' for a in activities)
             + (f'\n\n【記録（書きかけ）】\n{body[:2000]}' if body else '')
         )
+        reference, refs = knowledge_context(beneficiary, '\n'.join(activities) + '\n' + cautions + '\n' + body)
+        if reference:
+            content += f'\n\n{reference}'
         raw, error = _ask_ai(self.SYSTEM_PROMPT, content, 2048)
         if error:
             return error
         result = self.tidy(raw)
         if not result:
             return JsonResponse({'error': 'AIの返答が空でした。もう一度お試しください。'}, status=500)
-        return JsonResponse({'result': result, 'length': len(result.replace('\n', ''))})
+        return JsonResponse({'result': result, 'length': len(result.replace('\n', '')), 'references': refs,
+                             **asis.check('\n'.join([cautions, body, reference or '']), result)})
 
     @staticmethod
     def tidy(raw):

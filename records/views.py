@@ -20,6 +20,7 @@ from esignatures.models import EsignatureRecord
 from facilities.models import Facility, SupportContentTag
 from schedules.models import ScheduledVisit
 from .models import DailyRecord, ActivityTag, DailyRecordPhoto, PaperScan, RecordTemplate, StaffMemo
+from . import questions
 from facilities.context_processors import get_terms
 from ai_assist import trial
 from ai_assist.text import JAPANESE_RULES, clean_ai_dict, clean_ai_text, effort_kwargs
@@ -176,6 +177,9 @@ class RecordsDashboardView(LoginRequiredMixin, TemplateView):
 
         # スタッフメモ（新しい順に20件）
         memos = StaffMemo.objects.filter(facility=facility).select_related('author')[:20]
+        # 書いていない日誌（きのうまで 14 日ぶん）の件数
+        from . import unwritten
+        unwritten_count = len(unwritten.collect(facility, today))
 
         ctx.update({
             'week_info':     week_info,
@@ -186,6 +190,82 @@ class RecordsDashboardView(LoginRequiredMixin, TemplateView):
             'next_week':     (week_start + timedelta(days=7)).isoformat(),
             'beneficiaries': beneficiaries,
             'memos':         memos,
+            'unwritten_count': unwritten_count,
+        })
+        return ctx
+
+
+class UnwrittenListView(LoginRequiredMixin, TemplateView):
+    """
+    書いていない日誌の一覧（records/unwritten.py）。来所したのに日誌が無い・下書きのままの利用者を、新しい日から出す。
+    ?days=7|14|30|60 でさかのぼる日数、?draft=0 で下書きのままを除く
+    """
+    template_name = 'records/unwritten.html'
+
+    def get_context_data(self, **kwargs):
+        from . import unwritten
+        ctx = super().get_context_data(**kwargs)
+        facility = self.request.user.facility
+        days = to_int(self.request.GET.get('days')) or unwritten.DEFAULT_DAYS
+        if days not in unwritten.DAY_CHOICES:
+            days = unwritten.DEFAULT_DAYS
+        include_draft = self.request.GET.get('draft', '1') != '0'
+        today = date.today()
+        rows = unwritten.collect(facility, today, days=days, include_draft=include_draft)
+        ctx.update({
+            'today': today, 'days': days, 'day_choices': unwritten.DAY_CHOICES, 'include_draft': include_draft,
+            'rows': rows, 'groups': unwritten.by_date(rows),
+            'none_count': sum(1 for r in rows if r.state == unwritten.STATE_NONE),
+            'draft_count': sum(1 for r in rows if r.state == unwritten.STATE_DRAFT),
+            'since': today - timedelta(days=days),
+        })
+        return ctx
+
+
+def _can_mark_example(user):
+    """「良い記録の例」に選べる人：管理者・児発管"""
+    return bool(user.is_superuser or user.is_admin or user.is_child_dev_manager)
+
+
+class GoodExampleView(LoginRequiredMixin, View):
+    """日誌を「良い記録の例」にする／外す（管理者・児発管）。確定した日誌だけ"""
+
+    def post(self, request, pk):
+        record = get_object_or_404(DailyRecord, pk=pk, facility=request.user.facility)
+        back = f'/records/{record.beneficiary_id}/?selected={record.pk}'
+        if not _can_mark_example(request.user):
+            messages.error(request, '良い記録の例を選べるのは管理者・児発管だけです。')
+            return redirect(back)
+        if request.POST.get('action') == 'remove':
+            record.is_good_example, record.good_example_note = False, ''
+            messages.success(request, '良い記録の例から外しました。')
+        elif record.status != DailyRecord.STATUS_CONFIRMED:
+            messages.error(request, '良い記録の例にできるのは確定した日誌だけです。')
+            return redirect(back)
+        else:
+            record.is_good_example = True
+            record.good_example_note = request.POST.get('note', '').strip()[:200]
+            messages.success(request, '良い記録の例にしました。「記録の例」の画面に名前を伏せて出ます。')
+        record.save(update_fields=['is_good_example', 'good_example_note', 'updated_at'])
+        return redirect(back)
+
+
+class ExamplesView(LoginRequiredMixin, TemplateView):
+    """良い記録の例（標準の例と、事業所が選んだ日誌）と、確定の前のチェックの項目"""
+    template_name = 'records/examples.html'
+
+    def get_context_data(self, **kwargs):
+        from . import quality
+        ctx = super().get_context_data(**kwargs)
+        facility = self.request.user.facility
+        sections = facility.journal_section_keys()
+        ctx.update({
+            'examples': sorted([e for e in quality.EXAMPLES if e['key'] in sections], key=lambda e: sections.index(e['key'])),
+            'facility_examples': quality.facility_examples(facility),
+            'rules': quality.active_rules(facility),
+            'min_chars': quality.min_chars(facility),
+            'can_mark_example': _can_mark_example(self.request.user),
+            'is_admin': self.request.user.is_admin or self.request.user.is_superuser,
         })
         return ctx
 
@@ -204,6 +284,7 @@ class StaffMemoCreateView(LoginRequiredMixin, View):
                 author=request.user,
                 content=content,
             )
+            messages.success(request, 'メモを保存しました。')
         return redirect('records:dashboard')
 
 
@@ -289,6 +370,18 @@ class DailyRecordListView(LoginRequiredMixin, TemplateView):
                 selected_addon_ids = applied_addon_ids(facility, beneficiary, selected_record.date)
                 selected_addons = [r for r in facility_addon_rows(facility, addon_type='individual') if r.pk in selected_addon_ids]
 
+        from . import quality
+        ctx['journal_check'] = quality.check_config(facility)
+        ctx['journal_check_json'] = json.dumps(ctx['journal_check'], ensure_ascii=False)
+        ctx['required_missing'] = quality.missing(quality.values_of(selected_record), facility) if selected_record else []
+        ctx['can_mark_example'] = _can_mark_example(self.request.user)
+        if questions.enabled(facility):          # 共通の質問・個別の質問（ウィズユー藤森）
+            ctx['questions_on'] = True
+            ctx['question_rows_new'] = questions.blank_rows(beneficiary)
+            ctx['question_rows_edit'] = questions.with_labels(questions.rows_for(selected_record)) if selected_record else []
+            ctx['question_rows_saved'] = questions.with_labels(questions.clean(selected_record.question_answers)) if selected_record else []
+            ctx['question_stats'] = questions.level_stats(beneficiary, facility)
+            ctx['question_answers'] = questions.ANSWERS
         ctx.update({
             'beneficiary':     beneficiary,
             'records':         records,
@@ -362,10 +455,11 @@ class DailyRecordListView(LoginRequiredMixin, TemplateView):
 # =============================================
 # LINE送信ヘルパー（作成・更新ビュー共用）
 # =============================================
-def _send_line_for_record(request, record):
+def _send_line_for_record(request, record, auto=False):
     """
     保存済みの日誌レコードに対してLINE Push Messageを送信する。
     保護者未連携やトークン未設定の場合は警告メッセージを表示して処理を続ける（例外はraiseしない）。
+    auto=True は「確定したら自動で送る」（施設設定 line_auto_send）からの呼び出し：送信ずみの日誌には二重に送らない
     """
     from linebot.v3.messaging import (
         ApiClient, Configuration, MessagingApi,
@@ -374,9 +468,16 @@ def _send_line_for_record(request, record):
     from line_integration.models import LineDeliveryLog
 
     facility = request.user.facility
+    head = 'LINE の自動送信：' if auto else ''
 
+    if not record.beneficiary.line_send_journal:
+        messages.info(request, f'{head}{record.beneficiary.full_name}さんは「日誌を LINE で送らない」設定なので送っていません（利用者情報で変えられます）。')
+        return
+    if auto and LineDeliveryLog.objects.filter(daily_record=record, is_success=True).exists():
+        messages.info(request, f'{head}この日誌は送信ずみなので送っていません（もう一度送るときは「LINE送信」）。')
+        return
     if not record.parent_message_draft:
-        messages.warning(request, 'メッセージが空のためLINE送信をスキップしました。')
+        messages.warning(request, f'{head}メッセージが空のためLINE送信をスキップしました。')
         return
 
     guardian = (
@@ -384,11 +485,11 @@ def _send_line_for_record(request, record):
         or record.beneficiary.guardians.filter(line_linked=True).first()
     )
     if not guardian:
-        messages.warning(request, f'{record.beneficiary.full_name}様の保護者がLINE未連携のため送信できませんでした。')
+        messages.warning(request, f'{head}{record.beneficiary.full_name}様の保護者がLINE未連携のため送信できませんでした。')
         return
 
     if not facility.line_channel_access_token:
-        messages.warning(request, 'LINEチャネルアクセストークンが未設定のため送信できませんでした。')
+        messages.warning(request, f'{head}LINEチャネルアクセストークンが未設定のため送信できませんでした。')
         return
 
     send_text = (
@@ -419,9 +520,49 @@ def _send_line_for_record(request, record):
         error_message=error_message,
     )
     if is_success:
-        messages.success(request, f'{guardian}へLINEメッセージを送信しました。')
+        messages.success(request, f'{head}{guardian}へLINEメッセージを送信しました。')
     else:
-        messages.error(request, f'LINE送信に失敗しました：{error_message}')
+        messages.error(request, f'{head}LINE送信に失敗しました：{error_message}')
+
+
+def _level_up(request, record):
+    """共通の質問・個別の質問（records/questions.py）：目安に届いたら個別の質問のレベルを上げて知らせる"""
+    level = questions.check_level_up(record.beneficiary, request.user.facility)
+    if level:
+        messages.success(request, f'{record.beneficiary.full_name} さんの個別の質問を、レベル {level} に上げました'
+                                  '（直近の記録で「はい」が目安を超えました）。次の日誌から新しい質問が出ます。')
+
+
+def _enforce_required(request, record):
+    """
+    確定の前のチェック（records/quality.py）：確定で保存したのに施設設定の必須項目が足りなければ、下書きに戻して知らせる。
+    戻り値は下書きに戻したか
+    """
+    from . import quality
+    if record.status != DailyRecord.STATUS_CONFIRMED:
+        return False
+    lack = quality.missing(quality.values_of(record), request.user.facility)
+    if not lack:
+        return False
+    record.status = DailyRecord.STATUS_DRAFT
+    record.save(update_fields=['status', 'updated_at'])
+    messages.warning(request, '確定の前のチェック：次の項目が足りないので、下書きで保存しました（入れてから「確定」で保存してください）。'
+                              + '／'.join(lack))
+    return True
+
+
+def _auto_send_line(request, record, was_confirmed):
+    """
+    施設設定「日誌を確定したら保護者へ LINE を自動で送る」：この保存で下書き→確定になった（または確定で新しく作った）ときだけ送る。
+    確定のまま直しただけの保存では送らない。戻り値は送ろうとしたか
+    """
+    facility = request.user.facility
+    if not (facility.use_line and facility.line_auto_send):
+        return False
+    if record.status != DailyRecord.STATUS_CONFIRMED or was_confirmed:
+        return False
+    _send_line_for_record(request, record, auto=True)
+    return True
 
 
 def _suggest_addons_after_save(record):
@@ -488,6 +629,8 @@ class DailyRecordCreateView(LoginRequiredMixin, View):
             'parent_message_draft':    p.get('parent_message_draft', ''),
             'status':                  p.get('status', DailyRecord.STATUS_DRAFT),
         }
+        if 'q_count' in p and questions.enabled(facility):
+            defaults['question_answers'] = questions.from_post(p)
 
         # 同じ日の日誌がすでにある（他の職員が先に作った）ときは黙って上書きしない
         existing = DailyRecord.objects.filter(beneficiary=beneficiary, date=date).first()
@@ -522,10 +665,14 @@ class DailyRecordCreateView(LoginRequiredMixin, View):
 
         messages.success(request, f'{date} の日誌を保存しました。')
         _suggest_addons_after_save(record)
+        _enforce_required(request, record)       # 必須項目が足りなければ下書きに戻す（LINE も送らない）
+        _level_up(request, record)
 
-        # 「保存してLINE送信」ボタンが押された場合
+        # 「保存してLINE送信」ボタンが押された場合。そうでなければ、確定にしたときの自動送信（施設設定）
         if p.get('send_line') == '1' and record.status == DailyRecord.STATUS_CONFIRMED:
             _send_line_for_record(request, record)
+        else:
+            _auto_send_line(request, record, was_confirmed=existing is not None and existing.status == DailyRecord.STATUS_CONFIRMED)
 
         return redirect(safe_next(request, p.get('next', ''), f'/records/{beneficiary_pk}/?selected={record.pk}'))
 
@@ -551,6 +698,7 @@ class DailyRecordUpdateView(LoginRequiredMixin, View):
             record.author_id = author_pk
         elif not author_pk:
             pass  # 空の場合は変更しない
+        was_confirmed = record.status == DailyRecord.STATUS_CONFIRMED
         record.record_kind             = _record_kind(request, record.beneficiary, record.record_kind)
         if record.record_kind == DailyRecord.KIND_SEVERE:
             record.severe_care = clean_severe_care(p)
@@ -578,6 +726,8 @@ class DailyRecordUpdateView(LoginRequiredMixin, View):
         record.reaction_text           = p.get('reaction_text', '')
         record.parent_message_draft    = p.get('parent_message_draft', '')
         record.status                  = p.get('status', record.status)
+        if 'q_count' in p and questions.enabled(facility):
+            record.question_answers = questions.from_post(p)
         record.save()
 
         # 自施設のタグIDのみ受け付ける
@@ -596,6 +746,9 @@ class DailyRecordUpdateView(LoginRequiredMixin, View):
 
         messages.success(request, '日誌を更新しました。')
         _suggest_addons_after_save(record)
+        _enforce_required(request, record)       # 必須項目が足りなければ下書きに戻す（LINE も送らない）
+        _level_up(request, record)
+        _auto_send_line(request, record, was_confirmed)      # 下書き → 確定にしたときの自動送信（施設設定）
         return redirect(f'/records/{record.beneficiary_id}/?selected={record.pk}')
 
 
@@ -688,13 +841,50 @@ class AiGenerateAllView(LoginRequiredMixin, View):
         'parent_message': ('parent_message', '保護者向けメッセージ（100〜150字・温かみのある表現で今日の様子を伝える）'),
     }
 
+    # 分量（記録の3つの文を合わせた字数の目安）。0 はいつもの長さ（上の ITEM_SPECS のまま）
+    LENGTHS = (0, 200, 300, 400)
+    LENGTH_SHARE = {'observation': 0.4, 'support': 0.35, 'reaction': 0.25}
+    PARENT_LENGTH = {200: (100, 150), 300: (120, 180), 400: (150, 200)}
+    LENGTH_TEXT = {'observation': ('活動内容・観察記録', '事実に基づき客観的に'),
+                   'support': ('支援内容の記録', 'どのような支援をしたか具体的に'),
+                   'reaction': ('本人の反応・変化の記録', '言動や表情など具体的に')}
+
     @classmethod
-    def build_prompt(cls, keys):
+    def item_specs(cls, length=0):
+        """分量を選んだときは、3つの文に字数を割り振る（合わせて約 length 字）。保護者向けは少しだけ長くする"""
+        if length not in cls.PARENT_LENGTH:
+            return cls.ITEM_SPECS
+        out = dict(cls.ITEM_SPECS)
+        for key, share in cls.LENGTH_SHARE.items():
+            n = round(length * share / 10) * 10
+            label, note = cls.LENGTH_TEXT[key]
+            out[key] = (key, f'{label}（{n - 10}〜{n + 10}字が目安・{note}）')
+        lo, hi = cls.PARENT_LENGTH[length]
+        out['parent_message'] = ('parent_message', f'保護者向けメッセージ（{lo}〜{hi}字が目安・温かみのある表現で今日の様子を伝える）')
+        return out
+
+    @staticmethod
+    def keyword_count(memo):
+        """メモの言葉の数（空白・読点・改行で区切ったもの）。キーワードで書いたかの目安"""
+        import re as _re
+        return len([w for w in _re.split(r'[\s、,，・/／]+', memo or '') if w])
+
+    @classmethod
+    def build_prompt(cls, keys, length=0):
         """施設で決めた項目を、優先順位の順に並べた JSON の形で指示する"""
-        keys = [k for k in keys if k in cls.ITEM_SPECS] or list(cls.ITEM_SPECS)
-        lines = ',\n'.join(f'  "{cls.ITEM_SPECS[k][0]}": "{cls.ITEM_SPECS[k][1]}"' for k in keys)
+        specs = cls.item_specs(length)
+        keys = [k for k in keys if k in specs] or list(specs)
+        lines = ',\n'.join(f'  "{specs[k][0]}": "{specs[k][1]}"' for k in keys)
         order = '、'.join(f'{i + 1}. {Facility.JOURNAL_SECTION_LABELS[k]}' for i, k in enumerate(keys))
-        return cls.SYSTEM_PROMPT.replace('{ITEMS}', lines).replace('{COUNT}', str(len(keys))).replace('{ORDER}', order)
+        prompt = cls.SYSTEM_PROMPT.replace('{ITEMS}', lines).replace('{COUNT}', str(len(keys))).replace('{ORDER}', order)
+        if length in cls.PARENT_LENGTH:
+            prompt = prompt.replace('【日本語の書き方', cls.LENGTH_RULE.replace('{LEN}', str(length)) + '\n\n【日本語の書き方', 1)
+        return prompt
+
+    LENGTH_RULE = """【分量とキーワード】
+- 観察・支援・反応の3つの文を合わせて、約{LEN}字を目安にする（各項目の字数は上の目安）
+- メモは職員のキーワード（2〜4個のことが多い）。キーワードとタグにある事実だけを使って、文としてつなげる
+- キーワードに無い出来事・子どもの言葉・表情・回数・時間を作らない。材料が少なく目安の字数に届かないときは、短いままでよい（飾りの言葉や一般論で長くしない）"""
 
     SYSTEM_PROMPT = """あなたは放課後等デイサービスの記録専門AIアシスタントです。
 職員のメモ書きと選択されたタグをもとに、{COUNT}種類の記録文章を生成してください。「して下さいました」などの過剰な敬語は不要です。
@@ -712,6 +902,11 @@ class AiGenerateAllView(LoginRequiredMixin, View):
     def post(self, request):
         memo = request.POST.get('memo', '').strip()
         tags = request.POST.get('tags', '').strip()
+        try:
+            length = int(request.POST.get('length') or 0)
+        except ValueError:
+            length = 0
+        length = length if length in self.LENGTHS else 0
 
         if not memo:
             return JsonResponse({'error': 'メモを入力してから生成してください。'}, status=400)
@@ -729,7 +924,7 @@ class AiGenerateAllView(LoginRequiredMixin, View):
                 model=settings.AI_TEXT_MODEL,
                 max_tokens=2048,
                 **effort_kwargs(settings.AI_TEXT_MODEL),
-                system=self.build_prompt(request.user.facility.journal_text_keys()),
+                system=self.build_prompt(request.user.facility.journal_text_keys(), length),
                 messages=[{'role': 'user', 'content': user_content}],
             )
             trial.use(request.user.facility)
@@ -745,6 +940,8 @@ class AiGenerateAllView(LoginRequiredMixin, View):
                 raise json.JSONDecodeError('object expected', raw, 0)
             out = clean_ai_dict(data, ('observation', 'support', 'reaction', 'parent_message'))
             out['order'] = request.user.facility.journal_text_keys()
+            if length and self.keyword_count(memo) < 2:
+                out['warning'] = 'キーワードが 1 つだけだと、材料が足りず文が短くなります（キーワードに無いことは書きません）。2〜4 個入れると、ちょうどよい長さになります。'
             return JsonResponse(out)
         except json.JSONDecodeError:
             logger.warning('AI一括生成の返答がJSONでない: %r', raw[:200] if 'raw' in locals() else None)

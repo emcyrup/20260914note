@@ -537,6 +537,20 @@ class ApplyMessageTests(TestCase):
         self.assertFalse(handled)   # 職員が確かめる
         self.assertEqual(Reservation.objects.count(), 0)
 
+    def test_customer_without_assigned_children_cannot_touch_any_child(self):
+        # 顧客台帳に登録しただけ（担当の利用者がまだ無い）の人は、名前を書いても予約・取り消しできない（職員が確かめる）
+        services.create_reservation(self.f, self.b, self.day)
+        stranger = Customer.objects.create(facility=self.f, name='知らない人', line_user_id='U9')
+        handled, _ = services.apply_message(self.f, f'{self.md(self.day)} 井上みなと キャンセル',
+                                            customer=stranger, today=self.today)
+        self.assertFalse(handled)
+        self.assertTrue(Reservation.objects.filter(beneficiary=self.b, date=self.day,
+                                                   status__in=Reservation.ACTIVE_STATUSES).exists())
+        handled, _ = services.apply_message(self.f, f'{(self.day + D(days=1)).month}/{(self.day + D(days=1)).day} 井上みなと 予約',
+                                            customer=stranger, today=self.today)
+        self.assertFalse(handled)
+        self.assertFalse(Reservation.objects.filter(beneficiary=self.b, date=self.day + D(days=1)).exists())
+
     def test_message_without_a_date_is_left_to_staff(self):
         handled, _ = services.apply_message(self.f, '来週あたり予約したいです',
                                             customer=self.customer, today=self.today)

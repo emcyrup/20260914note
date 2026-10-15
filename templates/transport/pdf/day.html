@@ -1,0 +1,26 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}配車表 {{ day|date:'Y/n/j' }}{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'transport:day' %}?d={{ day|date:'Y-m-d' }}">配車表の画面へ戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .hd { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 6px; }
+  .hd .d { font-size: 15px; font-weight: 700; }
+  .hd .f { font-size: 10px; color: #444; }
+  h2 { font-size: 12.5px; margin: 10px 0 4px; letter-spacing: .1em; }
+  h2 .n { font-weight: 400; font-size: 10px; margin-left: 8px; }
+  table.tr th, table.tr td { font-size: 10px; padding: 4px 5px; }
+  table.tr td.c { text-align: center; }
+  .cnt { font-size: 9.5px; color: #333; margin: 2px 0 4px; }
+  .cnt .over { color: #c33; font-weight: 700; }
+  .note { font-size: 9px; color: #555; }
+  .empty { font-size: 10px; color: #666; padding: 4px 0; }
+</style>
+<div class="hd">
+  <div class="d">配車表　{{ day|date:'Y年n月j日' }}（{{ weekday }}）</div>
+  <div class="f">{{ facility.name }}</div>
+</div>
+{% for direction, dlabel in directions %}
+{% if direction == 'pickup' %}{% with rows=board.pickup counts=board.counts.pickup active=board.pickup_active %}{% include 'transport/pdf/_table.html' %}{% endwith %}
+{% else %}{% with rows=board.dropoff counts=board.counts.dropoff active=board.dropoff_active %}{% include 'transport/pdf/_table.html' %}{% endwith %}{% endif %}
+{% endfor %}
+{% endblock %}

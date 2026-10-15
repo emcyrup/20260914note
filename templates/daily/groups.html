@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block title %}クラスの活動{% endblock %}
+{% block page_title %}クラスの活動{% endblock %}
+{% block extra_css %}{% include 'daily/_style.html' %}
+<style>
+  .grp { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line, #e5e1d8); flex-wrap: wrap; }
+  .grp:first-of-type { border-top: 0; }
+  .grp-name { font-weight: 700; font-size: 1.02rem; text-decoration: none; color: inherit; }
+  .mem-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 10px; max-height: 260px; overflow: auto; border: 1px solid var(--line, #e5e1d8); border-radius: 8px; padding: 6px 10px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <div class="dl-card">
+    <div class="dl-h mb-1">クラス（小集団）</div>
+    <div class="small text-muted mb-2">クラスごとに週間の活動計画（ねらい・活動・準備物）を立て、当日は全体の様子と一人ずつのひとことを書いて、参加した子の療育記録にまとめて写せます。</div>
+    {% for g in groups %}
+    <div class="grp">
+      <span class="dl-dot" style="background:{{ g.color }};"></span>
+      <a href="{% url 'daily:group_week' g.pk %}" class="grp-name">{{ g.name }}</a>
+      <span class="small text-muted">{{ g.weekdays_label|default:'曜日未設定' }}{% if g.start_time %}・{{ g.start_time|time:'G:i' }}〜{% endif %}・メンバー {{ g.members.all|length }} 人{% if not g.is_active %}・<b>使っていない</b>{% endif %}</span>
+      <div class="ms-auto d-flex gap-2 flex-wrap">
+        {% if g.meets_today or g.today_session %}<a href="{% url 'daily:session' g.pk today|date:'Y-m-d' %}" class="btn btn-sm btn-primary"><i class="bi bi-pencil-square me-1"></i>きょうの記録{% if g.today_session.applied_at %} <i class="bi bi-check2-circle"></i>{% endif %}</a>{% endif %}
+        <a href="{% url 'daily:group_week' g.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-calendar-week me-1"></i>週間の計画</a>
+        <a href="?edit={{ g.pk }}#form" class="btn btn-sm btn-outline-secondary"><i class="bi bi-gear"></i></a>
+      </div>
+    </div>
+    {% empty %}<div class="small text-muted py-2">まだクラスがありません。下から作ってください。</div>{% endfor %}
+  </div>
+
+  {% for g in groups %}{% if g.pk == edit %}{% include 'daily/_group_form.html' with g=g %}{% endif %}{% endfor %}
+  {% if not edit %}{% include 'daily/_group_form.html' with g=None %}{% endif %}
+</div>
+{% endblock %}

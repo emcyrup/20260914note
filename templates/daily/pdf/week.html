@@ -1,0 +1,26 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}{{ group.name }} 週間の活動計画{% endblock %}
+{% block page_orientation %}landscape{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'daily:group_week' group.pk %}?d={{ monday|date:'Y-m-d' }}">週間の計画へ戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .hd { display: flex; justify-content: space-between; align-items: flex-end; font-size: 10.5px; margin-bottom: 6px; }
+  table.wk td, table.wk th { font-size: 10px; padding: 4px 5px; }
+  table.wk td.l { background: #eef1f5; font-weight: 700; width: 64px; text-align: center; }
+  table.wk ol { margin: 0; padding-left: 14px; }
+  .mem { font-size: 9.5px; margin-top: 6px; }
+</style>
+<h1>週間の活動計画　{{ group.name }}</h1>
+<div class="hd"><div>{{ monday|date:'Y年n月j日' }}（月）〜</div><div>{{ facility.name }}</div></div>
+<table class="wk">
+  <thead><tr><th style="width:64px;"></th>{% for d in days %}<th>{{ d.date|date:'n/j' }}（{{ d.weekday }}）</th>{% endfor %}</tr></thead>
+  <tbody>
+    <tr><td class="l">ねらい</td>{% for d in days %}<td>{{ d.session.aim|default:'' }}</td>{% endfor %}</tr>
+    <tr><td class="l">活動</td>{% for d in days %}<td style="height:120px;">{% if d.session.activity_list %}<ol>{% for a in d.session.activity_list %}<li>{{ a }}</li>{% endfor %}</ol>{% endif %}</td>{% endfor %}</tr>
+    <tr><td class="l">準備物</td>{% for d in days %}<td style="height:50px;">{{ d.session.materials|default:'' }}</td>{% endfor %}</tr>
+    <tr><td class="l">担当</td>{% for d in days %}<td>{{ d.session.staff_name|default:'' }}</td>{% endfor %}</tr>
+    <tr><td class="l">振り返り</td>{% for d in days %}<td style="height:70px;">{{ d.session.body|default:''|truncatechars:160 }}</td>{% endfor %}</tr>
+  </tbody>
+</table>
+<div class="mem">メンバー：{% for m in members %}{{ m.full_name }}{% if not forloop.last %}・{% endif %}{% endfor %}</div>
+{% endblock %}

@@ -4,7 +4,8 @@
 雛形（template_xlsx）：1行目が見出し「氏名 / 希望回数 / 書き方 / 1 / 2 / … / 31」、2行目が曜日（休業日は網掛け）、
 3行目から利用者ごとに1行。日付の列には
   - 書き方が「○」のとき：終日なら「○」（または「終日」）、時刻を絞るなら「10,11」のように時（数字）を「,」区切りで
-  - 書き方が「ダメな日」のとき：来られない日に「×」（それ以外の日はどの枠でも可能）
+  - 書き方が「ダメな日」のとき：来られない日に「×」。来られる日のうち希望があれば「○」や「10,11」も書ける
+    （○の無い日はどの枠でも可能）
 氏名は台帳の名前と照らして決める（姓だけでもよい）。読み取った結果は利用希望として直接保存する（入口「ファイルから」）。
 """
 import datetime
@@ -62,7 +63,7 @@ def template_xlsx(facility, year, month, setting=None):
     ws.append([])
     ws.append(['書き方の説明'])
     ws.append(['「書き方」が ○ のとき：日付の列に、終日なら ○、時刻を絞るなら 10,11 のように時を「,」で区切って書く（網掛けはお休み）'])
-    ws.append(['「書き方」が ダメな日 のとき：来られない日の列に × を書く（それ以外の日はどの枠でも可能として予定を組む）'])
+    ws.append(['「書き方」が ダメな日 のとき：来られない日の列に × を書く。来られる日のうち希望の時刻があれば ○ や 10,11 も書ける（○の無い日はどの枠でも可能として予定を組む）'])
     ws.append(['氏名は姓だけでも構いません。希望回数は数字だけを書いてください'])
     ws.freeze_panes = 'D3'
     buf = io.BytesIO()
@@ -130,7 +131,7 @@ def parse_rows(rows, facility, year, month, setting=None):
                 day = datetime.date(year, month, day_no)
             except ValueError:
                 continue
-            if mode == MonthlyRequest.WISH_NG:
+            if mode == MonthlyRequest.WISH_NG and cell in NG_WORDS:
                 ng.append(day.isoformat())
                 continue
             if services.is_closed(facility, day, setting, closed):

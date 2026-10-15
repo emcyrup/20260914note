@@ -1,6 +1,8 @@
 import datetime
+import json
+from unittest import mock
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 # Create your tests here.
 
@@ -9,14 +11,14 @@ from django.urls import reverse
 
 from accounts.models import StaffAccount
 from facilities.models import Facility
-from .models import Beneficiary, BeneficiaryOffice
+from .models import Beneficiary, BeneficiaryOffice, Guardian
 
 
 class BeneficiaryOfficeTests(TestCase):
     """利用事業所（上限管理事業所のフラグ）と重身フラグ"""
 
     def setUp(self):
-        self.facility = Facility.objects.create(name='はぴねす', office_number='2650000001')
+        self.facility = Facility.objects.create(name='はびりす', office_number='2650000001')
         self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility)
         self.client.force_login(self.user)
         self.ben = Beneficiary.objects.create(
@@ -26,7 +28,7 @@ class BeneficiaryOfficeTests(TestCase):
     def test_add_office_and_manager_flag_is_unique(self):
         url = reverse('beneficiaries:office_create', args=[self.ben.pk])
         self.client.post(url, {'name': 'ひまわり', 'office_number': '2650000101', 'is_manager': 'on', 'order': 1})
-        self.client.post(url, {'name': 'はぴねす', 'is_this_office': 'on', 'is_manager': 'on', 'order': 0})
+        self.client.post(url, {'name': 'はびりす', 'is_this_office': 'on', 'is_manager': 'on', 'order': 0})
         offices = list(self.ben.offices.all())
         self.assertEqual(len(offices), 2)
         managers = [o for o in offices if o.is_manager]
@@ -193,11 +195,17 @@ class BeneficiaryDocumentTests(TestCase):
         self.client.post(self.url, {'files': [self.up('契約書.jpg', png, 'image/jpeg')], 'title': '契約書 2026'})
         d = BeneficiaryDocument.objects.get(file_name='契約書.jpg')
         self.assertEqual(d.label, '契約書 2026')
+        # 名前を変える（元のファイル名は残る）
+        res = self.client.post(reverse('beneficiaries:document_rename', args=[self.kid.pk, d.pk]), {'title': '契約書（2026年度）'}, follow=True)
+        self.assertContains(res, '書類の名前を「契約書（2026年度）」にしました')
+        d.refresh_from_db()
+        self.assertEqual((d.label, d.file_name), ('契約書（2026年度）', '契約書.jpg'))
+        self.assertContains(res, 'doc-rename-btn')
         self.assertTrue(d.file.name.startswith('beneficiary_documents/'))
         self.assertEqual(self.client.get(d.file.url).status_code, 200)
         # 削除
         res = self.client.post(reverse('beneficiaries:document_delete', args=[self.kid.pk, d.pk]), follow=True)
-        self.assertContains(res, '「契約書 2026」を削除しました')
+        self.assertContains(res, '「契約書（2026年度）」を削除しました')
         self.assertFalse(BeneficiaryDocument.objects.filter(pk=d.pk).exists())
         # 空・大きすぎ
         res = self.client.post(self.url, {}, follow=True)
@@ -332,15 +340,17 @@ class BeneficiaryImportTests(TestCase):
         res = self.client.post(self.url, {'file': self.xlsx(rows)})
         self.assertContains(res, '2. 確かめる（まだ登録していません）')
         self.assertContains(res, '新規 1')
-        self.assertContains(res, '書き換え 1')
+        self.assertContains(res, '台帳にいる 1')
         self.assertContains(res, '読めない行 2')
         self.assertContains(res, '新しく登録します（保護者・受給者証 も）')
-        self.assertContains(res, '同じ姓・名・生年月日の利用者がいるので書き換えます')
+        self.assertContains(res, 'すでに台帳にいます')
+        self.assertContains(res, '台帳の空欄に入れる：利用予定曜日')
+        self.assertContains(res, '台帳の値を残す')
         self.assertContains(res, '姓が空です')
         self.assertContains(res, '日付を読み取れません')
         self.assertEqual(Beneficiary.objects.filter(facility=self.f).count(), 1)     # まだ登録していない
         res = self.client.post(self.url, {'action': 'commit'}, follow=True)
-        self.assertContains(res, '新規 1 名・書き換え 1 名（読めなかった行 2 件は登録していません）')
+        self.assertContains(res, '新規 1 名・台帳にいた人 1 名（台帳の値を残し、空欄だけ埋めました）（読めなかった行 2 件は登録していません）')
         self.assertEqual(Beneficiary.objects.filter(facility=self.f).count(), 2)
         taro = Beneficiary.objects.get(facility=self.f, last_name='山田')
         self.assertEqual((taro.gender, taro.address, taro.weekday_mon, taro.weekday_wed, taro.weekday_tue, taro.has_prior_records),
@@ -354,7 +364,7 @@ class BeneficiaryImportTests(TestCase):
         # もう一度同じファイル → 全部「書き換え」、件数は増えない。受給者証も増えない
         res = self.client.post(self.url, {'file': self.xlsx(rows)})
         self.assertContains(res, '新規 0')
-        self.assertContains(res, '書き換え 2')
+        self.assertContains(res, '台帳にいる 2')
         self.client.post(self.url, {'action': 'commit'})
         self.assertEqual(Beneficiary.objects.filter(facility=self.f).count(), 2)
         self.assertEqual(taro.recipient_certificates.count(), 1)
@@ -474,7 +484,7 @@ class GuardianListImportTests(TestCase):
         res = self.client.post(self.url, {'file': f, 'create_children': '1'})
         self.assertContains(res, '児童も新しく作る 1')
         self.assertContains(res, '仮の生年月日 2000-01-01 で新しく作ります')
-        res = self.client.post(self.url, {'action': 'commit', 'create_children': '1'}, follow=True)
+        res = self.client.post(self.url, {'action': 'commit', 'create_children': '1', 'mode': 'overwrite'}, follow=True)
         self.assertContains(res, '保護者 2 件（新しく作った児童 1 名）')
         jiro = Beneficiary.objects.get(facility=self.f, last_name='鈴木', first_name='次郎')
         self.assertEqual(jiro.date_of_birth.isoformat(), '2000-01-01')
@@ -544,3 +554,1266 @@ class CsvVariantsImportTests(TestCase):
         tsv = '\t'.join(importer.GUARDIAN_HEADERS) + '\n' + line.replace(',', '\t') + '\n'
         res = self.client.post(self.url, {'file': self.up('保護者一覧.txt', tsv.encode('utf-16'))})
         self.assertContains(res, '台帳の児童に付ける 1')
+
+
+class ChildrenListImportTests(TestCase):
+    """前のシステムの「児童一覧」（見出しなし・15列・1行が契約1件）の取り込み"""
+
+    ROWS = [
+        ['山田 花子', 'ヤマダ ハナコ', '000010', '山田 太郎', 'ヤマダ タロウ', '男', '2018/4/2', '', '退所', '2023/4/1', '2025/3/31', '利用中', '2025/4/1', '', '利用なし'],
+        ['山田 花子', 'ヤマダ ハナコ', '000011', '山田 太郎', 'ヤマダ タロウ', '男', '2018/4/2', '', '利用なし', '', '', '退所', '2021/1/1', '2022/3/31', '利用なし'],
+        ['山田 花子', 'ヤマダ ハナコ', '000012', '山田 花', 'ヤマダ ハナ', '女', '2020/5/5', '', '退所', '2024/4/1', '2025/3/31', '利用なし', '', '', '利用なし'],
+        ['佐藤 花子', 'サトウ ハナコ', '000013', '佐藤 花', 'サトウ ハナ', '女', '2020/5/5', '', '利用中', '2025/4/1', '', '利用なし', '', '', '利用なし'],
+    ]
+
+    def setUp(self):
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU)
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.url = reverse('beneficiaries:import')
+
+    @staticmethod
+    def csv(rows, enc='cp932', name='児童一覧.csv'):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        text = '\r\n'.join(','.join(r) for r in rows) + '\r\n'
+        return SimpleUploadedFile(name, text.encode(enc))
+
+    def test_rows_are_grouped_per_child(self):
+        from . import importer
+        rows = importer.rows_from_file(self.csv(self.ROWS))
+        self.assertEqual(importer.format_of(rows), importer.FORMAT_CHILDREN)
+        self.assertEqual([(r['last_name'], r['first_name']) for r in rows], [('山田', '太郎'), ('山田', '花'), ('佐藤', '花')])
+        taro, hana, sato = rows
+        self.assertEqual((taro['status'], taro['admission_date'], taro['discharge_date']), ('在籍中', '2021/1/1', ''))
+        self.assertEqual((taro['last_name_kana'], taro['first_name_kana'], taro['guardian_kana']), ('やまだ', 'たろう', 'やまだ はなこ'))
+        self.assertEqual((taro['guardian_last_name'], taro['guardian_first_name'], taro['gender']), ('山田', '花子', '男'))
+        self.assertIn('管理番号 000010 児童発達支援 退所 2023/4/1〜2025/3/31', taro['notes_append'])
+        self.assertIn('管理番号 000010 放課後等デイ 利用中 2025/4/1〜', taro['notes_append'])
+        self.assertIn('管理番号 000011 放課後等デイ 退所 2021/1/1〜2022/3/31', taro['notes_append'])
+        self.assertEqual((hana['status'], hana['admission_date'], hana['discharge_date']), ('退所', '2024/4/1', '2025/3/31'))
+        self.assertIn('姓だけ違う', hana['_detail'])
+        self.assertIn('佐藤 花', hana['_detail'])
+        self.assertIn('山田 花', sato['_detail'])
+
+    def test_header_row_and_utf8_are_accepted(self):
+        from . import importer
+        header = ['保護者', 'カナ', '番号', '児童', 'カナ', '性別', '生年月日', '', '児発', '開始', '終了', '放デイ', '開始', '終了', '他']
+        rows = importer.rows_from_file(self.csv([header] + self.ROWS, enc='utf-8', name='list.csv'))
+        self.assertEqual(importer.format_of(rows), importer.FORMAT_CHILDREN)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0]['_line'], 2)
+
+    HEADER17 = ['保護者（名前）', '保護者（カナ）', '管理番号', '児童（名前）', '児童（カナ）', '性別', '生年月日', '備考',
+                '児発状態', '児発利用契約日', '児発退所日', '放デイ状態', '放デイ利用契約日', '放デイ退所日', '保訪状態', '保訪利用契約日', '保訪退所日']
+
+    def test_header_17_columns_with_note_and_visit_support(self):
+        """見出し付き 17 列（ゆあーずの書式）。保護者（名前）があっても保護者一覧ではなく児童一覧として読む"""
+        from . import importer
+        rows = [self.HEADER17,
+                ['山田 花子', 'ヤマダ ハナコ', '20', '山田 太郎', 'ヤマダ タロウ', '男', '2018/4/2', '卵アレルギー',
+                 '', '', '', '利用中', '2025/4/1', '', '利用中', '2025/6/1', ''],
+                ['', '', '21', '佐藤 花', 'サトウ ハナ', '女', '2019/5/5', '', '退所', '2023/4/1', '2025/3/31', '', '', '', '', '', ''],
+                ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']]
+        data = importer.rows_from_file(self.csv(rows, enc='cp932', name='児童.csv'))
+        self.assertEqual(importer.format_of(data), importer.FORMAT_CHILDREN)
+        self.assertEqual(len(data), 2)
+        taro, hana = data
+        self.assertEqual((taro['status'], taro['admission_date']), ('在籍中', '2025/4/1'))
+        self.assertIn('管理番号 20 保育所等訪問支援 利用中 2025/6/1〜', taro['notes_append'])
+        self.assertIn('備考：卵アレルギー', taro['notes_append'])
+        self.assertEqual((hana['status'], hana['discharge_date']), ('退所', '2025/3/31'))
+        self.assertNotIn('guardian_last_name', hana)
+        res = self.client.post(self.url, {'file': self.csv(rows, name='児童.csv')})
+        self.assertContains(res, '新規 2')
+        self.client.post(self.url, {'action': 'commit'})
+        taro = Beneficiary.objects.get(facility=self.f, last_name='山田')
+        self.assertIn('備考：卵アレルギー', taro.notes)
+        self.assertEqual(taro.guardians.get().full_name, '山田 花子')
+
+    def test_existing_child_keep_or_overwrite(self):
+        """台帳にいる子：違う値は「残す」「上書き」を選べる。台帳の空欄はどちらでも埋める"""
+        import datetime
+        rows = [self.HEADER17,
+                ['山田 花子', 'ヤマダ ハナコ', '20', '山田 太郎', 'ヤマダ タロウ', '男', '2018/4/2', '',
+                 '', '', '', '利用中', '2025/4/1', '', '', '', '']]
+        b = Beneficiary.objects.create(facility=self.f, last_name='山田', first_name='太郎', date_of_birth=datetime.date(2018, 4, 2),
+                                       last_name_kana='やまもと', first_name_kana='', gender='male')
+        res = self.client.post(self.url, {'file': self.csv(rows)})
+        self.assertContains(res, '台帳にいる 1')
+        self.assertContains(res, '台帳と違う値')
+        self.assertContains(res, 'ふりがな（姓）：台帳「やまもと」／取り込み「やまだ」')
+        self.assertContains(res, '台帳の空欄に入れる：ふりがな（名）')
+        self.assertContains(res, 'name="mode" value="keep"')
+        self.client.post(self.url, {'action': 'commit', 'mode': 'keep'})
+        b.refresh_from_db()
+        self.assertEqual((b.last_name_kana, b.first_name_kana, b.admission_date), ('やまもと', 'たろう', datetime.date(2025, 4, 1)))
+        self.client.post(self.url, {'file': self.csv(rows)})
+        self.client.post(self.url, {'action': 'commit', 'mode': 'overwrite'})
+        b.refresh_from_db()
+        self.assertEqual(b.last_name_kana, 'やまだ')
+        self.assertEqual(Beneficiary.objects.filter(facility=self.f).count(), 1)
+
+    def test_preview_and_commit_twice(self):
+        import datetime
+        res = self.client.post(self.url, {'file': self.csv(self.ROWS)})
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, '児童一覧')
+        self.assertContains(res, '放課後等デイ 利用中（2025/4/1〜）')
+        self.assertContains(res, '姓だけ違う')
+        res = self.client.post(self.url, {'action': 'commit'}, follow=True)
+        self.assertContains(res, '新規 3 名')
+        taro = Beneficiary.objects.get(facility=self.f, last_name='山田', first_name='太郎')
+        self.assertEqual((taro.status, taro.admission_date, taro.discharge_date, taro.gender),
+                         ('active', datetime.date(2021, 1, 1), None, 'male'))
+        self.assertEqual((taro.last_name_kana, taro.first_name_kana), ('やまだ', 'たろう'))
+        self.assertEqual(taro.notes.count('管理番号 000010'), 2)
+        self.assertTrue(taro.has_prior_records)
+        g = taro.guardians.get()
+        self.assertEqual((g.last_name, g.first_name, g.kana, g.relation, g.is_primary), ('山田', '花子', 'やまだ はなこ', 'other', True))
+        hana = Beneficiary.objects.get(facility=self.f, last_name='山田', first_name='花')
+        self.assertEqual((hana.status, hana.discharge_date), ('inactive', datetime.date(2025, 3, 31)))
+        # もう一度読ませても増えない。備考も二重にならない
+        self.client.post(self.url, {'file': self.csv(self.ROWS)})
+        res = self.client.post(self.url, {'action': 'commit'}, follow=True)
+        self.assertContains(res, '台帳にいた人 3 名')
+        self.assertEqual(Beneficiary.objects.filter(facility=self.f).count(), 3)
+        taro.refresh_from_db()
+        self.assertEqual(taro.notes.count('管理番号 000010'), 2)
+        self.assertEqual(taro.guardians.count(), 1)
+
+    def test_standard_format_status_and_discharge(self):
+        import datetime
+        from . import importer
+        header = ','.join(['姓', '名', '生年月日', '在籍状況', '退所日', '保護者 姓', '保護者 名', '保護者 ふりがな'])
+        f = self.csv([header.split(','), ['山田', '太郎', '2018-04-02', '退所', '2025-03-31', '山田', '花子', 'やまだ はなこ']], enc='utf-8', name='a.csv')
+        rows = importer.rows_from_file(f)
+        self.assertEqual(importer.format_of(rows), importer.FORMAT_BENEFICIARY)
+        importer.apply(self.f, importer.plan(self.f, rows))
+        taro = Beneficiary.objects.get(facility=self.f, last_name='山田', first_name='太郎')
+        self.assertEqual((taro.status, taro.discharge_date), ('inactive', datetime.date(2025, 3, 31)))
+        self.assertEqual(taro.guardians.get().kana, 'やまだ はなこ')
+        f = self.csv([['姓', '名', '生年月日', '在籍状況'], ['山田', '太郎', '2018-04-02', '在籍中']], enc='utf-8', name='b.csv')
+        importer.apply(self.f, importer.plan(self.f, importer.rows_from_file(f)))
+        taro.refresh_from_db()
+        self.assertEqual((taro.status, taro.discharge_date), ('active', None))
+        f = self.csv([['姓', '名', '生年月日', '在籍状況'], ['山田', '太郎', '2018-04-02', '通所中']], enc='utf-8', name='c.csv')
+        planned = importer.plan(self.f, importer.rows_from_file(f))
+        self.assertEqual(planned[0]['action'], 'error')
+        self.assertIn('在籍状況', planned[0]['detail'])
+
+
+class KnowledgeTests(TestCase):
+    """診断書などを AI で読み取り → 確認して保存・台帳に反映 → 療育記録の AI が参考にする（RAG）"""
+
+    READ = {
+        'kind': '診断書', 'title': '診断書', 'doc_date': '2026-04-10', 'issuer': 'こども発達クリニック',
+        'name_on_doc': '青木 子', 'birth_on_doc': '2019-04-01', 'diagnosis': '自閉スペクトラム症', 'severe': 'no',
+        'summary': '自閉スペクトラム症と診断。聴覚過敏があり、大きな音で混乱しやすい。',
+        'support_points': ['大きな音の出る活動では、イヤーマフを使う', '予定の変更は絵カードで前もって伝える'],
+        'medical_notes': ['てんかんの薬（朝夕）を服用している'],
+        'full_text': '診断名：自閉スペクトラム症\n所見：聴覚過敏が強く、太鼓や掃除機の音で耳をふさぐ。トランポリンなど揺れる遊びは好む。\n'
+                     '保険証番号：（書かない）',
+        'unreadable': '',
+    }
+
+    def setUp(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        from .models import BeneficiaryDocument
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', last_name_kana='あおき',
+                                              first_name_kana='こ', date_of_birth=datetime.date(2019, 4, 1))
+        self.doc = BeneficiaryDocument.objects.create(beneficiary=self.kid, file_name='診断書.pdf',
+                                                      file=SimpleUploadedFile('shindan.pdf', b'%PDF-1.4 test'))
+
+    def _mock_response(self, data, stop='end_turn'):
+        from types import SimpleNamespace
+        return SimpleNamespace(stop_reason=stop, content=[SimpleNamespace(type='text', text=json.dumps(data, ensure_ascii=False))])
+
+    def _read(self, client_cls, data=None):
+        client_cls.return_value.messages.create.return_value = self._mock_response(data or self.READ)
+        return self.client.post(reverse('beneficiaries:knowledge_read', args=[self.kid.pk]),
+                                {'source': 'document', 'source_pk': self.doc.pk})
+
+    @mock.patch('beneficiaries.knowledge.anthropic.Anthropic')
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    def test_reflect_switch_starts_unchecked(self, client_cls):
+        # ゆあーず（Facility.knowledge_reflect）：「療育記録に反映する」の言い方で、読み取った直後は印なし（2026-10-13）
+        from .models import BeneficiaryKnowledge
+        Facility.objects.filter(pk=self.f.pk).update(knowledge_reflect=True)
+        self._read(client_cls)
+        k = BeneficiaryKnowledge.objects.get()
+        self.assertFalse(k.use_in_ai)
+        page = self.client.get(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]))
+        self.assertContains(page, '療育記録に反映する</label>')
+        self.assertContains(page, '基本は反映しません')
+        self.assertNotContains(page, 'name="use_in_ai" value="1" checked')
+        self.assertNotContains(page, 'で参考にする</label>')
+        # 留意点に足す：画面には出さず、印ありのまま送る
+        self.assertNotContains(page, '「留意点」に足す')
+        self.assertContains(page, '<input type="hidden" name="apply_cautions" value="1">')
+        self.assertContains(page, 'name="cautions_add" value="')
+        res = self.client.post(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]),
+                               {'action': 'save', 'summary': k.summary, 'points': k.points, 'text': k.text,
+                                'apply_cautions': '1', 'cautions_add': k.proposals['cautions_add']['text']}, follow=True)
+        self.assertContains(res, '療育記録には反映しません')
+        self.assertContains(res, '台帳に反映：留意点')
+        from therapy.models import TherapyProfile
+        self.assertIn('イヤーマフ', TherapyProfile.objects.get(beneficiary=self.kid).cautions)
+        k.refresh_from_db()
+        self.assertEqual((k.status, k.use_in_ai), ('saved', False))
+        detail = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
+        self.assertContains(detail, '療育記録に反映しない</span>')
+        self.assertContains(detail, '>療育記録に反映する</button>')
+        self.assertNotContains(detail, 'AIの参考')
+        res = self.client.post(reverse('beneficiaries:knowledge_toggle', args=[self.kid.pk, k.pk]), follow=True)
+        self.assertContains(res, '療育記録に反映します')
+        k.refresh_from_db()
+        self.assertTrue(k.use_in_ai)
+
+    @mock.patch('beneficiaries.knowledge.anthropic.Anthropic')
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    def test_read_review_save_and_apply(self, client_cls):
+        from therapy.models import TherapyProfile
+        from .models import BeneficiaryKnowledge
+        TherapyProfile.objects.create(beneficiary=self.kid, cautions='・予定の変更は絵カードで前もって伝える')
+        res = self._read(client_cls)
+        k = BeneficiaryKnowledge.objects.get()
+        self.assertRedirects(res, reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]))
+        kwargs = client_cls.return_value.messages.create.call_args.kwargs
+        block = kwargs['messages'][0]['content'][0]
+        self.assertEqual((block['type'], block['source']['media_type']), ('document', 'application/pdf'))
+        self.assertEqual(kwargs['output_config']['format']['type'], 'json_schema')
+        self.assertIn('青木 子さん', kwargs['messages'][0]['content'][1]['text'])
+        # 確認待ち：台帳はまだ変わらない。反映案（留意点はすでにある項目を除く）
+        self.assertEqual(k.status, 'draft')
+        self.assertEqual(k.proposals['disability_type'], {'current': '', 'new': '自閉スペクトラム症', 'checked': True})
+        self.assertNotIn('is_severe', k.proposals)
+        self.assertIn('てんかんの薬', k.proposals['notes_add']['text'])
+        self.assertIn('イヤーマフ', k.proposals['cautions_add']['text'])
+        self.assertNotIn('絵カード', k.proposals['cautions_add']['text'])
+        self.assertEqual(k.proposals['warnings'], [])
+        self.kid.refresh_from_db()
+        self.assertEqual(self.kid.disability_type, '')
+        page = self.client.get(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]))
+        self.assertContains(page, '確認待ち')
+        self.assertContains(page, '障害種別を書き換える')
+        self.assertContains(page, '療育記録の「留意点」に足す')
+        self.assertContains(page, 'name="apply_assessment"')
+        detail = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
+        self.assertContains(detail, '確認待ち')
+        # ほかの事業所はこれまでどおり：「療育記録の AI で参考にする」が初めから印あり
+        self.assertTrue(k.use_in_ai)
+        self.assertContains(page, '療育記録の AI（留意点の要約・記録の文）で参考にする</label>')
+        self.assertContains(page, 'name="use_in_ai" value="1" checked')
+        # 保存：印を付けたもの（障害種別・留意点）だけ反映。備考は印なし
+        res = self.client.post(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]), {
+            'action': 'save', 'kind': '診断書', 'title': '診断書', 'doc_date': '2026-04-10', 'issuer': 'こども発達クリニック',
+            'summary': k.summary, 'points': k.points, 'text': k.text, 'use_in_ai': '1',
+            'apply_disability_type': '1', 'disability_type': '自閉スペクトラム症',
+            'notes_add': k.proposals['notes_add']['text'],
+            'apply_cautions': '1', 'cautions_add': k.proposals['cautions_add']['text'],
+            'apply_assessment': '1',
+        }, follow=True)
+        self.assertContains(res, '台帳に反映：障害種別・留意点・アセスメント・資料')
+        # アセスメント・資料にも 1 件（書類のファイルを写して付ける）
+        a = self.kid.assessments.get()
+        self.assertEqual((a.kind, a.title, str(a.date), a.file_name), ('medical', '診断書', '2026-04-10', '診断書.pdf'))
+        self.assertIn('聴覚過敏', a.content)
+        self.assertIn('【支援で気をつけること】', a.content)
+        self.assertIn('発行元：こども発達クリニック', a.content)
+        self.assertTrue(a.file and a.file.name != self.doc.file.name and a.file.storage.exists(a.file.name))
+        self.kid.refresh_from_db()
+        self.assertEqual((self.kid.disability_type, self.kid.notes), ('自閉スペクトラム症', ''))
+        self.assertIn('イヤーマフ', TherapyProfile.objects.get(beneficiary=self.kid).cautions)
+        k.refresh_from_db()
+        self.assertEqual((k.status, k.applied, k.use_in_ai), ('saved', ['障害種別', '留意点', 'アセスメント・資料'], True))
+        self.assertGreaterEqual(k.chunks.count(), 3)
+        detail = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
+        self.assertContains(detail, '書類から分かっていること')
+        self.assertContains(detail, '読み取り済み')
+        self.assertContains(detail, 'AIの参考')
+        # 同じ書類を読み直して保存すると入れ替わる
+        self._read(client_cls)
+        k2 = BeneficiaryKnowledge.objects.get(status='draft')
+        self.client.post(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k2.pk]),
+                         {'action': 'save', 'summary': 'x', 'points': '', 'text': '', 'use_in_ai': '1'})
+        self.assertEqual(list(BeneficiaryKnowledge.objects.values_list('pk', flat=True)), [k2.pk])
+
+    @mock.patch('beneficiaries.knowledge.anthropic.Anthropic')
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    def test_warnings_discard_and_errors(self, client_cls):
+        from .models import BeneficiaryKnowledge
+        self._read(client_cls, dict(self.READ, name_on_doc='山田 花子', birth_on_doc='2018-01-01', severe='yes'))
+        k = BeneficiaryKnowledge.objects.get()
+        self.assertEqual(len(k.proposals['warnings']), 2)
+        self.assertEqual(k.proposals['is_severe'], {'checked': True})
+        page = self.client.get(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]))
+        self.assertContains(page, '別のお子さまの書類でないか')
+        res = self.client.post(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]), {'action': 'discard'}, follow=True)
+        self.assertContains(res, '読み取り結果を消しました')
+        self.assertFalse(BeneficiaryKnowledge.objects.exists())
+        # AI が断った・長すぎた
+        client_cls.return_value.messages.create.return_value = self._mock_response({}, stop='refusal')
+        res = self.client.post(reverse('beneficiaries:knowledge_read', args=[self.kid.pk]),
+                               {'source': 'document', 'source_pk': self.doc.pk}, follow=True)
+        self.assertContains(res, 'AI がこの書類を読み取れませんでした')
+        client_cls.return_value.messages.create.return_value = self._mock_response({}, stop='max_tokens')
+        res = self.client.post(reverse('beneficiaries:knowledge_read', args=[self.kid.pk]),
+                               {'source': 'document', 'source_pk': self.doc.pk}, follow=True)
+        self.assertContains(res, 'ページを分けて')
+        self.assertFalse(BeneficiaryKnowledge.objects.exists())
+
+    def test_readable_types_and_other_facility(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        from . import knowledge
+        from .models import BeneficiaryDocument
+        self.assertTrue(knowledge.is_readable('a.PDF'))
+        self.assertTrue(knowledge.is_readable('a.jpeg'))
+        self.assertFalse(knowledge.is_readable('a.xlsx'))
+        heic = BeneficiaryDocument.objects.create(beneficiary=self.kid, file_name='a.heic', file=SimpleUploadedFile('a.heic', b'x'))
+        with override_settings(ANTHROPIC_API_KEY='test-key'):
+            res = self.client.post(reverse('beneficiaries:knowledge_read', args=[self.kid.pk]),
+                                   {'source': 'document', 'source_pk': heic.pk}, follow=True)
+        self.assertContains(res, 'HEIC')
+        with override_settings(ANTHROPIC_API_KEY=''):
+            res = self.client.post(reverse('beneficiaries:knowledge_read', args=[self.kid.pk]),
+                                   {'source': 'document', 'source_pk': self.doc.pk}, follow=True)
+        self.assertContains(res, 'ANTHROPIC_API_KEY')
+        other = Facility.objects.create(name='ほか', layout=Facility.LAYOUT_RYOIKU)
+        StaffAccount.objects.create_user('oth', password='pw12345678', facility=other, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='oth', password='pw12345678')
+        res = self.client.post(reverse('beneficiaries:knowledge_read', args=[self.kid.pk]), {'source': 'document', 'source_pk': self.doc.pk})
+        self.assertEqual(res.status_code, 404)
+
+    def test_context_for_only_this_child_and_relevant_passages(self):
+        from . import knowledge
+        from .models import BeneficiaryKnowledge
+        other = Beneficiary.objects.create(facility=self.f, last_name='井上', first_name='太郎', date_of_birth=datetime.date(2018, 5, 1))
+        k = BeneficiaryKnowledge.objects.create(beneficiary=self.kid, use_in_ai=True, kind='診断書', title='診断書', issuer='こども発達クリニック',
+                                                summary='聴覚過敏がある。', points='・大きな音の活動ではイヤーマフを使う',
+                                                text=self.READ['full_text'] + '\n' + 'その他の記載。' * 80, status='saved')
+        knowledge.reindex(k)
+        BeneficiaryKnowledge.objects.create(beneficiary=other, kind='診断書', title='井上の書類', summary='別の子', status='saved')
+        BeneficiaryKnowledge.objects.create(beneficiary=self.kid, kind='その他', title='確認待ち', summary='まだ', status='draft')
+        text, n = knowledge.context_for(self.kid, '太鼓あそび トランポリン')
+        self.assertEqual(n, 1)
+        self.assertIn('書類から分かっていること', text)
+        self.assertIn('イヤーマフ', text)
+        self.assertIn('太鼓や掃除機の音', text)          # 今日の活動に関係しそうな記載
+        self.assertNotIn('井上', text)
+        self.assertNotIn('確認待ち', text)
+        self.assertLessEqual(len(text), knowledge.CONTEXT_MAX + 80)
+        k.use_in_ai = False
+        k.save()
+        self.assertEqual(knowledge.context_for(self.kid, '太鼓'), ('', 0))
+
+
+@override_settings(ANTHROPIC_API_KEY='test-key')
+class KnowledgeInTherapyAiTests(TestCase):
+    """療育記録の AI（留意点の要約・記録の文）に、その子の書類から分かっていることが渡る"""
+
+    def setUp(self):
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        from . import knowledge
+        from .models import BeneficiaryKnowledge
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        k = BeneficiaryKnowledge.objects.create(beneficiary=self.kid, use_in_ai=True, kind='診断書', title='診断書', summary='聴覚過敏がある。',
+                                                points='・大きな音の活動ではイヤーマフを使う', text='太鼓の音で耳をふさぐ。', status='saved')
+        knowledge.reindex(k)
+
+    def _ai(self, client_cls, text):
+        from types import SimpleNamespace
+        client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(type='text', text=text)])
+
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_record_summary_and_cautions_get_reference(self, client_cls):
+        self._ai(client_cls, '太鼓あそびでは聴覚過敏との所見があるため、イヤーマフを使って取り組む。' * 3)
+        res = self.client.post(reverse('therapy:record_summary', args=[self.kid.pk]),
+                               {'cautions': '・音に敏感', 'activity_1': '太鼓あそび', 'date': '2026-10-02'})
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['references'], 1)
+        kwargs = client_cls.return_value.messages.create.call_args.kwargs
+        self.assertIn('【書類から分かっていること（参考。職員が確かめて登録したもの）】', kwargs['messages'][0]['content'])
+        self.assertIn('イヤーマフ', kwargs['messages'][0]['content'])
+        self.assertIn('太鼓の音で耳をふさぐ', kwargs['messages'][0]['content'])
+        self.assertIn('医学的な判断を加えたりしない', kwargs['system'])
+        # 留意点の「短く要約」も参考にする。「詳しくまとめる」は話したことの整理なので使わない
+        self._ai(client_cls, '・音に敏感\n・大きな音の活動ではイヤーマフを使う')
+        res = self.client.post(reverse('therapy:cautions_summary', args=[self.kid.pk]), {'text': '音に敏感'})
+        self.assertEqual(res.json()['references'], 1)
+        self.assertIn('イヤーマフ', client_cls.return_value.messages.create.call_args.kwargs['messages'][0]['content'])
+        res = self.client.post(reverse('therapy:cautions_summary', args=[self.kid.pk]), {'text': '音に敏感', 'mode': 'detail'})
+        self.assertEqual(res.json()['references'], 0)
+        self.assertNotIn('書類から分かっていること', client_cls.return_value.messages.create.call_args.kwargs['messages'][0]['content'])
+        page = self.client.get(reverse('therapy:child', args=[self.kid.pk]))
+        self.assertContains(page, '書類から分かっていること</a>（1 件')
+
+
+class RyoikuConflictTests(TestCase):
+    """アセスメント・資料と、書類から分かっていることの修正の競合"""
+
+    def setUp(self):
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+
+    def test_assessment_and_knowledge(self):
+        from config.concurrency import version_token
+        from .models import BeneficiaryAssessment, BeneficiaryKnowledge
+        a = BeneficiaryAssessment.objects.create(beneficiary=self.kid, date=datetime.date(2026, 9, 1), title='面談', content='もと')
+        opened = version_token(a)
+        detail = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
+        self.assertContains(detail, f'data-concurrency="beneficiary_assessment:{a.pk}" data-concurrency-lazy')
+        a.content = '他の職員'
+        a.save()
+        url = reverse('beneficiaries:assessment_update', args=[self.kid.pk, a.pk])
+        res = self.client.post(url, {'date': '2026-09-01', 'title': '面談', 'kind': 'assessment', 'content': 'わたし', 'version': opened}, follow=True)
+        self.assertContains(res, '他の職員が')
+        a.refresh_from_db()
+        self.assertEqual(a.content, '他の職員')
+        k = BeneficiaryKnowledge.objects.create(beneficiary=self.kid, kind='診断書', title='診断書', summary='もと', status='saved')
+        opened = version_token(k)
+        page = self.client.get(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]))
+        self.assertContains(page, f'data-concurrency="knowledge:{k.pk}"')
+        k.summary = '他の職員'
+        k.save()
+        res = self.client.post(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]),
+                               {'action': 'save', 'summary': 'わたし', 'points': '', 'text': '', 'use_in_ai': '1', 'version': opened}, follow=True)
+        self.assertContains(res, '他の職員が')
+        k.refresh_from_db()
+        self.assertEqual(k.summary, '他の職員')
+
+
+class ListOrderTests(TestCase):
+    """利用者一覧の 50 音順（ふりがなの無い人は最後・行の絞り込み・カタカナはひらがなに）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='はびりす')
+        StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f)
+        self.client.login(username='st', password='pw12345678')
+        d = datetime.date(2018, 1, 1)
+        for ln, fn, lk, fk in [('田中', '太郎', 'たなか', 'たろう'), ('佐藤', '花', 'サトウ', 'ハナ'), ('渡辺', '空', '', ''),
+                               ('青木', '子', 'あおき', 'こ'), ('高橋', '一', 'たかはし', 'はじめ')]:
+            Beneficiary.objects.create(facility=self.f, last_name=ln, first_name=fn, last_name_kana=lk, first_name_kana=fk, date_of_birth=d)
+
+    def test_kana_order_blank_last_and_rows(self):
+        b = Beneficiary.objects.get(last_name='佐藤')
+        self.assertEqual((b.last_name_kana, b.first_name_kana), ('さとう', 'はな'))     # 保存でひらがなに
+        names = [x.last_name for x in self.client.get(reverse('beneficiaries:list')).context['beneficiaries']]
+        self.assertEqual(names, ['青木', '佐藤', '高橋', '田中', '渡辺'])              # ふりがな無しは最後
+        names = [x.last_name for x in self.client.get(reverse('beneficiaries:list') + '?row=た').context['beneficiaries']]
+        self.assertEqual(names, ['高橋', '田中'])
+        names = [x.last_name for x in self.client.get(reverse('beneficiaries:list') + '?row=他').context['beneficiaries']]
+        self.assertEqual(names, ['渡辺'])
+        self.assertContains(self.client.get(reverse('beneficiaries:list')), 'ふりがな無し')
+
+
+class BeneficiaryDeleteTests(TestCase):
+    """退所した利用者の削除（管理者だけ・氏名の確認・関連する記録とファイルも消える）"""
+
+    def setUp(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from .models import BeneficiaryDocument
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True)
+        self.admin = StaffAccount.objects.create_user('adm', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.staff = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f)
+        self.b = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', last_name_kana='あおき',
+                                            first_name_kana='こ', date_of_birth=datetime.date(2019, 4, 1), status='inactive')
+        self.doc = BeneficiaryDocument.objects.create(beneficiary=self.b, file_name='a.pdf', file=SimpleUploadedFile('a.pdf', b'%PDF-1.4 x'))
+        from support_plans.models import SupportPlan
+        SupportPlan.objects.create(facility=self.f, beneficiary=self.b, title='第1期', created_by=self.admin)
+        from therapy.models import TherapyRecord
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.b, date=datetime.date(2026, 9, 1))
+        self.url = reverse('beneficiaries:delete', args=[self.b.pk])
+
+    def test_only_admin_and_active_is_warned(self):
+        self.client.login(username='st', password='pw12345678')
+        res = self.client.post(self.url, {'confirm_name': '青木 子', 'agree': '1'}, follow=True)
+        self.assertContains(res, '管理者だけ')
+        self.assertTrue(Beneficiary.objects.filter(pk=self.b.pk).exists())
+        self.assertNotContains(self.client.get(reverse('beneficiaries:detail', args=[self.b.pk])), 'を削除する</a>')
+        self.client.login(username='adm', password='pw12345678')
+        self.b.status = 'active'
+        self.b.save()
+        res = self.client.get(self.url)
+        self.assertContains(res, 'この人はいま「在籍中」です')
+        res = self.client.post(self.url, {'confirm_name': '青木 子', 'agree': '1'}, follow=True)
+        self.assertContains(res, '「青木 子」を削除しました')
+        self.assertFalse(Beneficiary.objects.filter(pk=self.b.pk).exists())
+
+    def test_status_tabs_graduated_and_list_actions(self):
+        self.client.login(username='adm', password='pw12345678')
+        Beneficiary.objects.create(facility=self.f, last_name='井上', first_name='空', last_name_kana='いのうえ',
+                                   first_name_kana='そら', date_of_birth=datetime.date(2018, 4, 1))
+        res = self.client.post(reverse('beneficiaries:status', args=[self.b.pk]), {'status': 'graduated'}, follow=True)
+        self.assertContains(res, '「卒業」にしました')
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.status, 'graduated')
+        self.assertEqual(self.b.discharge_date, datetime.date.today())
+        lst = reverse('beneficiaries:list')
+        res = self.client.get(lst)
+        self.assertContains(res, '井上 空')
+        self.assertNotContains(res, '青木 子')
+        self.assertContains(res, '卒業 <span')
+        self.assertContains(res, reverse('therapy:child', args=[Beneficiary.objects.get(last_name='井上').pk]))
+        res = self.client.get(lst + '?status=graduated')
+        self.assertContains(res, '青木 子')
+        self.assertNotContains(res, '井上 空')
+        self.assertContains(res, reverse('beneficiaries:delete', args=[self.b.pk]))
+        self.assertNotContains(self.client.get(lst + '?status=inactive'), '青木 子')
+        # 在籍中に戻すと退所日は消える
+        self.client.post(reverse('beneficiaries:status', args=[self.b.pk]), {'status': 'active'})
+        self.b.refresh_from_db()
+        self.assertEqual((self.b.status, self.b.discharge_date), ('active', None))
+        res = self.client.post(reverse('beneficiaries:status', args=[self.b.pk]), {'status': 'x'}, follow=True)
+        self.assertContains(res, '在籍状況を選んでください')
+
+    def test_confirm_and_delete(self):
+        from support_plans.models import SupportPlan
+        from therapy.models import TherapyRecord
+        self.client.login(username='adm', password='pw12345678')
+        res = self.client.get(reverse('beneficiaries:detail', args=[self.b.pk]))
+        self.assertContains(res, 'この利用者を削除する')
+        res = self.client.get(self.url)
+        self.assertContains(res, '個別支援計画：1 件')
+        self.assertContains(res, '療育記録：1 件')
+        self.assertContains(res, '5 年間')
+        res = self.client.post(self.url, {'confirm_name': '青木 太郎', 'agree': '1'}, follow=True)
+        self.assertContains(res, '削除していません')
+        self.assertTrue(Beneficiary.objects.filter(pk=self.b.pk).exists())
+        storage, name = self.doc.file.storage, self.doc.file.name
+        self.assertTrue(storage.exists(name))
+        res = self.client.post(self.url, {'confirm_name': '青木　子', 'agree': '1'}, follow=True)   # 全角スペースでもよい
+        self.assertContains(res, '「青木 子」を削除しました')
+        self.assertFalse(Beneficiary.objects.filter(pk=self.b.pk).exists())
+        self.assertFalse(SupportPlan.objects.exists())
+        self.assertFalse(TherapyRecord.objects.exists())
+        self.assertTrue(storage.exists(name))         # ファイルはごみ箱の期限まで残す
+        from .models import DeletedBeneficiary
+        from .trash import purge
+        purge(DeletedBeneficiary.objects.get())
+        self.assertFalse(storage.exists(name))
+
+
+class DevelopmentAssessmentTests(TestCase):
+    """5領域アセスメント（評価シート。施設設定で使うにした事業所）"""
+
+    def setUp(self):
+        import datetime
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        self.f = Facility.objects.create(name='児童発達支援センター　オウル', layout=Facility.LAYOUT_RYOIKU, use_dev_assessment=True)
+        self.user = StaffAccount.objects.create_user('owl', password='pw12345678', facility=self.f,
+                                                     role=StaffAccount.ROLE_STAFF, display_name='大和')
+        self.client.login(username='owl', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', last_name_kana='あおき',
+                                              first_name_kana='こ', date_of_birth=datetime.date(2019, 4, 1), school_name='南小学校')
+        self.detail = reverse('beneficiaries:detail', args=[self.kid.pk])
+        self.new_url = reverse('beneficiaries:dev_assessment_create', args=[self.kid.pk])
+
+    def post_data(self, **over):
+        data = {'date': '2026-10-07', 'interviewed_with': '保護者（母）',
+                'rating_health': '4', 'now_health': '食事は自分で食べる。', 'goal_health': '着替えの手順表を使う',
+                'rating_motor': '3', 'rating_cognition': '2', 'now_cognition': '切り替えに時間がかかる',
+                'rating_language': '', 'rating_social': '5',
+                'strengths': '電車が好き', 'concerns': '大きな音が苦手', 'wishes_child': '友だちと遊びたい',
+                'wishes_family': '集団に慣れてほしい', 'summary': '視覚的な手がかりを増やす'}
+        data.update(over)
+        return data
+
+    def test_disabled_hides_section_and_redirects(self):
+        self.f.use_dev_assessment = False
+        self.f.save()
+        res = self.client.get(self.detail)
+        self.assertNotContains(res, 'id="dev-assessments"')
+        res = self.client.get(self.new_url)
+        self.assertRedirects(res, reverse('facilities:dashboard'))
+
+    def test_create_edit_print_delete(self):
+        from .models import DevelopmentAssessment
+        res = self.client.get(self.detail)
+        self.assertContains(res, 'id="dev-assessments"')
+        self.assertContains(res, '新しく作る')
+        self.assertNotContains(res, '前回を写して作る')
+        res = self.client.get(self.new_url)
+        self.assertContains(res, '健康・生活')
+        self.assertContains(res, '人間関係・社会性')
+        self.assertContains(res, 'まだ保存していません')
+        self.assertContains(res, 'data-voice-target="now-health"')
+        res = self.client.post(self.new_url, self.post_data())
+        a = DevelopmentAssessment.objects.get()
+        self.assertRedirects(res, reverse('beneficiaries:dev_assessment_edit', args=[self.kid.pk, a.pk]))
+        self.assertEqual((a.assessed_by, a.created_by, a.interviewed_with), (self.user, self.user, '保護者（母）'))
+        self.assertEqual(a.rating('health'), 4)
+        self.assertIsNone(a.rating('language'))
+        self.assertEqual(a.domains['cognition']['now'], '切り替えに時間がかかる')
+        self.assertEqual([v for _, v in a.rating_marks], [4, 3, 2, None, 5])
+        # 一覧に評価の印が出る。印刷（画面表示）には評価・様子・まとめが出る
+        res = self.client.get(self.detail)
+        self.assertContains(res, '2026年10月7日')
+        self.assertContains(res, '前回を写して作る')
+        res = self.client.get(reverse('beneficiaries:dev_assessment_pdf', args=[self.kid.pk, a.pk]) + '?fmt=html')
+        self.assertContains(res, '5領域アセスメント')
+        self.assertContains(res, '青木 子')
+        self.assertContains(res, '（7歳）')          # 2019/4/1 生まれ → 2026/10/7 に 7 歳
+        self.assertContains(res, '食事は自分で食べる。')
+        self.assertContains(res, '視覚的な手がかりを増やす')
+        self.assertContains(res, '<span class="on">4</span>')
+        # 直す（評価を変える）。版の確認もする
+        edit = reverse('beneficiaries:dev_assessment_edit', args=[self.kid.pk, a.pk])
+        res = self.client.get(edit)
+        self.assertContains(res, 'value="2026-10-07"')
+        self.assertContains(res, 'id="rt-health-4" value="4" checked')
+        self.client.post(edit, self.post_data(rating_health='5', summary='更新した'))
+        a.refresh_from_db()
+        self.assertEqual((a.rating('health'), a.summary), (5, '更新した'))
+        res = self.client.post(edit, dict(self.post_data(summary='古い画面から'), version='2000-01-01T00:00:00'), follow=True)
+        a.refresh_from_db()
+        self.assertEqual(a.summary, '更新した')
+        self.assertContains(res, '保存')          # 競合のメッセージ（ほかの人が保存…）が出る
+        # 削除
+        res = self.client.post(reverse('beneficiaries:dev_assessment_delete', args=[self.kid.pk, a.pk]))
+        self.assertRedirects(res, self.detail + '#dev-assessments')
+        self.assertFalse(DevelopmentAssessment.objects.exists())
+
+    def test_copy_previous_and_previous_column(self):
+        from .models import DevelopmentAssessment
+        self.client.post(self.new_url, self.post_data(date='2026-04-01'))
+        first = DevelopmentAssessment.objects.get()
+        res = self.client.get(self.new_url + '?copy=1')
+        self.assertContains(res, '電車が好き')
+        self.assertContains(res, 'id="rt-health-4" value="4" checked')
+        self.assertContains(res, '前回：<b>4</b>')
+        self.client.post(self.new_url, self.post_data(date='2026-10-07', rating_health='5'))
+        second = DevelopmentAssessment.objects.exclude(pk=first.pk).get()
+        self.assertEqual(second.previous(), first)
+        self.assertIsNone(first.previous())
+        res = self.client.get(reverse('beneficiaries:dev_assessment_pdf', args=[self.kid.pk, second.pk]) + '?fmt=html')
+        self.assertContains(res, '前回：4')
+        self.assertContains(res, '2026/4/1')
+
+    def test_bad_date_and_other_facility(self):
+        from facilities.models import Facility
+        from .models import DevelopmentAssessment
+        res = self.client.post(self.new_url, self.post_data(date='bad'), follow=True)
+        self.assertContains(res, '実施日を入れてください')
+        self.assertFalse(DevelopmentAssessment.objects.exists())
+        g = Facility.objects.create(name='ほか', layout=Facility.LAYOUT_RYOIKU, use_dev_assessment=True)
+        other = Beneficiary.objects.create(facility=g, last_name='他', first_name='人', date_of_birth=datetime.date(2019, 4, 1))
+        res = self.client.get(reverse('beneficiaries:dev_assessment_create', args=[other.pk]))
+        self.assertEqual(res.status_code, 404)
+
+
+class SheetToPlanTests(TestCase):
+    """5領域アセスメント → 個別支援計画、レーダーチャート"""
+
+    def setUp(self):
+        import datetime
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        from .models import DevelopmentAssessment
+        self.f = Facility.objects.create(name='児童発達支援センター　オウル', layout=Facility.LAYOUT_RYOIKU, use_dev_assessment=True)
+        self.user = StaffAccount.objects.create_user('owl', password='pw12345678', facility=self.f,
+                                                     role=StaffAccount.ROLE_STAFF, display_name='大和')
+        self.client.login(username='owl', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        doms = {k: {'rating': i + 1, 'now': f'{label}の様子', 'goal': f'{label}の目標'} for i, (k, label) in enumerate(DevelopmentAssessment.DOMAINS)}
+        doms['social']['goal'] = ''
+        self.sheet = DevelopmentAssessment.objects.create(beneficiary=self.kid, date=datetime.date(2026, 10, 1), assessed_by=self.user,
+                                                          interviewed_with='母', domains=doms, strengths='電車が好き',
+                                                          wishes_child='遊びたい', wishes_family='集団に慣れてほしい', summary='見通しを持てるように')
+
+    def test_radar_svg_on_page_and_pdf(self):
+        from .sheet_plan import radar_svg
+        svg = radar_svg(self.sheet.rows())
+        self.assertIn('<polygon', svg)
+        self.assertIn('健康・生活', svg)
+        res = self.client.get(reverse('beneficiaries:dev_assessment_edit', args=[self.kid.pk, self.sheet.pk]))
+        self.assertContains(res, 'class="da-radar"')
+        self.assertContains(res, '新しい計画を作って取り込む')
+        res = self.client.get(reverse('beneficiaries:dev_assessment_pdf', args=[self.kid.pk, self.sheet.pk]) + '?fmt=html')
+        self.assertContains(res, 'class="da-radar"')
+
+    def test_import_creates_plan_fills_assessment_then_goals(self):
+        from support_plans.models import PlanGoal, SupportPlan
+        url = reverse('beneficiaries:dev_assessment_to_plan', args=[self.kid.pk, self.sheet.pk])
+        res = self.client.post(url, follow=True)
+        plan = SupportPlan.objects.get(beneficiary=self.kid)
+        self.assertEqual((plan.title, plan.current_step, plan.manager), ('第1期 個別支援計画', 1, self.user))
+        a = plan.get_step(1)
+        self.assertIn('【健康・生活】評価 1（全面的な支援が必要）', a.condition)
+        self.assertIn('電車が好き', a.condition)
+        self.assertEqual(a.wishes, '本人：遊びたい\n家族：集団に慣れてほしい')
+        self.assertEqual((a.interview_date, a.interviewed_with, a.interviewer), (self.sheet.date, '母', self.user))
+        self.assertContains(res, '心身の状況・希望する生活・面談日・面談相手 を埋めました')
+        self.assertContains(res, '5領域アセスメントから取り込む')        # ステップ画面にも取り込みの箱
+        # ステップ2 では目標として入る（同じ文は二重にしない）
+        plan.current_step = 2
+        plan.save()
+        res = self.client.post(url, {'plan': plan.pk}, follow=True)
+        goals = list(plan.goals.order_by('order'))
+        self.assertEqual(len(goals), 4)                                 # 社会性は目標が空なので入らない
+        self.assertEqual(goals[0].content, '健康・生活：健康・生活の目標')
+        self.assertEqual(goals[0].goal_type, PlanGoal.TYPE_SHORT)
+        self.assertIn('いまの様子（2026/10/1 の5領域アセスメント・評価 1）：健康・生活の様子', goals[0].support_content)
+        self.assertEqual(goals[0].target_date, self.sheet.date + datetime.timedelta(days=182))
+        self.assertEqual(plan.get_step(2).policy, '見通しを持てるように')
+        self.assertContains(res, '短期目標を 4 件足しました')
+        res = self.client.post(url, {'plan': plan.pk}, follow=True)
+        self.assertEqual(plan.goals.count(), 4)
+        self.assertContains(res, '同じ文の目標 4 件はそのままです')
+        # ステップ3 以降は取り込めない
+        plan.current_step = 3
+        plan.save()
+        res = self.client.post(url, {'plan': plan.pk}, follow=True)
+        self.assertContains(res, 'ステップ3（担当者会議）以降に進んでいる')
+        self.assertEqual(plan.goals.count(), 4)
+
+
+class DevelopmentTestTests(TestCase):
+    """発達検査の結果（入力・推移・AI の下書き）"""
+
+    def setUp(self):
+        import datetime
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        self.f = Facility.objects.create(name='児童発達支援センター　オウル', layout=Facility.LAYOUT_RYOIKU, use_daily_ops=True)
+        self.user = StaffAccount.objects.create_user('owl', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.login(username='owl', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2021, 4, 1))
+
+    def test_create_edit_chart(self):
+        import datetime
+        from .models import DevelopmentTest
+        url = reverse('beneficiaries:dev_test_create', args=[self.kid.pk])
+        res = self.client.get(url)
+        self.assertContains(res, '姿勢・運動（P-M）')        # 新版K式の標準の領域
+        self.assertContains(res, 'の書類から読み取る')
+        res = self.client.post(url, {'test': 'kshiki', 'test_other': '新版K式2020', 'date': '2026-04-01', 'examiner': 'クリニック',
+                                     'ca_y': '5', 'ca_m': '0', 'oa_y': '3', 'oa_m': '9', 'overall_quotient': '75',
+                                     'r0_label': '姿勢・運動（P-M）', 'r0_y': '4', 'r0_m': '0', 'r0_q': '80',
+                                     'r1_label': '言語・社会（L-S）', 'r1_y': '3', 'r1_m': '6', 'r1_q': '70', 'r2_label': '', 'note': '所見'})
+        t = DevelopmentTest.objects.get()
+        self.assertRedirects(res, reverse('beneficiaries:detail', args=[self.kid.pk]) + '#dev-tests')
+        self.assertEqual((t.test_name, t.ca_months, t.overall_age_months, t.overall_quotient, t.ca_label),
+                         ('新版K式発達検査', 60, 45, 75, '5歳0か月'))
+        self.assertEqual(t.results, [{'label': '姿勢・運動（P-M）', 'age_months': 48, 'quotient': 80},
+                                     {'label': '言語・社会（L-S）', 'age_months': 42, 'quotient': 70}])
+        DevelopmentTest.objects.create(beneficiary=self.kid, test='kshiki', date=datetime.date(2026, 10, 1), overall_quotient=82,
+                                       results=[{'label': '言語・社会（L-S）', 'age_months': 48, 'quotient': 78}])
+        res = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
+        self.assertContains(res, 'id="dev-tests"')
+        self.assertContains(res, '発達検査の指数の推移')
+        self.assertContains(res, '<polyline')
+        self.assertContains(res, '全体 3歳9か月・75')
+        # 直す・消す
+        edit = reverse('beneficiaries:dev_test_edit', args=[self.kid.pk, t.pk])
+        res = self.client.get(edit)
+        self.assertContains(res, 'value="新版K式2020"')
+        self.client.post(edit, {'test': 'kshiki', 'date': '2026-04-02', 'overall_quotient': '76', 'r0_label': 'A', 'r0_q': '1'})
+        t.refresh_from_db()
+        self.assertEqual((t.date, t.overall_quotient, t.ca_months, t.results), (datetime.date(2026, 4, 2), 76, None, [{'label': 'A', 'age_months': None, 'quotient': 1}]))
+        self.client.post(reverse('beneficiaries:dev_test_delete', args=[self.kid.pk, t.pk]))
+        self.assertEqual(DevelopmentTest.objects.count(), 1)
+
+    def test_ai_read_prefills_form(self):
+        from unittest import mock
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from .models import BeneficiaryDocument
+        doc = BeneficiaryDocument.objects.create(beneficiary=self.kid, file=SimpleUploadedFile('kekka.pdf', b'%PDF-1.4'), file_name='kekka.pdf')
+        data = {'test': 'enjoji', 'test_other': '', 'date': '2026-09-01', 'examiner': '発達センター', 'ca_months': 65,
+                'overall_age_months': None, 'overall_quotient': None, 'note': '所見の要点', 'test_name': '遠城寺式',
+                'results': [{'label': '移動運動', 'age_months': 50, 'quotient': None}]}
+        with mock.patch('beneficiaries.dev_tests.read_test', return_value=data):
+            res = self.client.post(reverse('beneficiaries:dev_test_read', args=[self.kid.pk]), {'source': f'doc:{doc.pk}'}, follow=True)
+        self.assertContains(res, 'AI が「書類：kekka.pdf」から読み取った下書きです')
+        self.assertContains(res, 'value="2026-09-01"')
+        self.assertContains(res, 'value="移動運動"')
+        self.assertContains(res, 'value="発達センター"')
+
+    def test_normalize(self):
+        from .dev_tests import normalize
+        d = normalize({'test': 'x', 'test_name': '独自の検査', 'date': 'bad', 'examiner': '', 'ca_months': -1, 'overall_age_months': 30,
+                       'overall_quotient': -1, 'results': [{'label': ' 運動 ', 'age_months': -1, 'quotient': 90}, {'label': '', 'age_months': 1, 'quotient': 1}], 'note': ''})
+        self.assertEqual((d['test'], d['test_other'], d['date'], d['ca_months'], d['overall_age_months'], d['overall_quotient']),
+                         ('other', '独自の検査', '', None, 30, None))
+        self.assertEqual(d['results'], [{'label': '運動', 'age_months': None, 'quotient': 90}])
+
+
+class BeneficiaryListBulkTests(TestCase):
+    """利用者一覧から：1人ずつの在籍状況・削除への導線、まとめて在籍状況を変える・まとめて削除（管理者だけ・確認あり）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True)
+        self.admin = StaffAccount.objects.create_user('adm', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.staff = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f)
+        mk = lambda last, kana: Beneficiary.objects.create(facility=self.f, last_name=last, first_name='子', last_name_kana=kana,
+                                                            date_of_birth=datetime.date(2019, 4, 1))
+        self.a, self.b, self.c = mk('青木', 'あおき'), mk('井上', 'いのうえ'), mk('上田', 'うえだ')
+        other = Facility.objects.create(name='ほか', layout=Facility.LAYOUT_RYOIKU)
+        self.x = Beneficiary.objects.create(facility=other, last_name='他', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        self.url = reverse('beneficiaries:bulk')
+        self.lst = reverse('beneficiaries:list')
+
+    def test_row_menu_and_bulk_status(self):
+        self.client.login(username='st', password='pw12345678')
+        res = self.client.get(self.lst)
+        self.assertContains(res, 'name="ids" value="%d"' % self.a.pk)
+        self.assertContains(res, 'formaction="%s"' % reverse('beneficiaries:status', args=[self.a.pk]))
+        self.assertNotContains(res, 'value="delete"')               # 削除は管理者だけ
+        # 1人ずつ（一覧から）：一覧に戻る
+        res = self.client.post(reverse('beneficiaries:status', args=[self.a.pk]), {'status': 'inactive', 'next': self.lst})
+        self.assertRedirects(res, self.lst)
+        self.a.refresh_from_db()
+        self.assertEqual(self.a.status, 'inactive')
+        # まとめて卒業（別の事業所の人は混ぜても変わらない）
+        res = self.client.post(self.url, {'action': 'graduated', 'ids': [self.b.pk, self.c.pk, self.x.pk], 'next': self.lst}, follow=True)
+        self.assertContains(res, '2 名を「卒業」にしました')
+        self.assertEqual(set(Beneficiary.objects.filter(status='graduated').values_list('pk', flat=True)), {self.b.pk, self.c.pk})
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.discharge_date, datetime.date.today())
+        res = self.client.post(self.url, {'action': 'active', 'ids': [self.b.pk]}, follow=True)
+        self.b.refresh_from_db()
+        self.assertEqual((self.b.status, self.b.discharge_date), ('active', None))
+        res = self.client.post(self.url, {'action': 'graduated'}, follow=True)
+        self.assertContains(res, '印を付けてから')
+        # スタッフはまとめて削除できない
+        res = self.client.post(self.url, {'action': 'delete', 'ids': [self.a.pk]}, follow=True)
+        self.assertContains(res, '管理者だけ')
+        self.assertTrue(Beneficiary.objects.filter(pk=self.a.pk).exists())
+
+    def test_bulk_delete_with_confirmation(self):
+        from therapy.models import TherapyRecord
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.a, date=datetime.date(2026, 9, 1))
+        self.client.login(username='adm', password='pw12345678')
+        self.assertContains(self.client.get(self.lst), 'value="delete"')
+        res = self.client.post(self.url, {'action': 'delete', 'ids': [self.a.pk, self.b.pk, self.x.pk]})
+        self.assertContains(res, '2 名を削除する')
+        self.assertContains(res, '療育記録 1 件')
+        self.assertContains(res, '在籍中の人が 2 名')
+        self.assertNotContains(res, '他 子')
+        res = self.client.post(self.url, {'action': 'delete', 'confirm': '1', 'ids': [self.a.pk, self.b.pk], 'confirm_text': 'さくじょ', 'agree': '1'}, follow=True)
+        self.assertContains(res, '削除していません')
+        self.assertEqual(Beneficiary.objects.filter(facility=self.f).count(), 3)
+        res = self.client.post(self.url, {'action': 'delete', 'confirm': '1', 'ids': [self.a.pk, self.b.pk, self.x.pk],
+                                          'confirm_text': '削除', 'agree': '1'}, follow=True)
+        self.assertContains(res, '2 名を削除しました')
+        self.assertEqual(list(Beneficiary.objects.filter(facility=self.f)), [self.c])
+        self.assertTrue(Beneficiary.objects.filter(pk=self.x.pk).exists())
+        self.assertFalse(TherapyRecord.objects.exists())
+
+
+class RecordDigestTests(TestCase):
+    """面談資料：期間の日誌・療育記録を集め、数字は計算、文章は AI（記録にあることだけ）。直して保存・印刷"""
+
+    def setUp(self):
+        from unittest import mock  # noqa: F401
+        self.f = Facility.objects.create(name='児童発達支援センター　オウル', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True)
+        self.user = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f)
+        self.client.login(username='st', password='pw12345678')
+        self.b = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        from therapy.models import TherapyRecord
+        today = datetime.date.today()
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.b, date=today - datetime.timedelta(days=10),
+                                     activities=['ブロック'], body='「できた」と言って最後まで積んだ。')
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.b, date=today - datetime.timedelta(days=200),
+                                     activities=['古い'], body='半年より前の記録。')
+        self.url = reverse('beneficiaries:digest', args=[self.b.pk])
+
+    def test_collect_and_prompt(self):
+        from . import digest
+        start, end = digest.period_range('3m')
+        data = digest.collect(self.b, start, end)
+        self.assertEqual((data['stats']['therapy'], data['stats']['journals']), (1, 0))
+        content = digest.build_content(self.b, start, end, data)
+        self.assertIn('「できた」と言って最後まで積んだ', content)
+        self.assertNotIn('半年より前', content)
+        self.assertIn('記録にあることだけ', digest.SYSTEM_PROMPT)
+        s6, _ = digest.period_range('6m')
+        self.assertLess(s6, start)
+        cs, ce = digest.period_range('custom', date_from=datetime.date(2026, 4, 1), date_to=datetime.date(2026, 9, 30))
+        self.assertEqual((cs, ce), (datetime.date(2026, 4, 1), datetime.date(2026, 9, 30)))
+
+    def test_create_edit_print(self):
+        from unittest import mock
+        self.assertContains(self.client.get(reverse('beneficiaries:detail', args=[self.b.pk])), '面談資料（記録のまとめ）')
+        res = self.client.get(self.url)
+        self.assertContains(res, '療育記録 1 件')
+        with mock.patch('beneficiaries.digest.ask_ai', return_value=('## この期間の様子（全体）\nブロックを最後まで積んだ。', None)) as ask:
+            res = self.client.post(self.url, {'period': '3m', 'purpose': '10月の面談'}, follow=True)
+        self.assertContains(res, '面談資料のまとめを作りました')
+        self.assertContains(res, '【この期間の様子（全体）】')
+        self.assertIn('「できた」', ask.call_args.args[1])
+        item = self.b.digests.get()
+        self.assertEqual((item.purpose, item.stats['therapy']), ('10月の面談', 1))
+        detail = reverse('beneficiaries:digest_detail', args=[self.b.pk, item.pk])
+        self.client.post(detail, {'summary': '直した文', 'purpose': '面談'})
+        item.refresh_from_db()
+        self.assertEqual(item.summary, '直した文')
+        res = self.client.get(detail + '?print=1&fmt=html')
+        self.assertContains(res, '直した文')
+        # 記録の無い期間はまとめない
+        res = self.client.post(self.url, {'period': 'custom', 'date_from': '2020-01-01', 'date_to': '2020-02-01'}, follow=True)
+        self.assertContains(res, '日誌・療育記録がありません')
+        res = self.client.post(detail, {'action': 'delete'}, follow=True)
+        self.assertContains(res, '削除しました')
+        self.assertFalse(self.b.digests.exists())
+
+    def test_other_facility_cannot_see(self):
+        other = Facility.objects.create(name='ほか')
+        StaffAccount.objects.create_user('ot', password='pw12345678', facility=other)
+        self.client.login(username='ot', password='pw12345678')
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+
+
+class DobOverwriteAndPartialEditTests(TestCase):
+    """生年月日の書き換え（取り込みで同じ子として）と、編集の窓で画面に無い項目を消さないこと"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU)
+        self.user = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='st', password='pw12345678')
+
+    def test_edit_window_keeps_hidden_fields(self):
+        b = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2000, 1, 1),
+                                       postal_code='6000000', address='京都市', school_name='南小', grade='e2',
+                                       admission_date=datetime.date(2025, 4, 1), has_prior_records=True, weekday_mon=True)
+        res = self.client.post(reverse('beneficiaries:update', args=[b.pk]), {
+            '_partial': '1', 'last_name': '青木', 'first_name': '子', 'date_of_birth': '2019-04-02',
+            'gender': 'male', 'status': 'active', 'weekday_tue': 'on'})
+        self.assertEqual(res.status_code, 302)
+        b.refresh_from_db()
+        self.assertEqual(b.date_of_birth, datetime.date(2019, 4, 2))
+        self.assertEqual((b.postal_code, b.address, b.school_name, b.grade, b.admission_date, b.has_prior_records),
+                         ('6000000', '京都市', '南小', 'e2', datetime.date(2025, 4, 1), True))
+        self.assertEqual((b.weekday_mon, b.weekday_tue), (False, True))      # 窓にある項目は送ったとおり
+        self.assertContains(self.client.get(reverse('beneficiaries:detail', args=[b.pk])), 'name="_partial" value="1"')
+
+    def test_edit_window_can_turn_off_line_journal(self):
+        # 「日誌を LINE で送る」を外して保存すると、ちゃんと外れる（窓から保存しても今の値に戻さない）
+        b = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 2))
+        self.assertTrue(b.line_send_journal)
+        base = {'_partial': '1', 'last_name': '青木', 'first_name': '子', 'date_of_birth': '2019-04-02', 'gender': 'male', 'status': 'active'}
+        self.client.post(reverse('beneficiaries:update', args=[b.pk]), base)
+        b.refresh_from_db()
+        self.assertFalse(b.line_send_journal)
+        self.client.post(reverse('beneficiaries:update', args=[b.pk]), {**base, 'line_send_journal': 'on'})
+        b.refresh_from_db()
+        self.assertTrue(b.line_send_journal)
+
+    def test_import_overwrites_placeholder_dob_when_checked(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        b = Beneficiary.objects.create(facility=self.f, last_name='山田', first_name='太郎', date_of_birth=datetime.date(2000, 1, 1),
+                                       notes='生年月日は取り込み時の仮の値（2000-01-01）です。正しい日付に直してください。')
+        csv = '姓,名,生年月日,せい（ふりがな）\n山田,太郎,2018/4/2,やまだ\n'
+        url = reverse('beneficiaries:import')
+        res = self.client.post(url, {'file': SimpleUploadedFile('a.csv', csv.encode('utf-8'))})
+        self.assertContains(res, '同じ子として生年月日を書き換える')
+        self.assertContains(res, 'name="dob" value="2" form="imp-commit" checked')
+        # 印を外すと別の子として作る
+        res = self.client.post(url, {'action': 'commit'}, follow=True)
+        self.assertEqual(Beneficiary.objects.filter(facility=self.f, last_name='山田').count(), 2)
+        Beneficiary.objects.exclude(pk=b.pk).delete()
+        self.client.post(url, {'file': SimpleUploadedFile('a.csv', csv.encode('utf-8'))})
+        res = self.client.post(url, {'action': 'commit', 'dob': ['2']}, follow=True)
+        self.assertContains(res, '台帳にいた人 1 名')
+        self.assertEqual(Beneficiary.objects.filter(facility=self.f, last_name='山田').count(), 1)
+        b.refresh_from_db()
+        self.assertEqual((b.date_of_birth, b.last_name_kana), (datetime.date(2018, 4, 2), 'やまだ'))
+        self.assertNotIn('仮の値', b.notes)
+
+
+class BeneficiaryMergeTests(TestCase):
+    """同じ名前の利用者を1人にまとめる（beneficiaries/merge.py）"""
+
+    def setUp(self):
+        from reservations.services import get_setting
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True,
+                                         use_reservation=True)
+        get_setting(self.f)
+        self.admin = StaffAccount.objects.create_user('adm', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.staff = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f)
+        self.keep = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='花子', last_name_kana='あおき',
+                                               date_of_birth=datetime.date(2000, 1, 1), notes='生年月日は取り込み時の仮の値（2000-01-01）です。正しい日付に直してください。')
+        self.drop = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='花 子', first_name_kana='はなこ',
+                                               date_of_birth=datetime.date(2019, 4, 1), address='札幌市', school_name='みどり小',
+                                               notes='電車が好き', status='inactive', weekday_tue=True)
+        self.other = Beneficiary.objects.create(facility=self.f, last_name='井上', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        self.drop.cannot_pair.add(self.other)
+
+    def test_find_plan_and_merge(self):
+        from therapy.models import TherapyProfile, TherapyRecord
+        from reservations.models import Reservation
+        from . import merge
+        self.assertEqual(merge.find_groups(self.f), [[self.drop, self.keep]])        # 仮の生年月日の人は後ろ
+        Guardian.objects.create(beneficiary=self.drop, last_name='青木', first_name='母')
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.drop, date=datetime.date(2026, 10, 2), body='記録')
+        TherapyProfile.objects.create(beneficiary=self.keep, cautions='大きな音が苦手')
+        TherapyProfile.objects.create(beneficiary=self.drop, cautions='疲れると手が出る')
+        Reservation.objects.create(facility=self.f, beneficiary=self.drop, date=datetime.date(2026, 10, 2), status='confirmed')
+        Reservation.objects.create(facility=self.f, beneficiary=self.keep, date=datetime.date(2026, 10, 2), status='cancelled')
+        p = merge.plan(self.keep, self.drop)
+        self.assertEqual(p['conflicts'], [])
+        self.assertIn(('date_of_birth', '生年月日', datetime.date(2019, 4, 1)), p['fills'])
+        self.assertIn('療育記録の留意点：両方の文をつなぎます', p['one_to_one'])
+
+        self.client.login(username='adm', password='pw12345678')
+        res = self.client.get(reverse('beneficiaries:list'))
+        self.assertContains(res, '同じ名前 1 組')
+        res = self.client.get(reverse('beneficiaries:duplicates'))
+        self.assertContains(res, f'?keep={self.keep.pk}&drop={self.drop.pk}')
+        url = reverse('beneficiaries:merge')
+        res = self.client.get(url, {'keep': self.keep.pk, 'drop': self.drop.pk})
+        self.assertContains(res, '療育記録：1 件')
+        self.assertContains(res, '住所：札幌市')
+        res = self.client.post(url, {'keep': self.keep.pk, 'drop': self.drop.pk})       # 確認の印なし
+        self.assertTrue(Beneficiary.objects.filter(pk=self.drop.pk).exists())
+        res = self.client.post(url, {'keep': self.keep.pk, 'drop': self.drop.pk, 'agree': '1'})
+        self.assertRedirects(res, reverse('beneficiaries:detail', args=[self.keep.pk]))
+        self.assertFalse(Beneficiary.objects.filter(pk=self.drop.pk).exists())
+        k = Beneficiary.objects.get(pk=self.keep.pk)
+        self.assertEqual((k.date_of_birth, k.address, k.school_name, k.first_name_kana, k.status, k.weekday_tue),
+                         (datetime.date(2019, 4, 1), '札幌市', 'みどり小', 'はなこ', 'active', True))
+        self.assertEqual(k.notes, '電車が好き')                                      # 仮の値の注意は消え、備考をつなぐ
+        self.assertEqual(k.guardians.count(), 1)
+        self.assertEqual(k.therapy_records.count(), 1)
+        self.assertEqual(k.reservations.count(), 2)
+        self.assertEqual(k.therapy_profile.cautions, '大きな音が苦手\n疲れると手が出る')
+        self.assertEqual(list(k.cannot_pair.all()), [self.other])
+
+    def test_conflict_blocks_and_staff_cannot(self):
+        from reservations.models import Reservation
+        for b in (self.keep, self.drop):
+            Reservation.objects.create(facility=self.f, beneficiary=b, date=datetime.date(2026, 10, 2), status='confirmed')
+        url = reverse('beneficiaries:merge')
+        self.client.login(username='st', password='pw12345678')
+        self.assertRedirects(self.client.get(url, {'keep': self.keep.pk, 'drop': self.drop.pk}), reverse('beneficiaries:list'))
+        self.client.login(username='adm', password='pw12345678')
+        res = self.client.get(url, {'keep': self.keep.pk, 'drop': self.drop.pk})
+        self.assertContains(res, '予約：2026/10/2 が両方にあります')
+        self.assertNotContains(res, '1人にまとめる</button>')
+        self.client.post(url, {'keep': self.keep.pk, 'drop': self.drop.pk, 'agree': '1'})
+        self.assertTrue(Beneficiary.objects.filter(pk=self.drop.pk).exists())
+
+
+class BeneficiaryTrashTests(TestCase):
+    """削除の取り消し：ごみ箱に置き、記録・予約・書類ごと戻す（beneficiaries/trash.py）"""
+
+    def setUp(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from reservations.models import Customer, Reservation
+        from reservations.services import get_setting
+        from support_plans.models import SupportPlan
+        from therapy.models import TherapyProfile, TherapyRecord
+        from .models import BeneficiaryDocument
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True,
+                                         use_reservation=True)
+        get_setting(self.f)
+        self.admin = StaffAccount.objects.create_user('adm', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        mk = lambda last: Beneficiary.objects.create(facility=self.f, last_name=last, first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        self.b, self.sib, self.gone = mk('青木'), mk('青木2'), mk('井上')
+        self.b.siblings.add(self.sib)
+        self.b.cannot_pair.add(self.gone)
+        Guardian.objects.create(beneficiary=self.b, last_name='青木', first_name='母')
+        self.doc = BeneficiaryDocument.objects.create(beneficiary=self.b, file_name='a.pdf', file=SimpleUploadedFile('a.pdf', b'%PDF-1.4 x'))
+        SupportPlan.objects.create(facility=self.f, beneficiary=self.b, title='第1期', created_by=self.admin)
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.b, date=datetime.date(2026, 9, 1), body='記録', staff=self.admin)
+        TherapyProfile.objects.create(beneficiary=self.b, cautions='大きな音が苦手')
+        self.customer = Customer.objects.create(facility=self.f, name='青木 母')
+        self.customer.children.add(self.b)
+        Reservation.objects.create(facility=self.f, beneficiary=self.b, customer=self.customer, date=datetime.date(2026, 10, 2), status='confirmed')
+        self.client.login(username='adm', password='pw12345678')
+
+    def test_delete_restore_and_purge(self):
+        from reservations.models import Reservation
+        from .models import DeletedBeneficiary
+        pk, file_name = self.b.pk, self.doc.file.name
+        res = self.client.post(reverse('beneficiaries:delete', args=[pk]), {'confirm_name': '青木 子', 'agree': '1'}, follow=True)
+        self.assertContains(res, 'ごみ箱に 30 日置きます')
+        self.assertFalse(Beneficiary.objects.filter(pk=pk).exists())
+        self.assertFalse(Reservation.objects.filter(beneficiary_id=pk).exists())
+        self.assertTrue(self.doc.file.storage.exists(file_name))           # ファイルは期限まで残す
+        self.assertContains(self.client.get(reverse('beneficiaries:list')), 'ごみ箱 1')
+        res = self.client.get(reverse('beneficiaries:trash'))
+        self.assertContains(res, '青木 子')
+        self.assertContains(res, '療育記録 1 件')
+        self.gone.delete()                                                  # 消したあとに相手がいなくなった
+        entry = DeletedBeneficiary.objects.get()
+        res = self.client.post(reverse('beneficiaries:trash'), {'entry': entry.pk, 'action': 'restore'}, follow=True)
+        self.assertContains(res, '青木 子 さんを戻しました')
+        b = Beneficiary.objects.get(pk=pk)
+        self.assertEqual(b.guardians.count(), 1)
+        self.assertEqual(b.therapy_records.get().staff, self.admin)
+        self.assertEqual(b.therapy_profile.cautions, '大きな音が苦手')
+        self.assertEqual(b.support_plans.count(), 1)
+        self.assertEqual(b.reservations.get().customer, self.customer)
+        self.assertEqual(list(self.customer.children.all()), [b])
+        self.assertEqual(list(b.siblings.all()), [self.sib])
+        self.assertEqual(list(self.sib.siblings.all()), [b])
+        self.assertEqual(list(b.cannot_pair.all()), [])
+        self.assertEqual(b.documents.get().file.read(), b'%PDF-1.4 x')
+        self.assertFalse(DeletedBeneficiary.objects.exists())
+        # もう一度消して、完全に消す（ファイルも消える）
+        from .views import delete_beneficiary
+        entry = delete_beneficiary(b, by=self.admin)
+        self.client.post(reverse('beneficiaries:trash'), {'entry': entry.pk, 'action': 'purge'})
+        self.assertFalse(DeletedBeneficiary.objects.exists())
+        self.assertFalse(self.doc.file.storage.exists(file_name))
+
+    def test_expired_are_purged(self):
+        from django.utils import timezone
+        from .models import DeletedBeneficiary
+        from .trash import purge_expired
+        from .views import delete_beneficiary
+        delete_beneficiary(self.b, by=self.admin)
+        self.assertEqual(purge_expired(timezone.now() + datetime.timedelta(days=29)), 0)
+        self.assertEqual(purge_expired(timezone.now() + datetime.timedelta(days=31)), 1)
+        self.assertFalse(DeletedBeneficiary.objects.exists())
+
+
+class LeftListTests(TestCase):
+    """やめた子リスト：退所・卒業の一覧と検索、在籍期間・最後の利用日・保存期限"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True)
+        StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f)
+        self.client.login(username='st', password='pw12345678')
+        mk = lambda last, kana, **kw: Beneficiary.objects.create(facility=self.f, last_name=last, first_name='子', last_name_kana=kana,
+                                                                  date_of_birth=datetime.date(2015, 4, 1), **kw)
+        self.a = mk('青木', 'あおき', status='graduated', admission_date=datetime.date(2019, 4, 1), discharge_date=datetime.date(2022, 3, 31))
+        self.b = mk('井上', 'いのうえ', status='inactive', admission_date=datetime.date(2024, 1, 10), discharge_date=datetime.date(2025, 6, 30))
+        self.c = mk('上田', 'うえだ')                                           # 在籍中は出ない
+        from therapy.models import TherapyRecord
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.b, date=datetime.date(2025, 6, 20), body='x')
+
+    def test_list_search_and_columns(self):
+        res = self.client.get(reverse('beneficiaries:list'))
+        self.assertContains(res, 'やめた子リスト')
+        url = reverse('beneficiaries:left')
+        res = self.client.get(url)
+        self.assertContains(res, '青木 子')
+        self.assertContains(res, '井上 子')
+        self.assertNotContains(res, '上田 子')
+        self.assertContains(res, '2027/3/31')          # 青木の保存期限（退所日＋5年）
+        self.assertContains(res, '3年')                 # 在籍期間 2019/4〜2022/3
+        self.assertContains(res, '1年5か月')            # 井上 2024/1/10〜2025/6/30（日まで見て 1年5か月21日）
+        self.assertContains(res, '2025/6/20')          # 井上の最後の利用日（療育記録）
+        self.assertContains(res, '1 件')
+        res = self.client.get(url + '?q=いのうえ')
+        self.assertContains(res, '井上 子')
+        self.assertNotContains(res, '青木 子')
+        res = self.client.get(url + '?year=2022')
+        self.assertContains(res, '青木 子')
+        self.assertNotContains(res, '井上 子')
+        res = self.client.get(url + '?status=inactive')
+        self.assertNotContains(res, '青木 子')
+        # 在籍中に戻す
+        res = self.client.post(reverse('beneficiaries:status', args=[self.b.pk]), {'status': 'active', 'next': url})
+        self.assertRedirects(res, url)
+        self.b.refresh_from_db()
+        self.assertEqual((self.b.status, self.b.discharge_date), ('active', None))
+
+
+class BeneficiaryToolsTests(TestCase):
+    """ゆあーずの依頼（2026-10-13。Facility.beneficiary_tools）：前後の利用者へ送る・資料の編集中の警告・分かったことの削除。書類の名前の変更（画像・PDF）"""
+
+    def setUp(self):
+        import shutil
+        import tempfile
+        self.media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.media, ignore_errors=True)
+        self.override = override_settings(MEDIA_ROOT=self.media)
+        self.override.enable()
+        self.addCleanup(self.override.disable)
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True,
+                                         use_dev_assessment=True, use_daily_ops=True, beneficiary_tools=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.login(username='ryo', password='pw12345678')
+
+        def kid(last, first, kana, status='active'):
+            return Beneficiary.objects.create(facility=self.f, last_name=last, first_name=first, last_name_kana=kana,
+                                              date_of_birth=datetime.date(2019, 4, 1), status=status)
+        self.a, self.b, self.c = kid('青木', '子', 'あおき'), kid('井上', '子', 'いのうえ'), kid('上田', '子', 'うえだ')
+        self.nokana = kid('山田', '子', '')
+        self.left = kid('江藤', '子', 'えとう', status='inactive')
+
+    def detail(self, b):
+        return self.client.get(reverse('beneficiaries:detail', args=[b.pk]))
+
+    def test_prev_next_follow_list_order_within_status(self):
+        res = self.detail(self.b)
+        self.assertContains(res, f'href="/users/{self.a.pk}/" class="btn btn-sm btn-outline-secondary" title="前の')
+        self.assertContains(res, f'href="/users/{self.c.pk}/" class="btn btn-sm btn-outline-secondary" title="次の')
+        self.assertContains(res, '2 / 4')
+        res = self.detail(self.a)                       # 先頭：前は押せない
+        self.assertContains(res, '1 / 4')
+        self.assertContains(res, 'bi-chevron-left"></i></span>')
+        res = self.detail(self.nokana)                  # ふりがなの無い人は一覧と同じく最後
+        self.assertContains(res, '4 / 4')
+        self.assertContains(res, f'href="/users/{self.c.pk}/"')
+        res = self.detail(self.left)                    # 退所した人は退所した人の中で
+        self.assertContains(res, '1 / 1')
+        Facility.objects.filter(pk=self.f.pk).update(beneficiary_tools=False)   # ほかの事業所には出ない
+        self.assertNotContains(self.detail(self.b), 'aria-label="前後の')
+
+    def test_unsaved_warning_marks_material_forms(self):
+        from .models import BeneficiaryAssessment
+        BeneficiaryAssessment.objects.create(beneficiary=self.a, date=datetime.date(2026, 9, 1), title='面談', content='x')
+        res = self.detail(self.a)
+        self.assertContains(res, 'js/unsaved-warn.js')
+        self.assertEqual(res.content.decode().count('data-unsaved-warn'), 2)        # 追加と直す
+        # 「変更を破棄して閉じる」（2026-10-13 の打ち合わせ）：追加と直すの欄に
+        self.assertContains(res, 'data-discard-close="#asmNew"')
+        self.assertEqual(res.content.decode().count('変更を破棄して閉じる'), 2)
+        self.assertContains(self.client.get(reverse('beneficiaries:dev_test_create', args=[self.a.pk])), 'data-unsaved-warn')
+        Facility.objects.filter(pk=self.f.pk).update(beneficiary_tools=False)
+        self.assertNotContains(self.detail(self.a), 'data-unsaved-warn')
+        self.assertNotContains(self.detail(self.a), 'data-discard-close')
+
+    def test_rename_image_and_pdf(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from .models import BeneficiaryDocument
+        png = b'\x89PNG\r\n\x1a\n' + b'0' * 20
+        self.client.post(reverse('beneficiaries:document_upload', args=[self.a.pk]),
+                         {'files': [SimpleUploadedFile('IMG_0001.png', png, 'image/png'), SimpleUploadedFile('scan.pdf', b'%PDF-1.4 x', 'application/pdf')]})
+        for d, new in zip(BeneficiaryDocument.objects.filter(beneficiary=self.a).order_by('pk'), ('受給者証（表）', '診断書 2026')):
+            res = self.client.post(reverse('beneficiaries:document_rename', args=[self.a.pk, d.pk]), {'title': new}, follow=True)
+            self.assertContains(res, f'書類の名前を「{new}」にしました')
+            self.assertContains(res, f'value="{new}"')                  # 名前を変える欄にも新しい名前
+            d.refresh_from_db()
+            self.assertEqual(d.label, new)
+        res = self.detail(self.a)
+        self.assertContains(res, '受給者証（表）')
+        self.assertContains(res, '診断書 2026')
+        self.assertContains(res, 'data-target="doc-rename-')
+
+    def test_delete_knowledge(self):
+        from .models import BeneficiaryKnowledge
+        k = BeneficiaryKnowledge.objects.create(beneficiary=self.a, kind='診断書', title='診断書', summary='聴覚過敏', status='saved')
+        res = self.detail(self.a)
+        self.assertContains(res, reverse('beneficiaries:knowledge_delete', args=[self.a.pk, k.pk]))
+        res = self.client.post(reverse('beneficiaries:knowledge_delete', args=[self.a.pk, k.pk]), follow=True)
+        self.assertContains(res, '「診断書」を削除しました')
+        self.assertFalse(BeneficiaryKnowledge.objects.filter(pk=k.pk).exists())
+        # ほかの子の分は消せない。切り替えがオフの事業所は消せない
+        k2 = BeneficiaryKnowledge.objects.create(beneficiary=self.b, kind='診断書', title='別の子', status='saved')
+        self.assertEqual(self.client.post(reverse('beneficiaries:knowledge_delete', args=[self.a.pk, k2.pk])).status_code, 404)
+        Facility.objects.filter(pk=self.f.pk).update(beneficiary_tools=False)
+        self.client.post(reverse('beneficiaries:knowledge_delete', args=[self.b.pk, k2.pk]))
+        self.assertTrue(BeneficiaryKnowledge.objects.filter(pk=k2.pk).exists())
+        self.assertNotContains(self.detail(self.b), reverse('beneficiaries:knowledge_delete', args=[self.b.pk, k2.pk]))

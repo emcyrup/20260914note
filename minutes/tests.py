@@ -27,6 +27,22 @@ class MinutesTests(TestCase):
         self.assertContains(res, 'id="voice-log-toggle"')        # うまく文字にならないときの記録
         self.assertContains(res, f'href="{self.url}" target="_blank"')
 
+    def test_draft_autosave(self):
+        """書きかけは static/js/draft-autosave.js が残す（新しい議事録・開いている議事録で別の下書き）"""
+        res = self.client.get(self.url)
+        self.assertContains(res, 'data-draft="minutes:new" data-draft-fields="#mn-title, #mn-date, #transcript, #summary" data-draft-new')
+        m = Minutes.objects.create(facility=self.f, title='会議', held_on=datetime.date(2026, 9, 24), transcript='x', created_by=self.user)
+        res = self.client.get(f'{self.url}?id={m.pk}')
+        self.assertContains(res, f'data-draft="minutes:{m.pk}"')
+        self.assertNotContains(res, f'data-draft="minutes:{m.pk}" data-draft-fields="#mn-title, #mn-date, #transcript, #summary" data-draft-new')
+
+    def test_global_memo_draft_and_saved_message(self):
+        res = self.client.get(self.url)
+        self.assertContains(res, 'data-draft="memo" data-draft-new')
+        res = self.client.post(reverse('records:memo_create'), {'content': '気づいたこと'}, follow=True)
+        self.assertContains(res, 'メモを保存しました。')
+        self.assertContains(res, 'window.DRAFT_SAVED = true || false;')
+
     def test_create_edit_delete(self):
         res = self.client.post(self.url, {'title': '職員会議', 'held_on': '2026-09-24', 'transcript': 'えー、来月の行事について', 'summary': ''})
         m = Minutes.objects.get()
@@ -41,6 +57,13 @@ class MinutesTests(TestCase):
         self.assertEqual(Minutes.objects.count(), 1)
         res = self.client.get(reverse('minutes:print', args=[m.pk]))
         self.assertContains(res, '行事')
+        self.assertNotContains(res, '来月の行事について')     # 話した内容（文字起こし）は印刷しない
+        self.assertNotContains(res, '文字起こし')
+        m.summary = ''
+        m.save()
+        res = self.client.get(reverse('minutes:print', args=[m.pk]))
+        self.assertNotContains(res, '来月の行事について')
+        self.assertContains(res, '議事録の欄がまだ空です')
         self.client.post(self.url, {'action': 'delete', 'id': m.pk})
         self.assertFalse(Minutes.objects.exists())
 
@@ -133,3 +156,52 @@ class MinutesTests(TestCase):
     def test_organize_empty(self):
         res = self.client.post(reverse('minutes:organize'), {'text': ''})
         self.assertEqual(res.status_code, 400)
+
+
+class ConsentTests(TestCase):
+    """面談の録音・文字起こしの同意書と、画面の「録音のご案内」"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず')
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.login(username='ryo', password='pw12345678')
+
+    def test_notice_on_screen_and_consent_form(self):
+        res = self.client.get(reverse('minutes:index'))
+        self.assertContains(res, '録音のご案内')
+        self.assertContains(res, '文字起こしと要約の作成に AI')
+        self.assertContains(res, reverse('minutes:consent'))
+        res = self.client.get(reverse('minutes:consent') + '?fmt=html')
+        self.assertContains(res, '面談の録音・文字起こしに関する同意書')
+        self.assertContains(res, '発達支援ルーム　ゆあーず')
+        self.assertContains(res, '保護者氏名（署名）')
+        self.assertContains(res, '撤回')
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse('minutes:consent')).status_code, 302)
+
+
+class MinutesConflictTests(TestCase):
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず')
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.login(username='ryo', password='pw12345678')
+
+    def test_edit_conflict_keeps_text(self):
+        from config.concurrency import version_token
+        m = Minutes.objects.create(facility=self.f, title='職員会議', held_on=datetime.date(2026, 10, 1), summary='もとの議事録')
+        opened = version_token(m)
+        page = self.client.get(reverse('minutes:index') + f'?id={m.pk}')
+        self.assertContains(page, f'data-concurrency="minutes:{m.pk}"')
+        m.summary = '他の職員が直した議事録'
+        m.save()
+        res = self.client.post(reverse('minutes:index'), {'id': m.pk, 'title': '職員会議', 'held_on': '2026-10-01',
+                                                          'summary': 'わたしの議事録', 'version': opened}, follow=True)
+        self.assertContains(res, '他の職員が')
+        self.assertContains(res, '保存できなかった内容')
+        self.assertContains(res, 'わたしの議事録')
+        m.refresh_from_db()
+        self.assertEqual(m.summary, '他の職員が直した議事録')
+        self.client.post(reverse('minutes:index'), {'id': m.pk, 'title': '職員会議', 'held_on': '2026-10-01',
+                                                    'summary': 'わたしの議事録', 'version': version_token(m)})
+        m.refresh_from_db()
+        self.assertEqual(m.summary, 'わたしの議事録')

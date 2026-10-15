@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
 {% block title %}{{ year }}年{{ month }}月 月間予定表 — 放課後等デイサービス業務支援{% endblock %}
-{% block page_title %}{{ year }}年 {{ month }}月 月間予定表{% endblock %}
+{% block page_title %}{{ year }}年 {{ month }}月 月間予定表{% if user.facility.schedule_tools %}<span id="ms-editing" class="ms-editing" aria-live="polite"></span>{% endif %}{% endblock %}
 {% block nav_reservations %}active{% endblock %}
 {% block nav_reservations_only %}active{% endblock %}
 
@@ -21,9 +21,41 @@
   .ms-box.empty:hover { background: var(--color-primary-bg); color: var(--color-primary); }
   .ms-box.wait { color: #8a6d1f; background: #fff7df; }
   .ms-box.over { color: var(--color-danger); }
+  .ms-box.pair { color: #b02a37; background: #fde2e2; font-weight: 600; }      /* 同じ時間にできない利用者が同じ時間枠に入っている */
   .ms-count { font-weight: 400; font-size: 0.68rem; color: #6b6257; }
-  body.ms-swap .ms-box[data-res], body.ms-swap .ms-box.empty[data-date] { cursor: pointer; }
-  body.ms-swap .ms-box[data-res]:hover { background: #fff2cc; }
+  .ms-free { margin-left: 3px; color: #2f7d4e; }
+  .ms-cap { margin-left: 3px; font-weight: 700; color: #8a6d1f; }      /* 定員を超えた日 */
+  .ms-cap.over { color: #fff; background: #b02a37; border-radius: 3px; padding: 0 3px; }   /* 1日の上限を超えた日 */
+  .ms-capbar { border-radius: 8px; padding: 6px 10px; font-size: .85rem; }
+  .ms-capbar.ok { background: #eef6ef; border: 1px solid #b9d9c0; }
+  .ms-capbar.near { background: #fff7df; border: 1px solid #e8c98a; }
+  .ms-capbar.over { background: #fde2e2; border: 1px solid #e3a3a8; }
+  .ms-wk { font-weight: 400; font-size: 0.62rem; color: #6b6257; white-space: nowrap; }
+  .ms-box.grp { background: #e3f1f7; }
+  .ms-nm { color: inherit; text-decoration: none; }
+  .ms-nm.pair { color: #b02a37; font-weight: 600; }
+  .ms-sep { color: #8aa; }
+  [draggable="true"][data-res] { cursor: grab; }
+  .ms-dragging { opacity: .45; }
+  .ms-drop-ok { outline: 2px dashed var(--color-primary); outline-offset: -2px; background: var(--color-primary-bg) !important; }
+  .ms-drop-ng { outline: 2px solid #b02a37; outline-offset: -2px; background: #fde2e2 !important; color: #b02a37 !important; }   /* 入れると共演NG になる枠 */
+  .ms-editing { display: inline-block; margin-left: 12px; font-size: .8rem; font-weight: 600; color: var(--lake-text, #5a3a22);
+                background: var(--color-primary-bg, #f3efe7); border-radius: 6px; padding: 1px 8px; vertical-align: middle; }
+  .ms-editing:empty { display: none; }
+  .ms-editing.ng { color: #fff; background: #b02a37; }
+  #ms-main.nf-on [data-nf]:not(.nf-hit) { opacity: .25; }                       /* 名前で探す：ほかの名前を薄く */
+  #ms-main .nf-hit { outline: 3px solid #f0b400; outline-offset: -1px; background: #fff3c4 !important; }
+  .ms-find { width: 11em; }
+  .ms-total { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; font-size: .85rem; background: rgba(255,255,255,.7); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  .ms-sum { font-weight: 700; background: rgba(243,239,231,.9); }
+  .ms-short { display: block; font-size: .62rem; color: var(--color-danger); font-weight: 700; line-height: 1.1; white-space: nowrap; }
+  .ms-over { display: block; font-size: .62rem; color: #8a6d1f; line-height: 1.1; }
+  body.ms-fit .ms-short, body.ms-fit .ms-over { display: inline; margin-left: 1px; }
+  #ms-drop-menu { position: absolute; z-index: 1060; display: none; background: #fff; border: 1px solid #cfc8bb; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.15); padding: 6px; max-width: 260px; }
+  #ms-drop-menu .t { font-size: .78rem; font-weight: 600; margin-bottom: 4px; }
+  #ms-drop-menu button { display: block; width: 100%; margin-top: 3px; }
+  body.ms-swap [data-res], body.ms-swap .ms-box.empty[data-date] { cursor: pointer; }
+  body.ms-swap [data-res]:hover { background: #fff2cc; }
   body.ms-swap .ms-box.empty[data-date] { color: #8fb8a3; }
   .ms-box.picked { background: var(--color-primary) !important; color: #fff !important; font-weight: 600; }
   #ms-swap-bar { display: none; }
@@ -37,36 +69,97 @@
   .ms-att { display: inline-block; min-width: 1.1em; margin-right: 2px; font-weight: 700; text-align: center; }
   .ms-att.attended { color: #2f7d4e; } .ms-att.absent { color: var(--color-danger); } .ms-att.cancelled { color: #8a8378; }
   .ms-box.absent, .ms-box.cancelled { color: #8a8378; text-decoration: line-through; }
-  body.ms-att .ms-box[data-res] { cursor: pointer; }
-  body.ms-att .ms-box[data-res]:hover { background: #e3f3ea; }
+  body.ms-att [data-res] { cursor: pointer; }
+  body.ms-att [data-res]:hover { background: #e3f3ea; }
   #ms-att-bar { display: none; } body.ms-att #ms-att-bar { display: block; }
   #ms-att-menu { position: absolute; z-index: 1050; display: none; background: #fff; border: 1px solid #cfc8bb; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.15); padding: 6px; }
   #ms-att-menu .t { font-size: .78rem; font-weight: 600; margin-bottom: 4px; white-space: nowrap; }
   #ms-att-menu button { display: block; width: 100%; margin-top: 3px; }
   @media (max-width: 768px) { .ms-week { font-size: 0.62rem; } .ms-box { height: 17px; line-height: 17px; padding: 0 2px; } }
+  /* 全体表示：1 か月がひと目で見えるように、枠の箱を横に並べて右の一覧をたたむ（手直しのときに使う） */
+  body.ms-fit .ms-week { font-size: 0.64rem; margin-bottom: 6px; }
+  body.ms-fit .ms-week th { padding: 1px 2px; font-size: 0.68rem; }
+  body.ms-fit .ms-week th.time { width: 38px; font-size: 0.62rem; }
+  body.ms-fit .ms-week td { overflow: hidden; }
+  body.ms-fit .ms-box { float: left; box-sizing: border-box; width: calc(100% / var(--cap, 3)); height: 16px; line-height: 16px; padding: 0 1px; font-size: 0.6rem; word-spacing: -3px; text-overflow: clip; border-bottom: 0; border-right: 1px dotted #ddd6c9; }
+  body.ms-fit .ms-box:last-child { border-right: 0; }
+  body.ms-fit .ms-box.wait, body.ms-fit .ms-box.over { float: none; clear: both; display: block; width: auto; border-right: 0; }
+  body.ms-fit .ms-box { height: 14px; line-height: 14px; font-size: 0.56rem; }
+  body.ms-fit .ms-week th { line-height: 1.15; }
+  body.ms-fit .ms-count { font-size: 0.58rem; }
+  body.ms-fit .ms-staff { display: none; }
+  body.ms-fit .ms-hide-fit { display: none; }
+  body.ms-fit .ms-total { font-size: .78rem; padding: 3px 8px; }
+  body.ms-fit .ms-users { font-size: .68rem; padding: 1px 6px; grid-template-columns: 1fr repeat(4, 26px); gap: 2px; }
+  body.ms-fit .ms-users.with-att { grid-template-columns: 1fr repeat(5, 26px); }
+  body.ms-fit .ms-users > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+  body.ms-fit .ms-users > div:first-child { text-align: left; }
+  body.ms-fit .ms-users .badge { display: none; }
+  .ms-show-fit { display: none; }
+  /* 全体表示は画面いっぱい：左のメニュー・上の帯・お知らせ・ほかのボタンを消し、箱の高さを画面の高さに合わせる（--ms-bh） */
+  body.ms-fit .sidebar, body.ms-fit .topbar, body.ms-fit .flash-messages, body.ms-fit .ai-chat-fab { display: none !important; }
+  body.ms-fit .main-area { margin-left: 0 !important; }
+  body.ms-fit .page-content { padding: 4px 8px !important; max-width: none !important; }
+  body.ms-fit .page-content > .px-2 { padding: 0 !important; }
+  body.ms-fit .ms-show-fit { display: inline; }
+  body.ms-fit #ms-toolbar { margin-bottom: 4px !important; gap: 4px !important; }
+  body.ms-fit #ms-toolbar .btn { padding: 1px 8px; font-size: .74rem; }
+  body.ms-fit .ms-total { margin-bottom: 4px !important; }
+  body.ms-fit .row.g-3 { --bs-gutter-x: 8px; --bs-gutter-y: 4px; }
+  body.ms-fit .ms-week { margin-bottom: 3px; }
+  body.ms-fit .ms-box { height: var(--ms-bh, 14px); line-height: var(--ms-bh, 14px); font-size: calc(var(--ms-bh, 14px) * 0.72); }
+  body.ms-fit .ms-week th.time { line-height: 1; }
+  @media (min-width: 992px) {
+    body.ms-fit #ms-main { flex: 0 0 calc(100% - 250px); max-width: calc(100% - 250px); }
+    body.ms-fit #ms-side { flex: 0 0 250px; max-width: 250px; position: sticky; top: 8px; align-self: flex-start; max-height: calc(100vh - 16px); overflow-y: auto; }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="px-2">
-  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2" id="ms-toolbar">
     <div class="btn-group">
       <a href="{% url 'reservations:monthly_schedule' prev_year prev_month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left"></i></a>
-      <a href="{% url 'reservations:calendar_month' year month %}" class="btn btn-outline-secondary btn-sm">カレンダーへ</a>
+      <a href="{% url 'reservations:calendar_month' year month %}" class="btn btn-outline-secondary btn-sm"><span class="ms-hide-fit">カレンダーへ</span><span class="ms-show-fit">{{ year }}年{{ month }}月</span></a>
       <a href="{% url 'reservations:monthly_schedule' next_year next_month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-right"></i></a>
     </div>
     <div class="d-flex gap-2 flex-wrap">
-      <a href="{% url 'reservations:monthly_requests' year month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-list-check me-1"></i>利用希望</a>
+      <a href="{% url 'reservations:monthly_requests' year month %}" class="btn btn-outline-secondary btn-sm ms-hide-fit"><i class="bi bi-list-check me-1"></i>利用希望</a>
       <button type="button" class="btn btn-outline-primary btn-sm" id="ms-swap-toggle"><i class="bi bi-arrow-left-right me-1"></i>入れ替え・移動</button>
-      {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_board' %}?d={{ today|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm" title="きょうの担当と予定を1画面で（スマートフォン向け）"><i class="bi bi-phone me-1"></i>きょうの予定</a>{% endif %}
+      {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_board' %}?d={{ today|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm ms-hide-fit" title="きょうの担当と予定を1画面で（スマートフォン向け）"><i class="bi bi-phone me-1"></i>きょうの予定</a>{% endif %}
+      {% if features.transport %}<a href="{% url 'transport:day' %}?d={{ today|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm ms-hide-fit" title="きょうの迎え・送りの一覧（配車表）"><i class="bi bi-truck me-1"></i>配車表</a>{% endif %}
       {% if facility.is_ryoiku %}<button type="button" class="btn btn-outline-success btn-sm" id="ms-att-toggle" title="名前を押して 来た・欠席・キャンセル を入れます。業務日誌の「実績」欄に印字されます"><i class="bi bi-check2-square me-1"></i>実績を入れる</button>{% endif %}
-      <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank"><i class="bi bi-printer me-1"></i>印刷（PDF）</a>
-      {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_log_pdf' year month %}?fmt=html" class="btn btn-outline-secondary btn-sm" target="_blank" title="1日ごとの予定表（時間・氏名・提供形態・実績・備考）。A4 1枚に4日ぶん。右上に「その日の担当」"><i class="bi bi-journal-text me-1"></i>業務日誌（4日/枚）</a>{% endif %}
-      <form method="post" action="{% url 'reservations:monthly_requests' year month %}"
+      <div class="btn-group btn-group-sm" role="group" aria-label="表示の大きさ" id="ms-zoom" title="予定表と右の一覧の大きさ（この端末に覚えます）">
+        <button type="button" class="btn btn-outline-secondary" data-zoom="0.5">50%</button>
+        <button type="button" class="btn btn-outline-secondary" data-zoom="0.75">75%</button>
+        <button type="button" class="btn btn-outline-secondary" data-zoom="1">100%</button>
+      </div>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="ms-fit-toggle" title="1 か月をひと目で見る（枠の箱を横に並べて小さくし、右の一覧は数字だけ並べる）"><i class="bi bi-arrows-angle-contract me-1"></i>全体を見る</button>
+      <div class="btn-group ms-hide-fit">
+        <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?inline=1" class="btn btn-outline-secondary btn-sm" target="_blank" title="A3 横 1 枚の PDF を開きます（日付の下にその日の担当）。A4 の用紙に印刷すると縮小されて 1 枚に収まります"><i class="bi bi-printer me-1"></i>印刷（A3）</a>
+        <a href="{% url 'reservations:monthly_schedule_pdf' year month %}?paper=a4&inline=1" class="btn btn-outline-secondary btn-sm" target="_blank" title="A4 横 1 枚の PDF を開きます">A4</a>
+      </div>
+      {% if facility.is_ryoiku %}<a href="{% url 'reservations:daily_log_pdf' year month %}?inline=1" class="btn btn-outline-secondary btn-sm ms-hide-fit" target="_blank" title="1日ごとの予定表（時間・氏名・提供形態・実績・備考）の PDF を開きます。A4 1枚に4日ぶん。右上に「その日の担当」"><i class="bi bi-journal-text me-1"></i>業務日誌（4日/枚）</a>{% endif %}
+      <form method="post" action="{% url 'reservations:monthly_requests' year month %}" class="ms-hide-fit"
             onsubmit="return confirm('{{ month }}月の利用希望から予約を割り当てます。\nすでに確定している予約は残し、希望回数に足りないぶんだけ足します。よろしいですか？');">
         {% csrf_token %}
         <button class="btn btn-primary btn-sm"><i class="bi bi-magic me-1"></i>利用希望から割り当てる</button>
       </form>
+      {% if facility.schedule_tools %}
+      <div class="dropdown ms-hide-fit">
+        <button type="button" class="btn btn-outline-danger btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-arrow-counterclockwise me-1"></i>やり直す</button>
+        <form method="post" action="{% url 'reservations:monthly_schedule_reset' year month %}" class="dropdown-menu dropdown-menu-end p-2 small" style="min-width: 300px;" id="ms-reset-form">
+          {% csrf_token %}
+          <div class="fw-bold mb-1">{{ month }}月の予定をまとめて消す</div>
+          <div class="text-muted mb-2">今日より前の日・実績を入れた予約・療育記録に結びついた予約は残します。保護者へのお知らせは積みません（送信待ちの「ご利用日が決まりました」は書き直し、予約が無くなった方の分は消します）。</div>
+          <button class="btn btn-sm btn-outline-danger w-100 mb-1" name="scope" value="assigned"
+                  onclick="return confirm('{{ month }}月の、利用希望から割り当てた予約を消します。\n職員・保護者が入れた予約とキャンセル待ちは残します。よろしいですか？');">利用希望から割り当てた予約だけ消す</button>
+          <button class="btn btn-sm btn-danger w-100" name="scope" value="all"
+                  onclick="return confirm('{{ month }}月の予約をすべて消します（キャンセル待ちも）。\n元に戻せません。よろしいですか？');">すべての予約を消す（キャンセル待ちも）</button>
+        </form>
+      </div>
+      {% endif %}
     </div>
   </div>
 
@@ -77,10 +170,16 @@
     保護者へのお知らせは積みません（送信待ちの「ご利用日が決まりました」は書き直します）。</span>
     <button type="button" class="btn btn-sm btn-outline-secondary ms-2 py-0" id="ms-swap-cancel">やめる</button>
   </div>
+  <div id="ms-drop-menu">
+    <div class="t"></div>
+    <button type="button" class="btn btn-sm btn-info" data-act="join">きょうだいで1枠にまとめる</button>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-act="swap">入れ替える</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" data-act="">やめる</button>
+  </div>
   <form method="post" action="{% url 'reservations:monthly_schedule_swap' year month %}" id="ms-swap-form" class="d-none">
     {% csrf_token %}
     <input type="hidden" name="action"><input type="hidden" name="a"><input type="hidden" name="b">
-    <input type="hidden" name="date"><input type="hidden" name="hour">
+    <input type="hidden" name="date"><input type="hidden" name="hour"><input type="hidden" name="allow_pairs" value="">
   </form>
   {% if facility.is_ryoiku %}
   <div id="ms-att-bar" class="alert alert-success py-2 small mb-3">
@@ -97,15 +196,43 @@
   </div>
   {% endif %}
 
-  <div class="row g-3">
-    <div class="col-lg-9">
+  {% if cap %}
+  <div class="ms-capbar mb-2 {{ cap.level }}" id="ms-cap">
+    <i class="bi {% if cap.level == 'ok' %}bi-check-circle{% else %}bi-exclamation-triangle{% endif %} me-1"></i>
+    <b>定員 {{ cap.capacity }} 名</b>：{% for m in cap.months %}{{ m.month }}月 {{ m.people }}人／{{ m.open_days }}日{% if m.avg is not None %}（{{ m.avg }}）{% endif %}{% if not forloop.last %}・{% endif %}{% endfor %}
+    → <b>3か月平均 {{ cap.avg }} 人／日</b>（上限 {{ cap.avg_limit }}{% if cap.level == 'over' %}・<b class="text-danger">超えています（{{ cap.over_by }} 人ぶん）</b>{% elif cap.room >= 0 %}・あと {{ cap.room }} 人{% endif %}）
+    {% if cap.over_days %}・<b class="text-danger">1日の上限 {{ cap.day_limit }} 名を超えた日：{% for d, n in cap.over_days %}{{ d|date:'j' }}日 {{ n }}名{% if not forloop.last %}、{% endif %}{% endfor %}</b>{% endif %}
+    <span class="text-muted small d-block">欠席・キャンセルは数えません（まだの日は予定の人数）。定員超過利用減算の目安で、予約は止めません。設定は予約カレンダーの「予約の設定」。</span>
+  </div>
+  {% endif %}
+  {% if pair_overlaps %}
+  <form method="post" action="{% url 'reservations:monthly_schedule_fix_pairs' year month %}" class="alert alert-danger py-2 px-3 small d-flex align-items-center flex-wrap gap-2 mb-2"
+        onsubmit="return confirm('共演NG で同じ時間の組を、どちらかの利用希望（同じ日）のほかの時刻へ移します。保護者へのお知らせは積みません。よろしいですか？');">
+    {% csrf_token %}
+    <span><i class="bi bi-exclamation-triangle me-1"></i>今日から先に、共演NG で同じ時間の組が <b>{{ pair_overlaps }}</b> 組あります（赤い名前）。</span>
+    <button class="btn btn-sm btn-danger py-0">利用希望のほかの時刻へ移す</button>
+    <a href="{% url 'reservations:pair_check' %}" class="alert-link">一覧で見る</a>
+  </form>
+  {% endif %}
+  <div class="ms-total mb-2" id="ms-total">
+    {% if facility.schedule_tools %}<span class="d-inline-flex align-items-center gap-1"><input type="search" class="form-control form-control-sm ms-find" placeholder="名前で探す" aria-label="名前で探す（ふりがなでも）" data-name-filter="#ms-main" data-nf-mode="mark" data-nf-count="#ms-find-count"><span id="ms-find-count" class="small fw-bold" aria-live="polite"></span></span>
+    <a href="{% url 'reservations:pair_check' %}" class="small ms-hide-fit" title="これまでの予約も含めて、共演NG の 2 人が同じ時間枠にいる組を一覧にします"><i class="bi bi-person-x me-1"></i>共演NG の確認</a>{% endif %}
+    <span><i class="bi bi-calendar-check me-1"></i>{{ month }}月の予約 合計 <strong>{{ schedule.total }}</strong> 件</span>
+    {% if facility.is_ryoiku %}<span>来た <strong>{{ schedule.total_attended }}</strong></span>{% endif %}
+    <span>空き枠 <strong>{{ schedule.total_free }}</strong></span>
+    {% if row_totals.people %}<span>利用する人 <strong>{{ row_totals.people }}</strong> 名・希望の合計 <strong>{{ row_totals.desired }}</strong> 回{% if row_totals.short %}・希望に足りない <strong class="text-danger">{{ row_totals.short }}</strong> 回{% endif %}{% if row_totals.absent %}・欠席・キャンセル <strong>{{ row_totals.absent }}</strong> 回{% endif %}</span>{% endif %}
+    <span class="text-muted d-none d-md-inline ms-hide-fit"><i class="bi bi-arrows-move me-1"></i>名前はドラッグで動かせます（名前に重ねると入れ替え、きょうだいに重ねると1枠にまとめる、「＋」に置くと移動）</span>
+  </div>
+
+  <div class="row g-3" id="ms-area">
+    <div class="col-lg-9" id="ms-main">
       {% for week in schedule.weeks %}
-      <table class="ms-week">
+      <table class="ms-week" style="--cap: {{ schedule.capacity }};">
         <thead><tr>
-          <th class="time"></th>
+          <th class="time"><span class="ms-wk" title="この週の予約の合計">計{{ week.count }}</span></th>
           {% for d in week.days %}
           <th class="{% if d.is_sunday %}sun{% elif d.is_saturday %}sat{% endif %}{% if d.closed %} closed{% endif %}">
-            {% if d.in_month %}{{ d.date|date:'j' }}日({{ d.date|date:'D' }}){% if d.holiday %}<div class="ms-count text-danger">{{ d.holiday }}</div>{% elif d.closed %}<div class="ms-count">お休み</div>{% else %}<div class="ms-count">{{ d.count }} 名{% if d.attended %}<span class="ms-att attended ms-1" title="来た">来{{ d.attended }}</span>{% endif %}</div>{% endif %}{% if d.staff %}<div class="ms-count ms-staff" title="その日の担当">{{ d.staff }}</div>{% endif %}{% endif %}
+            {% if d.in_month %}{{ d.date|date:'j' }}日({{ d.date|date:'D' }}){% if d.holiday %}<div class="ms-count text-danger">{{ d.holiday }}</div>{% elif d.closed %}<div class="ms-count">お休み</div>{% else %}<div class="ms-count">{{ d.count }} 名{% if d.cap_level %}<span class="ms-cap {{ d.cap_level }}" title="{% if d.cap_level == 'over' %}1日の上限 {{ cap.day_limit }} 名を超えています{% else %}定員 {{ cap.capacity }} 名を超えています（上限 {{ cap.day_limit }} 名まで）{% endif %}（欠席・キャンセルを除いて {{ d.cap_people }} 名）">{% if d.cap_level == 'over' %}上限超{% else %}定員超{% endif %}</span>{% endif %}{% if d.free %}<span class="ms-free" title="空いている枠">空{{ d.free }}</span>{% endif %}{% if d.attended %}<span class="ms-att attended ms-1" title="来た">来{{ d.attended }}</span>{% endif %}</div>{% endif %}{% if d.staff %}<div class="ms-count ms-staff" title="その日の担当">{{ d.staff }}</div>{% endif %}{% endif %}
           </th>
           {% endfor %}
         </tr></thead>
@@ -122,11 +249,12 @@
                 {% else %}
                 <td>
                   {% for r in s.boxes %}
-                    {% if r %}<a class="ms-box{% if r.attendance %} {{ r.attendance }}{% endif %}" data-res="{{ r.pk }}" data-name="{{ r.display_name }}" data-att="{{ r.attendance }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}" title="{{ r.display_name }} {{ r.time_label }}{% if r.attendance %}（{{ r.get_attendance_display }}）{% endif %}">{% if r.attendance %}<span class="ms-att {{ r.attendance }}">{{ r.attendance_mark }}</span>{% endif %}{{ r.display_name }}</a>
+                    {% if r and r.sharing %}<span class="ms-box grp" title="きょうだいで1枠">{% include 'reservations/_ms_name.html' with cls='ms-nm' %}{% for o in r.sharing %}<span class="ms-sep">・</span>{% include 'reservations/_ms_name.html' with r=o cls='ms-nm' %}{% endfor %}</span>
+                    {% elif r %}{% include 'reservations/_ms_name.html' with cls='ms-box' %}
                     {% else %}<a class="ms-box empty" data-date="{{ d.date|date:'Y-m-d' }}" data-hour="{{ s.hour }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}?hour={{ s.hour }}" title="{{ d.date|date:'n/j' }} {{ s.label }} に追加">＋</a>{% endif %}
                   {% endfor %}
-                  {% for r in s.over %}<a class="ms-box over" data-res="{{ r.pk }}" data-name="{{ r.display_name }}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">{{ r.display_name }}（超過）</a>{% endfor %}
-                  {% for r in s.waiting %}<a class="ms-box wait" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">待 {{ r.display_name }}</a>{% endfor %}
+                  {% for r in s.over %}<a class="ms-box over{% if r.pair_names %} pair{% endif %}" data-res="{{ r.pk }}" data-name="{{ r.display_name }}" data-nf="{{ r.display_name }} {% if r.beneficiary_id %}{{ r.beneficiary.full_name_kana }}{% endif %}" data-when="{{ d.date|date:'n/j' }} {{ s.label }}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">{{ r.display_name }}（超過）</a>{% endfor %}
+                  {% for r in s.waiting %}<a class="ms-box wait{% if r.pair_names %} pair{% endif %}" data-nf="{{ r.display_name }} {% if r.beneficiary_id %}{{ r.beneficiary.full_name_kana }}{% endif %}" href="{% url 'reservations:day' d.date.year d.date.month d.date.day %}">待 {{ r.display_name }}</a>{% endfor %}
                 </td>
                 {% endif %}
               {% endif %}{% endfor %}
@@ -137,34 +265,40 @@
         </tbody>
       </table>
       {% endfor %}
-      <div class="small text-muted">
+      <div class="small text-muted ms-hide-fit">
         網掛けはお休み（{{ schedule.closed_text|default:'なし' }}）とその日に無い時刻。1枠 {{ schedule.capacity }} 人。
         「＋」を押すと、その日の画面でその枠に追加できます。名前を押すと、その日の画面で変更・取消ができます。
-        「入れ替え・移動」で、2人の枠の入れ替えや空き枠への移動ができます。<br>
+        名前は<strong>ドラッグで動かせます</strong>（ほかの名前に重ねると入れ替え、きょうだいの名前に重ねると「きょうだいで1枠」にまとめるか入れ替えるかを選べ、「＋」に置くとその枠へ移動）。「入れ替え・移動」ボタンでは、名前を順に押して同じことができます（タブレット向け）。青い箱はきょうだいで1枠にまとめた日です。<br>
         割り当ては、時刻を指定した希望を先に、「終日」の希望はあとから<strong>その日の空いている早い時刻（午前）から詰めて</strong>入れます。○の付いていない日・時刻には入れません。
       </div>
     </div>
-    <div class="col-lg-3">
+    <div class="col-lg-3" id="ms-side">
       <div class="card">
         <div class="row-list-item row-list-head ms-users small{% if facility.is_ryoiku %} with-att{% endif %}">
-          <div>{{ terms.beneficiary }}</div><div>希望</div><div>確定</div>{% if facility.is_ryoiku %}<div title="実績が「来た」の回数">来</div>{% endif %}<div>残</div><div>契約</div>
+          <div>{{ terms.beneficiary }}</div><div>希望</div><div title="その月の予約の回数（欠席・キャンセルは数えない）">確定</div>{% if facility.is_ryoiku %}<div title="実績が「来た」の回数">来</div>{% endif %}<div title="契約（支給量）−確定">残</div><div title="受給者証の支給量（日/月）">契約</div>
         </div>
         {% for r in rows %}
         <div class="row-list-item ms-users small{% if facility.is_ryoiku %} with-att{% endif %}">
-          <div><a href="{% url 'reservations:monthly_request_edit' year month r.beneficiary.pk %}">{{ r.beneficiary.full_name }}</a></div>
+          <div><a href="{% url 'reservations:monthly_request_edit' year month r.beneficiary.pk %}">{{ r.beneficiary.full_name }}</a>{% if r.ng_days %} <span class="badge text-bg-danger" style="font-size:.6rem;" title="NG児童：来られない日 {% for d in r.ng_days %}{{ d|date:'n/j' }}{% if not forloop.last %}・{% endif %}{% endfor %}">NG</span>{% endif %}{% if r.pair_names %} <span class="badge text-bg-warning" style="font-size:.6rem;" title="同じ時間にできない：{{ r.pair_names|join:'・' }}">組</span>{% endif %}{% if r.same_name %} <span class="badge text-bg-secondary" style="font-size:.6rem;" title="同じ名前の{{ terms.beneficiary }}が2人以上います（生年月日 {{ r.beneficiary.date_of_birth|date:'Y/n/j' }}）。二重に登録しているなら、利用者情報で片方を削除してください">同名</span>{% endif %}</div>
           <div>{% if r.request %}{{ r.desired }}{% else %}—{% endif %}</div>
-          <div>{{ r.confirmed }}</div>
+          <div title="確定した予約 {{ r.confirmed }} 回{% if r.absent %}（うち欠席・キャンセル {{ r.absent }} 回は数えない）{% endif %}{% if r.short %}／希望まであと {{ r.short }} 回{% elif r.over %}／希望より {{ r.over }} 回多い{% endif %}">{{ r.used }}{% if r.short %}<span class="ms-short">あと{{ r.short }}</span>{% elif r.over %}<span class="ms-over">+{{ r.over }}</span>{% endif %}</div>
           {% if facility.is_ryoiku %}<div>{% if r.attended %}<span class="ms-att attended">{{ r.attended }}</span>{% else %}0{% endif %}</div>{% endif %}
-          <div>{% if r.request and r.remaining %}<span class="text-danger fw-bold">{{ r.remaining }}</span>{% elif r.request %}0{% else %}—{% endif %}</div>
+          <div title="契約（支給量）{{ r.granted|default:'—' }} − 確定 {{ r.used }}">{% if r.contract_left is None %}—{% elif r.contract_left < 0 %}<span class="text-danger fw-bold">{{ r.contract_left }}</span>{% else %}{{ r.contract_left }}{% endif %}</div>
           <div>{% if r.granted %}{{ r.granted }}{% else %}—{% endif %}</div>
         </div>
         {% empty %}
         <div class="text-center text-muted small py-3">まだ利用希望も予約もありません。</div>
         {% endfor %}
+        {% if rows %}
+        <div class="row-list-item ms-users small{% if facility.is_ryoiku %} with-att{% endif %} ms-sum" title="合計（希望 0 回で予約の無い子は出していません）">
+          <div>合計 {{ row_totals.people }} 名</div><div>{{ row_totals.desired }}</div><div title="{% if row_totals.absent %}欠席・キャンセル {{ row_totals.absent }} 回は数えない{% endif %}{% if row_totals.short %}／希望まであと {{ row_totals.short }} 回{% endif %}">{{ row_totals.used }}{% if row_totals.short %}<span class="ms-short">あと{{ row_totals.short }}</span>{% endif %}</div>{% if facility.is_ryoiku %}<div>{{ row_totals.attended }}</div>{% endif %}<div>{% if row_totals.contract_left is None %}—{% else %}{{ row_totals.contract_left }}{% endif %}</div><div>{{ row_totals.granted|default:'—' }}</div>
+        </div>
+        {% endif %}
       </div>
+      <div class="small text-muted mt-1 ms-hide-fit">確定＝その月の予約の回数（欠席・キャンセルにした回は数えない）。「あと n」は希望の回数に足りない回数、「+n」は希望より多い回数。残＝契約（受給者証の支給量）−確定。希望 0 回で予約の無い子は出しません。</div>
 
       {% if facility.is_ryoiku %}
-      <div class="card mt-3" id="dayStaff">
+      <div class="card mt-3 ms-hide-fit" id="dayStaff">
         <form method="post" action="{% url 'reservations:monthly_day_staff' year month %}">
           {% csrf_token %}
           <div class="card-body pb-2">
@@ -186,7 +320,7 @@
             {% for week in schedule.weeks %}{% for d in week.days %}{% if d.in_month and not d.closed %}
             <div class="ms-staff-row">
               <label for="staff_{{ d.date|date:'Y-m-d' }}" class="{% if d.is_sunday %}text-danger{% elif d.is_saturday %}text-primary{% endif %}">{{ d.date|date:'j' }}日({{ d.date|date:'D' }})</label>
-              <input type="text" class="form-control form-control-sm" id="staff_{{ d.date|date:'Y-m-d' }}" name="staff_{{ d.date|date:'Y-m-d' }}" value="{{ d.staff }}" list="staff-options" maxlength="100" autocomplete="off" placeholder="担当">
+              <input type="hidden" name="staff_was_{{ d.date|date:'Y-m-d' }}" value="{{ d.staff }}"><input type="text" class="form-control form-control-sm" id="staff_{{ d.date|date:'Y-m-d' }}" name="staff_{{ d.date|date:'Y-m-d' }}" value="{{ d.staff }}" list="staff-options" maxlength="100" autocomplete="off" placeholder="担当">
             </div>
             {% endif %}{% endfor %}{% endfor %}
           </div>
@@ -208,14 +342,110 @@
   function reset() {
     if (picked) picked.classList.remove('picked');
     picked = null; msg.textContent = first;
+    if (typeof showEditing === 'function') showEditing('');
   }
+  var TOOLS = {% if user.facility.schedule_tools %}true{% else %}false{% endif %};   // 共演NG を確かめて入れる・編集中の日時（ゆあーず）
   function submit(fields) {
     Object.keys(fields).forEach(function (k) { form.elements[k].value = fields[k]; });
+    form.elements.allow_pairs.value = TOOLS ? '1' : '';
     form.submit();
+  }
+  // 共演NG：src をその枠へ入れたら（入れ替えなら相手も src の枠へ）同じ枠になる共演NG の人の名前
+  function slotBoxes(date, hour) {
+    return Array.prototype.slice.call(document.querySelectorAll('[data-res][data-date="' + date + '"][data-hour="' + hour + '"]'));
+  }
+  function pairsOf(el) { return (el.dataset.pairs || '').split(',').filter(Boolean); }
+  function ngNames(src, target) {
+    if (!src || !target || !target.dataset.date) return [];
+    var out = [];
+    function check(mover, date, hour, skip) {
+      var mine = pairsOf(mover);
+      if (!mine.length) return;
+      slotBoxes(date, hour).forEach(function (o) {
+        if (skip.indexOf(o) >= 0 || !o.dataset.b) return;
+        if (mine.indexOf(o.dataset.b) >= 0) out.push(mover.dataset.name + '・' + o.dataset.name);
+      });
+    }
+    var swap = !!target.dataset.res;
+    check(src, target.dataset.date, target.dataset.hour, swap ? [src, target] : [src]);
+    if (swap) check(target, src.dataset.date, src.dataset.hour, [src, target]);
+    return out.filter(function (x, i) { return out.indexOf(x) === i; });
+  }
+  function ngText(names) { return names.length ? '\n\n※共演NG：' + names.join('／') + ' が同じ時間になります（予定表では赤く出ます）。' : ''; }
+  // 画面の上（ヘッダー）に、いま触っている日時を出す
+  var editing = document.getElementById('ms-editing');
+  var WD = ['日', '月', '火', '水', '木', '金', '土'];
+  function whenOf(el) {
+    if (!el) return '';
+    var w = el.dataset.when || '';
+    if (el.dataset.date) {
+      var d = new Date(el.dataset.date + 'T00:00:00'), t = w.split(' ').slice(1).join(' ');
+      w = (d.getMonth() + 1) + '/' + d.getDate() + '（' + WD[d.getDay()] + '）' + (t ? ' ' + t : '');
+    }
+    return w;
+  }
+  function showEditing(text, ng) {
+    if (!editing) return;
+    editing.textContent = text ? '編集中：' + text : '';
+    editing.classList.toggle('ng', !!ng);
   }
   document.getElementById('ms-swap-toggle').addEventListener('click', function () {
     body.classList.toggle('ms-swap'); body.classList.remove('ms-att'); hideAtt(); reset();
   });
+  // 表示の大きさ（50%・75%・100%）。予定表と右の一覧を縮める（CSS の zoom）。この端末に覚える
+  var area = document.getElementById('ms-area'), zoom = 1;
+  function setZoom(z) {
+    zoom = [0.5, 0.75, 1].indexOf(z) >= 0 ? z : 1;
+    area.style.zoom = zoom === 1 ? '' : String(zoom);
+    document.querySelectorAll('#ms-zoom [data-zoom]').forEach(function (b) {
+      var on = parseFloat(b.dataset.zoom) === zoom;
+      b.classList.toggle('active', on); b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    try { localStorage.setItem('ms-zoom', String(zoom)); } catch (e) {}
+    if (window.msFitHeight) window.msFitHeight();
+  }
+  document.querySelectorAll('#ms-zoom [data-zoom]').forEach(function (b) {
+    b.addEventListener('click', function () { setZoom(parseFloat(b.dataset.zoom)); });
+  });
+  // 全体表示（1 か月をひと目で）。選んだ状態はこの端末に覚える
+  (function () {
+    var btn = document.getElementById('ms-fit-toggle');
+    function fitHeight() {
+      // 全体表示のとき、すべての週が画面の高さに収まるよう、箱の高さを決める（9〜22px。縮めているときはそのぶん大きく）
+      if (!body.classList.contains('ms-fit')) { body.style.removeProperty('--ms-bh'); return; }
+      var tables = document.querySelectorAll('.ms-week');
+      if (!tables.length) return;
+      body.style.setProperty('--ms-bh', '14px');
+      var rows = 0, heads = 0;
+      tables.forEach(function (t) { rows += t.tBodies[0].rows.length; heads += t.tHead.getBoundingClientRect().height + 3 * zoom; });
+      var top = tables[0].getBoundingClientRect().top + window.scrollY;
+      var avail = window.innerHeight - top - 6 - heads;      // 画面の上での高さ（縮めたあと）
+      var h = Math.max(9, Math.min(22 / zoom, Math.floor(avail / zoom / rows) - 1));
+      body.style.setProperty('--ms-bh', h + 'px');
+    }
+    window.msFitHeight = fitHeight;
+    window.addEventListener('resize', fitHeight);
+    document.addEventListener('fullscreenchange', function () { setTimeout(fitHeight, 50); });
+    function apply(on) {
+      body.classList.toggle('ms-fit', on);
+      setTimeout(fitHeight, 0);
+      btn.innerHTML = on ? '<i class="bi bi-arrows-angle-expand me-1"></i>ふつうの表示' : '<i class="bi bi-arrows-angle-contract me-1"></i>全体を見る';
+      try { localStorage.setItem('ms-fit', on ? '1' : ''); } catch (e) {}
+    }
+    var saved = false, savedZoom = 1;
+    try { saved = localStorage.getItem('ms-fit') === '1'; savedZoom = parseFloat(localStorage.getItem('ms-zoom') || '1'); } catch (e) {}
+    setZoom(savedZoom);
+    apply(saved);
+    btn.addEventListener('click', function () {
+      var on = !body.classList.contains('ms-fit');
+      apply(on);
+      // できればブラウザの上の帯も消す（全画面。Esc で戻る。対応していないブラウザではそのまま）
+      try {
+        if (on && document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(function () {});
+        if (!on && document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () {});
+      } catch (e) {}
+    });
+  })();
   // 実績を入れるモード（ゆあーず）
   var attToggle = document.getElementById('ms-att-toggle'), attMenu = document.getElementById('ms-att-menu'), attForm = document.getElementById('ms-att-form');
   function hideAtt() { if (attMenu) attMenu.style.display = 'none'; }
@@ -230,7 +460,7 @@
     document.addEventListener('click', function (e) {
       if (!body.classList.contains('ms-att')) return;
       if (e.target.closest('#ms-att-menu')) return;
-      var box = e.target.closest('.ms-box[data-res]');
+      var box = e.target.closest('[data-res]');
       if (!box) { hideAtt(); return; }
       e.preventDefault();
       attForm.elements.reservation.value = box.dataset.res;
@@ -243,25 +473,110 @@
     }, true);
     if (new URLSearchParams(location.search).get('mode') === 'att') body.classList.add('ms-att');
   }
+  // 名前を名前（やきょうだい）や「＋」へ：ドラッグでも、入れ替え・移動モードで順に押しても同じ
+  var dropMenu = document.getElementById('ms-drop-menu'), pending = null;
+  function isSibling(a, b) {
+    return !!a.dataset.b && (b.dataset.sibs || '').split(',').indexOf(a.dataset.b) >= 0;
+  }
+  function dropOn(src, target) {
+    if (!src || !target || src === target) return;
+    if (target.dataset.res) {
+      if (isSibling(src, target)) {
+        pending = {a: src.dataset.res, b: target.dataset.res};
+        dropMenu.querySelector('.t').textContent = src.dataset.name + ' を ' + target.dataset.name + '（' + target.dataset.when + '）に重ねました';
+        var r = target.getBoundingClientRect();
+        dropMenu.style.display = 'block';
+        dropMenu.style.left = Math.max(4, Math.min(r.left + window.scrollX, window.scrollX + document.documentElement.clientWidth - dropMenu.offsetWidth - 8)) + 'px';
+        dropMenu.style.top = (r.bottom + window.scrollY + 2) + 'px';
+        return;
+      }
+      if (confirm(src.dataset.name + '（' + src.dataset.when + '）と ' + target.dataset.name + '（' + target.dataset.when + '）を入れ替えます。よろしいですか？' + ngText(TOOLS ? ngNames(src, target) : []))) {
+        submit({action: 'swap', a: src.dataset.res, b: target.dataset.res});
+      }
+    } else if (target.dataset.date) {
+      if (confirm(src.dataset.name + ' を ' + src.dataset.when + ' から ' + target.dataset.when + ' へ移します。よろしいですか？' + ngText(TOOLS ? ngNames(src, target) : []))) {
+        submit({action: 'move', a: src.dataset.res, date: target.dataset.date, hour: target.dataset.hour});
+      }
+    }
+  }
+  dropMenu.addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    dropMenu.style.display = 'none';
+    if (b.dataset.act && pending) submit({action: b.dataset.act, a: pending.a, b: pending.b});
+    pending = null;
+  });
+  var dragSrc = null, overEl = null;
+  function clearOver() { if (overEl) { overEl.classList.remove('ms-drop-ok'); overEl.classList.remove('ms-drop-ng'); } overEl = null; }
+  document.addEventListener('dragstart', function (e) {
+    var a = e.target.closest && e.target.closest('[data-res]');
+    if (!a || body.classList.contains('ms-att')) { if (a) e.preventDefault(); return; }
+    dragSrc = a; a.classList.add('ms-dragging');
+    try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', a.dataset.res); } catch (err) {}
+  });
+  document.addEventListener('dragend', function () {
+    if (dragSrc) dragSrc.classList.remove('ms-dragging');
+    dragSrc = null; clearOver();
+    if (TOOLS) showEditing(picked ? picked.dataset.name + ' ' + whenOf(picked) + '（選んでいます）' : '');
+  });
+  // 名前・「＋」の上に来たら、その日時（と名前）をヘッダーに出す。表の外に出たら、選んでいる人だけに戻す
+  if (TOOLS) {
+    document.addEventListener('mouseover', function (e) {
+      if (dragSrc) return;
+      var box = e.target.closest && e.target.closest('.ms-week [data-when]');
+      if (box) { showEditing(whenOf(box) + (box.dataset.name ? '　' + box.dataset.name : '　（空き）')); return; }
+      if (!e.target.closest || !e.target.closest('.ms-week')) showEditing(picked ? picked.dataset.name + ' ' + whenOf(picked) + '（選んでいます）' : '');
+    });
+    document.addEventListener('focusin', function (e) {
+      var box = e.target.closest && e.target.closest('.ms-week [data-when]');
+      if (box) showEditing(whenOf(box) + (box.dataset.name ? '　' + box.dataset.name : '　（空き）'));
+    });
+  }
+  document.addEventListener('dragover', function (e) {
+    if (!dragSrc) return;
+    var t = e.target.closest && e.target.closest('[data-res], .ms-box.empty[data-date]');
+    if (!t || t === dragSrc) { clearOver(); return; }
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
+    if (overEl !== t) {
+      clearOver(); overEl = t;
+      var ng = TOOLS ? ngNames(dragSrc, t) : [];
+      t.classList.add(ng.length ? 'ms-drop-ng' : 'ms-drop-ok');
+      if (TOOLS) showEditing(dragSrc.dataset.name + ' ' + whenOf(dragSrc) + ' → ' + whenOf(t) + (ng.length ? '　共演NG：' + ng.join('／') : ''), ng.length);
+    }
+  });
+  document.addEventListener('drop', function (e) {
+    if (!dragSrc) return;
+    var t = e.target.closest && e.target.closest('[data-res], .ms-box.empty[data-date]');
+    e.preventDefault();
+    var src = dragSrc;
+    clearOver();
+    if (t && t !== src) dropOn(src, t);
+  });
+  document.addEventListener('click', function (e) {
+    if (dropMenu.style.display === 'block' && !e.target.closest('#ms-drop-menu') && !e.target.closest('[data-res]')) { dropMenu.style.display = 'none'; pending = null; }
+  });
+
   document.getElementById('ms-swap-cancel').addEventListener('click', function () {
     body.classList.remove('ms-swap'); reset();
   });
   document.addEventListener('click', function (e) {
     if (!body.classList.contains('ms-swap')) return;
-    var box = e.target.closest('.ms-box');
+    var box = e.target.closest('[data-res], .ms-box.empty');
     if (!box) return;
     e.preventDefault();
     if (box.dataset.res) {
       if (!picked) {
         picked = box; box.classList.add('picked');
+        if (TOOLS) showEditing(box.dataset.name + ' ' + whenOf(box) + '（選んでいます）');
         msg.textContent = box.dataset.name + '（' + box.dataset.when + '）を選びました。入れ替える相手の名前か、移す先の「＋」を押してください。';
       } else if (picked === box) {
         reset();
-      } else if (confirm(picked.dataset.name + '（' + picked.dataset.when + '）と ' + box.dataset.name + '（' + box.dataset.when + '）を入れ替えます。よろしいですか？')) {
-        submit({action: 'swap', a: picked.dataset.res, b: box.dataset.res});
+      } else {
+        dropOn(picked, box);
       }
     } else if (box.dataset.date && picked) {
-      if (confirm(picked.dataset.name + ' を ' + picked.dataset.when + ' から ' + box.dataset.when + ' へ移します。よろしいですか？')) {
+      if (confirm(picked.dataset.name + ' を ' + picked.dataset.when + ' から ' + box.dataset.when + ' へ移します。よろしいですか？' + ngText(TOOLS ? ngNames(picked, box) : []))) {
         submit({action: 'move', a: picked.dataset.res, date: box.dataset.date, hour: box.dataset.hour});
       }
     }

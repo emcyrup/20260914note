@@ -31,6 +31,7 @@
 
 {% block content %}
 <div class="px-2 db-wrap">
+  {% if limit_text %}<div class="alert {% if '上限' in limit_text %}alert-danger{% else %}alert-warning{% endif %} py-1 px-2 small mb-2"><i class="bi bi-exclamation-triangle me-1"></i>{{ limit_text }}</div>{% endif %}
   <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
     <div class="db-date">
       {{ b.date|date:'n月j日' }}<small>{{ b.weekday }}曜日{% if b.holiday %}・{{ b.holiday }}{% endif %}{% if b.date == today %}・きょう{% endif %}</small>
@@ -52,7 +53,7 @@
         <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('db-staff-form').classList.toggle('d-none')"><i class="bi bi-pencil me-1"></i>直す</button>
       </div>
       <form method="post" class="d-none mt-2 d-flex gap-2" id="db-staff-form">
-        {% csrf_token %}<input type="hidden" name="action" value="staff">
+        {% csrf_token %}<input type="hidden" name="action" value="staff"><input type="hidden" name="was" value="{{ b.staff }}">
         <input type="text" class="form-control" name="text" value="{{ b.staff }}" list="staff-options" maxlength="100" autocomplete="off" placeholder="例：終日土田 pm大坂">
         <datalist id="staff-options">{% for t in staff_suggestions %}<option value="{{ t }}">{% endfor %}</datalist>
         <button class="btn btn-primary">保存</button>
@@ -72,10 +73,11 @@
       {% if b.pending %}<span class="text-muted">未入力 {{ b.pending }}</span>{% endif %}
     </div>
     {% for r in b.reservations %}
-    <div class="db-row{% if r.attendance %} {{ r.attendance }}{% endif %}">
+    <div class="db-row{% if r.attendance %} {{ r.attendance }}{% endif %}{% if r.pair_names %} pair-ng{% endif %}">
       <div class="db-time">{{ r.time_label }}</div>
       <div class="db-name">
-        {% if r.beneficiary_id %}<a href="{% url 'therapy:child' r.beneficiary_id %}?date={{ r.date|date:'Y-m-d' }}{% if r.start_time %}&time={{ r.start_time|time:'H:i' }}{% endif %}" class="text-decoration-none text-reset" title="療育記録を書く">{{ r.display_name }}</a>{% else %}{{ r.display_name }}{% endif %}
+        {% if r.beneficiary_id %}<a href="{% url 'therapy:child' r.beneficiary_id %}?date={{ r.date|date:'Y-m-d' }}{% if r.start_time %}&time={{ r.start_time|time:'H:i' }}{% endif %}#add" class="text-decoration-none text-reset" title="療育記録を書く">{{ r.display_name }} <i class="bi bi-pencil-square small text-primary"></i></a>{% else %}{{ r.display_name }} <a href="{% url 'reservations:day' r.date.year r.date.month r.date.day %}#link{{ r.pk }}" class="badge text-bg-secondary text-decoration-none" title="台帳の利用者と結びつけると療育記録を書けます">台帳に未登録</a>{% endif %}
+        {% if r.pair_names %}<span class="badge text-bg-danger ms-1" style="font-size:.65rem;">組み合わせNG：{{ r.pair_names|join:'・' }}</span>{% endif %}
         {% if r.note %}<span class="note">{{ r.note }}</span>{% endif %}
       </div>
       <form method="post" class="db-att" title="実績">
@@ -97,8 +99,9 @@
   <div class="small db-links text-muted">
     <a href="{% url 'reservations:day' b.date.year b.date.month b.date.day %}">この日の予約（追加・変更・取り消し）</a>
     <a href="{% url 'reservations:monthly_schedule' b.date.year b.date.month %}">月間予定表</a>
-    <a href="{% url 'reservations:daily_log_pdf' b.date.year b.date.month %}?from={{ b.date|date:'Y-m-d' }}&to={{ b.date|date:'Y-m-d' }}" target="_blank">この日の業務日誌（PDF）</a>
-    <div class="mt-1">名前を押すと療育記録を書けます。実績の選択は、月間予定表の「実績を入れる」と同じものです。</div>
+    {% if features.transport %}<a href="{% url 'transport:day' %}?d={{ b.date|date:'Y-m-d' }}">この日の配車表（迎え・送り）</a>{% endif %}
+    <a href="{% url 'reservations:daily_log_pdf' b.date.year b.date.month %}?from={{ b.date|date:'Y-m-d' }}&to={{ b.date|date:'Y-m-d' }}&inline=1" target="_blank">この日の業務日誌（PDF）</a>
+    <div class="mt-1">名前を押すと療育記録を書けます（「台帳に未登録」の人は、その日の予約の画面で台帳の{{ terms.beneficiary }}と結びつけると書けます）。実績の選択は、月間予定表の「実績を入れる」と同じものです。</div>
   </div>
 </div>
 {% endblock %}

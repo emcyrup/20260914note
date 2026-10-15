@@ -477,6 +477,7 @@ class CopaymentListView(LoginRequiredMixin, BillingEnabledMixin, View):
             )
         }
 
+        from . import copayment as cp
         rows = []
         for b in beneficiaries:
             m = mgmt_map.get(b.pk)
@@ -485,8 +486,9 @@ class CopaymentListView(LoginRequiredMixin, BillingEnabledMixin, View):
                 'management':  m,
                 'can_print_sheet': bool(m and m.is_upper_limit_manager),
                 'is_manager_here': b.is_copayment_manager_here,
+                'judge': cp.judge(facility, b, year, month, m),
             })
-
+        targets = [r for r in rows if r['judge']['target']]
         return render(request, 'billing/copayment_list.html', {
             'year':       year,
             'month':      month,
@@ -496,7 +498,43 @@ class CopaymentListView(LoginRequiredMixin, BillingEnabledMixin, View):
             'next_month': next_month,
             'rows':       rows,
             'today':      today,
+            'targets':    targets,
+            'waiting':    sum(1 for r in targets if r['judge']['state'] == 'other' and 'FAX の結果待ち' in r['judge']['text']),
+            'fax_choices': cp.FAX_CHOICES,
+            'has_prev':   CopaymentManagement.objects.filter(facility=facility, year_month=f'{prev_year}-{prev_month:02d}').exists(),
         })
+
+    def post(self, request, year, month):
+        """一覧からの操作：fax（FAX の結果をまとめて反映。ids と choice・amount）・copy_prev（先月の設定を写す）"""
+        from . import copayment as cp
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        back = redirect('billing:copayment_list_month', year=year, month=month)
+        action = request.POST.get('action')
+        if action == 'copy_prev':
+            n = cp.copy_from_prev_month(facility, year, month)
+            messages.success(request, f'先月の上限管理（管理する／しない・事業所の並び）を {n} 人に写しました。当施設の額は今月の請求から入れています。'
+                             if n else '写せる人がいません（先月の記録が無いか、今月すでに入力ずみ）。')
+            return back
+        if action == 'fax':
+            ids = [to_int(x, -1) for x in request.POST.getlist('ids')]
+            choice = request.POST.get('choice')
+            amount = to_int(request.POST.get('amount'))
+            if choice not in dict(cp.FAX_CHOICES) or (choice == 'amount' and amount is None):
+                messages.error(request, '反映する結果（0 円・全額・金額）を選んでください。')
+                return back
+            people = list(Beneficiary.objects.filter(facility=facility, pk__in=ids))
+            if not people:
+                messages.error(request, '反映する利用者に印を付けてください。')
+                return back
+            for b in people:
+                cp.apply_fax_result(facility, b, year, month, choice, amount)
+            label = dict(cp.FAX_CHOICES)[choice] if choice != 'amount' else f'{amount:,} 円'
+            messages.success(request, f'{len(people)} 人に FAX の結果「{label}」を反映しました（ほかの事業所が管理）：'
+                             + '、'.join(b.full_name for b in people[:10]) + (f' ほか {len(people) - 10} 人' if len(people) > 10 else '') + '。')
+            return back
+        messages.error(request, '操作を選んでください。')
+        return back
 
 
 class CopaymentEditView(LoginRequiredMixin, BillingEnabledMixin, View):
@@ -538,12 +576,18 @@ class CopaymentEditView(LoginRequiredMixin, BillingEnabledMixin, View):
             year_month=year_month,
         ).first()
 
+        from . import copayment as cp
+        cap = cp.cap_for(beneficiary, year, month)
+        total_cost, burden = cp.this_office_amounts(facility, beneficiary, year, month)
         if management:
             form = CopaymentManagementForm(instance=management)
             formset = self._get_formset_class()(instance=management)
         else:
-            # 利用者に登録した利用事業所を初期値にする（上限管理事業所のフラグも）
+            # 利用者に登録した利用事業所を初期値にする（上限管理事業所のフラグも）。当施設の額は請求と同じ計算で入れる
             initials = self._office_initials(facility, beneficiary)
+            for init in initials:
+                if init.get('is_this_office'):
+                    init.update({'total_cost': total_cost or 0, 'original_copayment': burden or 0, 'adjusted_copayment': burden or 0})
             form = CopaymentManagementForm(instance=CopaymentManagement(
                 is_upper_limit_manager=beneficiary.is_copayment_manager_here or not beneficiary.offices.exists(),
             ))
@@ -561,6 +605,7 @@ class CopaymentEditView(LoginRequiredMixin, BillingEnabledMixin, View):
             'conflict':    None,
             'management':  management,
             'can_print_sheet': bool(management and management.is_upper_limit_manager),
+            'cap': cap, 'this_total_cost': total_cost, 'this_burden': burden,
         })
 
     def post(self, request, beneficiary_pk, year, month):
@@ -587,6 +632,24 @@ class CopaymentEditView(LoginRequiredMixin, BillingEnabledMixin, View):
             records = formset.save()
             # 「当施設」の行を1つだけ立てる（事業所番号か名前が当施設と一致する行、なければ先頭行）
             self._mark_this_office(management, facility)
+            if request.POST.get('action') == 'allocate':
+                # 配分：当施設を先に上限まで充て、残りをほかの事業所に順に。管理結果も決める
+                from . import copayment as cp
+                cap = cp.cap_for(beneficiary, year, month)
+                if not cap:
+                    messages.error(request, '受給者証の負担上限月額が登録されていないため配分できません。利用者情報の受給者証を確かめてください。')
+                    return redirect('billing:copayment_edit', beneficiary_pk=beneficiary_pk, year=year, month=month)
+                rows = list(management.office_records.all())
+                adjusted, result = cp.allocate(cap, [{'is_this_office': r.is_this_office, 'original_copayment': r.original_copayment} for r in rows])
+                for r, a in zip(rows, adjusted):
+                    if r.adjusted_copayment != a:
+                        r.adjusted_copayment = a
+                        r.save(update_fields=['adjusted_copayment'])
+                management.management_result = result
+                management.save(update_fields=['management_result', 'updated_at'])
+                messages.success(request, f'上限 {cap:,} 円で配分しました：' + '、'.join(f'{r.office_name} {a:,} 円' for r, a in zip(rows, adjusted))
+                                 + f'。管理結果は「{management.get_management_result_display()}」。')
+                return redirect('billing:copayment_edit', beneficiary_pk=beneficiary_pk, year=year, month=month)
             messages.success(
                 request,
                 f'{beneficiary.full_name}（{month}月）の上限額管理を保存しました。',

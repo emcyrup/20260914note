@@ -50,6 +50,16 @@
     <form method="post" action="{% url 'reservations:request_action' row.req.pk %}" class="row g-2 align-items-end">
       {% csrf_token %}
       <input type="hidden" name="action" value="apply">
+      {% if setting.slot_mode %}
+      <div class="col-md-2">
+        <label class="form-label small fw-semibold" for="st{{ row.req.pk }}">時刻（枠）</label>
+        <select name="start_time" id="st{{ row.req.pk }}" class="form-select form-select-sm" required>
+          <option value="">— 選ぶ —</option>
+          {% for h in setting.all_slot_hours %}<option value="{{ h }}">{{ h }}:00</option>{% endfor %}
+        </select>
+        <div class="form-text">備考に書かれた時刻を見て選んでください。</div>
+      </div>
+      {% endif %}
       <div class="col-md-4">
         <label class="form-label small fw-semibold" for="ben{{ row.req.pk }}">どの{{ terms.beneficiary }}か</label>
         <select name="beneficiary" id="ben{{ row.req.pk }}" class="form-select form-select-sm" required>

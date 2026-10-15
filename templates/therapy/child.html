@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load static %}
+{% load static concurrency %}
 
 {% block title %}療育記録 {{ beneficiary.full_name }} — 放課後等デイサービス業務支援{% endblock %}
 {% block page_title %}療育記録 — {{ beneficiary.full_name }}{% endblock %}
@@ -13,6 +13,7 @@
   .th-voice.recording { color: #fff; background: var(--color-danger); border-color: var(--color-danger); animation: voice-rec 1s infinite; }
   @keyframes voice-rec { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
   #cautions { line-height: 1.7; }
+  .th-lbl { display: inline-block; font-size: .72rem; font-weight: 700; color: #6b6257; background: #f1ece3; border-radius: 4px; padding: 0 6px; margin-right: 6px; }
   .th-save-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 8px; }
   .th-save-row .btn { white-space: nowrap; flex: 0 0 auto; }
   .th-rec { border-top: 1px solid var(--line); padding: 14px 16px; }
@@ -24,6 +25,27 @@
   .th-chip { font-size: 0.8rem; padding: 2px 9px; border-radius: 999px; background: var(--color-primary-bg); color: var(--lake-text); border: 1px solid rgba(0,0,0,0.06); }
   .th-body { white-space: pre-wrap; line-height: 1.7; }
   .th-edit { background: rgba(243,239,231,0.55); border-radius: 8px; padding: 12px; margin-top: 10px; }
+  .th-edit.th-edit-inline { background: transparent; padding: 2px 0 0; margin-top: 4px; }   /* ゆあーず：修正を押さずにそのまま直す */
+  /* ゆあーず：そのまま直す欄をコンパクトに（見出しは見た目だけ消して読み上げには残す・日付〜担当は横に詰める・記録の欄は文の長さに合わせる） */
+  #records.th-compact .th-rec { padding: 8px 14px; }
+  .th-edit-inline .form-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .th-edit-inline .row.g-2, .th-edit-inline.row.g-2, .th-edit-inline form.row { --bs-gutter-y: .3rem; }
+  .th-edit-inline .th-top { flex: 0 0 auto; width: auto; max-width: 100%; }
+  .th-edit-inline .th-top input[type=date] { width: 9.5em; }
+  .th-edit-inline .th-top input[name=staff_name] { width: 9em; }
+  .th-edit-inline .form-text, .th-edit-inline .th-save-hint { display: none; }
+  .th-edit-inline textarea { min-height: 0; }
+  .th-edit-inline .th-save-btn { padding: 1px 10px; }
+  @media (max-width: 575.98px) { .th-edit-inline .th-acts > div { flex: 0 0 50%; width: 50%; } }   /* スマートフォン：やったことは 2 つずつ */
+  @media (min-width: 992px) {   /* パソコン：日付の見出しと削除を、日付〜担当の欄と同じ行に */
+    #records.th-compact .th-rec { position: relative; }
+    #records.th-compact .th-rec-head { position: absolute; left: 14px; right: 14px; top: 14px; pointer-events: none; }
+    #records.th-compact .th-rec-head .th-rec-btns { pointer-events: auto; }
+    #records.th-compact .th-rec-head .th-rec-meta { display: none; }
+    .th-edit-inline .th-top:not(.th-top ~ .th-top) { margin-left: 218px; }
+    .th-edit-inline .th-top .form-control, .th-edit-inline .th-top .form-select { min-height: 0; height: 32px; padding-top: 2px; padding-bottom: 2px; }
+    .th-edit-inline { margin-top: 0; }
+  }
   .th-list-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
   .th-list-head select { width: auto; }
   .thf-hint { font-size: 0.78rem; color: #8a8378; font-weight: 400; }
@@ -67,9 +89,22 @@
     </div>
   </div>
 
+  {% if voice_direct %}
+  <div class="card mb-3" id="voice-card"><div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div class="th-card-title"><i class="bi bi-mic"></i>音声で今日の記録に入れる</div>
+      <button type="button" class="th-voice btn btn-outline-primary" id="voice-direct-btn" data-voice-target="voice-buffer" data-voice-note="voice-direct-note"
+              title="押して話し、話し終えたらもう一度押す"><i class="bi bi-mic"></i> 音声入力</button>
+    </div>
+    <div id="voice-direct-note" class="alert alert-warning small py-1 px-2 mt-2 mb-0 d-none"></div>
+    <textarea id="voice-buffer" class="d-none" style="display:none" hidden aria-hidden="true" tabindex="-1"></textarea>
+    <div id="voice-direct-status" class="small text-muted mt-2" aria-live="polite">押して話し、話し終えたらもう一度押してください。話した内容を書き言葉に整えて、下の「これまでの記録」の<b>今日（{{ today|date:'n/j' }}）の記録</b>のやったこと・事実・様子に入れます。確かめて直してから「保存する」を押してください（自動では保存しません）。</div>
+    <div id="voice-direct-asis"></div>
+  </div></div>
+  {% else %}
   <div class="card mb-3"><div class="card-body">
-    <form method="post">
-      {% csrf_token %}<input type="hidden" name="action" value="cautions">
+    <form method="post" class="th-save-form" {% if not user.facility.therapy_no_wording %}data-wording{% endif %} data-draft="therapy-cautions:{{ beneficiary.pk }}" data-draft-fields="#cautions" {% if profile %}data-concurrency="therapy_profile:{{ profile.pk }}" data-concurrency-lazy{% endif %}>
+      {% csrf_token %}<input type="hidden" name="action" value="cautions">{% if profile %}{% version_field profile %}{% endif %}
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
         <label class="th-card-title mb-0" for="cautions"><i class="bi bi-exclamation-diamond"></i>留意点</label>
         <div class="th-tools">
@@ -77,21 +112,31 @@
                   title="音声で入力（もう一度押すと止まる）"><i class="bi bi-mic"></i> 音声入力</button>
           <button type="button" class="btn btn-sm btn-outline-primary cautions-ai" id="cautions-detail" data-mode="detail"
                   data-url="{% url 'therapy:cautions_summary' beneficiary.pk %}"
-                  title="話した内容を、場面ごとの見出し・箇条書き・まとめに詳しく整理します"><i class="bi bi-card-list"></i> 詳しくまとめる</button>
+                  title="話した内容を書き言葉にして、場面ごとの見出しと箇条書きに分けます（飾り・AI の見解は足しません）"><i class="bi bi-card-list"></i> 詳しくまとめる</button>
           <button type="button" class="btn btn-sm btn-outline-primary cautions-ai" id="cautions-summary" data-mode="short"
                   data-url="{% url 'therapy:cautions_summary' beneficiary.pk %}"
-                  title="入っている文をAIが短い箇条書きに整えます"><i class="bi bi-magic"></i> 短く要約</button>
+                  title="入っている内容を書き言葉で箇条書きにします（言いよどみ・くだけた言葉は除きます）"><i class="bi bi-magic"></i> 短く要約</button>
+          <button type="button" class="btn btn-sm btn-outline-primary cautions-ai" id="cautions-tidy" data-mode="tidy"
+                  data-url="{% url 'therapy:cautions_summary' beneficiary.pk %}"
+                  title="箇条書きにせず、話した文章を書き言葉に整えます（言いよどみ・くだけた言葉を除き、文末は「〜した」「〜だった」）"><i class="bi bi-text-paragraph"></i> 整文だけ</button>
         </div>
       </div>
+      <div data-draft-banner></div>
       <div id="cautions-voice-note" class="alert alert-warning small py-1 px-2 mb-2 d-none"></div>
       <div id="cautions-summary-note" class="alert alert-info small py-1 px-2 mb-2 d-none">
         <span class="msg"></span>
         <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline d-none" id="cautions-undo">元の文に戻す</button>
       </div>
+      {% if unsaved_cautions %}
+      <div class="alert alert-warning small py-2 mb-2">
+        <b>保存できなかった留意点</b>（開いたあとに他の職員が留意点を保存したため）。下の欄は最新の内容です。見比べて、必要なところを写してから保存してください。
+        <textarea class="form-control form-control-sm mt-1" rows="{{ cautions_rows }}" readonly>{{ unsaved_cautions.text }}</textarea>
+      </div>
+      {% endif %}
       <textarea class="form-control" id="cautions" name="cautions" rows="{{ cautions_rows }}" placeholder="用紙の上の枠に書いてある、この{{ terms.beneficiary }}のときに気をつけること">{{ profile.cautions|default:'' }}</textarea>
       <div class="th-save-row">
-        <div class="form-text mb-0">用紙の上に印刷されます。話して入れたあと「詳しくまとめる」で場面ごとの見出しと箇条書きに、「短く要約」で短い箇条書きに整えます。</div>
-        <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>留意点を保存</button>
+        <div class="form-text mb-0">用紙の上に印刷されます。話して入れたあと「詳しくまとめる」で場面ごとの見出しと箇条書きに、「短く要約」で箇条書きに、「整文だけ」で文章のまま書き言葉に整えます。どれも<b>内容は話したまま</b>で、飾りの言葉・AI の見解は足しません。言葉づかいだけ書き言葉にします（「えー」「なんか」「めっちゃ」などは消すか書き言葉にし、文末は「〜した」「〜だった」「〜だと思う」の断定の形。です・ますにしない）。{% if knowledge_count %}<br><i class="bi bi-journal-medical"></i> 「短く要約」と記録の「留意点から記録に追記」は、<a href="{% url 'beneficiaries:detail' beneficiary.pk %}#knowledge">書類から分かっていること</a>（{{ knowledge_count }} 件：診断書など）も参考にします。{% endif %}</div>
+        <button class="btn btn-sm btn-outline-secondary th-save-btn"><i class="bi bi-check2 me-1"></i>留意点を保存</button>
       </div>
     </form>
     <div class="thf mt-3" id="cautions-figure" data-url="{% url 'therapy:cautions_figure' beneficiary.pk %}">
@@ -103,18 +148,26 @@
       <div id="cautions-figure-body" class="thf-body {% if fig.empty %}d-none{% endif %}">{% include 'therapy/_cautions_figure.html' %}</div>
     </div>
   </div></div>
+  {% endif %}
 
   <div class="card mb-3" id="add"><div class="card-body">
     <div class="th-card-title mb-2"><i class="bi bi-plus-circle"></i>記録を追加する</div>
-    {% if copy_rec %}<div class="alert alert-info small py-1 px-2 mb-2"><i class="bi bi-files me-1"></i>{{ copy_rec.beneficiary.full_name }}さんの {{ copy_rec.date|date:'n/j' }} の記録の「やったこと」と「記録」を写しています。この{{ terms.beneficiary }}に合わせて直してから「追加する」を押してください。</div>{% endif %}
-    <form method="post" class="row g-2">
+    {% if dup %}<div class="alert alert-warning small py-2 px-2 mb-2"><i class="bi bi-exclamation-triangle me-1"></i>{{ dup.date|date:'n/j' }} の記録はすでにあります（<a href="#rec{{ dup.pk }}">{{ dup.time_label|default:'時刻なし' }}の記録を見る</a>）。二重にならないよう保存していません。直すなら「これまでの記録」の「直す」から。別の回として足すときは下の印を付けて保存してください。
+      <label class="d-block mt-1 fw-bold"><input type="checkbox" name="dup_ok" value="1" form="th-add-form" class="form-check-input me-1">もう1件として保存する</label></div>{% endif %}
+    {% if day_res %}<div class="alert alert-light border small py-1 px-2 mb-2"><i class="bi bi-calendar-check me-1"></i>{{ day_res.date|date:'n/j' }}{% if day_res.start_time %} {{ day_res.time_label }}{% endif %} の予約があります（{{ day_res.get_status_display }}{% if day_res.note == '当日追加' %}・当日追加{% endif %}）。まだ記録はありません。保存すると、この予約と結びつきます。</div>{% endif %}
+    {% if copy_rec %}<div class="alert alert-info small py-1 px-2 mb-2"><i class="bi bi-files me-1"></i>{{ copy_rec.beneficiary.full_name }}さんの {{ copy_rec.date|date:'n/j' }} の記録の「やったこと」と「記録」を写しています。この{{ terms.beneficiary }}に合わせて直してから「保存する」を押してください。</div>{% endif %}
+    <form method="post" id="th-add-form" class="row g-2 th-save-form" {% if not user.facility.therapy_no_wording %}data-wording{% endif %} data-new="1" data-draft="therapy-add:{{ beneficiary.pk }}" data-draft-new>
       {% csrf_token %}<input type="hidden" name="action" value="add">
+      <div class="col-12" data-draft-banner></div>
       {% include 'therapy/_record_fields.html' with rec=None %}
-      <div class="col-12 text-end"><button class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i>追加する</button></div>
+      <div class="col-12 d-flex justify-content-end align-items-center gap-2">
+        <span class="small text-muted th-save-hint">「やったこと」か「記録」を入れると保存できます</span>
+        <button class="btn btn-outline-secondary th-save-btn" disabled><i class="bi bi-check2 me-1"></i>保存する</button>
+      </div>
     </form>
   </div></div>
 
-  <div class="card">
+  <div class="card{% if voice_direct %} th-compact{% endif %}" id="records">
     <div class="card-body pb-2 th-list-head">
       <div class="th-card-title"><i class="bi bi-journal-text"></i>これまでの記録{% if ym %}（{{ ym }}）{% endif %}{% if date_from or date_to %}（{{ date_from|date:'n/j'|default:'' }}〜{{ date_to|date:'n/j'|default:'' }}）{% endif %}<span class="th-rec-meta">{{ records|length }} 件</span></div>
       <form method="get" class="th-filter" aria-label="記録を絞る">
@@ -129,32 +182,29 @@
         {% if filtered %}<a href="{% url 'therapy:child' beneficiary.pk %}" class="btn btn-sm btn-link">解除</a>{% endif %}
       </form>
     </div>
-    {% for rec in records %}
-    <div class="th-rec" id="rec{{ rec.pk }}">
+    {% if voice_direct %}
+    {% if today_rec %}
+    {% if not today_in_list %}{% with rec=today_rec %}{% include 'therapy/_record_item.html' %}{% endwith %}{% endif %}
+    <div id="voice-direct-target" data-form="#edit{{ today_rec.pk }} form" data-reveal="#edit{{ today_rec.pk }}" data-scroll="#rec{{ today_rec.pk }}" hidden></div>
+    {% else %}
+    <div class="th-rec" id="rec-today">
       <div class="th-rec-head">
-        <div>
-          <span class="th-rec-date">{{ rec.date|date:'Y年n月j日' }}（{{ rec.date|date:'D' }}）</span>{% if rec.time %}<span class="th-rec-date ms-1">{{ rec.time|time:'G:i' }}</span>{% endif %}
-          {% if rec.staff_label %}<span class="th-rec-meta">担当 {{ rec.staff_label }}</span>{% endif %}
-        </div>
-        <div class="th-rec-btns">
-          <button type="button" class="btn btn-sm btn-outline-secondary" title="修正" aria-label="修正"
-                  onclick="document.getElementById('edit{{ rec.pk }}').classList.toggle('d-none')"><i class="bi bi-pencil"></i><span class="d-none d-sm-inline ms-1">修正</span></button>
-          <form method="post" onsubmit="return confirm('{{ rec.date|date:'n/j' }} の記録を削除します。よろしいですか？');">
-            {% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="record" value="{{ rec.pk }}">
-            <button class="btn btn-sm btn-outline-danger" title="削除" aria-label="削除"><i class="bi bi-trash"></i><span class="d-none d-sm-inline ms-1">削除</span></button>
-          </form>
-        </div>
+        <div><span class="th-rec-date">{{ today|date:'Y年n月j日' }}（{{ today|date:'D' }}）</span><span class="th-rec-meta">今日の記録はまだありません。上の「音声入力」で話すと、ここに入ります（手で書いても保存できます）</span></div>
       </div>
-      {% if rec.activity_list %}<div class="th-chips">{% for a in rec.activity_list %}<span class="th-chip">{{ a }}</span>{% endfor %}</div>{% endif %}
-      {% if rec.body %}<div class="th-body">{{ rec.body }}</div>{% endif %}
-      <div class="th-edit {% if edit_pk != rec.pk %}d-none{% endif %}" id="edit{{ rec.pk }}">
-        <form method="post" class="row g-2">
-          {% csrf_token %}<input type="hidden" name="action" value="edit"><input type="hidden" name="record" value="{{ rec.pk }}">
-          {% include 'therapy/_record_fields.html' with rec=rec %}
-          <div class="col-12 text-end"><button class="btn btn-sm btn-primary">保存する</button></div>
+      <div class="th-edit th-edit-inline" id="edit-today" data-draft-reveal>
+        <form method="post" id="today-form" class="row g-2 th-save-form" {% if not user.facility.therapy_no_wording %}data-wording{% endif %} data-new="1" data-draft="therapy-today:{{ beneficiary.pk }}:{{ today|date:'Ymd' }}" data-draft-new>
+          {% csrf_token %}<input type="hidden" name="action" value="add">
+          <div class="col-12" data-draft-banner></div>
+          {% include 'therapy/_record_fields.html' with rec=None today_slot=True default_date=today default_hour=today_hour %}
+          <div class="col-12 d-flex justify-content-end align-items-center gap-2"><span class="small text-muted th-save-hint"></span><button class="btn btn-sm btn-outline-secondary th-save-btn" disabled><i class="bi bi-check2 me-1"></i>保存する</button></div>
         </form>
       </div>
     </div>
+    <div id="voice-direct-target" data-form="#today-form" data-reveal="#edit-today" data-scroll="#rec-today" hidden></div>
+    {% endif %}
+    {% endif %}
+    {% for rec in records %}
+    {% include 'therapy/_record_item.html' %}
     {% empty %}
     <div class="text-center text-muted py-4 border-top">{% if filtered %}この期間の記録はありません。{% else %}まだ記録がありません。上の「記録を追加する」から書けます。{% endif %}</div>
     {% endfor %}
@@ -163,6 +213,21 @@
 {% endblock %}
 
 {% block extra_js %}
+{% if voice_direct %}
+<script>
+(function () {
+  // そのまま直す欄（ゆあーず）：記録・様子の欄の高さを文の長さに合わせる（2〜12 行）。書き足すと伸びる
+  function fit(ta) {
+    var lines = ta.value.split('\n').reduce(function (n, l) { return n + Math.max(1, Math.ceil(l.length / 60)); }, 0);
+    ta.rows = Math.max(2, Math.min(12, lines));
+  }
+  document.querySelectorAll('.th-edit-inline textarea').forEach(fit);
+  document.addEventListener('input', function (e) {
+    if (e.target.matches && e.target.matches('.th-edit-inline textarea')) fit(e.target);
+  });
+})();
+</script>
+{% endif %}
 <datalist id="activity-options">{% for a in activity_suggestions %}<option value="{{ a }}">{% endfor %}</datalist>
 <script>
 (function () {
@@ -186,7 +251,43 @@
     form.querySelectorAll('.th-suggest-btn').forEach(function (c) { c.classList.toggle('used', values.indexOf(c.getAttribute('data-activity')) >= 0); });
   });
 })();
+(function () {
+  // 「保存する」の色：保存できる（新しい記録は「やったこと」か「記録」が入った・直す欄と留意点は変えた）ときは緑。
+  // 音声入力や AI の書き換えは input が出ないこともあるので、少しずつ見直す
+  function state(form) {
+    var fd = new FormData(form);
+    var parts = [];
+    fd.forEach(function (v, k) { if (k !== 'csrfmiddlewaretoken') parts.push(k + '=' + v); });
+    return parts.join('&');
+  }
+  function hasContent(form) {
+    var filled = Array.prototype.some.call(form.querySelectorAll('input[name^="activity_"]'), function (el) { return el.value.trim(); });
+    var body = form.querySelector('[name="body"]'), sit = form.querySelector('[name="situation"]');
+    var date = form.querySelector('[name="date"]');
+    return (!date || date.value) && (filled || (body && body.value.trim()) || (sit && sit.value.trim()));
+  }
+  var forms = Array.prototype.slice.call(document.querySelectorAll('form.th-save-form'));
+  forms.forEach(function (form) { form._thInitial = state(form); });
+  function refresh() {
+    forms.forEach(function (form) {
+      var btn = form.querySelector('.th-save-btn'), hint = form.querySelector('.th-save-hint');
+      if (!btn) return;
+      var isNew = form.dataset.new === '1';
+      var ok = isNew ? hasContent(form) : state(form) !== form._thInitial;
+      btn.classList.toggle('btn-success', !!ok);
+      btn.classList.toggle('btn-outline-secondary', !ok);
+      if (isNew) btn.disabled = !ok;
+      if (hint) hint.textContent = ok ? '' : (isNew ? '「やったこと」か「記録」を入れると保存できます' : '');  // 保存できるときは下書きの表示（まだ保存していません）が出る
+    });
+  }
+  document.addEventListener('input', refresh);
+  document.addEventListener('change', refresh);
+  document.addEventListener('click', function () { setTimeout(refresh, 0); });
+  setInterval(refresh, 800);
+  refresh();
+})();
 </script>
+{% if not voice_direct %}
 <script>
 (function () {
   // 留意点の見取り図と表：欄の内容が変わったら（AI の要約・手直し）少し待ってから作り直す。保存は不要
@@ -218,6 +319,7 @@
   var box = document.getElementById('cautions-summary-note');
   var undo = document.getElementById('cautions-undo');
   var before = null;
+  if (!area || !box || !undo) return;     // 音声入力を今日の記録へ直接入れる事業所には留意点の欄が無い
   function show(text, cls, canUndo) {
     box.className = 'alert small py-1 px-2 mb-1 alert-' + cls;
     box.querySelector('.msg').textContent = text;
@@ -228,10 +330,11 @@
     if (rec) rec.click();                         // 音声入力中なら止めてから
     var text = area.value.trim();
     if (!text) { show('留意点が空です。先に音声入力か文字で入れてください。', 'warning', false); return; }
-    var detail = btn.dataset.mode === 'detail';
+    var detail = btn.dataset.mode === 'detail', tidy = btn.dataset.mode === 'tidy';
     var label = btn.innerHTML;
     document.querySelectorAll('.cautions-ai').forEach(function (b) { b.disabled = true; });
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + (detail ? 'まとめ中' : '要約中');
+    AsIsNotice.clear(box);
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> ' + (detail ? 'まとめ中' : tidy ? '整え中' : '要約中');
     var body = new FormData();
     body.append('text', text);
     body.append('mode', btn.dataset.mode);
@@ -242,9 +345,10 @@
         if (data.error) { show(data.error, 'danger', false); return; }
         before = area.value;
         area.value = data.result;
-        area.rows = Math.max(3, Math.min(detail ? 24 : 12, data.result.split('\n').length + 1));
+        area.rows = Math.max(3, Math.min(detail || tidy ? 24 : 12, data.result.split('\n').length + 1));
         area.dispatchEvent(new Event('input', {bubbles: true}));
-        show((detail ? '詳しくまとめて' : '要約して') + '書き換えました。内容を確かめて「留意点を保存」を押してください。', 'info', true);
+        AsIsNotice.show(box, data, area);
+        show((detail ? '詳しくまとめて' : tidy ? '文章を整えて' : '要約して') + '書き換えました' + (data.references ? '（書類から分かっていること ' + data.references + ' 件を参考）' : '') + '。内容を確かめて「留意点を保存」を押してください。', 'info', true);
       })
       .catch(function () { show('通信できませんでした。もう一度お試しください。', 'danger', false); })
       .finally(function () {
@@ -255,6 +359,7 @@
   undo.addEventListener('click', function () {
     if (before === null) return;
     area.value = before; before = null;
+    AsIsNotice.clear(box);
     show('元の文に戻しました。', 'secondary', false);
   });
 })();
@@ -287,10 +392,18 @@
       .then(function (r) { return r.json().catch(function () { return {error: '作成できませんでした（' + r.status + '）。'}; }); })
       .then(function (data) {
         if (data.error) { show(data.error, 'danger', false); return; }
+        // そのまま保存するので、留意点・記録に無い助言・評価の言い回しを含む文は除いてから足す
+        var text = data.added && data.added.length ? (data.cleaned || '') : data.result;
+        var dropped = data.added && data.added.length ? '。留意点に無い言い回し（' + data.added.map(function (w) { return '「' + w + '」'; }).join('') + '）を含む文は除きました' : '';
+        if (!text.trim()) { show('留意点の言葉だけで足せる文がありませんでした' + dropped + '。', 'warning', false); return; }
         before = area.value;
-        area.value = before.trim() ? before.replace(/\s+$/, '') + '\n' + data.result : data.result;
+        area.value = before.trim() ? before.replace(/\s+$/, '') + '\n' + text : text;
         area.rows = Math.max(4, Math.min(14, Math.ceil(area.value.length / 45) + area.value.split('\n').length));
-        show('留意点をまとめて記録の最後に足しました（' + data.length + '字）。内容を確かめて「追加する」を押してください。', 'info', true);
+        show('留意点をまとめて記録の最後に足しました（' + text.replace(/\n/g, '').length + '字' + (data.references ? '・書類から分かっていること ' + data.references + ' 件を参考' : '') + '）' + dropped + '。そのまま保存します…', 'info', false);
+        // 「追加する」を押さなくても保存する（画面の留意点も一緒に保存。直すのは「これまでの記録」から）
+        var add = function (name, value) { var h = document.createElement('input'); h.type = 'hidden'; h.name = name; h.value = value; form.appendChild(h); };
+        add('auto', '1'); add('cautions', cautions);
+        if (form.requestSubmit) form.requestSubmit(); else form.submit();
       })
       .catch(function () { show('通信できませんでした。もう一度お試しください。', 'danger', false); })
       .finally(function () { btn.disabled = false; btn.innerHTML = label; });
@@ -302,4 +415,119 @@
   });
 })();
 </script>
+{% endif %}
+{% if voice_direct %}
+<script>
+(function () {
+  // 音声入力を今日の記録へ直接入れる：録音が止まり、文字にし終えたら、書き言葉に整えて（整文だけ）やったこと・事実・様子に分け、
+  // 「これまでの記録」の今日の記録の欄に入れる。保存はしない（職員が確かめて「保存する」）
+  var btn = document.getElementById('voice-direct-btn');
+  if (!btn) return;
+  var buf = document.getElementById('voice-buffer');
+  var status = document.getElementById('voice-direct-status');
+  var asisBox = document.getElementById('voice-direct-asis');
+  var tgt = document.getElementById('voice-direct-target');
+  var url = '{% url "therapy:cautions_summary" beneficiary.pk %}';
+  var wasRec = false, stoppedAt = 0, working = false, lastBefore = null;
+  var style = document.createElement('style');
+  style.textContent = '.voice-live[data-for="voice-buffer"]{display:none}';   // 話している途中の言葉（整える前）は出さない
+  document.head.appendChild(style);
+
+  function say(text, cls, actions) {
+    status.className = 'small mt-2 ' + (cls ? 'alert alert-' + cls + ' py-1 px-2 mb-0' : 'text-muted');
+    status.textContent = text;
+    (actions || []).forEach(function (a) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn btn-link btn-sm p-0 ms-2 align-baseline'; b.textContent = a[0];
+      b.addEventListener('click', a[1]);
+      status.appendChild(b);
+    });
+  }
+  function csrf() { return document.querySelector('[name=csrfmiddlewaretoken]').value; }
+  function fire(el) { el.dispatchEvent(new Event('input', {bubbles: true})); }
+
+  function fill(data) {
+    var form = document.querySelector(tgt.dataset.form), reveal = document.querySelector(tgt.dataset.reveal);
+    if (!form) { say('今日の記録の欄が見つかりませんでした。ページを開き直してください。', 'danger'); return; }
+    if (reveal) reveal.classList.remove('d-none');
+    var before = {};
+    var inputs = Array.prototype.slice.call(form.querySelectorAll('input[name^="activity_"]'));
+    inputs.forEach(function (el) { before[el.name] = el.value; });
+    var left = [];
+    (data.activities || []).forEach(function (a) {
+      if (inputs.some(function (el) { return el.value.trim() === a; })) return;
+      var empty = inputs.filter(function (el) { return !el.value.trim(); })[0];
+      if (empty) { empty.value = a; fire(empty); } else { left.push(a); }
+    });
+    ['body', 'situation'].forEach(function (name) {
+      var ta = form.querySelector('[name="' + name + '"]'), text = (data[name] || '').trim();
+      if (!ta || !text) return;
+      before[name] = ta.value;
+      ta.value = ta.value.trim() ? ta.value.replace(/\s+$/, '') + '\n' + text : text;
+      ta.rows = Math.max(ta.rows, Math.min(14, ta.value.split('\n').length + Math.ceil(ta.value.length / 45)));
+      fire(ta);
+    });
+    lastBefore = {form: form, values: before};
+    var scroll = document.querySelector(tgt.dataset.scroll);
+    if (scroll) scroll.scrollIntoView({block: 'start', behavior: 'smooth'});
+    say('書き言葉に整えて、今日の記録に入れました' + (left.length ? '（①〜⑤がいっぱいで入らなかったやったこと：' + left.join('、') + '）' : '') +
+        '。確かめて直してから「保存する」を押してください。', 'info', [['入れたのを取り消す', undo]]);
+    asisBox.textContent = '';
+    if (data.added && data.added.length) {
+      var w = document.createElement('div');
+      w.className = 'alert alert-warning small py-1 px-2 mt-2 mb-0';
+      w.textContent = '話した言葉に無い言い回し（' + data.added.map(function (x) { return '「' + x + '」'; }).join('') + '）が入りました。確かめて、要らなければ消してください。';
+      asisBox.appendChild(w);
+    }
+  }
+  function undo() {
+    if (!lastBefore) return;
+    Object.keys(lastBefore.values).forEach(function (name) {
+      var el = lastBefore.form.querySelector('[name="' + name + '"]');
+      if (el) { el.value = lastBefore.values[name]; fire(el); }
+    });
+    lastBefore = null; asisBox.textContent = '';
+    say('入れたのを取り消しました。', 'secondary');
+  }
+  function raw(text) {   // 整えられなかったとき：話した文字のまま「事実」に入れる
+    fill({activities: [], body: text, situation: ''});
+    say('整えずに、話した文字のまま「記録（事実）」に入れました。直してから「保存する」を押してください。', 'warning', [['入れたのを取り消す', undo]]);
+  }
+  function process(text) {
+    working = true;
+    say('書き言葉に整えています…', 'light');
+    var body = new FormData();
+    body.append('text', text); body.append('mode', 'record'); body.append('csrfmiddlewaretoken', csrf());
+    fetch(url, {method: 'POST', body: body, credentials: 'same-origin'})
+      .then(function (r) { return r.json().catch(function () { return {error: '整えられませんでした（' + r.status + '）。'}; }); })
+      .then(function (data) {
+        if (data.error) {
+          say(data.error, 'danger', [['もう一度整える', function () { process(text); }], ['話した文字のまま入れる', function () { raw(text); }]]);
+          return;
+        }
+        fill(data);
+      })
+      .catch(function () { say('通信できませんでした。', 'danger', [['もう一度整える', function () { process(text); }], ['話した文字のまま入れる', function () { raw(text); }]]); })
+      .finally(function () { working = false; });
+  }
+  setInterval(function () {
+    if (btn.classList.contains('recording')) {
+      wasRec = true; stoppedAt = 0;
+      say('録音中…（聞き取った文字 ' + buf.value.replace(/\s/g, '').length + ' 字）。話し終えたら「止める」を押してください。');
+      return;
+    }
+    if (!wasRec || working) return;
+    var busy = window.VoiceInput && VoiceInput.busy ? VoiceInput.busy() : 0;
+    if (busy) { say('文字にしています…'); return; }
+    if (!stoppedAt) { stoppedAt = Date.now(); return; }
+    if (Date.now() - stoppedAt < 1500) return;      // 最後の言葉が届くのを少し待つ
+    wasRec = false; stoppedAt = 0;
+    var text = buf.value.trim();
+    buf.value = '';
+    if (!text) { say('聞き取れませんでした。もう一度「音声入力」を押して話してください。', 'warning'); return; }
+    process(text);
+  }, 300);
+})();
+</script>
+{% endif %}
 {% endblock %}

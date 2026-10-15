@@ -1,0 +1,30 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% load survey_extras %}
+{% block title %}{{ survey.title }} 集計結果{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'surveys:detail' survey.pk %}">アンケートへ戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .hd { display: flex; justify-content: space-between; align-items: flex-end; font-size: 10px; margin-bottom: 6px; }
+  table.rs th, table.rs td { font-size: 9px; padding: 3px 4px; }
+  table.rs td.sec { background: #eef1f5; font-weight: 700; }
+  table.rs .pct { font-size: 8px; color: #555; }
+  table.rs .cm { font-size: 8.5px; color: #333; }
+  table.rs .imp { font-size: 8.5px; color: #1d4e89; margin-top: 2px; }
+  .free { font-size: 9px; margin-top: 6px; }
+  .free div { border-bottom: 1px dotted #999; padding: 2px 0; }
+</style>
+<h1>{% if survey.is_guardian %}保護者等からの事業所評価の集計結果（公表）{% else %}従業者評価の集計結果{% endif %}</h1>
+<div class="hd">
+  <div>{{ survey.fiscal_label }}　{{ survey.get_service_display }}　事業所名：{{ facility.name }}</div>
+  <div>回答 {{ summary.n }} 件　／　集計日 {{ today|date:'Y年n月j日' }}</div>
+</div>
+{% include 'surveys/pdf/_rows.html' %}
+{% if summary.free %}
+<div class="lbl">ご意見・ご要望</div>
+<div class="free">{% for t in summary.free %}<div>{{ t }}</div>{% endfor %}</div>
+{% endif %}
+{% if self_eval and self_eval.summary %}
+<div class="lbl">総括・改善の方向</div>
+<div class="box">{{ self_eval.summary }}</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,60 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}予約のご案内{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'reservations:calendar' %}">予約カレンダーへ戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .gd { max-width: 680px; margin: 0 auto; font-size: 12px; line-height: 1.75; }
+  .gd h1 { font-size: 20px; letter-spacing: .1em; margin: 6px 0 4px; text-align: center; }
+  .gd .sub { text-align: center; font-size: 11px; margin-bottom: 12px; }
+  .gd .qrs { display: flex; gap: 16px; justify-content: center; margin: 8px 0 12px; }
+  .gd .qrbox { flex: 1; max-width: 300px; border: 1px solid #999; border-radius: 8px; padding: 8px 10px; text-align: center; }
+  .gd .qrbox .t { font-weight: bold; font-size: 13px; }
+  .gd .qrbox svg { width: 150px; height: 150px; }
+  .gd .qrbox .url { font-family: monospace; font-size: 9px; word-break: break-all; }
+  .gd h2 { font-size: 13.5px; border-left: 5px solid #c2703a; padding-left: 6px; margin: 12px 0 4px; }
+  .gd .ex { font-family: inherit; border: 1px dashed #999; background: #faf8f4; border-radius: 6px; padding: 4px 10px; margin: 2px 0 4px; white-space: pre-wrap; }
+  .gd .note { font-size: 10.5px; color: #444; }
+  .gd .fac { text-align: right; font-size: 11px; margin-top: 12px; }
+</style>
+<div class="gd">
+  <h1>ご予約のご案内</h1>
+  <div class="sub">{{ facility.name }}{% if setting.slot_mode %}　｜　{{ setting.hours_text }}{% endif %}{% if setting.closed_weekdays_text %}　｜　{{ setting.closed_weekdays_text }}はお休み{% endif %}</div>
+
+  <div class="qrs">
+    {% if friend_url %}
+    <div class="qrbox"><div class="t">① 公式LINE を友だち追加</div>{{ friend_qr }}<div class="url">{{ friend_url }}</div>
+      <div class="note">LINE で予約・取り消し・空きの確認ができます</div></div>
+    {% endif %}
+    {% if cal_url %}
+    <div class="qrbox"><div class="t">{% if friend_url %}②{% else %}①{% endif %} 空き状況のページ</div>{{ cal_qr }}<div class="url">{{ cal_url }}</div>
+      <div class="note">ログインなしで空いている日が見られます{% if setting.public_request %}。このページから申し込みもできます{% endif %}</div></div>
+    {% endif %}
+  </div>
+  {% if not friend_url and not cal_url %}<div class="note" style="text-align:center;">（予約の設定で「公式LINEの友だち追加のアドレス」を入れるか、空き状況のページを公開すると、ここに QR コードが出ます）</div>{% endif %}
+
+  {% if friend_url %}
+  <h2>はじめに（友だち追加のあと 1 回だけ）</h2>
+  <div>次のように送ってください。職員が確かめて登録します。</div>
+  <div class="ex">【登録】
+お名前：（保護者のお名前）
+ふりがな：
+電話番号：
+お子さまのお名前：</div>
+
+  <h2>予約するとき</h2>
+  <div>日にち{% if setting.slot_mode %}・時刻{% endif %}・お子さまのお名前と「予約」を送ってください。</div>
+  <div class="ex">{{ example|date:'n/j' }}{% if example_hour %} {{ example_hour }}時{% endif %}　（お子さまの名前）　予約</div>
+  {% if setting.slot_mode %}<div class="note">※ 1枠 {{ setting.slot_minutes }} 分です。時刻は枠のはじまり（{{ setting.hours_text }}）でお書きください。時刻が無いときは、職員が確かめてからご連絡します。</div>{% endif %}
+  <div class="note">※ 空いていればその場で確定のお返事が届きます。いっぱいのときはキャンセル待ちになり、空きが出たらお知らせします。</div>
+
+  <h2>取り消すとき・お休みするとき</h2>
+  <div class="ex">{{ example|date:'n/j' }}　（お子さまの名前）　キャンセル</div>
+
+  <h2>空きを確かめるとき</h2>
+  <div class="ex">{{ example|date:'n/j' }}　空き</div>
+  {% endif %}
+
+  <div class="note" style="margin-top:10px;">※ 当日の急なお休み・体調のことは、お電話でもご連絡ください。<br>※ 読み取れない文は職員が確かめてからお返事します。お返事まで少しお時間をいただくことがあります。</div>
+  <div class="fac">{{ facility.name }}</div>
+</div>
+{% endblock %}

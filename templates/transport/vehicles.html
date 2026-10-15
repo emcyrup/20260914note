@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+
+{% block title %}車両・運転手{% endblock %}
+{% block page_title %}車両・運転手{% endblock %}
+{% block nav_transport %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .vh-card { background: var(--sheet, #fff); border: 1px solid var(--line, #e5e1d8); border-radius: var(--radius, 14px); padding: 14px 16px; margin-bottom: 14px; }
+  .vh-title { font-weight: 700; font-size: 1.05rem; color: var(--lake-text, #2f4f58); }
+  .vh-row { display: grid; grid-template-columns: 1fr; gap: 6px; padding: 10px 0; border-top: 1px solid var(--line, #e5e1d8); }
+  .vh-row:first-of-type { border-top: 0; }
+  .vh-row .form-control, .vh-row .form-select { font-size: 0.88rem; }
+  .vh-grid { display: grid; grid-template-columns: 2fr 1fr 1.4fr 1.6fr 2fr 70px; gap: 6px; align-items: center; }
+  .vh-grid.d { grid-template-columns: 2fr 1.4fr 3fr 70px; }
+  .vh-head { font-size: 0.75rem; color: #8a8378; }
+  @media (max-width: 768px) { .vh-grid, .vh-grid.d { grid-template-columns: 1fr 1fr; } .vh-head { display: none; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <nav class="small mb-2"><a href="{% url 'transport:day' %}">配車表</a> › 車両・運転手</nav>
+
+  <div class="vh-card">
+    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+      <div><div class="vh-title"><i class="bi bi-truck me-1"></i>車両</div><div class="small text-muted">乗れる人数を入れると、配車表で人数が超えたとき赤く出ます。</div></div>
+    </div>
+    <div class="vh-grid vh-head"><div>車両名</div><div>乗れる人数</div><div>ナンバー・色</div><div>いつもの運転手</div><div>備考</div><div></div></div>
+    {% for v in vehicles %}
+    <form method="post" class="vh-row" id="vf-{{ v.pk }}">
+      {% csrf_token %}<input type="hidden" name="action" value="vehicle_save"><input type="hidden" name="pk" value="{{ v.pk }}">
+      <div class="vh-grid">
+        <input type="text" name="name" class="form-control form-control-sm" maxlength="50" value="{{ v.name }}" required aria-label="車両名">
+        <input type="number" name="capacity" class="form-control form-control-sm" min="0" max="99" value="{{ v.capacity }}" aria-label="乗れる人数">
+        <input type="text" name="plate" class="form-control form-control-sm" maxlength="30" value="{{ v.plate }}" aria-label="ナンバー・色">
+        <select name="default_driver" class="form-select form-select-sm" aria-label="いつもの運転手"><option value="">－</option>{% for d in drivers %}<option value="{{ d.pk }}" {% if v.default_driver_id == d.pk %}selected{% endif %}>{{ d.name }}</option>{% endfor %}</select>
+        <input type="text" name="note" class="form-control form-control-sm" maxlength="200" value="{{ v.note }}" aria-label="備考">
+        <div class="d-flex gap-1"><button class="btn btn-sm btn-outline-primary" title="保存"><i class="bi bi-check2"></i></button>
+          <button class="btn btn-sm btn-outline-danger" form="vd-{{ v.pk }}" title="削除" onclick="return confirm('車両「{{ v.name|escapejs }}」を削除します。配車表のこの車両の欄は空になります。よろしいですか？');"><i class="bi bi-trash"></i></button></div>
+      </div>
+      <div class="d-flex gap-3 small">
+        <label class="form-check mb-0"><input type="checkbox" class="form-check-input" name="is_active" {% if v.is_active %}checked{% endif %}> 使っている（外すと配車表の選択肢から消える）</label>
+        <label class="d-flex align-items-center gap-1 mb-0">並び順 <input type="number" name="order" class="form-control form-control-sm" style="width:70px;" min="0" max="999" value="{{ v.order }}"></label>
+      </div>
+    </form>
+    {% empty %}<div class="small text-muted py-2">まだ登録がありません。</div>{% endfor %}
+    <form method="post" class="vh-row" style="border-top: 2px dashed var(--line, #e5e1d8);">
+      {% csrf_token %}<input type="hidden" name="action" value="vehicle_add">
+      <div class="vh-grid">
+        <input type="text" name="name" class="form-control form-control-sm" maxlength="50" placeholder="新しい車両名" required aria-label="車両名">
+        <input type="number" name="capacity" class="form-control form-control-sm" min="0" max="99" placeholder="人数" aria-label="乗れる人数">
+        <input type="text" name="plate" class="form-control form-control-sm" maxlength="30" placeholder="ナンバー・色" aria-label="ナンバー・色">
+        <select name="default_driver" class="form-select form-select-sm" aria-label="いつもの運転手"><option value="">運転手 －</option>{% for d in drivers %}<option value="{{ d.pk }}">{{ d.name }}</option>{% endfor %}</select>
+        <input type="text" name="note" class="form-control form-control-sm" maxlength="200" placeholder="備考" aria-label="備考">
+        <button class="btn btn-sm btn-primary text-nowrap"><i class="bi bi-plus-lg"></i> 登録</button>
+      </div>
+    </form>
+  </div>
+  {% for v in vehicles %}<form method="post" id="vd-{{ v.pk }}" class="d-none">{% csrf_token %}<input type="hidden" name="action" value="vehicle_delete"><input type="hidden" name="pk" value="{{ v.pk }}"></form>{% endfor %}
+
+  <div class="vh-card">
+    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+      <div><div class="vh-title"><i class="bi bi-person-badge me-1"></i>運転手</div><div class="small text-muted">ログインする職員でなくても登録できます。</div></div>
+    </div>
+    <div class="vh-grid d vh-head"><div>名前</div><div>電話番号</div><div>備考</div><div></div></div>
+    {% for d in drivers %}
+    <form method="post" class="vh-row">
+      {% csrf_token %}<input type="hidden" name="action" value="driver_save"><input type="hidden" name="pk" value="{{ d.pk }}">
+      <div class="vh-grid d">
+        <input type="text" name="name" class="form-control form-control-sm" maxlength="50" value="{{ d.name }}" required aria-label="名前">
+        <input type="text" name="phone" class="form-control form-control-sm" maxlength="20" value="{{ d.phone }}" aria-label="電話番号">
+        <input type="text" name="note" class="form-control form-control-sm" maxlength="200" value="{{ d.note }}" aria-label="備考">
+        <div class="d-flex gap-1"><button class="btn btn-sm btn-outline-primary" title="保存"><i class="bi bi-check2"></i></button>
+          <button class="btn btn-sm btn-outline-danger" form="dd-{{ d.pk }}" title="削除" onclick="return confirm('運転手「{{ d.name|escapejs }}」を削除します。配車表のこの人の欄は空になります。よろしいですか？');"><i class="bi bi-trash"></i></button></div>
+      </div>
+      <div class="d-flex gap-3 small">
+        <label class="form-check mb-0"><input type="checkbox" class="form-check-input" name="is_active" {% if d.is_active %}checked{% endif %}> 在籍中（外すと配車表の選択肢から消える）</label>
+        <label class="d-flex align-items-center gap-1 mb-0">並び順 <input type="number" name="order" class="form-control form-control-sm" style="width:70px;" min="0" max="999" value="{{ d.order }}"></label>
+      </div>
+    </form>
+    {% empty %}<div class="small text-muted py-2">まだ登録がありません。</div>{% endfor %}
+    <form method="post" class="vh-row" style="border-top: 2px dashed var(--line, #e5e1d8);">
+      {% csrf_token %}<input type="hidden" name="action" value="driver_add">
+      <div class="vh-grid d">
+        <input type="text" name="name" class="form-control form-control-sm" maxlength="50" placeholder="新しい運転手の名前" required aria-label="名前">
+        <input type="text" name="phone" class="form-control form-control-sm" maxlength="20" placeholder="電話番号" aria-label="電話番号">
+        <input type="text" name="note" class="form-control form-control-sm" maxlength="200" placeholder="備考（出られる曜日など）" aria-label="備考">
+        <button class="btn btn-sm btn-primary text-nowrap"><i class="bi bi-plus-lg"></i> 登録</button>
+      </div>
+    </form>
+  </div>
+  {% for d in drivers %}<form method="post" id="dd-{{ d.pk }}" class="d-none">{% csrf_token %}<input type="hidden" name="action" value="driver_delete"><input type="hidden" name="pk" value="{{ d.pk }}"></form>{% endfor %}
+</div>
+{% endblock %}

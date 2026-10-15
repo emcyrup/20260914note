@@ -8,6 +8,8 @@
 
 {% block extra_css %}
 <style>
+  .bd-grad { background: #7a5ea8; color: #fff; }
+  .bd-grad-btn { background: #7a5ea8; color: #fff; border-color: #7a5ea8; }
   .th-recent-item { padding: 10px 0; border-top: 1px solid var(--line); }
   .th-recent-item:first-child { border-top: 0; padding-top: 0; }
   .th-recent-head { display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap; }
@@ -54,10 +56,12 @@
   .doc-list { display: flex; flex-direction: column; gap: 4px; }
   .doc-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px dotted #e0dbd2; }
   .doc-link { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; text-decoration: none; color: inherit; }
+  .doc-link > .min-w-0 { min-width: 0; }
   .doc-link:hover .doc-name { text-decoration: underline; }
   .doc-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; border: 1px solid #e8e8e8; flex: 0 0 auto; }
   .doc-icon { width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.4rem; color: var(--lake-text, #2f5d50); background: #f1efe9; border-radius: 6px; flex: 0 0 auto; }
   .doc-name { font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .doc-rename { padding: 2px 0 6px; }
   .doc-meta { font-size: 0.75rem; color: #8a8378; white-space: nowrap; }
   .asm-voice.recording { color: #fff; background: var(--color-danger); border-color: var(--color-danger); }
   a.flow-step:hover { background: var(--color-primary-light); color: var(--color-primary-dark); }
@@ -95,12 +99,23 @@
 <div style="max-width: 900px; margin: 0 auto;" class="px-2">
 
   <!-- パンくず -->
-  <div class="mb-3">
+  <div class="mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
     <a href="{% url 'beneficiaries:list' %}" class="text-muted small text-decoration-none">
       <i class="bi bi-people me-1"></i>{{ terms.beneficiary }}一覧
     </a>
     <span class="text-muted small mx-1">/</span>
     <span class="small">{{ beneficiary.full_name }}</span>
+    </div>
+    {% if nav_total %}
+    <nav class="d-flex align-items-center gap-1 bnav" aria-label="前後の{{ terms.beneficiary }}">
+      {% if prev_b %}<a href="{% url 'beneficiaries:detail' prev_b.pk %}" class="btn btn-sm btn-outline-secondary" title="前の{{ terms.beneficiary }}（一覧の 50 音順）" rel="prev"><i class="bi bi-chevron-left"></i><span class="d-none d-sm-inline ms-1">{{ prev_b.full_name }}</span></a>
+      {% else %}<span class="btn btn-sm btn-outline-secondary disabled" aria-disabled="true"><i class="bi bi-chevron-left"></i></span>{% endif %}
+      <span class="small text-muted px-1" title="{{ beneficiary.get_status_display }}の{{ terms.beneficiary }}の中で">{{ nav_pos }} / {{ nav_total }}</span>
+      {% if next_b %}<a href="{% url 'beneficiaries:detail' next_b.pk %}" class="btn btn-sm btn-outline-secondary" title="次の{{ terms.beneficiary }}（一覧の 50 音順）" rel="next"><span class="d-none d-sm-inline me-1">{{ next_b.full_name }}</span><i class="bi bi-chevron-right"></i></a>
+      {% else %}<span class="btn btn-sm btn-outline-secondary disabled" aria-disabled="true"><i class="bi bi-chevron-right"></i></span>{% endif %}
+    </nav>
+    {% endif %}
   </div>
 
   <!-- ヘッダーカード -->
@@ -115,75 +130,90 @@
         <div class="section-title">{{ terms.beneficiary }}</div>
         <h2 class="fw-bold mb-0" style="font-size:1.6rem;">{{ beneficiary.full_name }}</h2>
         <div class="text-muted small">{{ beneficiary.full_name_kana }}
-          <span class="ms-2 badge {% if beneficiary.status == 'active' %}text-bg-success{% else %}text-bg-secondary{% endif %}" style="font-size:0.7rem;">
-            {{ beneficiary.get_status_display }}
+          <span class="ms-2 badge {% if beneficiary.status == 'active' %}text-bg-success{% elif beneficiary.status == 'graduated' %}bd-grad{% else %}text-bg-secondary{% endif %}" style="font-size:0.7rem;">
+            {% if beneficiary.status == 'graduated' %}<i class="bi bi-mortarboard me-1"></i>{% endif %}{{ beneficiary.get_status_display }}{% if beneficiary.status != 'active' and beneficiary.discharge_date %}（{{ beneficiary.discharge_date|date:'Y/n/j' }}）{% endif %}
           </span>
           {% if beneficiary.is_severe %}<span class="ms-1 badge" style="background:#9a4e6c;font-size:0.7rem;">重身</span>{% endif %}
         </div>
       </div>
     </div>
+    <div class="d-flex flex-column align-items-end gap-2">
+      <div class="d-flex gap-2 flex-wrap justify-content-end">
+      {% if add_today %}
+      {% if add_today.existing %}
+      <span class="btn btn-sm btn-outline-success disabled" title="きょうの予定に入っています"><i class="bi bi-calendar-check me-1"></i>きょう {% if add_today.existing.start_time %}{{ add_today.existing.start_time|time:'G' }}時{% endif %}の予定あり{% if add_today.existing.status != 'confirmed' %}（{{ add_today.existing.get_status_display }}）{% endif %}</span>
+      {% elif add_today.closed %}
+      <span class="btn btn-sm btn-outline-secondary disabled" title="きょうは休業日か、枠がありません"><i class="bi bi-calendar-x me-1"></i>きょうは休業日</span>
+      {% else %}
+      <div class="dropdown">
+        <button type="button" class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"
+                title="きょうの時間枠を選んで予定に入れ、そのまま療育記録を書きます（保護者への通知は出しません）"><i class="bi bi-calendar-plus me-1"></i>今日の予定に追加</button>
+        <form method="post" action="{% url 'reservations:add_today' beneficiary.pk %}" class="dropdown-menu dropdown-menu-end p-1" style="min-width:15rem;">
+          {% csrf_token %}
+          <div class="small text-muted px-2 py-1">{{ add_today.day|date:'n/j' }}（{{ add_today.day|date:'D' }}）の枠を選ぶ</div>
+          {% for s in add_today.slots %}
+          <button name="start_time" value="{{ s.hour }}:00" class="dropdown-item d-flex justify-content-between gap-2 small"
+                  {% if s.ng %}disabled title="同じ時間にできない {{ s.ng|join:'・' }} さんがいます"{% elif s.full %}onclick="return confirm('{{ s.label }} の枠はいっぱいです。キャンセル待ちで入れます。よろしいですか？');"{% endif %}>
+            <span>{{ s.label }}</span>
+            <span class="{% if s.ng %}text-danger{% elif s.full %}text-warning{% else %}text-success{% endif %}">{% if s.ng %}共演NG：{{ s.ng|join:'・' }}{% elif s.full %}いっぱい{% else %}空き {{ s.remaining }}{% endif %}</span>
+          </button>
+          {% endfor %}
+        </form>
+      </div>
+      {% endif %}
+      {% endif %}
+      {% if features.therapy %}
+      <a href="{% url 'therapy:child' beneficiary.pk %}?date={% if add_today %}{{ add_today.day|date:'Y-m-d' }}{% else %}{% now 'Y-m-d' %}{% endif %}{% if add_today.existing.start_time %}&time={{ add_today.existing.start_time|time:'H:i' }}{% endif %}#add" class="btn btn-primary btn-sm"><i class="bi bi-journal-medical me-1"></i>療育記録を書く（きょう）</a>
+      {% endif %}
+      </div>
+      <a href="{% url 'beneficiaries:digest' beneficiary.pk %}" class="btn btn-outline-primary btn-sm" title="期間の記録から、面談・モニタリング・計画の見直しに使うまとめを作る"><i class="bi bi-file-earmark-text me-1"></i>面談資料（記録のまとめ）</a>
+      <form method="post" action="{% url 'beneficiaries:status' beneficiary.pk %}" class="d-flex align-items-center gap-1 flex-wrap justify-content-end">
+        {% csrf_token %}
+        <span class="small text-muted me-1">在籍状況</span>
+        {% for value, label in status_choices %}
+        <button name="status" value="{{ value }}" class="btn btn-sm {% if beneficiary.status == value %}{% if value == 'active' %}btn-success{% elif value == 'graduated' %}bd-grad-btn active{% else %}btn-secondary{% endif %}{% else %}btn-outline-secondary{% endif %}"
+                {% if beneficiary.status == value %}disabled aria-pressed="true"{% else %}onclick="return confirm('{{ beneficiary.full_name|escapejs }} さんを「{{ label }}」にします。よろしいですか？');"{% endif %}>{% if value == 'graduated' %}<i class="bi bi-mortarboard me-1"></i>{% endif %}{{ label }}</button>
+        {% endfor %}
+      </form>
+      {% if user.is_admin or user.is_superuser %}
+      <a href="{% url 'beneficiaries:delete' beneficiary.pk %}" class="small text-danger text-decoration-none"><i class="bi bi-trash me-1"></i>この{{ terms.beneficiary }}を削除する</a>
+      {% endif %}
+    </div>
   </div>
 
-  <!-- 支援の流れナビ -->
-  <div class="info-card mb-3">
-    <div class="section-title mb-2">支援の流れ</div>
-    <div class="d-flex align-items-center gap-1 flex-wrap">
-      <div class="flow-step"><i class="bi bi-chat-dots"></i>相談支援</div>
-      <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
-      {% if current_plan %}
-      <a href="{% url 'support_plans:step' current_plan.pk 1 %}" class="flow-step"><i class="bi bi-clipboard2-check"></i>アセスメント</a>
-      <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
-      <a href="{% url 'support_plans:detail' current_plan.pk %}" class="flow-step"><i class="bi bi-file-earmark-text"></i>支援計画</a>
-      {% else %}
-      <a href="{% url 'support_plans:create' %}?beneficiary={{ beneficiary.pk }}" class="flow-step"><i class="bi bi-clipboard2-check"></i>アセスメント</a>
-      <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
-      <a href="{% url 'support_plans:create' %}?beneficiary={{ beneficiary.pk }}" class="flow-step"><i class="bi bi-file-earmark-text"></i>支援計画</a>
-      {% endif %}
-      <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
-      <a href="{% url 'records:list' beneficiary.pk %}" class="flow-step"><i class="bi bi-journal-text"></i>日誌</a>
-      <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
-      {% if current_plan and current_plan.current_step == 5 %}
-      <a href="{% url 'support_plans:step' current_plan.pk 5 %}" class="flow-step"><i class="bi bi-graph-up"></i>モニタリング</a>
-      {% else %}
-      <div class="flow-step"><i class="bi bi-graph-up"></i>モニタリング</div>
-      {% endif %}
-      <i class="bi bi-chevron-right text-muted" style="font-size:0.8rem;"></i>
-      <div class="flow-step"><i class="bi bi-arrow-repeat"></i>次の計画</div>
-    </div>
-
-    <!-- 個別支援計画の状況 -->
-    <div class="mt-3 pt-3" style="border-top:1px solid #eee;">
+  {% if user.facility.is_ryoiku and features.therapy %}
+  <!-- 療育記録（直近5日分） -->
+  <div id="therapy-recent">
+    <div class="info-card mb-3">
       <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-        <div class="section-title mb-0">個別支援計画</div>
-        {% if not current_plan %}
-        <a href="{% url 'support_plans:create' %}?beneficiary={{ beneficiary.pk }}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>計画を作る</a>
-        {% endif %}
-      </div>
-      {% if current_plan %}
-      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
-          <a href="{% url 'support_plans:detail' current_plan.pk %}" class="fw-bold">{{ current_plan.title }}</a>
-          <span class="badge {% if current_plan.status == 'active' %}text-bg-success{% else %}text-bg-info{% endif %} ms-1">{{ current_plan.get_status_display }}</span>
-          <div class="small text-muted">ステップ{{ current_plan.current_step }}：{{ current_plan.get_current_step_display }}
-            {% if current_plan.status == 'active' and current_plan.next_monitoring_due %}　次回モニタリング {{ current_plan.next_monitoring_due|date:'Y/n/j' }}{% if current_plan.monitoring_overdue %}<span class="text-danger fw-bold">（期限超過）</span>{% endif %}{% endif %}
+          <div class="section-title mb-0">療育記録（直近5日分）</div>
+          <div class="small text-muted">日付の新しい順に5日ぶん。{% if therapy_total %}全部で {{ therapy_total }} 件。{% endif %}続きと留意点は「療育記録を開く」で。</div>
+        </div>
+        <a href="{% url 'therapy:child' beneficiary.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-journal-medical me-1"></i>療育記録を開く（書く・すべて見る）</a>
+      </div>
+      {% if recent_therapy %}
+      <div class="th-recent">
+        {% for r in recent_therapy %}
+        <div class="th-recent-item">
+          <div class="th-recent-head">
+            <span class="fw-bold">{{ r.date|date:'Y年n月j日（D）' }}{% if r.time %} {{ r.time_label }}{% endif %}</span>
+            {% if r.staff_label %}<span class="text-muted small ms-2">担当 {{ r.staff_label }}</span>{% endif %}
+            <a href="{% url 'therapy:child' beneficiary.pk %}?ym={{ r.date|date:'Y-m' }}#rec{{ r.pk }}" class="small ms-auto">開く</a>
           </div>
+          {% if r.activity_list %}<div class="th-recent-acts">{% for a in r.activity_list %}<span class="th-chip">{{ a }}</span>{% endfor %}</div>{% endif %}
+          {% if r.body %}<div class="th-recent-body">{{ r.body }}</div>{% endif %}{% if r.situation %}<div class="th-recent-body"><b>様子</b> {{ r.situation }}</div>{% endif %}
         </div>
-        <div class="d-flex align-items-center gap-2" style="min-width:220px;">
-          <div class="stepper-bar flex-grow-1"><span style="width: {{ current_plan.progress_percent }}%;"></span></div>
-          <a href="{% url 'support_plans:step' current_plan.pk current_plan.current_step %}" class="btn btn-sm btn-primary">続きを進める</a>
-        </div>
+        {% endfor %}
       </div>
       {% else %}
-      <div class="small text-muted">計画はまだありません。アセスメントから5つのステップで作成します。</div>
-      {% endif %}
-      {% if support_plans|length > 1 or support_plans and not current_plan %}
-      <div class="small text-muted mt-2">
-        過去の計画：
-        {% for p in support_plans %}{% if p != current_plan %}<a href="{% url 'support_plans:detail' p.pk %}">{{ p.title }}</a>（{{ p.get_status_display }}）{% if not forloop.last %}　{% endif %}{% endif %}{% endfor %}
-      </div>
+      <p class="text-muted small mb-0">療育記録はまだありません。</p>
       {% endif %}
     </div>
   </div>
+  {% endif %}
+
+  {% if not user.facility.is_ryoiku %}{% include "beneficiaries/_support_flow.html" %}{% endif %}
 
   <div class="row g-3">
 
@@ -218,6 +248,18 @@
             <div class="detail-label">利用予定曜日</div>
             <div class="detail-value">{{ beneficiary.scheduled_weekdays_display }}</div>
           </div>
+          {% if pair_names %}
+          <div class="col-12">
+            <div class="detail-label">同じ時間にできない{{ terms.beneficiary }}（共演NG）</div>
+            <div class="detail-value">{% for n in pair_names %}<span class="badge text-bg-danger me-1" style="font-size:.75rem;">{{ n }}</span>{% endfor %}<span class="small text-muted ms-1">予約・月間予定表で同じ時間枠には入りません（時間がずれていれば同じ日でもよい）</span></div>
+          </div>
+          {% endif %}
+          {% if sibling_names %}
+          <div class="col-12">
+            <div class="detail-label">きょうだい</div>
+            <div class="detail-value">{% for n in sibling_names %}<span class="badge text-bg-info me-1" style="font-size:.75rem;">{{ n }}</span>{% endfor %}<span class="small text-muted ms-1">同じ時間枠の日は「きょうだいで1枠」にまとめられます</span></div>
+          </div>
+          {% endif %}
           {% if beneficiary.notes %}
           <div class="col-12">
             <div class="detail-label">備考</div>
@@ -253,13 +295,24 @@
                 {% elif d.kind == 'pdf' %}<span class="doc-icon"><i class="bi bi-file-earmark-pdf"></i></span>
                 {% elif d.kind == 'sheet' %}<span class="doc-icon"><i class="bi bi-file-earmark-spreadsheet"></i></span>
                 {% else %}<span class="doc-icon"><i class="bi bi-file-earmark"></i></span>{% endif %}
-                <span class="doc-name">{{ d.label }}</span>
+                <span class="min-w-0"><span class="doc-name d-block">{{ d.label }}</span><span class="doc-meta d-block">{{ d.created_at|date:'Y/n/j' }}{% if d.uploaded_by %}・{{ d.uploaded_by }}{% endif %}</span></span>
               </a>
-              <div class="doc-meta">{{ d.created_at|date:'Y/n/j' }}{% if d.uploaded_by %}・{{ d.uploaded_by }}{% endif %}</div>
+              {% if d.read_k %}<a href="{% url 'beneficiaries:knowledge_review' beneficiary.pk d.read_k.pk %}" class="badge {% if d.read_k.is_saved %}text-bg-success{% else %}text-bg-warning{% endif %} text-decoration-none" title="読み取った内容を見る・直す">{% if d.read_k.is_saved %}読み取り済み{% else %}確認待ち{% endif %}</a>
+              {% elif d.readable and ai_ready %}<form method="post" action="{% url 'beneficiaries:knowledge_read' beneficiary.pk %}" class="kn-read">{% csrf_token %}<input type="hidden" name="source" value="document"><input type="hidden" name="source_pk" value="{{ d.pk }}"><button class="btn btn-sm btn-outline-primary py-0 text-nowrap" title="診断書などを AI で読み取り、台帳への反映と療育記録の AI の参考にします（どれを使うかは読み取ったあとの画面で選びます）"><i class="bi bi-magic me-1"></i>AIで読み取る</button></form>{% endif %}
+              <button type="button" class="btn btn-sm btn-outline-secondary py-0 doc-rename-btn" title="名前を変える" data-target="doc-rename-{{ d.pk }}"><i class="bi bi-pencil"></i></button>
               <form method="post" action="{% url 'beneficiaries:document_delete' beneficiary.pk d.pk %}" onsubmit="return confirm('「{{ d.label|escapejs }}」を削除します。よろしいですか？');">
                 {% csrf_token %}<button class="btn btn-sm btn-outline-danger py-0" title="削除"><i class="bi bi-trash"></i></button>
               </form>
             </div>
+            <form method="post" action="{% url 'beneficiaries:document_rename' beneficiary.pk d.pk %}" class="doc-rename d-none" id="doc-rename-{{ d.pk }}"{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
+              {% csrf_token %}
+              <div class="input-group input-group-sm">
+                <input type="text" name="title" class="form-control" maxlength="100" value="{{ d.label }}" placeholder="書類の名前" required>
+                <button class="btn btn-primary">名前を変える</button>
+                <button type="button" class="btn btn-outline-secondary doc-rename-cancel">やめる</button>
+              </div>
+              <div class="form-text">元のファイル名（{{ d.file_name }}）はそのまま残ります。</div>
+            </form>
             {% endfor %}
           </div>
           {% endif %}
@@ -286,7 +339,7 @@
                 <div class="fw-semibold">{{ g.last_name }} {{ g.first_name }}
                   <span class="badge text-bg-light text-dark ms-1" style="font-size:0.7rem;">{{ g.get_relation_display }}</span>
                   {% if g.is_primary %}<span class="badge ms-1" style="background:var(--color-primary);font-size:0.7rem;">主連絡先</span>{% endif %}
-                  {% if features.line %}{% if g.line_linked %}<span class="badge ms-1" style="background:#06C755;font-size:0.7rem;"><i class="bi bi-chat-dots me-1"></i>LINE連携済</span>{% else %}<span class="badge ms-1 bg-light text-muted" style="font-size:0.7rem;">LINE未連携</span>{% endif %}{% endif %}
+                  {% if features.line %}{% if g.line_linked %}<span class="badge ms-1" style="background:#06C755;font-size:0.7rem;"><i class="bi bi-chat-dots me-1"></i>LINE連携済</span>{% else %}<span class="badge ms-1 bg-light text-muted" style="font-size:0.7rem;">LINE未連携</span>{% endif %}{% if not beneficiary.line_send_journal %}<span class="badge ms-1 text-bg-warning text-dark" style="font-size:0.7rem;" title="利用者情報の「日誌を LINE で送る」が外れています">日誌は LINE で送らない</span>{% endif %}{% endif %}
                 </div>
                 {% if g.kana %}<div class="text-muted small">{{ g.kana }}</div>{% endif %}
                 <div class="text-muted small">{{ g.phone|default:'—' }}{% if g.phone2 %}／{{ g.phone2 }}{% endif %}{% if g.email %}・{{ g.email }}{% endif %}</div>
@@ -326,34 +379,119 @@
       </div>
     </div>
 
-    {% if user.facility.is_ryoiku and features.therapy %}
-    <!-- 療育記録（直近5日分） -->
-    <div class="col-12" id="therapy-recent">
+
+    {% if user.facility.is_ryoiku %}
+    <!-- 書類から分かっていること（診断書などを AI で読み取ったもの） -->
+    <div class="col-12" id="knowledge">
+      <div class="info-card">
+        <div class="mb-2">
+          <div class="section-title mb-0">書類から分かっていること</div>
+          <div class="small text-muted">基本情報の「書類・画像」やアセスメント・資料に付けた診断書・意見書・検査結果などを「AIで読み取る」と、ここに残ります。{% if user.facility.use_therapy_record %}{% if user.facility.knowledge_reflect %}「療育記録に反映」にしたものだけ、療育記録の AI がこの子の分を参考にします（基本は反映しません）。{% else %}療育記録の AI（留意点の要約・記録の文）が、この子の分だけを参考にします。{% endif %}{% endif %}</div>
+        </div>
+        {% for k in knowledge_drafts %}
+        <div class="alert alert-warning small py-2 mb-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
+          <span><b>確認待ち</b>：{{ k.label }}（{{ k.created_at|date:'n/j H:i' }} に読み取り）。確かめて保存するまで台帳と AI には使いません。</span>
+          <a href="{% url 'beneficiaries:knowledge_review' beneficiary.pk k.pk %}" class="btn btn-sm btn-warning py-0">確かめる</a>
+        </div>
+        {% endfor %}
+        {% for k in knowledge %}
+        <div class="{% if not forloop.first %}border-top{% endif %} py-2">
+          <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+            <div class="min-w-0">
+              <span class="badge asm-kind">{{ k.kind }}</span>
+              <span class="fw-semibold ms-1">{{ k.label }}</span>
+              <span class="small text-muted ms-1">{% if k.issuer %}{{ k.issuer }}・{% endif %}{% if k.doc_date %}{{ k.doc_date|date:'Y/n/j' }}{% else %}{{ k.created_at|date:'Y/n/j' }} 読み取り{% endif %}</span>
+              {% if user.facility.knowledge_reflect %}{% if k.use_in_ai %}<span class="badge text-bg-success ms-1" style="font-size:.68rem;">療育記録に反映</span>{% else %}<span class="badge text-bg-light text-muted ms-1" style="font-size:.68rem;">療育記録に反映しない</span>{% endif %}{% elif k.use_in_ai %}<span class="badge text-bg-success ms-1" style="font-size:.68rem;">AIの参考</span>{% else %}<span class="badge text-bg-light text-muted ms-1" style="font-size:.68rem;">AIでは使わない</span>{% endif %}
+              {% if k.applied %}<span class="small text-muted ms-1">台帳に反映：{{ k.applied|join:'・' }}</span>{% endif %}
+            </div>
+            <div class="d-flex gap-1 flex-shrink-0">
+              <form method="post" action="{% url 'beneficiaries:knowledge_toggle' beneficiary.pk k.pk %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary py-0" {% if user.facility.knowledge_reflect %}title="療育記録に反映する／しない">{% if k.use_in_ai %}反映しない{% else %}療育記録に反映する{% endif %}{% else %}title="療育記録の AI で参考にする／しない">{% if k.use_in_ai %}AIで使わない{% else %}AIの参考にする{% endif %}{% endif %}</button></form>
+              <a href="{% url 'beneficiaries:knowledge_review' beneficiary.pk k.pk %}" class="btn btn-sm btn-outline-secondary py-0" title="見る・直す"><i class="bi bi-pencil"></i></a>
+              {% if user.facility.beneficiary_tools %}<form method="post" action="{% url 'beneficiaries:knowledge_delete' beneficiary.pk k.pk %}" onsubmit="return confirm('「{{ k.label|escapejs }}」を削除します。\n読み取った要約と、療育記録の AI に渡す内容が消えます（台帳に反映した内容と、元の書類はそのまま残ります）。よろしいですか？');">{% csrf_token %}<button class="btn btn-sm btn-outline-danger py-0" title="削除"><i class="bi bi-trash"></i></button></form>{% endif %}
+            </div>
+          </div>
+          {% if k.summary %}<div class="small mt-1">{{ k.summary }}</div>{% endif %}
+          {% if k.points_list %}<ul class="small mb-0 mt-1 ps-3">{% for x in k.points_list %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+        {% empty %}
+        {% if not knowledge_drafts %}<p class="text-muted small mb-0">まだありません。{% if not ai_ready %}（AIを使う設定がサーバーに無いため、読み取りは使えません）{% endif %}</p>{% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if questions_on %}
+    <!-- 個別の質問（日誌で答える。レベル別。ウィズユー藤森） -->
+    {% include 'records/_child_questions_section.html' %}
+    {% endif %}
+
+    {% if features.transport %}
+    <!-- 送迎（迎え・送り・場所・いつもの車両） -->
+    {% include 'transport/_profile_section.html' %}
+    {% endif %}
+
+    {% if features.daily %}
+    <!-- 発達検査の結果の推移と健康の注意（毎日の運営） -->
+    <div class="col-12" id="dev-tests">
       <div class="info-card">
         <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
           <div>
-            <div class="section-title mb-0">療育記録（直近5日分）</div>
-            <div class="small text-muted">日付の新しい順に5日ぶん。{% if therapy_total %}全部で {{ therapy_total }} 件。{% endif %}続きと留意点は「療育記録を開く」で。</div>
+            <div class="section-title mb-0">発達検査の結果</div>
+            <div class="small text-muted">新版K式・遠城寺式・KIDS・WISC などの発達年齢と指数を残し、推移を見られます。検査結果の書類から AI で読み取ることもできます。</div>
           </div>
-          <a href="{% url 'therapy:child' beneficiary.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-journal-medical me-1"></i>療育記録を開く（書く・すべて見る）</a>
+          <div class="d-flex gap-2">
+            <a href="{% url 'daily:health_child' beneficiary.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-thermometer-half me-1"></i>健康の記録・注意</a>
+            <a href="{% url 'beneficiaries:dev_test_create' beneficiary.pk %}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>結果を入れる</a>
+          </div>
         </div>
-        {% if recent_therapy %}
-        <div class="th-recent">
-          {% for r in recent_therapy %}
-          <div class="th-recent-item">
-            <div class="th-recent-head">
-              <span class="fw-bold">{{ r.date|date:'Y年n月j日（D）' }}{% if r.time %} {{ r.time|time:'G:i' }}{% endif %}</span>
-              {% if r.staff_label %}<span class="text-muted small ms-2">担当 {{ r.staff_label }}</span>{% endif %}
-              <a href="{% url 'therapy:child' beneficiary.pk %}?ym={{ r.date|date:'Y-m' }}#rec{{ r.pk }}" class="small ms-auto">開く</a>
+        {% for a in health_alerts %}<div class="small fw-semibold" style="color:#b42318;"><i class="bi bi-exclamation-triangle me-1"></i>{{ a }}</div>{% endfor %}
+        {% if dev_test_chart %}<div class="mb-2 mt-1">{{ dev_test_chart }}</div>{% endif %}
+        {% for t in dev_tests %}
+        <div class="py-2 {% if not forloop.first %}border-top{% endif %} d-flex justify-content-between align-items-start gap-2 flex-wrap">
+          <div class="min-w-0">
+            <a href="{% url 'beneficiaries:dev_test_edit' beneficiary.pk t.pk %}" class="fw-semibold text-decoration-none">{{ t.date|date:'Y年n月j日' }}　{{ t.test_name }}</a>
+            <span class="small text-muted ms-1">{% if t.ca_label %}生活年齢 {{ t.ca_label }}{% endif %}{% if t.examiner %}・{{ t.examiner }}{% endif %}</span>
+            <div class="small mt-1">
+              {% if t.overall_quotient or t.overall_age_label %}<span class="badge text-bg-primary me-1">全体 {% if t.overall_age_label %}{{ t.overall_age_label }}{% endif %}{% if t.overall_quotient %}・{{ t.overall_quotient }}{% endif %}</span>{% endif %}
+              {% for r in t.result_rows %}<span class="badge text-bg-light border me-1">{{ r.label }}{% if r.age_label %} {{ r.age_label }}{% endif %}{% if r.quotient %}・{{ r.quotient }}{% endif %}</span>{% endfor %}
             </div>
-            {% if r.activity_list %}<div class="th-recent-acts">{% for a in r.activity_list %}<span class="th-chip">{{ a }}</span>{% endfor %}</div>{% endif %}
-            {% if r.body %}<div class="th-recent-body">{{ r.body }}</div>{% endif %}
           </div>
-          {% endfor %}
+          <a href="{% url 'beneficiaries:dev_test_edit' beneficiary.pk t.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil"></i></a>
         </div>
-        {% else %}
-        <p class="text-muted small mb-0">療育記録はまだありません。</p>
-        {% endif %}
+        {% empty %}<p class="text-muted small mb-0">まだありません。</p>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if features.dev_assessment %}
+    <!-- 5領域アセスメント（評価シート） -->
+    <div class="col-12" id="dev-assessments">
+      <div class="info-card">
+        <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+          <div>
+            <div class="section-title mb-0">5領域アセスメント</div>
+            <div class="small text-muted">健康・生活／運動・感覚／認知・行動／言語・コミュニケーション／人間関係・社会性を 5 段階で評価する用紙。A4 で印刷できます。</div>
+          </div>
+          <div class="d-flex gap-2">
+            {% if dev_assessments %}<a href="{% url 'beneficiaries:dev_assessment_create' beneficiary.pk %}?copy=1" class="btn btn-sm btn-outline-primary" title="前回の評価と文章を写した状態で新しい用紙を始めます"><i class="bi bi-files me-1"></i>前回を写して作る</a>{% endif %}
+            <a href="{% url 'beneficiaries:dev_assessment_create' beneficiary.pk %}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>新しく作る</a>
+          </div>
+        </div>
+        {% for a in dev_assessments %}
+        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap py-2 {% if not forloop.first %}border-top{% endif %}">
+          <div class="min-w-0">
+            <a href="{% url 'beneficiaries:dev_assessment_edit' beneficiary.pk a.pk %}" class="fw-semibold text-decoration-none">{{ a.date|date:'Y年n月j日' }}</a>
+            <span class="small text-muted ms-1">{% if a.assessed_by %}{{ a.assessed_by }}{% endif %}{% if a.interviewed_with %}・{{ a.interviewed_with }}{% endif %}</span>
+            <div class="small mt-1">{% for label, v in a.rating_marks %}<span class="badge {% if v %}text-bg-light border{% else %}text-bg-light border text-muted{% endif %} me-1">{{ label }} <b>{{ v|default:'－' }}</b></span>{% endfor %}</div>
+          </div>
+          <div class="d-flex gap-1 flex-shrink-0">
+            <a href="{% url 'beneficiaries:dev_assessment_edit' beneficiary.pk a.pk %}" class="btn btn-sm btn-outline-secondary" title="開く・直す"><i class="bi bi-pencil"></i></a>
+            <a href="{% url 'beneficiaries:dev_assessment_pdf' beneficiary.pk a.pk %}?inline=1" target="_blank" class="btn btn-sm btn-outline-secondary" title="A4 の用紙（PDF）"><i class="bi bi-printer"></i></a>
+          </div>
+        </div>
+        {% empty %}
+        <p class="text-muted small mb-0">まだありません。「新しく作る」から 5 領域の評価と様子・方針を書けます。</p>
+        {% endfor %}
       </div>
     </div>
     {% endif %}
@@ -371,10 +509,10 @@
           </button>
         </div>
         <div class="collapse" id="asmNew">
-          <form method="post" action="{% url 'beneficiaries:assessment_create' beneficiary.pk %}" enctype="multipart/form-data" class="asm-form row g-2 mb-3">
+          <form method="post" action="{% url 'beneficiaries:assessment_create' beneficiary.pk %}" enctype="multipart/form-data" class="asm-form row g-2 mb-3"{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
             {% csrf_token %}
             {% include 'beneficiaries/_assessment_fields.html' with a=None prefix='new' %}
-            <div class="col-12 text-end"><button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>登録する</button></div>
+            <div class="col-12 text-end">{% if user.facility.beneficiary_tools %}<button type="button" class="btn btn-sm btn-outline-secondary me-1" data-discard-close="#asmNew"><i class="bi bi-x-lg me-1"></i>変更を破棄して閉じる</button>{% endif %}<button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>登録する</button></div>
           </form>
         </div>
         {% for a in assessments %}
@@ -398,13 +536,15 @@
             <a href="{{ a.file.url }}" target="_blank" rel="noopener" class="small">
               {% if a.is_image %}<img src="{{ a.file.url }}" alt="" class="asm-thumb me-1">{% else %}<i class="bi bi-file-earmark-pdf me-1"></i>{% endif %}{{ a.file_name|default:'書類を開く' }}
             </a>
+            {% if a.read_k %}<a href="{% url 'beneficiaries:knowledge_review' beneficiary.pk a.read_k.pk %}" class="badge ms-1 {% if a.read_k.is_saved %}text-bg-success{% else %}text-bg-warning{% endif %} text-decoration-none">{% if a.read_k.is_saved %}読み取り済み{% else %}確認待ち{% endif %}</a>
+            {% elif a.readable and ai_ready %}<form method="post" action="{% url 'beneficiaries:knowledge_read' beneficiary.pk %}" class="kn-read d-inline ms-1">{% csrf_token %}<input type="hidden" name="source" value="assessment"><input type="hidden" name="source_pk" value="{{ a.pk }}"><button class="btn btn-sm btn-outline-primary py-0"><i class="bi bi-magic me-1"></i>AIで読み取る</button></form>{% endif %}
           </div>
           {% endif %}
           <div class="collapse" id="asmEdit{{ a.pk }}">
-            <form method="post" action="{% url 'beneficiaries:assessment_update' beneficiary.pk a.pk %}" enctype="multipart/form-data" class="asm-form row g-2 mt-2 p-2 rounded" style="background:var(--color-primary-bg);">
-              {% csrf_token %}
+            <form method="post" action="{% url 'beneficiaries:assessment_update' beneficiary.pk a.pk %}" enctype="multipart/form-data" class="asm-form row g-2 mt-2 p-2 rounded" style="background:var(--color-primary-bg);" data-concurrency="beneficiary_assessment:{{ a.pk }}" data-concurrency-lazy{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
+              {% csrf_token %}{% version_field a %}
               {% include 'beneficiaries/_assessment_fields.html' with a=a prefix=a.pk %}
-              <div class="col-12 text-end"><button class="btn btn-sm btn-primary">保存する</button></div>
+              <div class="col-12 text-end">{% if user.facility.beneficiary_tools %}<button type="button" class="btn btn-sm btn-outline-secondary me-1" data-discard-close="#asmEdit{{ a.pk }}"><i class="bi bi-x-lg me-1"></i>変更を破棄して閉じる</button>{% endif %}<button class="btn btn-sm btn-primary">保存する</button></div>
             </form>
           </div>
         </div>
@@ -548,15 +688,26 @@
     </div>
 
   </div>
+
+  {% if user.facility.is_ryoiku %}
+  <div class="mt-3">{% include "beneficiaries/_support_flow.html" %}</div>
+  {% endif %}
 </div>
 
+
+{% if user.is_admin or user.is_superuser %}
+<div class="text-end mt-4">
+  <a href="{% url 'beneficiaries:delete' beneficiary.pk %}" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>この{{ terms.beneficiary }}を削除する</a>
+  <div class="small text-muted mt-1">辞めた子・まちがえて登録した子を、療育記録・予約・書類ごと消します（ごみ箱に 30 日置き、そのあいだは戻せます）。次の画面で確かめてから消します。残しておきたいときは、上の「在籍状況」で「退所」「卒業」にすると一覧で分けて見られます。</div>
+</div>
+{% endif %}
 
 <!-- ========== 利用者編集モーダル ========== -->
 <div class="modal fade" id="editModal" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <form method="post" action="{% url 'beneficiaries:update' beneficiary.pk %}" data-concurrency="beneficiary:{{ beneficiary.pk }}">
-        {% csrf_token %}
+        {% csrf_token %}<input type="hidden" name="_partial" value="1">
         {% version_field beneficiary %}
         <div class="modal-header">
           <div>
@@ -629,6 +780,15 @@
                   <span class="text-muted">— 日誌が重身用（体温・排便などの記録つき）になり、請求は重身の基本報酬単位数を使います</span>
                 </label>
               </div>
+              {% if features.line %}
+              <div class="form-check">
+                <input type="checkbox" name="line_send_journal" id="edit_line_send_journal" class="form-check-input"
+                       {% if edit_form.line_send_journal.value %}checked{% endif %}>
+                <label for="edit_line_send_journal" class="form-check-label small">日誌を LINE で送る
+                  <span class="text-muted">— 外すと、自動送信でも「LINE送信」ボタンでも、この子の日誌は保護者へ送りません</span>
+                </label>
+              </div>
+              {% elif edit_form.line_send_journal.value %}<input type="hidden" name="line_send_journal" value="on">{% endif %}
             </div>
             <div class="col-sm-6">
               <label class="form-label small fw-semibold">在籍状況</label>
@@ -653,6 +813,31 @@
               {% endfor %}
             </div>
           </div>
+
+
+          <!-- 同じ時間にできない利用者（共演NG） -->
+          {% if edit_form.fields.cannot_pair.queryset %}
+          <div class="mb-3" data-check-group>
+            <label class="form-label small fw-semibold d-block">同じ時間にできない{{ terms.beneficiary }}（共演NG） <span class="text-muted fw-normal">（印を付けた人とは、予約も月間予定表も同じ時間枠に入れません。時間がずれていれば同じ日でも入れられます。相手の側にも同じ印が付きます）</span></label>
+            {% include 'beneficiaries/_pair_tools.html' %}
+            <div class="border rounded p-2 cg-list" style="max-height:160px;overflow:auto;">
+              {% for b in edit_form.fields.cannot_pair.queryset %}
+              <label class="form-check form-check-inline small mb-1" data-kana="{{ b.full_name_kana }}"><input type="checkbox" class="form-check-input" name="cannot_pair" value="{{ b.pk }}" {% if b.pk in pair_ids %}checked{% endif %}>{{ b.full_name }}</label>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+
+          {% if edit_form.fields.siblings.queryset %}
+          <div class="mb-3">
+            <label class="form-label small fw-semibold d-block">きょうだい <span class="text-muted fw-normal">（同じ時間枠に入った日に「きょうだいで1枠にまとめる」を選べます。まとめない日はそれぞれ1枠ずつ。相手の側にも同じ印が付きます）</span></label>
+            <div class="border rounded p-2" style="max-height:160px;overflow:auto;">
+              {% for b in edit_form.fields.siblings.queryset %}
+              <label class="form-check form-check-inline small mb-1"><input type="checkbox" class="form-check-input" name="siblings" value="{{ b.pk }}" {% if b.pk in sibling_ids %}checked{% endif %}>{{ b.full_name }}</label>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
 
           <!-- 備考 -->
           <div>
@@ -1107,6 +1292,16 @@
 
 {% block extra_js %}
 <script>
+  // AIで読み取る：押したら読み取り中の表示にして二重に押せないようにする（1分ほどかかる）
+  document.querySelectorAll('form.kn-read').forEach(function (f) {
+    f.addEventListener('submit', function () {
+      document.querySelectorAll('form.kn-read button').forEach(function (b) { b.disabled = true; });
+      var btn = f.querySelector('button');
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 読み取り中（1分ほど）';
+    });
+  });
+</script>
+<script>
 (function () {
   var input = document.getElementById('docFiles'), btn = document.getElementById('docUploadBtn'), names = document.getElementById('docFileNames');
   if (!input) return;
@@ -1115,6 +1310,17 @@
     names.textContent = n ? (n === 1 ? input.files[0].name : n + ' 個を選びました') : '';
   });
   document.getElementById('docForm').addEventListener('submit', function () { btn.disabled = true; btn.textContent = '取り込み中…'; });
+  // 書類の名前を変える：鉛筆で入力欄を開く
+  document.querySelectorAll('.doc-rename-btn').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var f = document.getElementById(b.dataset.target);
+      f.classList.toggle('d-none');
+      if (!f.classList.contains('d-none')) { var i = f.querySelector('input'); i.focus(); i.select(); }
+    });
+  });
+  document.querySelectorAll('.doc-rename-cancel').forEach(function (b) {
+    b.addEventListener('click', function () { b.closest('form').classList.add('d-none'); });
+  });
 })();
 </script>
 <script>

@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load static %}
+{% load static concurrency %}
 
 {% block title %}議事録 — 放課後等デイサービス業務支援{% endblock %}
 {% block page_title %}議事録{% endblock %}
@@ -21,6 +21,7 @@
   .mn-hist .d { font-size: 0.78rem; color: #8a8378; }
   .mn-hist .t { font-weight: 600; font-size: 0.92rem; }
   .mn-save { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .mn-consent summary { cursor: pointer; color: var(--color-primary); font-weight: 600; }
   @media (max-width: 900px) { .mn-grid { grid-template-columns: 1fr; } }
 </style>
 {% endblock %}
@@ -33,9 +34,20 @@
   </div>
 
   <div class="mn-grid">
-    <form method="post" id="mn-form" class="card"><div class="card-body">
+    <form method="post" id="mn-form" class="card" data-draft="minutes:{{ current.pk|default:'new' }}" data-draft-fields="#mn-title, #mn-date, #transcript, #summary"{% if not current %} data-draft-new{% endif %} {% if current %}data-concurrency="minutes:{{ current.pk }}" data-concurrency-lazy{% endif %}><div class="card-body">
       {% csrf_token %}
-      {% if current %}<input type="hidden" name="id" value="{{ current.pk }}">{% endif %}
+      {% if current %}<input type="hidden" name="id" value="{{ current.pk }}">{% version_field current %}{% endif %}
+      <div data-draft-banner></div>
+      {% if unsaved %}
+      <div class="alert alert-warning small py-2">
+        <b>保存できなかった内容</b>（開いたあとに他の職員がこの議事録を保存したため）。欄は最新の内容です。見比べて必要なところを写してから保存してください。
+        <details class="mt-1"><summary>入れていた内容を見る</summary>
+          <div class="mt-1">件名：{{ unsaved.title }}（{{ unsaved.held_on }}）</div>
+          {% if unsaved.summary %}<div class="mt-1 fw-semibold">議事録</div><textarea class="form-control form-control-sm" rows="6" readonly>{{ unsaved.summary }}</textarea>{% endif %}
+          {% if unsaved.transcript %}<div class="mt-1 fw-semibold">話した内容</div><textarea class="form-control form-control-sm" rows="6" readonly>{{ unsaved.transcript }}</textarea>{% endif %}
+        </details>
+      </div>
+      {% endif %}
       <div class="row g-2 mb-2">
         <div class="col-12 col-md-8"><label class="form-label small fw-semibold" for="mn-title">件名</label>
           <input type="text" name="title" id="mn-title" class="form-control form-control-sm" maxlength="100"
@@ -49,20 +61,37 @@
         <label class="mn-title mb-0" for="transcript"><i class="bi bi-mic"></i>話した内容</label>
         <div class="mn-tools">
           {% if speech_server %}
-          <div class="form-check form-check-inline small me-1" title="オンにすると、どの端末でもサーバーで文字にし、「話者1：」「話者2：」のように発言者ごとの行に分けます（名前は分かりません。AI の整理で名前や役割にまとめます）">
+          <div class="form-check form-check-inline small me-1" title="{% if speech_diarization %}オンにすると、どの端末でもサーバーで文字にし、「話者1：」「話者2：」のように発言者ごとの行に分けます（名前は分かりません。AI の整理で名前や役割にまとめます）{% else %}オンにすると、録音中に「話者1・2・3」のボタンで話している人を切り替えられ、「話者1：」「話者2：」の行になります（AI の整理で名前や役割にまとめます）{% endif %}">
             <input class="form-check-input" type="checkbox" id="mn-speakers">
             <label class="form-check-label" for="mn-speakers">話者を分ける</label>
           </div>
+          {% if not speech_diarization %}
+          <div class="btn-group btn-group-sm d-none me-1" id="mn-speaker-switch" role="group" aria-label="話している人">
+            <button type="button" class="btn btn-outline-secondary active" data-speaker="1">話者1</button>
+            <button type="button" class="btn btn-outline-secondary" data-speaker="2">話者2</button>
+            <button type="button" class="btn btn-outline-secondary" data-speaker="3">話者3</button>
+          </div>
+          {% endif %}
           {% endif %}
           <button type="button" class="th-voice btn btn-sm btn-outline-danger" data-voice-target="transcript" data-voice-note="mn-voice-note"
-                  {% if speech_server %}data-voice-speakers="mn-speakers"{% endif %}
+                  {% if speech_server %}data-voice-speakers="mn-speakers"{% if not speech_diarization %} data-voice-speaker-switch="mn-speaker-switch"{% endif %}{% endif %}
                   title="押している間、話した言葉を下の欄に足していきます。もう一度押すと止まります"><i class="bi bi-mic"></i> 録音（音声入力）</button>
         </div>
       </div>
+      <details class="mn-consent small mb-2" id="mn-consent">
+        <summary><i class="bi bi-shield-check me-1"></i>録音のご案内（面談のはじめに読み上げます）・同意書の印刷</summary>
+        <div class="p-2 mt-1 rounded" style="background:#f6f3ee;border:1px solid var(--line);">
+          <div class="mb-2">「{{ consent_notice }}」</div>
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            <a href="{% url 'minutes:consent' %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>同意書を印刷（A4）</a>
+            <span class="text-muted">契約のときに書面で同意をいただき、保護者との面談を録音するときはこの案内を読み上げてから始めてください。職員会議など保護者のいない場では不要です。</span>
+          </div>
+        </div>
+      </details>
       <div id="mn-voice-note" class="alert alert-warning small py-1 px-2 mb-1 d-none"></div>
       <textarea class="form-control" id="transcript" name="transcript" rows="10" maxlength="{{ text_max }}"
                 placeholder="「録音」を押して話すと、ここに文字で入っていきます。ほかの録音アプリの文字起こしを貼り付けても構いません。">{% if current %}{{ current.transcript }}{% endif %}</textarea>
-      <div class="form-text">止まらずに聞き続けます（黙っている間も待ちます）。録音中は画面を閉じたり、ほかのアプリに切り替えたりしないでください（止まります）。{% if speech_server %}「話者を分ける」をオンにすると、話の区切り（10〜40秒）ごとにサーバーで文字にし、発言者ごとの行になります（話者の番号は区切りごとに付け直されることがあります）。{% endif %}
+      <div class="form-text">止まらずに聞き続けます（黙っている間も待ちます）。録音中は画面を閉じたり、ほかのアプリに切り替えたりしないでください（止まります）。{% if speech_server %}{% if speech_diarization %}「話者を分ける」をオンにすると、話の区切り（10〜40秒）ごとにサーバーで文字にし、発言者ごとの行になります（話者の番号は区切りごとに付け直されることがあります）。{% else %}「話者を分ける」をオンにすると、録音中に「話者1・2・3」のボタンで話している人を切り替えられ、発言者ごとの行になります（押し替えるまでは同じ人として続きます）。{% endif %}{% endif %}
         <a href="#" id="voice-log-toggle" class="ms-1">うまく文字にならないとき</a></div>
       <div id="voice-log-box" class="d-none mt-2 p-2 rounded" style="background:#f6f3ee;border:1px solid var(--line);">
         <div class="small mb-1">音声入力の動きの記録です（話した言葉そのものは入っていません。文字数だけです）。うまく文字にならなかったあとで「記録を写す」を押し、担当者に貼り付けて送ってください。</div>
@@ -110,7 +139,7 @@
       {% endif %}
       <div class="mn-save mt-3">
         <div class="form-text mb-0" id="mn-save-note">{% if full and not current %}<span class="text-danger">保存すると、一番古い議事録（履歴の一番下）が消えます。</span>{% else %}議事録は新しい{{ keep }}件まで残ります。{% endif %}</div>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 align-items-center">
           {% if current %}<a href="{% url 'minutes:print' current.pk %}" target="_blank" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i>印刷</a>{% endif %}
           <button class="btn btn-primary" id="mn-save"><i class="bi bi-check2 me-1"></i>保存する</button>
         </div>
@@ -150,7 +179,7 @@
   var box = document.getElementById('mn-note');
   var undo = document.getElementById('mn-undo');
   var isNew = !form.querySelector('[name=id]');
-  var KEY = 'minutes-draft';
+  var OLD_KEY = 'minutes-draft';            // 前の作りの下書き（いまは static/js/draft-autosave.js が残す）
   var dirty = false, before = null;
 
   function show(text, cls, canUndo) {
@@ -158,24 +187,22 @@
     box.querySelector('.msg').textContent = text;
     undo.classList.toggle('d-none', !canUndo);
   }
-  // 新しく書いている途中は、この端末に下書きを残す（タブを閉じてしまったときのため）
-  function saveDraft() {
-    if (!isNew) return;
-    try {
-      localStorage.setItem(KEY, JSON.stringify({title: ttl.value, held_on: day.value, transcript: tx.value, summary: sm.value}));
-    } catch (e) { /* 使えない */ }
-  }
+  // 書きかけは static/js/draft-autosave.js がこの端末に残す（開いている議事録も）。前の作りの下書きは一度だけ欄に戻す
   if (isNew) {
-    try {
-      var d = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (d && (d.transcript || d.summary) && !tx.value && !sm.value) {
-        ttl.value = d.title || ''; if (d.held_on) day.value = d.held_on;
-        tx.value = d.transcript || ''; sm.value = d.summary || '';
-        show('保存していない書きかけを戻しました。要らないときは欄を消してください。', 'secondary', false);
-      }
-    } catch (e) { /* 使えない */ }
+    window.addEventListener('load', function () { setTimeout(function () {
+      try {
+        var d = JSON.parse(localStorage.getItem(OLD_KEY) || 'null');
+        localStorage.removeItem(OLD_KEY);
+        if (d && (d.transcript || d.summary) && !tx.value && !sm.value) {
+          ttl.value = d.title || ''; if (d.held_on) day.value = d.held_on;
+          tx.value = d.transcript || ''; sm.value = d.summary || '';
+          form.dispatchEvent(new Event('input', {bubbles: true}));
+          show('保存していない書きかけを戻しました。要らないときは欄を消してください。', 'secondary', false);
+        }
+      } catch (e) { /* 使えない */ }
+    }, 50); });
   }
-  form.addEventListener('input', function () { dirty = true; saveDraft(); });
+  form.addEventListener('input', function () { dirty = true; });
   // 保存先：療育記録を選んだら利用者の欄を出し、選ばれていなければ送らせない
   var saveAs = document.querySelectorAll('input[name=save_as]'), tf = document.getElementById('mn-therapy-fields');
   function applySaveAs() {
@@ -210,7 +237,6 @@
     dirty = false;
     var rec = document.querySelector('[data-voice-target].recording');
     if (rec) rec.click();
-    try { localStorage.removeItem(KEY); } catch (e) { /* 使えない */ }
   });
   window.addEventListener('beforeunload', function (e) {
     if (dirty || document.querySelector('[data-voice-target].recording')) { e.preventDefault(); e.returnValue = ''; }
@@ -221,6 +247,7 @@
     if (rec) rec.click();                          // 録音中なら止めてから
     var text = tx.value.trim();
     if (!text) { show('話した内容が空です。先に録音するか文字で入れてください。', 'warning', false); return; }
+    AsIsNotice.clear(box);
     var label = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 整理中（長いと1分ほど）';
@@ -234,7 +261,8 @@
         if (data.error) { show(data.error, 'danger', false); return; }
         before = sm.value;
         sm.value = data.result;
-        dirty = true; saveDraft();
+        dirty = true;
+        AsIsNotice.show(box, data, sm);
         show('議事録に整理しました。内容を確かめて「保存する」を押してください。', 'info', true);
       })
       .catch(function () { show('通信できませんでした。もう一度お試しください。', 'danger', false); })
@@ -243,6 +271,7 @@
   undo.addEventListener('click', function () {
     if (before === null) return;
     sm.value = before; before = null;
+    AsIsNotice.clear(box);
     show('整理する前に戻しました。', 'secondary', false);
   });
   // 音声入力の動きの記録（うまく文字にならないときに調べる）

@@ -181,6 +181,11 @@
             <input type="checkbox" class="form-check-input" name="use_line" id="use_line" {% if facility.use_line %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_line">LINE連携（保護者へのLINE送信・配信履歴）</label>
           </div>
+          <div class="form-check mb-1 ms-4">
+            <input type="checkbox" class="form-check-input" name="line_auto_send" id="line_auto_send" {% if facility.line_auto_send %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="line_auto_send">日誌を「確定」で保存したら、保護者向けメッセージを保護者の LINE へ自動で送る
+              <span class="small text-muted">（下書き→確定にした保存のときだけ。送らない子は利用者情報の「日誌を LINE で送る」を外す。送信ずみの日誌には二重に送らない）</span></label>
+          </div>
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_reservation" id="use_reservation" {% if facility.use_reservation %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_reservation">予約管理（1日の枠・キャンセル待ち・公式LINEからの申し込み・顧客台帳）</label>
@@ -188,6 +193,48 @@
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_therapy_record" id="use_therapy_record" {% if facility.use_therapy_record %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_therapy_record">療育記録（留意点・やったこと①〜⑤・担当・本文。用紙と同じ形で印刷）</label>
+          </div>
+          <div class="form-check mb-1 ms-4">
+            <input type="checkbox" class="form-check-input" name="therapy_voice_direct" id="therapy_voice_direct" {% if facility.therapy_voice_direct %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="therapy_voice_direct">療育記録の音声入力を、今日の記録へ直接入れる
+              <span class="small text-muted">（話し終えると書き言葉に整え、「これまでの記録」の今日の記録のやったこと・事実・様子に入れる。保存は「保存する」で。留意点の欄・まとめるボタン・見取り図は出さない）</span></label>
+          </div>
+          <div class="form-check mb-1 ms-4">
+            <input type="checkbox" class="form-check-input" name="knowledge_reflect" id="knowledge_reflect" {% if facility.knowledge_reflect %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="knowledge_reflect">書類を AI で読み取ったとき、「療育記録に反映する」は初めは印なしにする
+              <span class="small text-muted">（「療育記録の『留意点』に足す」は画面に出さず、いつも足す。オフのときは「療育記録の AI で参考にする」の名前で、初めから印あり）</span></label>
+          </div>
+          <div class="form-check mb-1 ms-4">
+            <input type="checkbox" class="form-check-input" name="therapy_no_wording" id="therapy_no_wording" {% if facility.therapy_no_wording %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="therapy_no_wording">療育記録を保存するとき、言葉づかいの注意（「気になる言葉があります」）を出さない</label>
+          </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="beneficiary_tools" id="beneficiary_tools" {% if facility.beneficiary_tools %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="beneficiary_tools">利用者情報：前後の利用者へ送るボタン・資料の編集中に別の画面へ移るときの警告・「書類から分かっていること」の削除</label>
+          </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="schedule_tools" id="schedule_tools" {% if facility.schedule_tools %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="schedule_tools">予定づくり：共演NG の印をまとめて付ける・月間予定表の上に編集中の日時・ドラッグで共演NG の人と同じ枠に入れたら赤く（確かめてから入れる）・利用希望／カレンダー／月間予定表で名前で探す・月の予定をまとめて消してやり直す</label>
+          </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="plan_no_ai" id="plan_no_ai" {% if facility.plan_no_ai %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="plan_no_ai">個別支援計画：AI で文を作らない（日誌からの下書き・メモからの整文を出さない）。代わりに、最新のアセスメントと期間の療育記録をアセスメントの欄にそのまま入れて直す</label>
+          </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="use_transport" id="use_transport" {% if facility.use_transport %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="use_transport">送迎・配車（車両・運転手の登録、利用者ごとの送迎の設定、日ごとの配車表と印刷）</label>
+          </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="use_dev_assessment" id="use_dev_assessment" {% if facility.use_dev_assessment %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="use_dev_assessment">5領域アセスメント（健康・生活／運動・感覚／認知・行動／言語・コミュニケーション／人間関係・社会性を5段階で評価する用紙。A4で印刷）</label>
+          </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="use_survey" id="use_survey" {% if facility.use_survey %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="use_survey">アンケート・自己評価（保護者評価アンケートの回収と集計、事業所の自己評価、公表用の PDF。ガイドラインの年 1 回の評価・公表）</label>
+          </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="use_daily_ops" id="use_daily_ops" {% if facility.use_daily_ops %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="use_daily_ops">毎日の運営（クラスの週間の活動計画と記録・健康と生活の記録と引き渡しカード・発達検査の推移）</label>
           </div>
           <div class="form-text">使わない機能はメニューやボタンから消えます。記録は消えないので、あとから戻せます。</div>
           {% if trial_ai.limit and not is_developer %}
@@ -231,6 +278,54 @@
             {% endfor %}
           </ul>
           <div class="form-text">チェックを外した項目は AI が作らず、日誌の入力・表示にも出ません。AI はこの順番を優先順位として、上の項目ほど丁寧に書きます。</div>
+        </div>
+      </div>
+      {% if speech_server %}
+      <div class="mt-3">
+        <div class="small fw-semibold mb-1"><i class="bi bi-mic me-1"></i>音声入力でよく使う言葉</div>
+        <textarea name="speech_words" class="form-control form-control-sm" rows="3" maxlength="2000" {% if not is_admin %}disabled{% endif %}
+                  placeholder="例：感覚統合、ビジョントレーニング、モニタリング、サーキット、ABA、ペアレントトレーニング">{{ facility.speech_words }}</textarea>
+        <div class="form-text">サーバーで音声を文字にするときのヒントになります（読点や改行で区切る）。職員・利用者の名前と「やったこと」の活動名は自動で足すので、それ以外の専門用語・地名・略語などを入れてください。</div>
+      </div>
+      {% endif %}
+      <div class="mt-3">
+        <div class="small fw-semibold mb-1"><i class="bi bi-chat-square-text me-1"></i>言葉づかいの辞書（保存の前に知らせる言葉）</div>
+        <textarea name="word_rules" class="form-control form-control-sm" rows="4" maxlength="4000" {% if not is_admin %}disabled{% endif %}
+                  placeholder="例：&#10;問題行動=気になる行動&#10;さぼり=取り組まなかった&#10;-促す">{{ facility.word_rules }}</textarea>
+        <div class="form-text">日誌・療育記録・計画書を保存するとき、不適切な表現（「問題児」「わがまま」など）・難しい言い回し（「離席」「適宜」など）・方針や助言の言い回し（「〜するとよい」など）が入っていれば、言いかえと一緒に知らせます（止めはしません。「このまま保存」もできます）。標準の辞書に足す言葉を 1 行に「言葉=言いかえ」で書きます。言いかえは無くてもかまいません。行頭に「-」を付けると、標準の辞書からその言葉を外します（例：-促す）。</div>
+      </div>
+      <div class="mt-3">
+        <input type="hidden" name="journal_required_form" value="1">
+        <div class="small fw-semibold mb-1"><i class="bi bi-list-check me-1"></i>日誌を確定するのに要る項目（確定の前のチェック）</div>
+        <div class="d-flex flex-wrap gap-3">
+          {% for key, label, section in journal_rule_choices %}
+          <label class="form-check small mb-0"><input type="checkbox" class="form-check-input" name="journal_required" value="{{ key }}" {% if key in facility.journal_required %}checked{% endif %} {% if not is_admin %}disabled{% endif %}> {{ label }}</label>
+          {% endfor %}
+        </div>
+        <div class="d-flex align-items-center gap-2 mt-2 small">
+          <label for="journal_min_chars" class="mb-0">観察・支援・反応の文は、それぞれ</label>
+          <input type="number" id="journal_min_chars" name="journal_min_chars" class="form-control form-control-sm" style="width:90px;" min="0" max="400" value="{{ facility.journal_min_chars }}" {% if not is_admin %}disabled{% endif %}>
+          <span>字以上（0 は字数を見ない。上で選んだ項目だけ）</span>
+        </div>
+        <div class="form-text">新人の職員でも書き漏れが無いように、日誌を「確定」で保存するときに足りない項目があれば下書きのまま保存して知らせます（入力の画面にも「確定の前のチェック」を出します）。何も選ばなければ、これまでどおり確定できます。良い記録の例は<a href="{% url 'records:examples' %}">記録の例</a>の画面で見られます。</div>
+      </div>
+      <div class="mt-3" id="journal-questions">
+        <input type="hidden" name="question_form" value="1">
+        <div class="small fw-semibold mb-1"><i class="bi bi-ui-checks me-1"></i>日誌の質問（共通の質問・個別の質問）</div>
+        <label class="form-check small mb-1"><input type="checkbox" class="form-check-input" name="question_enabled" {% if question_setting.enabled %}checked{% endif %} {% if not is_admin %}disabled{% endif %}> 日誌で、全員に同じ「共通の質問」と、利用者ごとの「個別の質問」に「はい／どちらでもない／いいえ」で答える（AI が活動ごとに作る観点は出さない）</label>
+        <div class="row g-2">
+          <div class="col-md-6">
+            <textarea name="question_common" class="form-control form-control-sm" rows="4" maxlength="600" {% if not is_admin %}disabled{% endif %}
+                      placeholder="空なら標準の 4 問">{{ question_setting.common_questions }}</textarea>
+            <div class="form-text">共通の質問（1 行に 1 問・8 問まで）。空なら標準の 4 問（{{ question_default|join:'・' }}）。</div>
+          </div>
+          <div class="col-md-6 small">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span>直近</span><input type="number" name="question_window" class="form-control form-control-sm" style="width:80px;" min="1" max="50" value="{{ question_setting.window|default:10 }}" {% if not is_admin %}disabled{% endif %}>
+              <span>回の記録で、個別の質問の「はい」が</span><input type="number" name="question_rate" class="form-control form-control-sm" style="width:80px;" min="1" max="100" value="{{ question_setting.rate|default:80 }}" {% if not is_admin %}disabled{% endif %}><span>% 以上なら、次のレベルへ上げる</span>
+            </div>
+            <div class="form-text">個別の質問は利用者情報の画面で、レベルごとに入れます（個別支援計画の目標から AI が案を出せます）。</div>
+          </div>
         </div>
       </div>
       {% if is_admin %}

@@ -149,7 +149,13 @@ class PlanStepView(PlanMixin, View):
             'can_reopen': plan.can_reopen_step(self.n),
             'is_last': self.n == SupportPlan.STEP_MONITORING,
             'ai_enabled': bool(settings.ANTHROPIC_API_KEY),
+            # AI で文を作らない事業所（Facility.plan_no_ai）：下書きの代わりに、台帳と療育記録の内容を欄に入れる
+            'plan_no_ai': plan.facility.plan_no_ai,
         }
+        if self.n == SupportPlan.STEP_ASSESSMENT and plan.facility.plan_no_ai:
+            from datetime import timedelta
+            ctx['fill_start'] = date.today() - timedelta(days=182)
+            ctx['fill_end'] = date.today()
         if self.n == SupportPlan.STEP_DRAFT:
             edit_id = self.request.GET.get('goal')
             editing = plan.goals.filter(pk=edit_id).first() if edit_id else None
@@ -161,6 +167,8 @@ class PlanStepView(PlanMixin, View):
             from datetime import timedelta
             ctx['draft_start'] = date.today() - timedelta(days=91)
             ctx['draft_end'] = date.today()
+        if self.n in (SupportPlan.STEP_ASSESSMENT, SupportPlan.STEP_DRAFT) and getattr(plan.facility, 'use_dev_assessment', False):
+            ctx['dev_sheets'] = list(plan.beneficiary.development_assessments.order_by('-date', '-pk')[:5])
         if self.n == SupportPlan.STEP_MEETING:
             ctx['goals'] = plan.goals.all()
         if self.n == SupportPlan.STEP_CONSENT:
@@ -433,6 +441,8 @@ class AssessmentDraftView(PlanMixin, View):
         from . import ai
 
         plan = self.get_plan(pk)
+        if plan.facility.plan_no_ai:
+            return JsonResponse({'error': 'この事業所では、支援計画の文を AI で作りません。'}, status=403)
         if plan.current_step != SupportPlan.STEP_ASSESSMENT:
             return JsonResponse({'error': 'アセスメントは完了済みです。'}, status=400)
         if not settings.ANTHROPIC_API_KEY:
@@ -457,6 +467,28 @@ class AssessmentDraftView(PlanMixin, View):
         return JsonResponse({'draft': data, 'records': n, 'months': months})
 
 
+class AssessmentFillView(PlanMixin, View):
+    """
+    アセスメントの欄に入れる内容（JSON。Facility.plan_no_ai）：最新のアセスメント・5領域・留意点・書類の要約と、期間の療育記録を
+    そのまま返す（AI は使わない）。画面で欄の後ろに足し、職員が直して保存する
+    """
+
+    def get(self, request, pk):
+        from django.http import JsonResponse
+
+        from . import sources
+        plan = self.get_plan(pk)
+        if not plan.facility.plan_no_ai:
+            return JsonResponse({'error': 'この事業所では使っていません。'}, status=404)
+        if plan.current_step != SupportPlan.STEP_ASSESSMENT:
+            return JsonResponse({'error': 'アセスメントは完了済みです。'}, status=400)
+        start, end = _period_from_request(request)
+        data = sources.assessment_material(plan.beneficiary, start, end)
+        if not (data['condition'] or data['wishes'] or data['notes']):
+            return JsonResponse({'error': f'入れる内容がありません（アセスメント・資料、5領域アセスメント、留意点、{start:%Y/%-m/%-d}〜{end:%Y/%-m/%-d} の療育記録のどれもありません）。'}, status=404)
+        return JsonResponse(data)
+
+
 class PlanDraftView(PlanMixin, View):
     """期間の日誌から原案（方針・目標）を下書きし、根拠の記録をひもづける"""
 
@@ -466,6 +498,9 @@ class PlanDraftView(PlanMixin, View):
         from . import ai
 
         plan = self.get_plan(pk)
+        if plan.facility.plan_no_ai:
+            messages.error(request, 'この事業所では、支援計画の文を AI で作りません。')
+            return redirect('support_plans:step', pk=pk, n=2)
         if plan.current_step != SupportPlan.STEP_DRAFT:
             messages.error(request, '原案の下書きはステップ2の間だけ作れます。')
             return redirect('support_plans:detail', pk=pk)
@@ -491,6 +526,97 @@ class PlanDraftView(PlanMixin, View):
         else:
             messages.success(request, f'{start} 〜 {end} の日誌 {n} 件から、方針と目標 {created} 件の下書きを作りました。根拠の記録をひもづけています。内容を確認・修正してください（下書きのままでは計画になりません）。')
         return redirect('support_plans:step', pk=pk, n=2)
+
+
+class PlanSheetView(PlanMixin, View):
+    """
+    様式のまま直接編集する画面（support_plans/sheet.py）。使っている様式（標準／はびりす様式の別紙1）と同じ並びで欄がそのまま入力欄になり、
+    上の「文を作る」でメモから欄の文を作って入れる欄を選べる。欄ごとの「メモ → 整文」もできる。
+    編集できるのはステップ2（原案）の間。ほかのステップでは読むだけ
+    """
+    template_name = 'support_plans/sheet.html'
+
+    def _editable(self, plan):
+        return plan.current_step == SupportPlan.STEP_DRAFT and plan.status != SupportPlan.STATUS_CLOSED
+
+    def _render(self, request, plan):
+        from django.conf import settings
+
+        from custom_forms.views import PLAN_EXTRA_FIELDS
+
+        from . import sheet
+        draft = plan.get_step(SupportPlan.STEP_DRAFT)
+        extra_labels = {k: label for k, label, _ in PLAN_EXTRA_FIELDS}
+        return render(request, self.template_name, {
+            'plan': plan, 'draft': draft, 'b': plan.beneficiary, 'facility': plan.facility,
+            'happiness': plan.facility.form_set == plan.facility.FORM_SET_HAPPINESS,
+            'editable': self._editable(plan),
+            'plan_cells': [(k, label, sheet.hint_of(k)) for k, label, _w, _h in sheet.PLAN_CELLS],
+            'extra_cells': [(k, extra_labels.get(k, k)) for k in sheet.EXTRA_IN_SHEET],
+            'values': sheet.plan_values(plan, draft), 'goal_cells': [(k, label) for k, label, _w, _h in sheet.GOAL_CELLS],
+            'rows': sheet.goal_rows(plan), 'type_choices': PlanGoal.TYPE_CHOICES,
+            'assessment': plan.get_step(SupportPlan.STEP_ASSESSMENT),
+            'ai_enabled': bool(settings.ANTHROPIC_API_KEY) and not plan.facility.plan_no_ai, 'today': date.today(),
+        })
+
+    def get(self, request, pk):
+        return self._render(request, self.get_plan(pk))
+
+    def post(self, request, pk):
+        from . import sheet
+        plan = self.get_plan(pk)
+        if not self._editable(plan):
+            messages.error(request, '様式の編集はステップ2「計画（原案）の作成」の間だけできます。直すときは「完了を取り消して修正」を押してください。')
+            return redirect('support_plans:sheet', pk=pk)
+        draft = plan.get_step(SupportPlan.STEP_DRAFT)
+        conflict = check_conflict(request, draft)
+        if conflict:
+            messages.error(request, conflict)
+            return self._render(request, plan)
+        edited, added, removed = sheet.save(plan, draft, request.POST)
+        messages.success(request, '計画書を保存しました'
+                         + (f'（目標：直した {edited}・足した {added}・消した {removed}）' if edited or added or removed else '') + '。')
+        if request.POST.get('next') == 'step':
+            return redirect('support_plans:step', pk=pk, n=SupportPlan.STEP_DRAFT)
+        return redirect('support_plans:sheet', pk=pk)
+
+
+class PlanSheetAiView(PlanMixin, View):
+    """様式の欄ごとの整文（JSON）。items: [{field, memo, current}] → results: [{field, result}]。お試しの回数は 1 回分"""
+
+    def post(self, request, pk):
+        import json
+
+        from django.conf import settings
+        from django.http import JsonResponse
+
+        from ai_assist import trial
+
+        from . import ai, sheet
+        plan = self.get_plan(pk)
+        if plan.facility.plan_no_ai:
+            return JsonResponse({'error': 'この事業所では、支援計画の文を AI で作りません。'}, status=403)
+        if not settings.ANTHROPIC_API_KEY:
+            return JsonResponse({'error': 'AIを使う設定（ANTHROPIC_API_KEY）がサーバーにありません。'}, status=500)
+        over = trial.check(plan.facility)
+        if over:
+            return JsonResponse({'error': over}, status=403)
+        try:
+            items = json.loads(request.body.decode('utf-8') or '{}').get('items') or []
+        except (ValueError, AttributeError):
+            items = []
+        items = [{'field': str(i.get('field', ''))[:40], 'memo': str(i.get('memo', '')).strip()[:2000],
+                  'current': str(i.get('current', '')).strip()[:4000]} for i in items if isinstance(i, dict)]
+        items = [i for i in items if i['field'] and i['memo']][:12]
+        if not items:
+            return JsonResponse({'error': 'メモが空です。欄に入れたいことを短く書いてから押してください。'}, status=400)
+        for i in items:
+            i['label'], i['hint'] = sheet.label_of(i['field']), sheet.hint_of(i['field'])
+        draft = plan.get_step(SupportPlan.STEP_DRAFT)
+        results = ai.compose_cells(plan, items, sheet.context_text(plan, draft))
+        if any(r['result'] for r in results):
+            trial.use(plan.facility)
+        return JsonResponse({'results': results})
 
 
 def _period_from_request(request):

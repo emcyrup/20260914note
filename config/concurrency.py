@@ -6,6 +6,7 @@
 2. 編集中の表示：フォームを開いている間、EditingSession に記録し、同じ画面を開いた他の職員に知らせる。
 """
 import datetime
+import logging
 
 from django.apps import apps
 from django.utils import timezone
@@ -35,8 +36,26 @@ KINDS = {
     'copayment':        ('billing.CopaymentManagement', 'facility'),
     'reservation_setting': ('reservations.ReservationSetting', 'facility'),
     'customer':         ('reservations.Customer', 'facility'),
+    # ゆあーず（療育）の画面
+    'therapy_profile':  ('therapy.TherapyProfile', 'beneficiary__facility'),
+    'therapy_record':   ('therapy.TherapyRecord', 'facility'),
+    'minutes':          ('minutes.Minutes', 'facility'),
+    'monthly_request':  ('reservations.MonthlyRequest', 'facility'),
+    'staff_shift':      ('reservations.StaffShift', 'facility'),
+    'beneficiary_assessment': ('beneficiaries.BeneficiaryAssessment', 'beneficiary__facility'),
+    'knowledge':        ('beneficiaries.BeneficiaryKnowledge', 'beneficiary__facility'),
+    'dev_assessment':   ('beneficiaries.DevelopmentAssessment', 'beneficiary__facility'),
+    'transport_profile': ('transport.TransportProfile', 'beneficiary__facility'),
+    'survey':           ('surveys.Survey', 'facility'),
+    'self_evaluation':  ('surveys.SelfEvaluation', 'facility'),
+    'group_session':    ('daily.GroupSession', 'group__facility'),
+    'health_profile':   ('daily.HealthProfile', 'beneficiary__facility'),
+    'dev_test':         ('beneficiaries.DevelopmentTest', 'beneficiary__facility'),
 }
+UNSAVED_KEY = 'unsaved_edits'
 STEP_KINDS = {1: 'assessment', 2: 'plan_draft', 3: 'staff_meeting', 4: 'consent', 5: 'monitoring'}
+
+logger = logging.getLogger(__name__)
 
 
 def version_token(obj):
@@ -68,6 +87,22 @@ def check_conflict(request, obj):
             '保存を止めました。画面を開き直して最新の内容を確認してから、もう一度編集してください。')
 
 
+def keep_unsaved(request, kind, pk, data):
+    """競合で保存を止めたとき、職員が入れた内容をセッションに残す（開き直した画面で見せて、写せるようにする）"""
+    store = request.session.get(UNSAVED_KEY, {})
+    store[f'{kind}:{pk}'] = data
+    request.session[UNSAVED_KEY] = store
+
+
+def pop_unsaved(request, kind, pk):
+    """keep_unsaved で残した内容を1回だけ取り出す（無ければ None）"""
+    store = request.session.get(UNSAVED_KEY, {})
+    data = store.pop(f'{kind}:{pk}', None)
+    if data is not None:
+        request.session[UNSAVED_KEY] = store
+    return data
+
+
 def resolve(kind, pk, facility):
     """種類と ID から、その事業所のオブジェクトを返す（無ければ None）"""
     if kind not in KINDS or facility is None:
@@ -84,10 +119,14 @@ def resolve(kind, pk, facility):
 
 # ---- 編集中の表示 -------------------------------------------------------
 def touch(facility, kind, pk, user):
+    from django.db import DatabaseError
     from facilities.models import EditingSession
-    EditingSession.objects.update_or_create(kind=kind, target_id=pk, user=user, defaults={'facility': facility})
-    # 古い行は掃除する
-    EditingSession.objects.filter(touched_at__lt=timezone.now() - datetime.timedelta(minutes=15)).delete()
+    try:
+        EditingSession.objects.update_or_create(kind=kind, target_id=pk, user=user, defaults={'facility': facility})
+        # 古い行は掃除する
+        EditingSession.objects.filter(touched_at__lt=timezone.now() - datetime.timedelta(minutes=15)).delete()
+    except DatabaseError:       # 「編集中」の印は補助なので、DB が混み合っているとき（SQLite のロックなど）は諦める
+        logger.warning('編集中の印を保存できなかった（%s:%s）', kind, pk)
 
 
 def release(kind, pk, user):

@@ -21,6 +21,19 @@ def _line_code_expiry():
     return timezone.now() + LINE_CODE_TTL
 
 
+def to_hiragana(s):
+    """カタカナ → ひらがな（長音・記号はそのまま）。前後の空白と全角スペースは取る"""
+    return ''.join(chr(ord(ch) - 0x60) if 0x30A1 <= ord(ch) <= 0x30F6 else ch for ch in (s or '')).replace('\u3000', ' ').strip()
+
+
+# 50 音の行（利用者一覧の絞り込み）。濁音・半濁音・小書きも同じ行に入れる
+KANA_ROWS = [
+    ('あ', 'あいうえおぁぃぅぇぉ'), ('か', 'かきくけこがぎぐげごゕゖ'), ('さ', 'さしすせそざじずぜぞ'),
+    ('た', 'たちつてとだぢづでどっ'), ('な', 'なにぬねの'), ('は', 'はひふへほばびぶべぼぱぴぷぺぽ'),
+    ('ま', 'まみむめも'), ('や', 'やゆよゃゅょ'), ('ら', 'らりるれろ'), ('わ', 'わをんゐゑゎ'),
+]
+
+
 class Beneficiary(models.Model):
     """
     利用者（子ども）の基本情報。
@@ -45,10 +58,14 @@ class Beneficiary(models.Model):
 
     STATUS_ACTIVE = 'active'
     STATUS_INACTIVE = 'inactive'
+    STATUS_GRADUATED = 'graduated'
     STATUS_CHOICES = [
         (STATUS_ACTIVE, '在籍中'),
         (STATUS_INACTIVE, '退所'),
+        (STATUS_GRADUATED, '卒業'),
     ]
+    # 利用をやめた人（退所・卒業）。一覧では在籍中と分けて見る
+    LEFT_STATUSES = (STATUS_INACTIVE, STATUS_GRADUATED)
 
     facility = models.ForeignKey(
         Facility,
@@ -87,6 +104,8 @@ class Beneficiary(models.Model):
     discharge_date = models.DateField(null=True, blank=True, verbose_name='退所日')
     # 他システムや紙の記録がある（新規の利用者ではない）
     has_prior_records = models.BooleanField(default=False, verbose_name='他システム・紙の記録がある')
+    # 日誌の保護者向けメッセージを LINE で送る子か（送らない子は、自動送信でも「LINE送信」ボタンでも送らない）
+    line_send_journal = models.BooleanField(default=True, verbose_name='日誌を LINE で送る')
     # 利用予定曜日（月〜土）。Phase 3 の予定一括生成で使用する
     weekday_mon = models.BooleanField(default=False, verbose_name='月')
     weekday_tue = models.BooleanField(default=False, verbose_name='火')
@@ -97,6 +116,14 @@ class Beneficiary(models.Model):
     status = models.CharField(
         max_length=10, choices=STATUS_CHOICES, default=STATUS_ACTIVE, verbose_name='在籍状況'
     )
+    # 同じ日に一緒にできない利用者（相性など）。片方に入れればもう片方にも付く（対称）。
+    # 予約を作る・動かす・月間予定表を組むときに、同じ日の同じ時間枠に入れない（reservations/services.py の pair_conflicts）
+    cannot_pair = models.ManyToManyField('self', blank=True, symmetrical=True, verbose_name='同じ時間にできない利用者')
+    # きょうだい。同じ時間枠に入った日は、予約ごとに「きょうだいと1枠にまとめる」（Reservation.share_seat）を選べる。
+    # 予約の連絡先（Customer）が同じ子もきょうだいとして扱う（reservations/services.py の sibling_map）
+    siblings = models.ManyToManyField('self', blank=True, symmetrical=True, verbose_name='きょうだい')
+    # 送迎で同じ車に乗せない（同乗NG）。配車表で同じ車・近い時刻に入ると赤く知らせる（transport/views.py の mark_ride_ng）
+    no_ride_with = models.ManyToManyField('self', blank=True, symmetrical=True, verbose_name='同じ車に乗せない利用者')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -108,6 +135,12 @@ class Beneficiary(models.Model):
     def __str__(self):
         return f'{self.last_name} {self.first_name}'
 
+    def save(self, *args, **kwargs):
+        # ふりがなはひらがなにそろえる（カタカナ・全角スペース混じりでも 50 音順に並ぶように）
+        self.last_name_kana = to_hiragana(self.last_name_kana)
+        self.first_name_kana = to_hiragana(self.first_name_kana)
+        super().save(*args, **kwargs)
+
     @property
     def full_name(self):
         return f'{self.last_name} {self.first_name}'
@@ -115,6 +148,10 @@ class Beneficiary(models.Model):
     @property
     def full_name_kana(self):
         return f'{self.last_name_kana} {self.first_name_kana}'
+
+    def pair_names(self):
+        """同じ時間にできない利用者の名前（在籍中だけ）"""
+        return [b.full_name for b in self.cannot_pair.filter(status=self.STATUS_ACTIVE).order_by('last_name_kana', 'first_name_kana')]
 
     @property
     def latest_certificate(self):
@@ -419,3 +456,312 @@ class BeneficiaryDocument(models.Model):
     @property
     def label(self):
         return self.title or self.file_name or self.file.name.rsplit('/', 1)[-1]
+
+
+class BeneficiaryKnowledge(models.Model):
+    """
+    診断書・意見書・検査結果などの書類を AI で読み取った内容（利用者ごと）。
+
+    職員が確認画面で直してから保存すると（status=saved）、要約・支援で気をつけること・文字起こしを
+    小さく分けて（KnowledgeChunk）保存し、療育記録の AI（留意点の要約・記録の文）が、その子の分だけを
+    検索して参考にする（RAG）。台帳（障害種別・重身・備考・留意点）への反映は、確認画面で印を付けたものだけ。
+    """
+    STATUS_DRAFT = 'draft'
+    STATUS_SAVED = 'saved'
+    STATUS_CHOICES = [(STATUS_DRAFT, '確認待ち'), (STATUS_SAVED, '保存済み')]
+
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='knowledge', verbose_name='利用者')
+    document = models.ForeignKey('BeneficiaryDocument', on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='knowledge', verbose_name='読み取った書類')
+    assessment = models.ForeignKey('BeneficiaryAssessment', on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='knowledge', verbose_name='読み取ったアセスメント・資料')
+    kind = models.CharField(max_length=50, blank=True, verbose_name='書類の種類')
+    title = models.CharField(max_length=100, blank=True, verbose_name='件名')
+    doc_date = models.DateField(null=True, blank=True, verbose_name='書類の日付')
+    issuer = models.CharField(max_length=100, blank=True, verbose_name='発行元')
+    summary = models.TextField(blank=True, verbose_name='要約')
+    points = models.TextField(blank=True, verbose_name='支援で気をつけること')
+    text = models.TextField(blank=True, verbose_name='書類の文字')
+    proposals = models.JSONField(default=dict, blank=True, verbose_name='台帳への反映案')
+    applied = models.JSONField(default=list, blank=True, verbose_name='台帳に反映したもの')
+    # 療育記録の AI で参考にする（Facility.knowledge_reflect の事業所では「療育記録に反映する」と呼び、読み取った直後は印なし）
+    use_in_ai = models.BooleanField(default=True, verbose_name='療育記録の AI で参考にする')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_DRAFT, verbose_name='状態')
+    created_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='+', verbose_name='読み取った職員')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '書類から分かっていること'
+        verbose_name_plural = '書類から分かっていること'
+        ordering = ['-created_at', '-pk']
+
+    def __str__(self):
+        return f'{self.beneficiary.full_name} {self.label}'
+
+    @property
+    def label(self):
+        return self.title or self.kind or '読み取った書類'
+
+    @property
+    def points_list(self):
+        return [ln.strip().lstrip('・-*•').strip() for ln in (self.points or '').splitlines() if ln.strip().lstrip('・-*•').strip()]
+
+    @property
+    def is_saved(self):
+        return self.status == self.STATUS_SAVED
+
+
+class KnowledgeChunk(models.Model):
+    """書類から分かっていることの検索用の小片（文字バイグラムの出現数。ai_assist.retrieval と同じ考え方）"""
+    PART_SUMMARY = 'summary'
+    PART_POINTS = 'points'
+    PART_TEXT = 'text'
+
+    knowledge = models.ForeignKey(BeneficiaryKnowledge, on_delete=models.CASCADE, related_name='chunks')
+    part = models.CharField(max_length=10, default=PART_TEXT)
+    index = models.PositiveIntegerField(default=0)
+    text = models.TextField()
+    terms = models.JSONField(default=dict)
+    length = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['knowledge', 'index']
+
+
+class DevelopmentAssessment(models.Model):
+    """
+    5領域のアセスメント（評価シート）。
+    こども家庭庁のガイドラインにある 5 領域（健康・生活／運動・感覚／認知・行動／言語・コミュニケーション／人間関係・社会性）
+    ごとに、いまの様子を 5 段階で評価し、様子と支援の方針を書く。本人・家族の希望とまとめを添えて A4 で印刷できる。
+    支援計画の前のアセスメントや、半年ごとの見直しに使う（支援計画の AI アセスメント support_plans.Assessment とは別）。
+    """
+    DOMAINS = [
+        ('health', '健康・生活'),
+        ('motor', '運動・感覚'),
+        ('cognition', '認知・行動'),
+        ('language', '言語・コミュニケーション'),
+        ('social', '人間関係・社会性'),
+    ]
+    DOMAIN_HINTS = {
+        'health': '健康状態・生活リズム・食事・排せつ・着替え・身の回りのこと',
+        'motor': '姿勢・粗大運動（走る・跳ぶ）・微細運動（はさみ・鉛筆）・感覚の過敏や鈍さ',
+        'cognition': '注意・集中・見通し・ルールの理解・数や文字・気持ちの切り替え・行動のコントロール',
+        'language': '言葉の理解・話す・伝える・やりとり・絵カードやジェスチャーなどの手段',
+        'social': '大人や友だちとの関わり・集団への参加・順番やルール・自己理解・情緒の安定',
+    }
+    RATINGS = [
+        (1, '全面的な支援が必要'),
+        (2, '多くの支援が必要'),
+        (3, '一部の支援・声かけが必要'),
+        (4, '見守りがあればできる'),
+        (5, 'ひとりでできる'),
+    ]
+    RATING_LABELS = dict(RATINGS)
+    TEXT_MAX = 4000
+
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='development_assessments',
+                                    verbose_name='利用者')
+    date = models.DateField(verbose_name='実施日')
+    assessed_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='+', verbose_name='評価者')
+    interviewed_with = models.CharField(max_length=100, blank=True, verbose_name='聞き取りの相手',
+                                        help_text='保護者（母）・学校の先生など')
+    # {領域キー: {'rating': 1〜5 か None, 'now': いまの様子, 'goal': 支援の方針}}
+    domains = models.JSONField(default=dict, blank=True, verbose_name='領域ごとの評価')
+    strengths = models.TextField(blank=True, verbose_name='本人の強み・好きなこと・得意なこと')
+    concerns = models.TextField(blank=True, verbose_name='気になること・課題')
+    wishes_child = models.TextField(blank=True, verbose_name='本人の希望')
+    wishes_family = models.TextField(blank=True, verbose_name='家族の希望')
+    summary = models.TextField(blank=True, verbose_name='まとめ・支援の方向性')
+    created_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='+', verbose_name='作成者')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '5領域アセスメント'
+        verbose_name_plural = '5領域アセスメント'
+        ordering = ['-date', '-pk']
+
+    def __str__(self):
+        return f'{self.beneficiary.full_name} {self.date} 5領域アセスメント'
+
+    def rating(self, key):
+        v = (self.domains or {}).get(key, {}).get('rating')
+        return v if v in self.RATING_LABELS else None
+
+    def rows(self, previous=None):
+        """画面・印刷用：領域ごとの dict（key, label, hint, rating, rating_label, now, goal, prev＝前回の評価）"""
+        out = []
+        for key, label in self.DOMAINS:
+            d = (self.domains or {}).get(key, {})
+            r = self.rating(key)
+            out.append({'key': key, 'label': label, 'hint': self.DOMAIN_HINTS[key], 'rating': r,
+                        'rating_label': self.RATING_LABELS.get(r, ''), 'now': d.get('now', ''), 'goal': d.get('goal', ''),
+                        'prev': previous.rating(key) if previous else None})
+        return out
+
+    @property
+    def rating_marks(self):
+        """一覧に出す短い形：[('健康・生活', 3), ...]（未評価は None）"""
+        return [(label, self.rating(key)) for key, label in self.DOMAINS]
+
+    @classmethod
+    def domains_from_post(cls, post):
+        """フォームの rating_<key>・now_<key>・goal_<key> を domains の形にする"""
+        out = {}
+        for key, _ in cls.DOMAINS:
+            try:
+                r = int(post.get(f'rating_{key}') or 0)
+            except (TypeError, ValueError):
+                r = 0
+            out[key] = {'rating': r if r in cls.RATING_LABELS else None,
+                        'now': (post.get(f'now_{key}') or '').strip()[:cls.TEXT_MAX],
+                        'goal': (post.get(f'goal_{key}') or '').strip()[:cls.TEXT_MAX]}
+        return out
+
+    def previous(self):
+        """この用紙の前に作った用紙（前回の評価を並べて見るため）"""
+        return (DevelopmentAssessment.objects.filter(beneficiary_id=self.beneficiary_id)
+                .filter(models.Q(date__lt=self.date) | models.Q(date=self.date, pk__lt=self.pk or 0))
+                .order_by('-date', '-pk').first())
+
+
+class DevelopmentTest(models.Model):
+    """
+    発達検査・知能検査の結果（新版K式・遠城寺式・KIDS・WISC など）。
+    検査ごとの領域の発達年齢（か月）と指数（DQ・IQ など）を持ち、利用者情報で推移をグラフにする。
+    検査結果の書類（アセスメント・資料や書類・画像）は AI で読み取って下書きにできる（beneficiaries/dev_tests.py）。
+    """
+    TESTS = [
+        ('kshiki', '新版K式発達検査'),
+        ('enjoji', '遠城寺式乳幼児分析的発達検査'),
+        ('kids', 'KIDS 乳幼児発達スケール'),
+        ('tsumori', '津守・稲毛式乳幼児精神発達診断'),
+        ('tanaka', '田中ビネー知能検査'),
+        ('wisc', 'WISC（ウィスク）'),
+        ('wppsi', 'WPPSI（ウィプシ）'),
+        ('other', 'その他'),
+    ]
+    TEST_LABELS = dict(TESTS)
+    # 検査ごとの標準の領域（画面の初期の行）
+    DOMAINS = {
+        'kshiki': ['姿勢・運動（P-M）', '認知・適応（C-A）', '言語・社会（L-S）'],
+        'enjoji': ['移動運動', '手の運動', '基本的習慣', '対人関係', '発語', '言語理解'],
+        'kids': ['運動', '操作', '理解言語', '表出言語', '概念', '対子ども社会性', '対成人社会性', 'しつけ', '食事'],
+        'tsumori': ['運動', '探索・操作', '社会', '食事・排泄・生活習慣', '理解・言語'],
+        'tanaka': [],
+        'wisc': ['言語理解', '視空間', '流動性推理', 'ワーキングメモリー', '処理速度'],
+        'wppsi': ['言語理解', '知覚推理', '処理速度'],
+        'other': [],
+    }
+    QUOTIENT_LABEL = {'wisc': 'IQ・指標得点', 'wppsi': 'IQ・指標得点', 'tanaka': 'IQ'}
+
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='development_tests', verbose_name='利用者')
+    test = models.CharField(max_length=10, choices=TESTS, default='kshiki', verbose_name='検査')
+    test_other = models.CharField(max_length=60, blank=True, verbose_name='検査名（その他）')
+    date = models.DateField(verbose_name='検査日')
+    examiner = models.CharField(max_length=100, blank=True, verbose_name='実施した機関・検査者')
+    ca_months = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name='生活年齢（か月）')
+    overall_age_months = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name='全体の発達年齢（か月）')
+    overall_quotient = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name='全体の指数（DQ・IQ）')
+    # [{'label': '認知・適応（C-A）', 'age_months': 30, 'quotient': 85}, …]
+    results = models.JSONField(default=list, blank=True, verbose_name='領域ごとの結果')
+    note = models.TextField(blank=True, verbose_name='所見・メモ')
+    source_label = models.CharField(max_length=200, blank=True, verbose_name='読み取った書類')
+    created_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '発達検査'
+        verbose_name_plural = '発達検査'
+        ordering = ['-date', '-pk']
+
+    def __str__(self):
+        return f'{self.beneficiary.full_name} {self.date} {self.test_name}'
+
+    @property
+    def test_name(self):
+        return self.test_other if self.test == 'other' and self.test_other else self.TEST_LABELS.get(self.test, '')
+
+    @property
+    def quotient_label(self):
+        return self.QUOTIENT_LABEL.get(self.test, 'DQ（発達指数）')
+
+    @staticmethod
+    def age_label(months):
+        if months is None or months == '':
+            return ''
+        months = int(months)
+        return f'{months // 12}歳{months % 12}か月'
+
+    @property
+    def ca_label(self):
+        return self.age_label(self.ca_months)
+
+    @property
+    def overall_age_label(self):
+        return self.age_label(self.overall_age_months)
+
+    def result_rows(self):
+        return [dict(r, age_label=self.age_label(r.get('age_months'))) for r in (self.results or [])]
+
+
+class RecordDigest(models.Model):
+    """
+    面談資料（記録のまとめ）。期間の日誌・療育記録から、数字は計算で、文章は AI で記録にあることだけをまとめる（beneficiaries/digest.py）。
+    職員が直して保存し、印刷して保護者面談・モニタリング・支援計画の見直しに使う
+    """
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='digests', verbose_name='利用者')
+    date_from = models.DateField(verbose_name='期間（から）')
+    date_to = models.DateField(verbose_name='期間（まで）')
+    purpose = models.CharField(max_length=50, blank=True, verbose_name='使い道', help_text='例：保護者面談・モニタリング・計画の見直し')
+    summary = models.TextField(blank=True, verbose_name='まとめ')
+    stats = models.JSONField(default=dict, blank=True, verbose_name='数字')
+    created_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '面談資料'
+        verbose_name_plural = '面談資料'
+        ordering = ['-created_at', '-pk']
+
+    def __str__(self):
+        return f'{self.beneficiary} {self.date_from}〜{self.date_to}'
+
+
+TRASH_DAYS = 30     # 消した利用者をごみ箱に置く日数（過ぎたら記録とファイルを本当に消す）
+
+
+class DeletedBeneficiary(models.Model):
+    """
+    ごみ箱：消した利用者と、いっしょに消えた記録・予約・書類など（beneficiaries/trash.py）。
+    TRASH_DAYS 日のあいだは「戻す」で元の番号のまま戻せる。書類のファイルはそのあいだ残しておく
+    """
+    facility = models.ForeignKey('facilities.Facility', on_delete=models.CASCADE, related_name='deleted_beneficiaries')
+    beneficiary_pk = models.PositiveIntegerField(verbose_name='元の番号')
+    name = models.CharField(max_length=120, verbose_name='氏名')
+    status_label = models.CharField(max_length=20, blank=True, verbose_name='消したときの在籍状況')
+    deleted_at = models.DateTimeField(auto_now_add=True, verbose_name='消した日時')
+    deleted_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    payload = models.JSONField(default=list, verbose_name='消えた記録（戻す順）')
+    relinks = models.JSONField(default=list, verbose_name='戻すときに結び直すもの')
+    files = models.JSONField(default=list, verbose_name='書類のファイル')
+    counts = models.JSONField(default=list, verbose_name='件数')
+
+    class Meta:
+        verbose_name = 'ごみ箱の利用者'
+        verbose_name_plural = 'ごみ箱の利用者'
+        ordering = ['-deleted_at', '-pk']
+
+    def __str__(self):
+        return f'{self.name}（{self.deleted_at:%Y/%m/%d} 削除）'
+
+    @property
+    def expires_at(self):
+        import datetime as _dt
+        return self.deleted_at + _dt.timedelta(days=TRASH_DAYS)

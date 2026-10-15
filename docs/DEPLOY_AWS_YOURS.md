@@ -88,6 +88,8 @@ tail -f logs/error.log                 # アプリのエラー
 @reboot sleep 25 && APP_DIR=$HOME/michinoteyours VENV=$HOME/env bash $HOME/michinoteyours/deploy/venv-deploy.sh --restart >> $HOME/michinoteyours/logs/boot.log 2>&1
 ```
 
+**いまの手順**：上の行を手で入れる代わりに、Actions の **Manage (yours)** を task `autostart_install` で実行すると、`@reboot` と 5 分ごとの見回り（`--ensure`：止まっていれば起動）が crontab に入ります（この環境の行だけ。手で入れた行は置き換え）。確かめるのは `autostart_check`。詳しくは [docs/OPERATIONS.md](OPERATIONS.md) 4 章。
+
 **期限のお知らせのメール**（受給者証の有効期限・個別支援計画の計画期間・モニタリングの期日。管理者・児発管のメールと代表者メールへ）を使うときは、`.env` に `EMAIL_HOST` などのメール設定（`deploy/.env.yours-aws.example` の末尾）を入れ、同じ `crontab -e` に毎朝の1行を足します。節目の日（30・14・7・3・1・0 日前）と、期限切れがあるときの月曜だけ送ります。まずは `--dry-run` で内容を確かめられます。
 
 ```
@@ -101,12 +103,12 @@ tail -f logs/error.log                 # アプリのエラー
 | task | すること |
 |---|---|
 | `create_facility` | 事業所（既定「発達支援ルーム　ゆあーず」）と管理者（既定 `ryoiku`）を `--preset ryoiku` で作る。「サンプルデータも入れる」がオンなら 5-a の `--demo` と同じ |
-| `set_password` | 管理者（職員）のパスワードを「パスワード」欄の値にする。`create_facility` でパスワード欄を空にしたときは、このあと必ず実行する |
+| `set_password` | 管理者（職員）のパスワードを、リポジトリの Secrets `YOURS_ADMIN_PASSWORD` の値にする（2026-10-10〜。入力欄の値は公開のログに出るため、入力欄では受け取らない。使い終わったら Secret は消してよい）。`create_facility` で Secret が空だったときは、このあと必ず実行する |
 | `seed_demo` | サンプルデータを入れ直す（`seed_demo --reset`） |
 | `seed_demo_reset` | サンプルデータを消す（実データを入れる前に） |
 | `list` | 事業所と職員の一覧を表示する |
 
-パスワード欄の値はログに出ません（マスクし、サーバーへは環境変数で渡します）。このリポジトリは公開なので、ログに秘密の値が出る形の作業は足さないでください。
+パスワードは Secrets からだけ受け取ります。Actions の入力欄の値は、手順の始めの「env:」にそのまま表示され、あとからマスクしても消えないためです（2026-10-10 に入力欄をやめた）。**それより前に入力欄で設定したパスワードは、公開のログに残っている前提で、画面から変えてください。**このリポジトリは公開なので、ログに秘密の値が出る形の作業は足さないでください。
 
 ### 5-a. 新しく作る（GCP のデータを移さない場合）
 
@@ -182,6 +184,12 @@ GCP のサーバーをやめるときは、`RYOIKU_DEPLOY_HOST` と `RYOIKU_DEPL
 - Google Cloud の API キーを「IP アドレス」で制限している場合は、AWS サーバーの IP（外向きの IP。`curl -s https://api.ipify.org` で確認）を許可に足す。制限がキーの種類（Cloud Speech-to-Text API だけ）だけなら変更なし。
 - `.env` の `GOOGLE_SPEECH_API_KEY` に同じキーを入れて `bash deploy/venv-deploy.sh --restart`。
 
+**Google を使わずにサーバーの中で文字にする（Whisper）**
+- Actions → **Speech check (yours)** → Run workflow でモデル名（まず `small`）を入れて実行すると、サーバーに `faster-whisper` を入れ、モデルを取得し、テスト音 15 秒の文字起こしにかかる時間を出します（CPU 数・メモリ・時間だけ）。15 秒の音が 10 秒以内なら実用になります。遅ければ `WHISPER_THREADS` を増やす（共用サーバーなので CPU 数の半分まで）か、モデルを小さくします。
+- 使うときは `.env` に `WHISPER_MODEL=small`（必要なら `WHISPER_THREADS=2`）を入れて `bash deploy/venv-deploy.sh`（配備で `requirements-speech.txt` が入る）。`GOOGLE_SPEECH_API_KEY` は空でよい（両方あるときは `SPEECH_BACKEND=whisper`）。サーバーに入らずに変えるには Actions の **Set env (yours)** に `SPEECH_BACKEND=whisper WHISPER_MODEL=small` と入れて実行する（秘密でない決まった項目だけ書き換えられ、`.env.bak-<日時>` を残して再起動する）。2026-10-02 にこの設定で切り替えた。
+- モデルは `~/.cache/huggingface`（`WHISPER_DIR` で変更可）に残ります（small 約 250MB・medium 約 1.5GB）。サーバーから huggingface.co につながる必要があります。
+- 声で話者を分ける機能は無いので、議事録の「話者を分ける」は「話者1・2・3」のボタンで切り替える形になります。
+
 ## 8. プロバイダに依頼しておくとよいこと（開発環境と同じ）
 
 nginx の `michinote.yours.ai-labo.cloud` の server ブロックに、開発環境と同じ3点をお願いします（`deploy/nginx.example.conf` 参照。ポートは 8030）。
@@ -191,6 +199,8 @@ nginx の `michinote.yours.ai-labo.cloud` の server ブロックに、開発環
 | `proxy_set_header X-Forwarded-Proto $scheme;` | Django が HTTPS と判断するため。無いとログイン後に無限リダイレクト（当面は `.env` の `SECURE_SSL_REDIRECT=False` で回避） |
 | `client_max_body_size 100m;` | 紙の利用希望・紙の日誌を写真でまとめて取り込むため（既定 1MB だと 413） |
 | `proxy_read_timeout 300s;` | AI 生成・PDF 生成・音声の文字起こしが数十秒かかることがあるため（504 対策） |
+
+2026-10-02 にプロバイダが設定ずみ（`client_max_body_size 100M; proxy_read_timeout / proxy_connect_timeout / proxy_send_timeout 300s; X-Forwarded-Proto` など）。外から確かめるには Actions の **Site check (yours)**（healthz と 3MB の送信が 413 にならないか）。
 
 別のサーバーの場合は `libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0`（PDF 用のライブラリ）と Python 3.12 以上の venv も依頼します。日本語フォントはアプリに同梱しているので不要です。
 

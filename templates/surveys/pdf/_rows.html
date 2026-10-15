@@ -1,0 +1,15 @@
+{% load survey_extras %}
+<table class="rs">
+  <thead><tr><th style="width:24px;">No</th><th>{% if survey.is_guardian %}設問{% else %}項目{% endif %}</th>{% for k, v in summary.choices %}<th style="width:46px;">{{ v }}</th>{% endfor %}<th style="width:26%;">ご意見{% if survey.is_guardian %}・改善目標等{% endif %}</th></tr></thead>
+  <tbody>
+  {% for r in summary.rows %}
+  {% ifchanged r.section %}<tr><td colspan="{{ summary.choices|length|add:3 }}" class="sec">{{ r.section }}</td></tr>{% endifchanged %}
+  <tr>
+    <td class="c">{{ r.no }}</td>
+    <td>{{ r.text }}</td>
+    {% for k, v in summary.choices %}<td class="c">{{ r.counts|get_item:k }}<br><span class="pct">{{ r.pct|get_item:k }}%</span></td>{% endfor %}
+    <td>{% for c in r.comments %}<div class="cm">・{{ c }}</div>{% endfor %}{% if r.improvement %}<div class="imp">▶ {{ r.improvement }}</div>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>

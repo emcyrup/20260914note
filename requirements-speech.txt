@@ -1,0 +1,2 @@
+# サーバー内の音声の文字起こし（Whisper）。`.env` に WHISPER_MODEL を入れたときだけ deploy/venv-deploy.sh が入れる
+faster-whisper==1.2.1

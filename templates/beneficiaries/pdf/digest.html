@@ -1,0 +1,18 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}面談資料 {{ beneficiary.full_name }}{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'beneficiaries:digest_detail' beneficiary.pk item.pk %}">面談資料へ戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .dg-head { display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 6px; }
+  table.dg-info td, table.dg-info th { font-size: 10px; padding: 3px 6px; }
+  table.dg-info th { width: 80px; white-space: nowrap; }
+  .dg-body { font-size: 10.5px; line-height: 1.7; white-space: pre-wrap; border: 1px solid #999; padding: 8px 10px; }
+</style>
+<h1>面談資料（記録のまとめ）</h1>
+<div class="dg-head"><div>{{ facility.name }}</div><div>作成 {{ item.updated_at|date:'Y年n月j日' }}</div></div>
+<table class="dg-info" style="margin-bottom:6px;">
+  <tr><th>氏名</th><td>{{ beneficiary.full_name }}</td><th>期間</th><td>{{ item.date_from|date:'Y年n月j日' }}〜{{ item.date_to|date:'Y年n月j日' }}</td></tr>
+  <tr><th>使い道</th><td>{{ item.purpose|default:'　' }}</td><th>記録</th><td>日誌 {{ item.stats.journals|default:0 }} 件・療育記録 {{ item.stats.therapy|default:0 }} 件{% if item.stats.reserved is not None %}・予約 {{ item.stats.reserved }} 回（来た {{ item.stats.attended }}・欠席等 {{ item.stats.absent }}）{% endif %}</td></tr>
+</table>
+<div class="dg-body">{{ item.summary }}</div>
+{% endblock %}

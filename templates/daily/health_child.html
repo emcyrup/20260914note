@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% load concurrency %}
+{% block title %}{{ b.full_name }} 健康の記録{% endblock %}
+{% block page_title %}{{ b.full_name }}（健康の記録）{% endblock %}
+{% block extra_css %}{% include 'daily/_style.html' %}{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <nav class="small mb-2"><a href="{% url 'daily:health' %}">健康の記録</a> › {{ b.full_name }} › <a href="{% url 'beneficiaries:detail' b.pk %}">利用者情報</a></nav>
+  <form method="post" class="dl-card" {% if profile.pk %}data-concurrency="health_profile:{{ profile.pk }}"{% endif %}>
+    {% csrf_token %}{% if profile.pk %}{% version_field profile %}{% endif %}
+    <div class="dl-h mb-1"><i class="bi bi-exclamation-triangle me-1"></i>健康の注意</div>
+    <div class="small text-muted mb-2">毎日の記録の画面と引き渡しカードに赤く出ます。</div>
+    <div class="row g-2">
+      <div class="col-md-6"><label class="form-label small mb-0">アレルギー・食べられないもの</label><input type="text" name="allergies" class="form-control form-control-sm" maxlength="300" value="{{ profile.allergies }}"></div>
+      <div class="col-md-6"><label class="form-label small mb-0">服薬（薬の名前・時間）</label><input type="text" name="medications" class="form-control form-control-sm" maxlength="300" value="{{ profile.medications }}"></div>
+      <div class="col-md-6"><label class="form-label small mb-0">発作・医療的ケア</label><input type="text" name="seizure" class="form-control form-control-sm" maxlength="300" value="{{ profile.seizure }}"></div>
+      <div class="col-md-6"><label class="form-label small mb-0">その他の注意</label><input type="text" name="other" class="form-control form-control-sm" maxlength="300" value="{{ profile.other }}"></div>
+    </div>
+    <div class="text-end mt-2"><button class="btn btn-sm btn-primary">健康の注意を保存</button></div>
+  </form>
+  <div class="dl-card">
+    <div class="dl-h mb-2">来所時の体温</div>
+    {% if temp_svg %}{{ temp_svg }}{% else %}<div class="small text-muted">記録が 2 日以上あると折れ線で出ます。</div>{% endif %}
+  </div>
+  <div class="dl-card">
+    <div class="dl-h mb-2">これまでの記録（直近 31 日）</div>
+    <div class="table-responsive">
+    <table class="dl-table">
+      <thead><tr><th>日付</th><th>体温</th><th>食事</th><th>排せつ</th><th>午睡</th><th>薬</th><th>機嫌</th><th>その他</th><th>引き渡し</th><th></th></tr></thead>
+      <tbody>
+      {% for l in logs %}
+      <tr>
+        <td class="text-nowrap">{{ l.date|date:'n/j(D)' }}</td>
+        <td class="text-nowrap {% if l.fever %}fever{% endif %}">{{ l.temp_arrival|default_if_none:'' }}{% if l.temp_other %} / {{ l.temp_other }}{% endif %}</td>
+        <td>{{ l.get_meal_display|default:'' }}{% if l.meal_note %}<div class="small text-muted">{{ l.meal_note }}</div>{% endif %}</td>
+        <td class="text-nowrap">{% if l.urine is not None %}尿{{ l.urine }}{% endif %} {% if l.stool is not None %}便{{ l.stool }}{% endif %}{% if l.toilet_note %}<div class="small text-muted">{{ l.toilet_note }}</div>{% endif %}</td>
+        <td>{% if l.nap_minutes %}{{ l.nap_minutes }}分{% endif %}</td>
+        <td>{% if l.medication_given %}<i class="bi bi-check2"></i>{% endif %} {{ l.medication_note }}</td>
+        <td>{{ l.mood_icon }} {{ l.get_mood_display|default:'' }}</td>
+        <td>{{ l.note }}</td>
+        <td class="text-nowrap">{{ l.handed_to }} {{ l.handed_at|time:'G:i' }}</td>
+        <td><a href="{% url 'daily:health_card' b.pk %}?d={{ l.date|date:'Y-m-d' }}" target="_blank" title="引き渡しカード"><i class="bi bi-card-text"></i></a></td>
+      </tr>
+      {% empty %}<tr><td colspan="10" class="text-muted small">まだ記録がありません。</td></tr>{% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -106,11 +106,16 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         # 個別支援計画の計画期間・モニタリングの期日（30日以内と期限切れ）
         from . import reminders
         plan_items = reminders.collect(facility, today, kinds=(reminders.KIND_PLAN, reminders.KIND_MONITORING))
+        # 書いていない日誌（きのうまで 14 日ぶん。来所したのに日誌が無い・下書きのまま）
+        from records import unwritten
+        unwritten_rows = unwritten.collect(facility, today) if unwritten.enabled(facility) else []
 
         ctx.update({
             'today':           today,
             'soon':            soon,
             'plan_items':      plan_items,
+            'unwritten_rows':  unwritten_rows,
+            'unwritten_days':  unwritten.DEFAULT_DAYS,
             'expired_certs':   expired_certs,
             'expiring_certs':  expiring_certs,
             'today_schedules': today_schedules,
@@ -142,6 +147,12 @@ class SettingsView(LoginRequiredMixin, TemplateView):
         ctx['reference_documents'] = ReferenceDocument.objects.filter(facility=facility)
         ctx['is_admin'] = self.request.user.is_admin or self.request.user.is_superuser
         ctx['ai_enabled'] = bool(settings.ANTHROPIC_API_KEY)
+        from records import quality
+        ctx['journal_rule_choices'] = [(k, label, section) for k, label, section, _t, _n in quality.RULES]
+        from records import questions
+        from records.models import QuestionSetting
+        ctx['question_setting'] = QuestionSetting.objects.filter(facility=facility).first()
+        ctx['question_default'] = questions.DEFAULT_COMMON
         ctx.update({
             'facility':      facility,
             'facility_form': FacilityForm(instance=facility),
@@ -190,14 +201,49 @@ class FeatureSettingsView(LoginRequiredMixin, View):
         facility.use_billing = 'use_billing' in request.POST
         facility.use_schedule = 'use_schedule' in request.POST
         facility.use_line = 'use_line' in request.POST
+        facility.line_auto_send = 'line_auto_send' in request.POST
         facility.use_reservation = 'use_reservation' in request.POST
         facility.use_therapy_record = 'use_therapy_record' in request.POST
+        facility.therapy_voice_direct = 'therapy_voice_direct' in request.POST
+        facility.knowledge_reflect = 'knowledge_reflect' in request.POST
+        facility.beneficiary_tools = 'beneficiary_tools' in request.POST
+        facility.schedule_tools = 'schedule_tools' in request.POST
+        facility.therapy_no_wording = 'therapy_no_wording' in request.POST
+        facility.plan_no_ai = 'plan_no_ai' in request.POST
+        facility.use_transport = 'use_transport' in request.POST
+        facility.use_dev_assessment = 'use_dev_assessment' in request.POST
+        facility.use_survey = 'use_survey' in request.POST
+        facility.use_daily_ops = 'use_daily_ops' in request.POST
         valid = [k for k, _ in Facility.JOURNAL_SECTIONS]
         keys = [k for k in request.POST.getlist('journal_sections') if k in valid]
         if not keys:
             messages.error(request, '日誌の項目は1つ以上選んでください。')
             return redirect('facilities:settings')
         facility.journal_sections = keys
+        facility.speech_words = request.POST.get('speech_words', facility.speech_words).strip()[:2000]
+        facility.word_rules = request.POST.get('word_rules', facility.word_rules).strip()[:4000]
+        # 日誌を確定するのに要る項目と最低字数（records/quality.py）
+        if 'journal_required_form' in request.POST:
+            from records import quality
+            facility.journal_required = [k for k, *_ in quality.RULES if k in request.POST.getlist('journal_required')]
+            try:
+                facility.journal_min_chars = max(0, min(quality.MIN_CHARS_MAX, int(request.POST.get('journal_min_chars') or 0)))
+            except ValueError:
+                pass
+        # 日誌の質問（共通の質問・個別の質問。records/questions.py）
+        if 'question_form' in request.POST:
+            from records import questions
+            from records.models import QuestionSetting
+            qs = QuestionSetting.objects.filter(facility=facility).first() or QuestionSetting(facility=facility)
+            qs.enabled = 'question_enabled' in request.POST
+            qs.common_questions = '\n'.join(questions.lines(request.POST.get('question_common', '')))
+            for name, lo, hi in (('window', 1, 50), ('rate', 1, 100)):
+                try:
+                    setattr(qs, name, max(lo, min(hi, int(request.POST.get(f'question_{name}') or getattr(qs, name)))))
+                except ValueError:
+                    pass
+            if qs.pk or qs.enabled:
+                qs.save()
         # 帳票様式は開発向けユーザーだけが変えられる（他の事業所の様式名を管理者に見せない）
         if request.user.can_switch_facility:
             form_set = request.POST.get('form_set', facility.form_set)
@@ -212,8 +258,11 @@ class FeatureSettingsView(LoginRequiredMixin, View):
                 pass
             if request.POST.get('trial_ai_reset'):
                 facility.trial_ai_used = 0
-        facility.save(update_fields=['use_billing', 'use_schedule', 'use_line', 'use_reservation', 'use_therapy_record',
-                                     'journal_sections', 'form_set', 'layout', 'trial_ai_limit', 'trial_ai_used', 'updated_at'])
+        facility.save(update_fields=['use_billing', 'use_schedule', 'use_line', 'line_auto_send', 'journal_required', 'journal_min_chars',
+                                     'use_reservation', 'use_therapy_record', 'therapy_voice_direct', 'knowledge_reflect', 'beneficiary_tools', 'schedule_tools', 'therapy_no_wording', 'plan_no_ai',
+                                     'use_transport', 'use_dev_assessment', 'use_survey', 'use_daily_ops',
+                                     'journal_sections', 'form_set', 'layout', 'trial_ai_limit', 'trial_ai_used',
+                                     'speech_words', 'word_rules', 'updated_at'])
         messages.success(request, '使う機能と日誌の項目を保存しました。')
         return redirect('facilities:settings')
 

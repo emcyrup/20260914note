@@ -42,6 +42,9 @@ def record_text(r):
     """日誌1件を検索・要約用の1つの文字列に"""
     parts = [r.activity_name, r.observation_text, r.support_text, r.reaction_text, r.activity_reflection, r.observation_memo]
     parts += [f'{v.get("text")}：{ANSWER_LABEL.get(v.get("answer"), "未確認")}' for v in (r.activity_viewpoints or [])]
+    if r.question_answers:                 # 共通の質問・個別の質問（records/questions.py）
+        from records.questions import text_for_ai
+        parts.append(text_for_ai(r.question_answers))
     return '\n'.join(p for p in parts if p)
 
 
@@ -50,7 +53,11 @@ def record_line(r, limit=160):
     tags = '・'.join(t.name for t in r.activity_tags.all()[:3])
     body = ' / '.join(p for p in (r.observation_text, r.reaction_text) if p)[:limit]
     vps = ' '.join(f'{v.get("text")}={ANSWER_LABEL.get(v.get("answer"), "?")}' for v in (r.activity_viewpoints or []) if v.get('answer'))
-    return f'- {r.date} {r.activity_name or tags}: {body}' + (f'（観点: {vps}）' if vps else '')
+    qa = ''
+    if r.question_answers:                 # 共通の質問・個別の質問（records/questions.py）
+        from records.questions import text_for_ai
+        qa = text_for_ai(r.question_answers)
+    return f'- {r.date} {r.activity_name or tags}: {body}' + (f'（観点: {vps}）' if vps else '') + (f'（質問: {qa}）' if qa else '')
 
 
 def records_for(beneficiary, start, end, limit=60):
@@ -178,3 +185,31 @@ def plan_draft(plan, start, end):
             g.evidence_records.set(evidence)
         created += 1
     return created, len(records)
+
+
+COMPOSE_PROMPT = """あなたは放課後等デイサービス・児童発達支援の児童発達支援管理責任者を補助するAIです。
+個別支援計画書の「欄」ごとに、職員が入れた短いメモを、計画書に載せる文章に整えます。
+- メモに書かれていることだけを使う。メモに無い事実・診断・家庭の事情を足さない
+- 前提（アセスメント・意向・方針・いまの目標）と食い違わないようにする。前提の内容を繰り返して埋めない
+- 欄ごとの書き方のヒントに合わせる。目標は「〜できる」「〜が増える」のように達成が確かめられる形
+- いまの欄の文があり、メモが「直し方」の指示（短く・やさしく・具体的に など）なら、いまの文をその指示で直す
+- 返すのはその欄に入れる文だけ。見出し・前置き・説明・「」や記号での囲みは付けない
+
+""" + JAPANESE_RULES
+
+
+def compose_cells(plan, items, context):
+    """
+    欄ごとの整文。items は [{'field', 'label', 'hint', 'memo', 'current'}]。戻り値 [{'field', 'result'}]（失敗した欄は result が ''）。
+    AI は欄ごとに 1 回ずつたずねる（欄が独立していて、1 欄の失敗がほかに響かないように）
+    """
+    from ai_assist.quick import ask_ai
+    out = []
+    for item in items:
+        content = (f'{context}\n\n【欄】{item["label"]}\n【書き方のヒント】{item.get("hint") or "計画書の文として"}\n'
+                   + (f'【いまの欄の文】\n{item["current"]}\n' if item.get('current') else '')
+                   + f'【メモ】\n{item["memo"]}')
+        raw, error = ask_ai(COMPOSE_PROMPT, content, 1200)
+        out.append({'field': item['field'], 'result': clean_ai_text(raw) if raw else '',
+                    'error': '' if raw else 'AI が使えませんでした'})
+    return out

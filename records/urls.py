@@ -1,11 +1,14 @@
 from django.urls import path
-from . import views
+from . import question_views, views
 
 app_name = 'records'
 
 urlpatterns = [
     path('', views.RecordsDashboardView.as_view(), name='dashboard'),
     path('simple/', views.SimpleHomeView.as_view(), name='simple_home'),
+    path('unwritten/', views.UnwrittenListView.as_view(), name='unwritten'),
+    path('examples/', views.ExamplesView.as_view(), name='examples'),
+    path('<int:pk>/good-example/', views.GoodExampleView.as_view(), name='good_example'),
     path('simple/<int:beneficiary_pk>/', views.SimpleRecordView.as_view(), name='simple_record'),
     path('<int:beneficiary_pk>/', views.DailyRecordListView.as_view(), name='list'),
     path('<int:beneficiary_pk>/new/', views.DailyRecordCreateView.as_view(), name='create'),
@@ -13,6 +16,8 @@ urlpatterns = [
     path('ai/polish/', views.AiPolishView.as_view(), name='ai_polish'),
     path('ai/generate-all/', views.AiGenerateAllView.as_view(), name='ai_generate_all'),
     path('ai/activity-plan/', views.AiActivityPlanView.as_view(), name='ai_activity_plan'),
+    path('questions/<int:pk>/', question_views.ChildQuestionsSaveView.as_view(), name='child_questions_save'),
+    path('questions/<int:pk>/suggest/', question_views.ChildQuestionsSuggestView.as_view(), name='child_questions_suggest'),
     path('photo/<int:photo_pk>/delete/', views.DailyRecordPhotoDeleteView.as_view(), name='photo_delete'),
     path('templates/', views.TemplateListView.as_view(), name='template_list'),
     path('templates/from/<int:record_pk>/', views.TemplateCreateFromRecordView.as_view(), name='template_from_record'),

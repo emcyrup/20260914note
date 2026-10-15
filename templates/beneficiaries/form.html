@@ -17,7 +17,7 @@
   </div>
 
   <form method="post" {% if object.pk %}data-concurrency="beneficiary:{{ object.pk }}"{% endif %}>
-    {% csrf_token %}
+    {% csrf_token %}{% if object.pk %}<input type="hidden" name="_partial" value="1">{% endif %}
     {% if object.pk %}{% version_field object %}{% endif %}
     {% if conflict %}
     <div class="conflict-box"><i class="bi bi-exclamation-triangle me-1"></i>{{ conflict }}
@@ -105,6 +105,14 @@
                 <span class="text-muted small">— 日誌が重身用になり、請求は重身の基本報酬単位数を使います</span>
               </label>
             </div>
+            {% if features.line %}
+            <div class="form-check">
+              <input type="checkbox" name="line_send_journal" id="line_send_journal" class="form-check-input" {% if form.line_send_journal.value or not form.instance.pk %}checked{% endif %}>
+              <label for="line_send_journal" class="form-check-label">日誌を LINE で送る
+                <span class="text-muted small">— 外すと、自動送信でも「LINE送信」ボタンでも、この子の日誌は保護者へ送りません</span>
+              </label>
+            </div>
+            {% elif form.line_send_journal.value or not form.instance.pk %}<input type="hidden" name="line_send_journal" value="on">{% endif %}
           </div>
           <div class="col-12">
             <label class="form-label">在籍状況</label>
@@ -145,6 +153,36 @@
                   placeholder="アレルギー・服薬・配慮事項など">{{ form.notes.value|default:'' }}</textarea>
       </div>
     </div>
+
+    {% if form.fields.cannot_pair.queryset %}
+    <div class="card mb-4">
+      <div class="card-body">
+        <h6 class="card-title fw-bold mb-1">同じ時間にできない{{ terms.beneficiary }}（共演NG）</h6>
+        <div class="small text-muted mb-2">印を付けた人とは、予約も月間予定表も同じ日の同じ時間枠に入れません。時間がずれていれば同じ日でも入れられます（時間枠の無い事業所では同じ日に入れません）。相手の側にも同じ印が付きます。</div>
+        <div data-check-group>
+        {% include 'beneficiaries/_pair_tools.html' %}
+        <div class="border rounded p-2 cg-list" style="max-height:200px;overflow:auto;">
+          {% for b in form.fields.cannot_pair.queryset %}
+          <label class="form-check form-check-inline small mb-1" data-kana="{{ b.full_name_kana }}"><input type="checkbox" class="form-check-input" name="cannot_pair" value="{{ b.pk }}" {% if b.pk in pair_ids %}checked{% endif %}>{{ b.full_name }}</label>
+          {% endfor %}
+        </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+    {% if form.fields.siblings.queryset %}
+    <div class="card mb-4">
+      <div class="card-body">
+        <h6 class="card-title fw-bold mb-1">きょうだい</h6>
+        <div class="small text-muted mb-2">印を付けた人とは、同じ時間枠に入った日に「きょうだいで1枠にまとめる」を選べます（まとめない日はそれぞれ1枠ずつ）。相手の側にも同じ印が付きます。予約の連絡先（保護者）が同じ子は、印が無くてもきょうだいとして扱います。</div>
+        <div class="border rounded p-2" style="max-height:200px;overflow:auto;">
+          {% for b in form.fields.siblings.queryset %}
+          <label class="form-check form-check-inline small mb-1"><input type="checkbox" class="form-check-input" name="siblings" value="{{ b.pk }}" {% if b.pk in sibling_ids %}checked{% endif %}>{{ b.full_name }}</label>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
 
     <!-- ボタン -->
     <div class="d-flex gap-2">

@@ -103,6 +103,9 @@ class DailyRecord(models.Model):
     # 観察の観点。[{"text": "順番を待てるか", "answer": "yes" | "no" | null}, ...]
     activity_viewpoints = models.JSONField(default=list, blank=True, verbose_name='観点（はい／いいえ）')
     activity_reflection = models.TextField(blank=True, verbose_name='考察')
+    # 共通の質問・個別の質問の答え（QuestionSetting を使う事業所。records/questions.py）。その日の質問の文も一緒に残す
+    # [{"kind": "common" | "child", "text": "活動に参加できた", "level": 1 | null, "answer": "yes" | "neutral" | "no" | null}, ...]
+    question_answers = models.JSONField(default=list, blank=True, verbose_name='質問の答え')
 
     # 支援内容タグ（複数選択可・加算集計に使用）
     support_tags = models.ManyToManyField(
@@ -132,6 +135,9 @@ class DailyRecord(models.Model):
 
     status     = models.CharField(max_length=10, choices=STATUS_CHOICES,
                                   default=STATUS_DRAFT, verbose_name='状態')
+    # 「良い記録の例」に出す（records/quality.py。名前は伏せて出す）。管理者・児発管が選ぶ
+    is_good_example   = models.BooleanField(default=False, verbose_name='良い記録の例に出す')
+    good_example_note = models.CharField(max_length=200, blank=True, verbose_name='良い例の理由（どこが良いか）')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -382,3 +388,40 @@ class PaperScan(models.Model):
     @property
     def guessed_name(self):
         return (self.extracted or {}).get('beneficiary_name') or ''
+
+
+class QuestionSetting(models.Model):
+    """
+    日誌の「共通の質問・個別の質問」（2026-10-15 ウィズユー藤森の依頼。records/questions.py）。
+    全員に同じ共通の質問（基本 4 問）と、利用者ごとのレベル別の質問を「はい／どちらでもない／いいえ」で答える。
+    直近 window 回の記録で、個別の質問の答えの rate % 以上が「はい」なら、次のレベルの質問へ上がる。
+    """
+    facility = models.OneToOneField(Facility, on_delete=models.CASCADE, related_name='question_setting', verbose_name='施設')
+    enabled = models.BooleanField(default=False, verbose_name='日誌で共通の質問・個別の質問を使う')
+    common_questions = models.TextField(blank=True, verbose_name='共通の質問（1 行に 1 問。空なら標準の 4 問）')
+    window = models.PositiveSmallIntegerField(default=10, verbose_name='レベルを上げる目安：直近の記録の回数')
+    rate = models.PositiveSmallIntegerField(default=80, verbose_name='レベルを上げる目安：「はい」の割合（%）')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '日誌の質問の設定'
+        verbose_name_plural = '日誌の質問の設定'
+
+    def __str__(self):
+        return f'{self.facility} の日誌の質問'
+
+
+class ChildQuestions(models.Model):
+    """利用者ごとの個別の質問（レベル別）と、いまのレベル"""
+    beneficiary = models.OneToOneField(Beneficiary, on_delete=models.CASCADE, related_name='child_questions', verbose_name='利用者')
+    levels = models.JSONField(default=list, blank=True, verbose_name='レベルごとの質問')     # [["質問", ...], ...]（レベル 1 から）
+    level = models.PositiveSmallIntegerField(default=1, verbose_name='いまのレベル')
+    leveled_at = models.DateField(null=True, blank=True, verbose_name='いまのレベルになった日')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '個別の質問'
+        verbose_name_plural = '個別の質問'
+
+    def __str__(self):
+        return f'{self.beneficiary} の個別の質問（レベル {self.level}）'

@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% load concurrency %}
+{% block title %}{{ group.name }} {{ day|date:'n/j' }}{% endblock %}
+{% block page_title %}{{ group.name }}（{{ day|date:'n月j日' }}）{% endblock %}
+{% block extra_css %}{% include 'daily/_style.html' %}
+<style>
+  .kid { display: grid; grid-template-columns: 180px 1fr; gap: 8px; align-items: start; padding: 8px 0; border-top: 1px solid #f0ece4; }
+  .kid:first-of-type { border-top: 0; }
+  @media (max-width: 576px) { .kid { grid-template-columns: 1fr; } }
+  .th-voice.recording { background: #c0392b; color: #fff; border-color: #c0392b; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 960px;">
+  <nav class="small mb-2"><a href="{% url 'daily:groups' %}">クラスの活動</a> › <a href="{% url 'daily:group_week' group.pk %}?d={{ monday|date:'Y-m-d' }}">{{ group.name }}</a> › {{ day|date:'n月j日' }}（{{ weekday }}）</nav>
+  <form method="post" {% if session.pk %}data-concurrency="group_session:{{ session.pk }}"{% endif %}>
+    {% csrf_token %}{% if session.pk %}{% version_field session %}{% endif %}
+    <div class="dl-card">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+        <div class="dl-h"><span class="dl-dot" style="background:{{ group.color }};"></span> 計画</div>
+        {% if session.applied_at %}<span class="badge text-bg-success">療育記録に写した（{{ session.applied_at|date:'n/j H:i' }}）</span>{% endif %}
+      </div>
+      <div class="row g-2">
+        <div class="col-md-3"><label class="form-label small mb-0">開始時刻</label><input type="time" name="start_time" class="form-control form-control-sm" value="{{ session.start_time|time:'H:i' }}"></div>
+        <div class="col-md-9"><label class="form-label small mb-0">ねらい</label><input type="text" name="aim" class="form-control form-control-sm" maxlength="200" value="{{ session.aim }}"></div>
+        <div class="col-12"><label class="form-label small mb-0">活動（①〜⑤。療育記録の「やったこと」になります）</label>
+          <div class="d-flex gap-1 flex-wrap">{% for a in activities %}<input type="text" name="act" class="form-control form-control-sm" style="flex:1 1 150px;" maxlength="60" value="{{ a }}" placeholder="{{ forloop.counter }}">{% endfor %}</div></div>
+        <div class="col-md-8"><label class="form-label small mb-0">準備物</label><input type="text" name="materials" class="form-control form-control-sm" maxlength="300" value="{{ session.materials }}"></div>
+        <div class="col-md-4"><label class="form-label small mb-0">担当</label><input type="text" name="staff_name" class="form-control form-control-sm" maxlength="100" value="{{ session.staff_name }}"></div>
+      </div>
+    </div>
+    <div class="dl-card">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <label class="dl-h" for="body">全体の様子</label>
+        <button type="button" class="th-voice btn btn-sm btn-outline-secondary" data-voice-target="body" title="音声で入力（もう一度押すと止まる）"><i class="bi bi-mic"></i> 音声入力</button>
+      </div>
+      <textarea id="body" name="body" class="form-control" rows="4" maxlength="4000">{{ session.body }}</textarea>
+    </div>
+    <div class="dl-card">
+      <div class="dl-h mb-1">参加と一人ずつのひとこと</div>
+      <div class="small text-muted mb-2">印を付けた人の療育記録に、ねらい・活動・全体の様子とその子のひとことが写ります。{% if not rows %}このクラスにはまだメンバーがいません。{% endif %}</div>
+      {% for r in rows %}
+      <div class="kid">
+        <label class="d-flex align-items-center gap-2"><input type="checkbox" class="form-check-input" name="present" value="{{ r.b.pk }}" {% if r.present %}checked{% endif %}>
+          <span><b>{{ r.b.full_name }}</b>{% if not r.booked %}<span class="small text-muted d-block">この日の予約なし</span>{% endif %}{% if r.record_id %}<a class="small d-block" href="{% url 'therapy:child' r.b.pk %}?date={{ day|date:'Y-m-d' }}">療育記録を見る</a>{% endif %}</span></label>
+        <div class="d-flex gap-1"><input type="text" id="note-{{ r.b.pk }}" name="note_{{ r.b.pk }}" class="form-control form-control-sm" maxlength="1000" value="{{ r.note }}" placeholder="その子の様子（任意）">
+          <button type="button" class="th-voice btn btn-sm btn-outline-secondary" data-voice-target="note-{{ r.b.pk }}" title="音声で入力"><i class="bi bi-mic"></i></button></div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="d-flex justify-content-end gap-2 mb-4 flex-wrap">
+      <button class="btn btn-outline-primary" name="action" value="save"><i class="bi bi-check2 me-1"></i>保存する</button>
+      {% if use_therapy %}<button class="btn btn-primary" name="action" value="apply" onclick="return confirm('保存して、印を付けた人の療育記録に写します（写したことのある記録は書き換えます）。よろしいですか？');"><i class="bi bi-box-arrow-in-right me-1"></i>保存して各児の療育記録に写す</button>{% endif %}
+    </div>
+  </form>
+</div>
+{% endblock %}

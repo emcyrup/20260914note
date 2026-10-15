@@ -8,12 +8,26 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
 
+from ai_assist import asis
 from ai_assist.quick import ask_ai, tidy_sections
+from config.concurrency import check_conflict, keep_unsaved, pop_unsaved
 from config.utils import to_int
 
 from .models import KEEP, Minutes
 
 TEXT_MAX = 30000      # 話した内容（1時間ほど話したぶん）
+
+# 面談のはじめに読み上げる「録音のご案内」と、契約のときに署名をもらう同意書の項目（同意書の PDF と画面の両方で使う）
+CONSENT_NOTICE = ('この面談は、お話しいただいた内容を正確に記録するために録音し、文字起こしと要約の作成に AI（外部のサービス）を使います。'
+                  '録音と文字は事業所の記録として保管し、面談以外の目的には使いません。'
+                  '録音をやめてほしいときは、いつでもおっしゃってください。よろしいでしょうか。')
+CONSENT_ITEMS = [
+    ('目的', '面談・相談の内容を正確に記録し、お子さまへの支援に生かすため'),
+    ('方法', '事業所の端末で録音し、文字起こしと要約の作成に AI（外部のサービス）を利用します。音声は文字にしたあと端末に残しません'),
+    ('保管と利用', '文字起こしと要約は事業所の記録として保管し、支援に関わる職員だけが見ます。法令に基づく場合を除き、外部には提供しません'),
+    ('保存期間', '事業所の記録の保存期間に従って保管し、期間が過ぎたら消去します'),
+    ('撤回', 'この同意はいつでも取り消せます。取り消したあとの面談は録音しません。取り消しによる不利益はありません'),
+]
 SUMMARY_MAX = 12000
 THERAPY_BODY_MAX = 4000   # 療育記録の「記録」の欄に入れられる長さ（therapy の画面と同じ）
 
@@ -46,6 +60,8 @@ ORGANIZE_PROMPT = """あなたは放課後等デイサービスの職員を手�
 - 文字起こしに「話者1：」「話者2：」のような行があるときは、だれの発言かが分かるように書く（例：話者1「…」）。
   話者の番号は録音の区切りごとに付け直されることがあるので、話の流れから同じ人と分かるときは同じ人としてまとめ、
   名前や役割（司会・担当職員・保護者など）が話の中で分かるときは、番号の代わりにそれを使う
+- 話者の印が無くても、保護者との面談と分かる文字起こしでは、話の内容と口調から職員と保護者の発言を推定して
+  「職員「…」」「保護者「…」」のように書く。どちらか決めにくい発言は、だれの発言かを付けずに書く
 - 常用漢字とひらがな・カタカナで書く。英語・絵文字・マークダウン（# や ** ）は使わない。見出しは【】、項目は「・」だけを使う
 - 返すのは議事録の文だけ"""
 
@@ -70,7 +86,8 @@ class MinutesView(LoginRequiredMixin, View):
             from beneficiaries.models import Beneficiary
             children = list(Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE))
         return render(request, self.template_name, {
-            'history': history, 'current': current, 'keep': KEEP, 'today': today,
+            'history': history, 'current': current, 'keep': KEEP, 'today': today, 'consent_notice': CONSENT_NOTICE,
+            'unsaved': pop_unsaved(request, 'minutes', current.pk) if current else None,
             'default_title': _default_title(today), 'full': len(history) >= KEEP,
             'text_max': TEXT_MAX, 'summary_max': SUMMARY_MAX, 'children': children,
             'therapy_body_max': THERAPY_BODY_MAX,
@@ -101,6 +118,11 @@ class MinutesView(LoginRequiredMixin, View):
             return self._save_as_therapy(request, facility, fields)
         if p.get('id'):
             m = get_object_or_404(Minutes, pk=to_int(p.get('id'), -1), facility=facility)
+            conflict = check_conflict(request, m)
+            if conflict:
+                keep_unsaved(request, 'minutes', m.pk, {k: str(v) for k, v in fields.items()})
+                messages.error(request, conflict + '（入れた内容は画面の上に残してあります）')
+                return redirect(f"{reverse('minutes:index')}?id={m.pk}")
             for k, v in fields.items():
                 setattr(m, k, v)
             m.save()
@@ -162,10 +184,20 @@ class OrganizeView(LoginRequiredMixin, View):
         result = tidy_sections(raw)[:SUMMARY_MAX]
         if not result:
             return JsonResponse({'error': 'AIの返答が空でした。もう一度お試しください。'}, status=500)
-        return JsonResponse({'result': result})
+        return JsonResponse({'result': result, **asis.check(f'{title}\n{text}', result)})
 
 
 class PrintView(LoginRequiredMixin, View):
     def get(self, request, pk):
         m = get_object_or_404(Minutes, pk=pk, facility=request.user.facility)
         return render(request, 'minutes/print.html', {'m': m, 'facility': request.user.facility})
+
+
+class ConsentView(LoginRequiredMixin, View):
+    """面談の録音・文字起こし・AI 要約についての同意書（A4 1枚。契約のときに署名をもらう）。?fmt=html で画面表示"""
+
+    def get(self, request):
+        from config.pdf import pdf_or_html
+        facility = request.user.facility
+        ctx = {'facility': facility, 'notice': CONSENT_NOTICE, 'items': CONSENT_ITEMS}
+        return pdf_or_html(request, 'minutes/consent.html', ctx, '録音の同意書')

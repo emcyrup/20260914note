@@ -14,12 +14,18 @@
 
 {% block content %}
 <div class="px-2" style="max-width: 1000px;">
+  {% if setting.legal_capacity and day_people > setting.legal_capacity %}
+  <div class="alert {% if day_people > setting.day_limit_value %}alert-danger{% else %}alert-warning{% endif %} py-2 small">
+    <i class="bi bi-exclamation-triangle me-1"></i>この日は {{ day_people }} 名（欠席・キャンセルを除く）で、{% if day_people > setting.day_limit_value %}<b>1日の上限 {{ setting.day_limit_value }} 名を超えています</b>{% else %}定員 {{ setting.legal_capacity }} 名を超えています（1日 {{ setting.day_limit_value }} 名まで）{% endif %}。3か月平均は<a href="{% url 'reservations:monthly_schedule' date.year date.month %}#ms-cap">月間予定表</a>で確かめられます。
+  </div>
+  {% endif %}
   <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <div class="btn-group">
       <a href="{% url 'reservations:day' prev_day.year prev_day.month prev_day.day %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-left"></i></a>
       <a href="{% url 'reservations:calendar_month' date.year date.month %}" class="btn btn-outline-secondary btn-sm">カレンダーへ</a>
       <a href="{% url 'reservations:day' next_day.year next_day.month next_day.day %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-chevron-right"></i></a>
     </div>
+    {% if features.transport %}<a href="{% url 'transport:day' %}?d={{ date|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm" title="この日の迎え・送りの一覧（配車表）"><i class="bi bi-truck me-1"></i>配車表</a>{% endif %}
     <div>
       {% if state.closed %}
         <span class="badge text-bg-secondary">休業日（枠0）</span>
@@ -53,10 +59,18 @@
     <div class="row-list-item rsv-item">
       <div class="d-flex align-items-center gap-2 flex-wrap">
         {% if r.start_time %}<span class="badge text-bg-light border">{{ r.time_label }}</span>{% endif %}
-        <span class="fw-bold">{{ r.display_name }}</span>
+        <span class="fw-bold{% if r.pair_names %} text-danger{% endif %}">{{ r.display_name }}</span>
+        {% if r.pair_names %}<span class="badge text-bg-danger" title="同じ時間にできない利用者が同じ時間枠に入っています">組み合わせNG：{{ r.pair_names|join:'・' }}</span>{% endif %}
         {% if therapy and r.beneficiary_id %}<a href="{% url 'therapy:child' r.beneficiary_id %}?date={{ r.date|date:'Y-m-d' }}{% if r.start_time %}&time={{ r.start_time|time:'H:i' }}{% endif %}" class="small" title="療育記録を書く"><i class="bi bi-pencil-square"></i></a>{% endif %}
         {% if r.status == 'confirmed' %}<span class="badge text-bg-success">予約</span>{% else %}<span class="badge text-bg-warning">キャンセル待ち</span>{% endif %}
-        {% if r.is_guest %}<span class="badge text-bg-secondary">台帳に未登録</span>{% endif %}
+        {% if r.siblings_here %}
+        <form method="post" class="d-inline" title="同じ時間枠のきょうだい：{% for o in r.siblings_here %}{{ o.display_name }}{% if not forloop.last %}・{% endif %}{% endfor %}">
+          {% csrf_token %}<input type="hidden" name="action" value="share"><input type="hidden" name="reservation" value="{{ r.pk }}">
+          {% if r.seat_shared %}<input type="hidden" name="value" value="0"><span class="badge text-bg-info">きょうだいで1枠</span> <button class="btn btn-link btn-sm p-0 align-baseline">分ける</button>
+          {% else %}<input type="hidden" name="value" value="1"><button class="btn btn-outline-info btn-sm py-0">きょうだいで1枠にまとめる</button>{% endif %}
+        </form>
+        {% endif %}
+        {% if r.is_guest %}<span class="badge text-bg-secondary" title="「変更」を押して台帳の{{ terms.beneficiary }}と結びつけると、療育記録を書けます">台帳に未登録</span>{% endif %}
         {% if attendance_choices and r.status == 'confirmed' %}
         <form method="post" class="d-inline-flex align-items-center gap-1 ms-1" title="実績（業務日誌の「実績」欄に印字）">
           {% csrf_token %}<input type="hidden" name="action" value="attendance"><input type="hidden" name="reservation" value="{{ r.pk }}">
@@ -234,5 +248,13 @@
     var box = document.getElementById('edit' + pk);
     if (box) box.classList.toggle('d-none');
   }
+  // 療育記録の画面の「台帳と結びつける」から来たとき（#link123）は、その予約の欄を開いておく
+  (function () {
+    var m = location.hash.match(/^#link(\d+)$/);
+    if (!m) return;
+    toggleEdit(m[1]);
+    var box = document.getElementById('edit' + m[1]);
+    if (box) box.scrollIntoView({block: 'center'});
+  })();
 </script>
 {% endblock %}

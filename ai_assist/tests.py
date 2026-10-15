@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from django.core.files.base import ContentFile
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
 from accounts.models import StaffAccount
@@ -371,9 +371,158 @@ class SpeechTranscribeTests(TestCase):
         from django.urls import reverse
         with override_settings(GOOGLE_SPEECH_API_KEY='k'):
             res = self.client.get(reverse('minutes:index'))
-            self.assertContains(res, "window.VOICE_INPUT_SERVER = {url: '/ai/transcribe/'}")
+            self.assertContains(res, "window.VOICE_INPUT_SERVER = {url: '/ai/transcribe/', diarization: true}")
             self.assertContains(res, 'data-voice-speakers="mn-speakers"')      # 話者を分けるスイッチ
         with override_settings(GOOGLE_SPEECH_API_KEY=''):
             res = self.client.get(reverse('minutes:index'))
             self.assertContains(res, 'window.VOICE_INPUT_SERVER = null')
             self.assertNotContains(res, 'id="mn-speakers"')                     # キーが無ければスイッチも出ない
+
+
+class WhisperLocalTests(TestCase):
+    """サーバー内の文字起こし（faster-whisper）。モデルは偽物で、流れだけ確かめる"""
+
+    def setUp(self):
+        from facilities.models import Facility
+        from accounts.models import StaffAccount
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', layout=Facility.LAYOUT_RYOIKU)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f)
+        self.client.login(username='ryo', password='pw12345678')
+        self.url = reverse('ai_assist:transcribe')
+
+    def wav(self, seconds=2):
+        import struct
+        pcm = b'\x00\x10' * (16000 * seconds)
+        return (b'RIFF' + struct.pack('<I', 36 + len(pcm)) + b'WAVEfmt ' + struct.pack('<IHHIIHH', 16, 1, 1, 16000, 32000, 2, 16)
+                + b'data' + struct.pack('<I', len(pcm)) + pcm)
+
+    def fake_model(self, text):
+        from types import SimpleNamespace
+        model = mock.Mock()
+        model.transcribe.return_value = ([SimpleNamespace(text=' ' + text + ' ')], SimpleNamespace(language='ja'))
+        return model
+
+    @override_settings(GOOGLE_SPEECH_API_KEY='', WHISPER_MODEL='small')
+    def test_backend_and_transcribe(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from ai_assist import speech
+        self.assertEqual((speech.backend(), speech.enabled(), speech.diarization()), ('whisper', True, False))
+        # numpy は faster-whisper と一緒に入る（CI には無い）ので、配列への変換は置き換える
+        with mock.patch('ai_assist.whisper_local._audio', side_effect=lambda pcm: [0.0] * (len(pcm) // 2)), \
+                mock.patch('ai_assist.whisper_local.load', return_value=self.fake_model('きょうは晴れ。')) as load:
+            res = self.client.post(self.url, {'audio': SimpleUploadedFile('v.wav', self.wav(), content_type='audio/wav'), 'speakers': '1'})
+            self.assertEqual(res.json()['text'], 'きょうは晴れ。')
+            kwargs = load.return_value.transcribe.call_args.kwargs
+            self.assertEqual((kwargs['language'], kwargs['beam_size'], kwargs['vad_filter']), ('ja', 5, True))
+            self.assertIn('療育、放課後等デイサービス', kwargs['initial_prompt'])
+            self.assertEqual(len(load.return_value.transcribe.call_args.args[0]), 32000)   # float32 の配列（2 秒）
+        with mock.patch('ai_assist.whisper_local._audio', side_effect=lambda pcm: [0.0] * (len(pcm) // 2)), \
+                mock.patch('ai_assist.whisper_local.load', return_value=self.fake_model('ご視聴ありがとうございました')):
+            res = self.client.post(self.url, {'audio': SimpleUploadedFile('v.wav', self.wav(), content_type='audio/wav')})
+            self.assertEqual(res.json()['text'], '')      # 無音への決まり文句は捨てる
+
+    @override_settings(GOOGLE_SPEECH_API_KEY='k', WHISPER_MODEL='small', SPEECH_BACKEND='whisper')
+    def test_backend_choice_and_minutes_switch_buttons(self):
+        from ai_assist import speech
+        self.assertEqual(speech.backend(), 'whisper')
+        with override_settings(SPEECH_BACKEND=''):
+            self.assertEqual(speech.backend(), 'google')
+        with override_settings(GOOGLE_SPEECH_API_KEY='', WHISPER_MODEL=''):
+            self.assertEqual((speech.backend(), speech.enabled()), ('', False))
+        res = self.client.get(reverse('minutes:index'))
+        self.assertContains(res, 'id="mn-speaker-switch"')
+        self.assertContains(res, 'data-speaker="3"')
+        self.assertContains(res, 'diarization: false')
+        with override_settings(SPEECH_BACKEND='google'):
+            res = self.client.get(reverse('minutes:index'))
+            self.assertNotContains(res, 'id="mn-speaker-switch"')
+            self.assertContains(res, 'diarization: true')
+
+    @override_settings(GOOGLE_SPEECH_API_KEY='', WHISPER_MODEL='small')
+    def test_prompt_has_facility_words_names_and_activities(self):
+        import datetime
+        from django.core.cache import cache
+        from accounts.models import StaffAccount
+        from beneficiaries.models import Beneficiary
+        from therapy.models import TherapyRecord
+        from ai_assist import speech
+        cache.clear()
+        self.f.use_therapy_record = True
+        self.f.speech_words = '感覚統合、ビジョントレーニング\nサーキット'
+        self.f.save()
+        StaffAccount.objects.filter(username='ryo').update(display_name='土田')
+        kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
+        Beneficiary.objects.create(facility=self.f, last_name='退所', first_name='済', date_of_birth=datetime.date(2019, 4, 1), status='inactive')
+        TherapyRecord.objects.create(facility=self.f, beneficiary=kid, date=datetime.date(2026, 9, 1), activities=['トランポリン', 'ウレタン棒'])
+        p = speech.speech_prompt(self.f)
+        for w in ('感覚統合', 'ビジョントレーニング', 'サーキット', '土田', '青木子', 'トランポリン', 'ウレタン棒'):
+            self.assertIn(w, p)
+        self.assertNotIn('退所済', p)                 # 退所した人の名前は入れない
+        self.assertLessEqual(len(p), speech.PROMPT_MAX)
+        self.assertEqual(speech.speech_prompt(None), speech.PROMPT_BASE)
+        # 設定画面で言葉を直せる（管理者）
+        StaffAccount.objects.filter(username='ryo').update(role=StaffAccount.ROLE_ADMIN)
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, 'name="speech_words"')
+        self.client.post(reverse('facilities:feature_settings'), {'journal_sections': ['reaction'], 'speech_words': 'ペアトレ、ABA'})
+        self.f.refresh_from_db()
+        self.assertEqual(self.f.speech_words, 'ペアトレ、ABA')
+
+    @override_settings(GOOGLE_SPEECH_API_KEY='', WHISPER_MODEL='')
+    def test_disabled_message(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        res = self.client.post(self.url, {'audio': SimpleUploadedFile('v.wav', self.wav(), content_type='audio/wav')})
+        self.assertIn('WHISPER_MODEL', res.json()['error'])
+
+
+class AsIsCheckTests(SimpleTestCase):
+    """原文に無い助言・評価の言い回しを見つけて消す（ai_assist/asis.py）"""
+
+    def test_find_and_strip(self):
+        from ai_assist import asis
+        source = '工作で折り紙。声かけで最後までやった。'
+        result = ('【工作】\n・折り紙：声かけで最後までやった。成長が感じられる。\n・意欲的に取り組んでいた。\n'
+                  '【気をつけること】\n・見通しを伝えることが大切。')
+        self.assertEqual(asis.find_added(source, result), ['成長が', '感じられ', '意欲的に', 'ことが大切'])
+        self.assertEqual(asis.strip_added(result, asis.find_added(source, result)), '【工作】\n・折り紙：声かけで最後までやった。')
+        self.assertEqual(asis.check(source, '・折り紙：声かけで最後までやった。'), {})
+
+    def test_words_in_source_are_kept(self):
+        from ai_assist import asis
+        self.assertEqual(asis.find_added('しっかり 座って いた', 'しっかり座っていた。'), [])
+
+
+class WordingCheckTests(TestCase):
+    """言葉づかいのチェック（ai_assist/wording.py）：標準の辞書・施設の辞書・方針の言い回し・保存前の呼び出し"""
+
+    def setUp(self):
+        from facilities.models import Facility
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_therapy_record=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+
+    def test_check_and_facility_rules(self):
+        from . import wording
+        found = wording.check('離席が多く、わがままを言った。順番を待つことが大切。', self.f)
+        self.assertEqual([(x['word'], x['kind']) for x in found], [('離席', 'hard'), ('わがまま', 'ng'), ('ことが大切', 'advice')])
+        self.assertEqual(found[0]['hint'], '「席を立った」')
+        self.f.word_rules = 'ぐずぐず=「取りかかるまでに時間がかかった」など\n-離席\n# メモ'
+        found = wording.check('離席してぐずぐずしていた', self.f)
+        self.assertEqual([(x['word'], x['kind']) for x in found], [('ぐずぐず', 'ng')])
+        self.assertEqual(wording.check('ブロックで遊んだ。', self.f), [])
+
+    def test_endpoint_and_settings(self):
+        import json
+        res = self.client.post(reverse('ai_assist:wording_check'), data=json.dumps({'texts': ['工作をした', '暴れた']}), content_type='application/json')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual([x['word'] for x in res.json()['findings']], ['暴れ'])
+        res = self.client.post(reverse('facilities:feature_settings'), {'use_therapy_record': 'on', 'journal_sections': ['observation'],
+                                                                 'word_rules': '問題行動=気になる行動'}, follow=True)
+        self.f.refresh_from_db()
+        self.assertEqual(self.f.word_rules, '問題行動=気になる行動')
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, '言葉づかいの辞書')
+        b = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=date(2019, 4, 1))
+        res = self.client.get(reverse('therapy:child', args=[b.pk]))
+        self.assertContains(res, 'data-wording')
+        self.assertContains(res, 'js/wording-check.js')

@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}健康の記録 {{ day|date:'n/j' }}{% endblock %}
+{% block page_title %}健康の記録{% endblock %}
+{% block extra_css %}{% include 'daily/_style.html' %}
+<style>
+  .hk { border-top: 1px solid var(--line, #e5e1d8); padding: 10px 0; }
+  .hk:first-of-type { border-top: 0; }
+  .hk-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+  .hk-grid .form-control, .hk-grid .form-select { font-size: 0.85rem; padding: 3px 6px; }
+  .hk-lbl { font-size: 0.7rem; color: #8a8378; }
+  .hk-wide { grid-column: span 2; }
+  .hk-full { grid-column: 1 / -1; }
+  @media (max-width: 768px) { .hk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .hk-wide { grid-column: 1 / -1; } }
+</style>
+{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <div class="btn-group">
+        <a href="?d={{ prev|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-left"></i></a>
+        <a href="?" class="btn btn-sm btn-outline-secondary text-nowrap">きょう</a>
+        <a href="?d={{ next|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-right"></i></a>
+      </div>
+      <form method="get"><input type="date" name="d" class="form-control form-control-sm" value="{{ day|date:'Y-m-d' }}" onchange="this.form.submit()" aria-label="日付"></form>
+      <div class="fw-bold text-nowrap">{{ day|date:'n月j日' }}（{{ weekday }}）</div>
+    </div>
+    <div class="small text-muted">{{ rows|length }} 人中 {{ done }} 人を記録{% if use_reservation %}（この日の予約がある人）{% endif %}</div>
+  </div>
+  {% if rows %}
+  <form method="post" class="dl-card">
+    {% csrf_token %}<input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}">
+    {% for r in rows %}
+    {% with log=r.log %}
+    <div class="hk">
+      <input type="hidden" name="b{{ r.b.pk }}_present" value="1">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+        <div><b>{{ r.b.full_name }}</b>{% if r.time %}<span class="small text-muted ms-1">{{ r.time|time:'G:i' }}</span>{% endif %}
+          {% if log.fever %}<span class="badge text-bg-danger ms-1">発熱</span>{% endif %}
+          {% for a in r.alerts %}<div class="dl-alert"><i class="bi bi-exclamation-triangle me-1"></i>{{ a }}</div>{% endfor %}</div>
+        <div class="d-flex gap-2">
+          <a href="{% url 'daily:health_card' r.b.pk %}?d={{ day|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary py-0" target="_blank" title="お迎えのときに見せる、きょうの様子"><i class="bi bi-card-text me-1"></i>引き渡しカード</a>
+          <a href="{% url 'daily:health_child' r.b.pk %}" class="btn btn-sm btn-outline-secondary py-0" title="これまでの記録・健康の注意"><i class="bi bi-clock-history"></i></a>
+        </div>
+      </div>
+      <div class="hk-grid">
+        <div><div class="hk-lbl">体温（来所）</div><input type="text" inputmode="decimal" name="b{{ r.b.pk }}_temp_arrival" class="form-control {% if log.temp_arrival >= fever %}fever{% endif %}" value="{{ log.temp_arrival|default_if_none:'' }}" placeholder="36.5"></div>
+        <div><div class="hk-lbl">体温（そのほか）</div><input type="text" inputmode="decimal" name="b{{ r.b.pk }}_temp_other" class="form-control {% if log.temp_other >= fever %}fever{% endif %}" value="{{ log.temp_other|default_if_none:'' }}"></div>
+        <div><div class="hk-lbl">食事・おやつ</div><select name="b{{ r.b.pk }}_meal" class="form-select">{% for k, v in meal_choices %}<option value="{{ k }}" {% if log.meal == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+        <div><div class="hk-lbl">おしっこ・うんち（回）</div><div class="d-flex gap-1"><input type="number" min="0" max="30" name="b{{ r.b.pk }}_urine" class="form-control" value="{{ log.urine|default_if_none:'' }}" aria-label="おしっこ"><input type="number" min="0" max="30" name="b{{ r.b.pk }}_stool" class="form-control" value="{{ log.stool|default_if_none:'' }}" aria-label="うんち"></div></div>
+        <div><div class="hk-lbl">午睡（分）</div><input type="number" min="0" max="600" name="b{{ r.b.pk }}_nap_minutes" class="form-control" value="{{ log.nap_minutes|default_if_none:'' }}"></div>
+        <div><div class="hk-lbl">機嫌・体調</div><select name="b{{ r.b.pk }}_mood" class="form-select">{% for k, v in mood_choices %}<option value="{{ k }}" {% if log.mood == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+        <div class="hk-wide"><div class="hk-lbl">食事のメモ</div><input type="text" name="b{{ r.b.pk }}_meal_note" class="form-control" maxlength="200" value="{{ log.meal_note }}"></div>
+        <div class="hk-wide"><div class="hk-lbl">排せつのメモ</div><input type="text" name="b{{ r.b.pk }}_toilet_note" class="form-control" maxlength="200" value="{{ log.toilet_note }}" placeholder="トイレで成功・おむつ交換 など"></div>
+        <div class="hk-wide"><div class="hk-lbl"><label><input type="checkbox" name="b{{ r.b.pk }}_medication_given" {% if log.medication_given %}checked{% endif %}> 薬を飲ませた</label></div><input type="text" name="b{{ r.b.pk }}_medication_note" class="form-control" maxlength="200" value="{{ log.medication_note }}" placeholder="薬の名前・時刻"></div>
+        <div class="hk-full"><div class="hk-lbl">その他（けが・ひやりとしたこと・保護者への連絡）</div><input type="text" name="b{{ r.b.pk }}_note" class="form-control" maxlength="2000" value="{{ log.note }}"></div>
+        <div><div class="hk-lbl">引き渡した相手</div><input type="text" name="b{{ r.b.pk }}_handed_to" class="form-control" maxlength="50" value="{{ log.handed_to }}" placeholder="母・送迎"></div>
+        <div><div class="hk-lbl">引き渡しの時刻</div><input type="time" name="b{{ r.b.pk }}_handed_at" class="form-control" value="{{ log.handed_at|time:'H:i' }}"></div>
+      </div>
+    </div>
+    {% endwith %}
+    {% endfor %}
+    <div class="d-flex justify-content-end mt-3"><button class="btn btn-primary"><i class="bi bi-check2 me-1"></i>この日の健康の記録を保存</button></div>
+  </form>
+  {% else %}
+  <div class="dl-card small text-muted">この日に{% if use_reservation %}予約がある人{% else %}在籍中の利用者{% endif %}がいません。</div>
+  {% endif %}
+  <div class="small text-muted mb-4">体温が {{ fever }}℃ 以上だと赤く表示します。アレルギーや服薬などの注意は、時計のボタンから子どもごとに入れられます。</div>
+</div>
+{% endblock %}

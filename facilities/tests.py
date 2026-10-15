@@ -70,6 +70,35 @@ class SeedDemoCommandTests(TestCase):
         self.assertEqual(StaffMemo.objects.filter(facility=self.facility).count(), 4)
         self.assertIn('サンプルデータを投入しました', out.getvalue())
 
+    def test_transport_and_dev_assessment_samples_when_enabled(self):
+        from beneficiaries.models import DevelopmentAssessment
+        from transport.models import Driver, TransportProfile, Vehicle
+        self.facility.layout = Facility.LAYOUT_RYOIKU
+        self.facility.use_reservation = self.facility.use_transport = self.facility.use_dev_assessment = self.facility.use_survey = self.facility.use_daily_ops = True
+        self.facility.save()
+        out = StringIO()
+        call_command('seed_demo', stdout=out)
+        self.assertEqual(Vehicle.objects.filter(facility=self.facility).count(), 2)
+        self.assertEqual(Driver.objects.filter(facility=self.facility).count(), 2)
+        self.assertGreater(TransportProfile.objects.filter(beneficiary__facility=self.facility).count(), 3)
+        self.assertEqual(DevelopmentAssessment.objects.filter(beneficiary__facility=self.facility).count(), 8)
+        self.assertIn('5領域アセスメント', out.getvalue())
+        from surveys.models import SelfEvaluation, Survey, SurveyResponse
+        self.assertEqual(Survey.objects.filter(facility=self.facility).count(), 2)
+        self.assertEqual(SurveyResponse.objects.filter(survey__facility=self.facility).count(), 11)
+        self.assertEqual(SelfEvaluation.objects.filter(facility=self.facility).count(), 1)
+        from beneficiaries.models import DevelopmentTest
+        from daily.models import ClassGroup, GroupSession, HealthLog
+        self.assertEqual(ClassGroup.objects.filter(facility=self.facility).count(), 2)
+        self.assertEqual(GroupSession.objects.filter(group__facility=self.facility).count(), 5)
+        self.assertGreater(HealthLog.objects.filter(facility=self.facility).count(), 0)
+        self.assertEqual(DevelopmentTest.objects.filter(beneficiary__facility=self.facility).count(), 4)
+        call_command('seed_demo', '--reset', stdout=StringIO())
+        self.assertEqual(Vehicle.objects.filter(facility=self.facility).count(), 2)       # 消して入れ直すので同じ数
+        self.assertEqual(DevelopmentAssessment.objects.filter(beneficiary__facility=self.facility).count(), 8)
+        self.assertEqual(Survey.objects.filter(facility=self.facility).count(), 2)
+        self.assertEqual(ClassGroup.objects.filter(facility=self.facility).count(), 2)
+
     def test_refuses_to_seed_twice_without_reset(self):
         call_command('seed_demo', stdout=StringIO())
         with self.assertRaises(CommandError):
@@ -370,6 +399,41 @@ class CreateFacilityCommandTests(TestCase):
         res = self.client.get(reverse('beneficiaries:list'))
         self.assertContains(res, '園児')
 
+    def test_ryoiku_copy_brings_reservation_setting_and_speech_words(self):
+        from reservations.services import get_setting
+        src = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_reservation=True, use_therapy_record=True,
+                                      layout=Facility.LAYOUT_RYOIKU, speech_words='感覚統合、ABA')
+        ss = get_setting(src)
+        ss.slot_mode, ss.slot_capacity, ss.closed_weekdays, ss.weekday_first_hour, ss.public_booking = True, 2, [2], 11, False
+        ss.signature = 'ゆあーず'
+        ss.save()
+        out = StringIO()
+        call_command('create_facility', '児童発達支援センター　オウル', '--admin', 'owl', '--password', 'pw12345678',
+                     '--copy-settings-from', str(src.pk), '--preset', 'ryoiku', stdout=out)
+        f = Facility.objects.get(name='児童発達支援センター　オウル')
+        self.assertEqual((f.layout, f.use_reservation, f.use_therapy_record, f.speech_words), ('ryoiku', True, True, '感覚統合、ABA'))
+        s = get_setting(f)
+        self.assertEqual((s.slot_mode, s.slot_capacity, s.closed_weekdays, s.weekday_first_hour, s.public_booking), (True, 2, [2], 11, False))
+        self.assertEqual(s.signature, '児童発達支援センター　オウル')       # 署名と公開アドレスは写さない
+        self.assertNotEqual(s.public_token, ss.public_token)
+        self.assertIn('予約の設定', out.getvalue())
+
+    def test_delete_facility_only_when_empty(self):
+        from beneficiaries.models import Beneficiary
+        f = Facility.objects.create(name='間違えて作った')
+        StaffAccount.objects.create_user('tmp_admin', password='pw12345678', facility=f, role=StaffAccount.ROLE_ADMIN)
+        with self.assertRaises(CommandError):                       # --yes が無い
+            call_command('delete_facility', str(f.pk), stdout=StringIO())
+        b = Beneficiary.objects.create(facility=f, last_name='青木', first_name='子', date_of_birth='2019-04-01')
+        with self.assertRaises(CommandError):                       # 利用者がいる
+            call_command('delete_facility', str(f.pk), '--yes', stdout=StringIO())
+        b.delete()
+        out = StringIO()
+        call_command('delete_facility', str(f.pk), '--yes', stdout=out)
+        self.assertIn('消しました', out.getvalue())
+        self.assertFalse(Facility.objects.filter(pk=f.pk).exists())
+        self.assertFalse(StaffAccount.objects.filter(username='tmp_admin').exists())
+
 
 class AddonDefaultsLoadTests(TestCase):
     """標準の加算マスタの合わせ込み：追加・名前の付け替え・単位数の更新・無効化"""
@@ -463,7 +527,7 @@ class ReminderTests(TestCase):
         sent, n, to, note = reminders.send_for(self.facility, self.today)
         self.assertFalse(sent); self.assertIn('宛先がありません', note)
         # 期限が近いものが無い
-        self.assertEqual(reminders.send_for(Facility.objects.create(name='H'), self.today)[3], '期限が近いものはありません')
+        self.assertEqual(reminders.send_for(Facility.objects.create(name='H'), self.today)[3], '期限が近いもの・書いていない日誌はありません')
 
     def test_command_and_dashboard(self):
         from unittest import mock
@@ -492,6 +556,154 @@ class ReminderTests(TestCase):
         self.assertContains(res, '受給者証の有効期限が30日以内に切れます')
         self.assertNotContains(res, '対応が必要なアラートはありません')
 
+
+
+class UnwrittenRecordTests(TestCase):
+    """書いていない日誌（records/unwritten.py）：集め方・ホームのカード・一覧の画面・期限のお知らせメール"""
+
+    def setUp(self):
+        self.facility = Facility.objects.create(name='F', representative_email='rep@example.com')
+        self.admin = StaffAccount.objects.create_user('a', password='p', facility=self.facility, role=StaffAccount.ROLE_ADMIN,
+                                                      email='admin@example.com')
+        self.today = datetime.date(2026, 10, 8)      # 木曜
+
+        def d(n):
+            return self.today - datetime.timedelta(days=n)
+
+        def mk(name, kana, status=Beneficiary.STATUS_ACTIVE):
+            return Beneficiary.objects.create(facility=self.facility, last_name=name, first_name='子', last_name_kana=kana,
+                                              first_name_kana='こ', date_of_birth=datetime.date(2018, 4, 1), status=status)
+        self.a, self.b = mk('青木', 'あおき'), mk('伊藤', 'いとう')
+        self.left = mk('退所', 'たいしょ', Beneficiary.STATUS_INACTIVE)
+        V = ScheduledVisit
+        V.objects.create(facility=self.facility, beneficiary=self.a, date=d(1), status=V.STATUS_ATTENDED)        # きのう、日誌なし
+        V.objects.create(facility=self.facility, beneficiary=self.b, date=d(1), status=V.STATUS_SCHEDULED)       # 出欠未入力も来所とみなす → 下書きのまま
+        V.objects.create(facility=self.facility, beneficiary=self.a, date=d(3), status=V.STATUS_ATTENDED)        # 3 日前、確定ずみ → 出ない
+        V.objects.create(facility=self.facility, beneficiary=self.b, date=d(3), status=V.STATUS_ABSENT)          # 欠席 → 出ない
+        V.objects.create(facility=self.facility, beneficiary=self.a, date=d(5), status=V.STATUS_TRANSFERRED)     # 振替 → 出ない
+        V.objects.create(facility=self.facility, beneficiary=self.left, date=d(2), status=V.STATUS_ATTENDED)     # 退所した人 → 出ない
+        V.objects.create(facility=self.facility, beneficiary=self.a, date=self.today, status=V.STATUS_ATTENDED)  # きょう → 出ない
+        V.objects.create(facility=self.facility, beneficiary=self.a, date=d(7), status=V.STATUS_ATTENDED)        # 7 日前、日誌なし
+        V.objects.create(facility=self.facility, beneficiary=self.b, date=d(20), status=V.STATUS_ATTENDED)       # 20 日前（14 日では出ない・30 日なら出る）
+        other = Facility.objects.create(name='G')
+        ob = Beneficiary.objects.create(facility=other, last_name='他', first_name='人', date_of_birth=datetime.date(2016, 4, 1))
+        V.objects.create(facility=other, beneficiary=ob, date=d(1), status=V.STATUS_ATTENDED)
+        self.draft = DailyRecord.objects.create(facility=self.facility, beneficiary=self.b, date=d(1), author=self.admin,
+                                                status=DailyRecord.STATUS_DRAFT)
+        DailyRecord.objects.create(facility=self.facility, beneficiary=self.a, date=d(3), author=self.admin, status=DailyRecord.STATUS_CONFIRMED)
+
+    def test_collect(self):
+        from records import unwritten
+        rows = unwritten.collect(self.facility, self.today)
+        self.assertEqual([(r.date, r.beneficiary.last_name, r.state) for r in rows], [
+            (datetime.date(2026, 10, 7), '青木', 'none'),
+            (datetime.date(2026, 10, 7), '伊藤', 'draft'),
+            (datetime.date(2026, 10, 1), '青木', 'none'),
+        ])
+        self.assertEqual([r.when for r in rows], ['きのう', 'きのう', '7 日前'])
+        self.assertEqual(rows[0].weekday, '水')
+        self.assertEqual(rows[1].record, self.draft)
+        self.assertEqual(len(unwritten.collect(self.facility, self.today, include_draft=False)), 2)
+        self.assertEqual(len(unwritten.collect(self.facility, self.today, days=30)), 4)
+        self.assertEqual(len(unwritten.collect(self.facility, self.today, days=7)), 3)
+        self.assertEqual(len(unwritten.collect(self.facility, self.today, days=6)), 2)
+        groups = unwritten.by_date(rows)
+        self.assertEqual([(g['date'], len(g['rows'])) for g in groups], [(datetime.date(2026, 10, 7), 2), (datetime.date(2026, 10, 1), 1)])
+
+    def test_reservation_attendance_counts_as_visit(self):
+        from records import unwritten
+        from reservations.models import Reservation
+        self.facility.use_reservation = True
+        self.facility.save()
+        R = Reservation
+        R.objects.create(facility=self.facility, beneficiary=self.a, date=self.today - datetime.timedelta(days=2))                       # 予約・実績未入力 → 出る
+        R.objects.create(facility=self.facility, beneficiary=self.b, date=self.today - datetime.timedelta(days=2), attendance=R.ATT_ABSENT)   # 欠席 → 出ない
+        R.objects.create(facility=self.facility, beneficiary=self.b, date=self.today - datetime.timedelta(days=4), status=R.STATUS_WAITLIST,
+                         attendance=R.ATT_ATTENDED)                                                                                    # キャンセル待ちで来た → 出る
+        R.objects.create(facility=self.facility, beneficiary=self.a, date=self.today - datetime.timedelta(days=4), status=R.STATUS_CANCELLED)  # 取消 → 出ない
+        rows = unwritten.collect(self.facility, self.today)
+        self.assertEqual([(r.date, r.beneficiary.last_name) for r in rows], [
+            (datetime.date(2026, 10, 7), '青木'), (datetime.date(2026, 10, 7), '伊藤'),
+            (datetime.date(2026, 10, 6), '青木'), (datetime.date(2026, 10, 4), '伊藤'), (datetime.date(2026, 10, 1), '青木')])
+
+    def test_reminders_and_mail(self):
+        from django.core import mail
+        from facilities import reminders
+        items = reminders.collect(self.facility, self.today)
+        self.assertEqual([(i.kind, i.due, i.days_left, i.when, i.detail) for i in items], [
+            ('record', datetime.date(2026, 10, 1), -7, '7 日前の来所', ''),
+            ('record', datetime.date(2026, 10, 7), -1, 'きのうの来所', ''),
+            ('record', datetime.date(2026, 10, 7), -1, 'きのうの来所', '下書きのまま'),
+        ])
+        self.assertIn('?new_date=2026-10-01', items[0].url)
+        self.assertIn(f'?selected={self.draft.pk}', items[2].url)
+        self.assertEqual(reminders.collect(self.facility, self.today, kinds=(reminders.KIND_CERT, reminders.KIND_PLAN)), [])
+        # 来所から 7 日たったものがあるので送る。1 日だけなら送らない（月曜は送る）
+        self.assertTrue(reminders.should_send(items, self.today))
+        self.assertFalse(reminders.should_send(items[1:], self.today))
+        self.assertTrue(reminders.should_send(items[1:], datetime.date(2026, 10, 5)))
+        subject, body = reminders.build_mail(self.facility, items, self.today, base_url='https://x.example')
+        self.assertEqual(subject, '【F】期限のお知らせ（0 件・書いていない日誌 3 件）')
+        self.assertIn('と、書いていない日誌をお知らせします', body)
+        self.assertIn('■ 書いていない日誌（来所したのに日誌が無い・下書きのまま。新しい日から）', body)
+        lines = body.splitlines()
+        self.assertIn('・2026/10/07（水）青木 子 さん：きのうの来所', lines)
+        self.assertIn('・2026/10/07（水）伊藤 子 さん（下書きのまま）：きのうの来所', lines)
+        self.assertIn('・2026/10/01（木）青木 子 さん：7 日前の来所', lines)
+        self.assertLess(lines.index('・2026/10/07（水）青木 子 さん：きのうの来所'), lines.index('・2026/10/01（木）青木 子 さん：7 日前の来所'))
+        self.assertIn(f'　https://x.example/records/{self.a.pk}/?new_date=2026-10-01', lines)
+        sent, n, to, note = reminders.send_for(self.facility, self.today)
+        self.assertEqual((sent, n), (True, 3))
+        self.assertEqual(len(mail.outbox), 1)
+        # 療育記録を使う事業所（日誌はお試し）には出さない
+        self.facility.use_therapy_record = True
+        self.facility.save()
+        self.assertEqual(reminders.collect(self.facility, self.today), [])
+
+    def test_dashboard_card_and_list_page(self):
+        from unittest import mock
+        self.client.force_login(self.admin)
+        with mock.patch('facilities.views.datetime') as dt:
+            dt.date.today.return_value = self.today
+            dt.timedelta = datetime.timedelta
+            res = self.client.get(reverse('facilities:dashboard'))
+        self.assertContains(res, '書いていない日誌（3件）')
+        self.assertContains(res, '10/7（水）の日誌が未作成')
+        self.assertContains(res, '10/7（水）の日誌が下書きのまま')
+        self.assertContains(res, f'/records/{self.b.pk}/?selected={self.draft.pk}')
+        self.assertContains(res, f'/records/{self.a.pk}/?new_date=2026-10-01')
+        self.assertNotContains(res, '対応が必要なアラートはありません')
+        Facility.objects.filter(pk=self.facility.pk).update(use_therapy_record=True)      # 療育記録を使う事業所はホームに出さない
+        with mock.patch('facilities.views.datetime') as dt:
+            dt.date.today.return_value = self.today
+            dt.timedelta = datetime.timedelta
+            res = self.client.get(reverse('facilities:dashboard'))
+        self.assertNotContains(res, '書いていない日誌（')
+        Facility.objects.filter(pk=self.facility.pk).update(use_therapy_record=False)
+        with mock.patch('records.views.date') as dt:
+            dt.today.return_value = self.today
+            dt.fromisoformat = datetime.date.fromisoformat
+            res = self.client.get(reverse('records:unwritten'))
+            self.assertContains(res, '3 件')
+            self.assertContains(res, '未作成 2・下書きのまま 1')
+            self.assertContains(res, '2026年10月7日（水）')
+            self.assertContains(res, '下書きを開く')
+            self.assertContains(res, f'?new_date=2026-10-01')
+            res = self.client.get(reverse('records:unwritten') + '?days=30&draft=0')
+            self.assertContains(res, '3 件')
+            self.assertContains(res, '未作成 3・下書きのまま 0')
+            self.assertContains(res, '2026年9月18日')
+            res = self.client.get(reverse('records:unwritten') + '?days=99')
+            self.assertEqual(res.status_code, 200)
+            res = self.client.get(reverse('records:dashboard'))
+            self.assertContains(res, '書いていない日誌 <span class="badge text-bg-danger">3</span>')
+        # 何も無い事業所
+        DailyRecord.objects.filter(facility=self.facility, status=DailyRecord.STATUS_DRAFT).update(status=DailyRecord.STATUS_CONFIRMED)
+        ScheduledVisit.objects.filter(facility=self.facility, beneficiary=self.a).exclude(date=self.today).delete()
+        with mock.patch('records.views.date') as dt:
+            dt.today.return_value = self.today
+            res = self.client.get(reverse('records:unwritten'))
+        self.assertContains(res, 'すべて書けています')
 
 class MediaRootAndEditingTests(TestCase):
     """本番で見つかった 2 つの 500：MEDIA_ROOT が別ユーザーのホームを指していた／同時編集の合図で事業所そのものを指したとき"""

@@ -1,0 +1,167 @@
+# =============================================
+# 居宅介護の事業所「居宅介護支援事業所コト」を AWS 開発環境のサーバー（st-michinotedemo と同じサーバー）へデプロイ
+#   https://st-kaigonote.kyotaku.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 0.0.0.0:8039
+#   置き場所 ~/kaigonotekyotaku、DB kaigonotekyotaku（ユーザー st_ai_labo_dbuser）。venv（~/env）は開発環境と共用
+#   ブランチ kyotaku への push、または Actions から手動実行（ブランチ kyotaku を選ぶ）。居宅介護の機能は kyotaku ブランチだけにあり、
+#   ゆあーず・オウル（ryoiku）には入れない。共通部分の修正は ryoiku から kyotaku へ取り込む
+#   サーバー側は deploy/venv-deploy.sh が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行う
+#   手順は docs/DEPLOY_AWS_KYOTAKU.md
+#
+# GitHub Secrets：同じサーバーなので DEV_*（Deploy (dev) のもの）をそのまま使う。別にしたいときだけ KYOTAKU_* を登録する
+#   KYOTAKU_DEPLOY_HOST / KYOTAKU_DEPLOY_USER / KYOTAKU_DEPLOY_SSH_KEY / KYOTAKU_DEPLOY_SSH_PORT（無ければ DEV_*）
+#   KYOTAKU_APP_DIR（既定 ~/kaigonotekyotaku）、KYOTAKU_VENV（無ければ DEV_VENV、既定 ~/env）
+#   KYOTAKU_DOMAIN（既定 st-kaigonote.kyotaku.ai-labo.cloud）・KYOTAKU_PORT（既定 8039。初回に .env を作るときだけ使う）
+#   KYOTAKU_HEALTH_URL（既定 https://<KYOTAKU_DOMAIN>/healthz/）
+#
+# 初回：サーバーに ~/kaigonotekyotaku/.env が無ければ deploy/.env.kyotaku-aws.example から作る。
+#   SECRET_KEY はサーバー上で生成し、DB_PASSWORD・ANTHROPIC_API_KEY・音声の設定は開発環境の ~/michinotedemo/.env から写す
+#   （同じ DB ユーザー・同じサーバー。値はログに出ない）。以後の配備では .env を上書きしない
+# =============================================
+name: Deploy (kyotaku)
+
+on:
+  push:
+    branches: [kyotaku]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "配備するコミット（切り戻しのときに前のコミットの番号を入れる。空なら選んだブランチの最新）"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: ${{ secrets.KYOTAKU_APP_DIR || '~/kaigonotekyotaku' }}
+  VENV: ${{ secrets.KYOTAKU_VENV || secrets.DEV_VENV || '~/env' }}
+  SSH_PORT: ${{ secrets.KYOTAKU_DEPLOY_SSH_PORT || secrets.DEV_DEPLOY_SSH_PORT || '22' }}
+  DOMAIN: ${{ secrets.KYOTAKU_DOMAIN || 'st-kaigonote.kyotaku.ai-labo.cloud' }}
+  HEALTH_URL: ${{ secrets.KYOTAKU_HEALTH_URL || format('https://{0}/healthz/', secrets.KYOTAKU_DOMAIN || 'st-kaigonote.kyotaku.ai-labo.cloud') }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
+      - run: pip install -r requirements.txt
+      - name: Django check & tests
+        env:
+          SECRET_KEY: ci-only-secret-key
+          DEBUG: "True"
+          DJANGO_ALLOWED_HOSTS: localhost
+        run: |
+          python manage.py check
+          python manage.py test --noinput
+      - name: Check deploy secrets
+        id: check
+        env:
+          HOST: ${{ secrets.KYOTAKU_DEPLOY_HOST || secrets.DEV_DEPLOY_HOST }}
+          USER: ${{ secrets.KYOTAKU_DEPLOY_USER || secrets.DEV_DEPLOY_USER }}
+          KEY: ${{ secrets.KYOTAKU_DEPLOY_SSH_KEY || secrets.DEV_DEPLOY_SSH_KEY }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ]; then
+            echo "SSH の Secrets（KYOTAKU_DEPLOY_* または DEV_DEPLOY_*）が未登録のため、配備はスキップします（docs/DEPLOY_AWS_KYOTAKU.md 参照）"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    needs: test
+    if: needs.test.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      # 開発環境と venv（~/env）を共用するので、Deploy (dev)・Manage (dev) と同じ列に並べて同時に pip を動かさない
+      group: deploy-dev
+      cancel-in-progress: false
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.KYOTAKU_DEPLOY_SSH_KEY || secrets.DEV_DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ env.SSH_PORT }}" -H "${{ secrets.KYOTAKU_DEPLOY_HOST || secrets.DEV_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Checkout, prepare .env (first time only), migrate, restart gunicorn
+        env:
+          SHA: ${{ inputs.ref || github.sha }}
+          REPO_URL: https://github.com/${{ github.repository }}.git
+          REMOTE_APP_DIR: ${{ env.APP_DIR }}
+          REMOTE_VENV: ${{ env.VENV }}
+          SRC_APP_DIR: ${{ secrets.DEV_APP_DIR || '~/michinotedemo' }}
+          DOMAIN: ${{ env.DOMAIN }}
+          PORT_NUM: ${{ secrets.KYOTAKU_PORT || '8039' }}
+        run: |
+          # 切り戻しで入れるのはコミットの番号だけ（英数字 7〜40 字）。ほかの文字はサーバーのコマンドに渡さない
+          [[ "$SHA" =~ ^[0-9a-fA-F]{7,40}$ ]] || { echo "ref はコミットの番号（7〜40 桁の英数字）で入れてください: $SHA"; exit 1; }
+          [[ "$DOMAIN" =~ ^[a-z0-9.-]+$ ]] || { echo "KYOTAKU_DOMAIN はアドレス（英小文字・数字・. と - だけ）で入れてください"; exit 1; }
+          [[ "$PORT_NUM" =~ ^[0-9]{4,5}$ ]] || { echo "KYOTAKU_PORT は 4〜5 桁の数字で入れてください"; exit 1; }
+          ssh -i ~/.ssh/deploy_key -p "${{ env.SSH_PORT }}" "${{ secrets.KYOTAKU_DEPLOY_USER || secrets.DEV_DEPLOY_USER }}@${{ secrets.KYOTAKU_DEPLOY_HOST || secrets.DEV_DEPLOY_HOST }}" \
+            "SHA='$SHA' REPO_URL='$REPO_URL' APP_DIR_IN='$REMOTE_APP_DIR' VENV_IN='$REMOTE_VENV' SRC_DIR_IN='$SRC_APP_DIR' DOMAIN_IN='$DOMAIN' PORT_IN='$PORT_NUM' bash -s" <<'REMOTE'
+            set -euo pipefail
+            APP_DIR=$(eval echo "$APP_DIR_IN")
+            VENV=$(eval echo "$VENV_IN")
+            SRC_DIR=$(eval echo "$SRC_DIR_IN")
+            if [ ! -d "$APP_DIR/.git" ]; then
+              git clone --quiet "$REPO_URL" "$APP_DIR"
+            fi
+            cd "$APP_DIR"
+            git fetch --quiet origin
+            # 配備先コミットのスクリプトと .env の雛形を先に取り出してから実行する
+            git checkout --quiet "$SHA" -- deploy/venv-deploy.sh deploy/.env.kyotaku-aws.example
+            if [ ! -f .env ]; then
+              echo ".env が無いので雛形から作ります（SECRET_KEY は生成。秘密の値は開発環境の .env から写す。値は表示しない）"
+              cp deploy/.env.kyotaku-aws.example .env
+              chmod 600 .env
+              key=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))")
+              sed -i "s#^SECRET_KEY=.*#SECRET_KEY=$key#" .env
+              sed -i "s#^MEDIA_ROOT=.*#MEDIA_ROOT=$APP_DIR/media#" .env
+              sed -i "s#st-kaigonote.kyotaku.ai-labo.cloud#$DOMAIN_IN#g" .env
+              sed -i "s#^PORT=.*#PORT=$PORT_IN#" .env
+              if [ -f "$SRC_DIR/.env" ]; then
+                for k in DB_PASSWORD ANTHROPIC_API_KEY AI_TEXT_MODEL AI_PLAN_MODEL GOOGLE_SPEECH_API_KEY SPEECH_BACKEND WHISPER_MODEL WHISPER_THREADS WHISPER_BEAM WHISPER_COMPUTE; do
+                  line=$(grep -E "^$k=." "$SRC_DIR/.env" | head -n 1 || true)
+                  [ -n "$line" ] || continue
+                  if grep -qE "^#?$k=" .env; then
+                    # 雛形の同じ行（コメントアウト含む）を置き換える。値に # や & があっても壊れないように区切りを使わない方法で書く
+                    python3 - "$k" "$line" <<'PY'
+          import re, sys
+          k, line = sys.argv[1], sys.argv[2]
+          p = '.env'
+          s = open(p, encoding='utf-8').read()
+          s, n = re.subn(r'(?m)^#?' + re.escape(k) + r'=.*$', lambda m: line, s, count=1)
+          open(p, 'w', encoding='utf-8').write(s)
+          PY
+                  else
+                    printf '%s\n' "$line" >> .env
+                  fi
+                  echo "  $k: 開発環境の .env から写しました"
+                done
+              else
+                echo "  注意: $SRC_DIR/.env が無いため DB_PASSWORD などは空です。サーバーで .env を直してください"
+              fi
+            fi
+            APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh "$SHA"
+          REMOTE
+
+      - name: Health check (public URL)
+        run: |
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${{ env.HEALTH_URL }}" || true)
+            case "$code" in 200) echo "healthy ($code)"; exit 0;; esac
+            echo "waiting... ($code)"; sleep 5
+          done
+          echo "health check failed"; exit 1

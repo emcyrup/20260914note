@@ -161,6 +161,27 @@ class AiGenerateAllViewTests(TestCase):
         self.assertEqual(self.facility.trial_ai_used, 2)
 
     @mock.patch('records.views.anthropic.Anthropic')
+    def test_length_preset_and_keyword_warning(self, mock_client_cls):
+        """分量（200／300／400字）を選ぶと字数の目安と「キーワードに無いことを作らない」を指示する。キーワードが 1 つなら注意を返す"""
+        text = mock.Mock(type='text', text='{"observation":"o","support":"s","reaction":"r","parent_message":"p"}')
+        mock_client_cls.return_value.messages.create.return_value = mock.Mock(content=[text])
+        with self.settings(ANTHROPIC_API_KEY='sk-ant-test'):
+            res = self.client.post(self.url, {'memo': '折り紙 声かけで集中 完成して笑顔', 'length': '400'})
+            system = mock_client_cls.return_value.messages.create.call_args.kwargs['system']
+            self.assertIn('約400字', system)
+            self.assertIn('150〜170字が目安', system)                  # 観察は 400 × 0.4 = 160 字前後
+            self.assertIn('150〜200字が目安', system)                  # 保護者向け
+            self.assertIn('キーワードに無い出来事', system)
+            self.assertNotIn('warning', res.json())
+            res = self.client.post(self.url, {'memo': '折り紙', 'length': '200'})
+            self.assertIn('キーワードが 1 つだけ', res.json()['warning'])
+            # いつもの長さ（空・おかしな値）は従来の指示のまま
+            self.client.post(self.url, {'memo': '折り紙', 'length': '999'})
+            system = mock_client_cls.return_value.messages.create.call_args.kwargs['system']
+            self.assertNotIn('【分量とキーワード】', system)
+            self.assertIn('80〜120字', system)
+
+    @mock.patch('records.views.anthropic.Anthropic')
     def test_thinking_block_is_skipped(self, mock_client_cls):
         thinking = mock.Mock(type='thinking')
         text = mock.Mock(type='text', text='{"observation":"o","support":"s","reaction":"r","parent_message":"p"}')
@@ -517,7 +538,7 @@ class SevereJournalAndAddonTests(TestCase):
     def setUp(self):
         from beneficiaries.models import Beneficiary
         from facilities.models import AddonMaster, FacilityAddonSetting
-        self.facility = Facility.objects.create(name='はぴねす', use_billing=True, region_category='3')
+        self.facility = Facility.objects.create(name='はびりす', use_billing=True, region_category='3')
         self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility)
         self.client.force_login(self.user)
         self.ben = Beneficiary.objects.create(
@@ -626,3 +647,211 @@ class SevereJournalAndAddonTests(TestCase):
         res = self.client.get(reverse('records:list', args=[self.ben.pk]))
         self.assertNotContains(res, '加算の入力はありますか')
         self.assertContains(res, '重身用')
+
+
+class LineAutoSendTests(TestCase):
+    """日誌を確定したら LINE へ自動で送る（施設設定 line_auto_send）と、子ごとの送る／送らない（Beneficiary.line_send_journal）"""
+
+    def setUp(self):
+        import datetime
+        from beneficiaries.models import Beneficiary, Guardian
+        self.facility = Facility.objects.create(name='F', use_line=True, line_auto_send=True, line_channel_access_token='tok')
+        self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility,
+                                                     role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        self.b = Beneficiary.objects.create(facility=self.facility, last_name='山田', first_name='太郎', date_of_birth=datetime.date(2018, 4, 1))
+        Guardian.objects.create(beneficiary=self.b, last_name='山田', first_name='母', relation='mother', is_primary=True,
+                                line_linked=True, line_user_id='U123')
+        self.day = datetime.date(2026, 10, 8)
+
+    def _post(self, status, msg='きょうは工作をしました。', **extra):
+        data = {'date': self.day.isoformat(), 'status': status, 'parent_message_draft': msg, 'observation_memo': 'x'}
+        data.update(extra)
+        return self.client.post(reverse('records:create', args=[self.b.pk]), data, follow=True)
+
+    def _logs(self):
+        from line_integration.models import LineDeliveryLog
+        return LineDeliveryLog.objects.filter(daily_record__beneficiary=self.b)
+
+    def test_auto_send_only_when_becoming_confirmed(self):
+        from records.models import DailyRecord
+        with mock.patch('linebot.v3.messaging.MessagingApi.push_message') as push:
+            res = self._post('draft')                                   # 下書きでは送らない
+            self.assertEqual(push.call_count, 0)
+            record = DailyRecord.objects.get(beneficiary=self.b, date=self.day)
+            res = self.client.post(reverse('records:update', args=[record.pk]),
+                                   {'status': 'confirmed', 'parent_message_draft': 'きょうは工作をしました。'}, follow=True)
+            self.assertEqual(push.call_count, 1)                        # 下書き → 確定で自動送信
+            self.assertContains(res, 'LINE の自動送信：')
+            self.assertContains(res, 'へLINEメッセージを送信しました')
+            self.assertEqual(self._logs().filter(is_success=True).count(), 1)
+            self.assertIn('きょうは工作をしました。', push.call_args.args[0].messages[0].text)
+            res = self.client.post(reverse('records:update', args=[record.pk]),
+                                   {'status': 'confirmed', 'parent_message_draft': '直した文。'}, follow=True)
+            self.assertEqual(push.call_count, 1)                        # 確定のまま直しても送らない
+            res = self.client.post(reverse('records:update', args=[record.pk]), {'status': 'draft', 'parent_message_draft': '直した文。'})
+            res = self.client.post(reverse('records:update', args=[record.pk]),
+                                   {'status': 'confirmed', 'parent_message_draft': '直した文。'}, follow=True)
+            self.assertEqual(push.call_count, 1)                        # 送信ずみの日誌は二重に送らない
+            self.assertContains(res, '送信ずみなので送っていません')
+
+    def test_create_confirmed_sends_and_manual_button_not_doubled(self):
+        with mock.patch('linebot.v3.messaging.MessagingApi.push_message') as push:
+            res = self._post('confirmed')                               # 確定で新しく作る → 送る
+            self.assertEqual(push.call_count, 1)
+            self.assertContains(res, 'LINE の自動送信：')
+        from records.models import DailyRecord
+        DailyRecord.objects.filter(beneficiary=self.b).delete()
+        with mock.patch('linebot.v3.messaging.MessagingApi.push_message') as push:
+            res = self._post('confirmed', send_line='1')                # 「保存してLINE送信」は手動の送信だけ（自動と二重にしない）
+            self.assertEqual(push.call_count, 1)
+            self.assertNotContains(res, 'LINE の自動送信：')
+
+    def test_setting_off_and_child_opt_out(self):
+        self.facility.line_auto_send = False
+        self.facility.save()
+        with mock.patch('linebot.v3.messaging.MessagingApi.push_message') as push:
+            self._post('confirmed')
+            self.assertEqual(push.call_count, 0)                        # 施設設定がオフなら送らない
+        self.facility.line_auto_send = True
+        self.facility.save()
+        self.b.line_send_journal = False
+        self.b.save()
+        from records.models import DailyRecord
+        DailyRecord.objects.filter(beneficiary=self.b).delete()
+        with mock.patch('linebot.v3.messaging.MessagingApi.push_message') as push:
+            res = self._post('confirmed')
+            self.assertEqual(push.call_count, 0)                        # 送らない子
+            self.assertContains(res, '「日誌を LINE で送らない」設定なので送っていません')
+            record = DailyRecord.objects.get(beneficiary=self.b, date=self.day)
+            res = self.client.post(reverse('line_integration:send', args=[record.pk]), follow=True)
+            self.assertEqual(push.call_count, 0)                        # 手動の「LINE送信」でも送らない
+            self.assertContains(res, '「日誌を LINE で送らない」設定です')
+            res = self.client.get(reverse('records:list', args=[self.b.pk]) + f'?selected={record.pk}')
+            self.assertContains(res, 'さんは「日誌を LINE で送らない」設定です')
+            self.assertNotContains(res, 'id="lineSendForm"')
+        res = self.client.get(reverse('beneficiaries:detail', args=[self.b.pk]))
+        self.assertContains(res, '日誌は LINE で送らない')
+        self.assertContains(res, 'name="line_send_journal"')
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, 'name="line_auto_send"')
+        self.client.post(reverse('facilities:feature_settings'), {'use_line': 'on', 'journal_sections': ['observation']})
+        self.facility.refresh_from_db()
+        self.assertFalse(self.facility.line_auto_send)
+        self.client.post(reverse('facilities:feature_settings'), {'use_line': 'on', 'line_auto_send': 'on', 'journal_sections': ['observation']})
+        self.facility.refresh_from_db()
+        self.assertTrue(self.facility.line_auto_send)
+
+
+class JournalQualityTests(TestCase):
+    """確定の前のチェック（施設設定の必須項目・最低字数）と良い記録の例（records/quality.py）"""
+
+    def setUp(self):
+        import datetime
+        from beneficiaries.models import Beneficiary
+        self.facility = Facility.objects.create(name='F', use_line=False,
+                                                journal_required=['activity_name', 'viewpoints', 'domains', 'observation', 'support'],
+                                                journal_min_chars=10)
+        self.admin = StaffAccount.objects.create_user(username='adm', password='pw12345678', facility=self.facility,
+                                                      role=StaffAccount.ROLE_ADMIN)
+        self.staff = StaffAccount.objects.create_user(username='new', password='pw12345678', facility=self.facility,
+                                                      role=StaffAccount.ROLE_STAFF)
+        self.b = Beneficiary.objects.create(facility=self.facility, last_name='山田', first_name='太郎', date_of_birth=datetime.date(2018, 4, 1))
+        self.day = datetime.date(2026, 10, 8)
+        self.client.force_login(self.staff)
+
+    def _full(self, **extra):
+        data = {'date': self.day.isoformat(), 'status': 'confirmed', 'activity_name': '折り紙',
+                'activity_viewpoints': json.dumps([{'text': '角を合わせた', 'answer': 'yes'}]), 'domain_social': '1',
+                'observation_text': '折り紙でかぼちゃを作った。太郎さんは三回折った。', 'support_text': '手順カードを見せて声をかけた。'}
+        data.update(extra)
+        return data
+
+    def test_missing_rules(self):
+        from records import quality
+        vals = {'activity_name': '', 'activity_viewpoints': [{'text': 'a', 'answer': None}, {'text': 'b', 'answer': 'no'}],
+                'domains': [], 'observation_text': '短い', 'support_text': '', 'reaction_text': '', 'parent_message_draft': ''}
+        self.assertEqual(quality.missing(vals, self.facility), [
+            '活動名', '観点（1つ以上、すべてに「はい／いいえ」）：1 つが未確認', '関連する5領域（1つ以上）',
+            '観察・活動内容：2 字（10 字以上）', '支援内容'])
+        # 使っていない日誌の項目（活動）の規則は見ない
+        self.facility.journal_sections = ['observation', 'support']
+        self.assertEqual([m.split('：')[0] for m in quality.missing(vals, self.facility)], ['関連する5領域（1つ以上）', '観察・活動内容', '支援内容'])
+        self.facility.journal_required = []
+        self.assertEqual(quality.missing(vals, self.facility), [])
+        cfg = quality.check_config(Facility(journal_required=['support'], journal_min_chars=999))
+        self.assertEqual(cfg, {'min': 400, 'rules': [{'key': 'support', 'label': '支援内容', 'kind': 'long', 'name': 'support_text'}]})
+
+    def test_confirm_blocked_until_filled(self):
+        from records.models import DailyRecord
+        res = self.client.post(reverse('records:create', args=[self.b.pk]),
+                               self._full(support_text='', activity_viewpoints='[]'), follow=True)
+        r = DailyRecord.objects.get(beneficiary=self.b, date=self.day)
+        self.assertEqual(r.status, DailyRecord.STATUS_DRAFT)                         # 足りないので下書きのまま
+        self.assertContains(res, '確定の前のチェック：次の項目が足りないので、下書きで保存しました')
+        self.assertContains(res, '観点（1つ以上、すべてに「はい／いいえ」）：観点がありません')
+        self.assertContains(res, 'data-journal-check="')
+        self.assertContains(res, 'data-journal-check-box')
+        self.assertContains(res, 'js/journal-check.js')
+        res = self.client.post(reverse('records:update', args=[r.pk]), self._full(), follow=True)
+        r.refresh_from_db()
+        self.assertEqual(r.status, DailyRecord.STATUS_CONFIRMED)                     # そろえば確定
+        self.assertNotContains(res, '下書きで保存しました')
+        # 確定ずみの日誌から必須の文を消すと下書きに戻る
+        self.client.post(reverse('records:update', args=[r.pk]), self._full(support_text='短い'))
+        r.refresh_from_db()
+        self.assertEqual(r.status, DailyRecord.STATUS_DRAFT)
+        # 必須を決めていない事業所はこれまでどおり
+        Facility.objects.filter(pk=self.facility.pk).update(journal_required=[])
+        self.client.post(reverse('records:update', args=[r.pk]), self._full(support_text=''))
+        r.refresh_from_db()
+        self.assertEqual(r.status, DailyRecord.STATUS_CONFIRMED)
+
+    def test_good_examples_and_settings(self):
+        from records.models import DailyRecord
+        from beneficiaries.models import Beneficiary
+        import datetime as _dt
+        Beneficiary.objects.create(facility=self.facility, last_name='森川', first_name='翔', date_of_birth=_dt.date(2018, 5, 1))
+        r = DailyRecord.objects.create(facility=self.facility, beneficiary=self.b, date=self.day, author=self.staff,
+                                       status=DailyRecord.STATUS_CONFIRMED, activity_name='折り紙',
+                                       observation_text='太郎さんが折り紙で三回折った。山田 太郎さんは「できた」と言った。'
+                                                        '翔くんと森川さんも見ていた。空を翔ぶ鳥を折った。')
+        res = self.client.get(reverse('records:examples'))
+        self.assertContains(res, '良い記録の例')
+        self.assertContains(res, '避けたい例')
+        self.assertContains(res, '支援内容（10 字以上）')
+        self.assertNotContains(res, 'この事業所の良い例')
+        res = self.client.post(reverse('records:good_example', args=[r.pk]), {'action': 'add', 'note': '言葉がそのまま'}, follow=True)
+        self.assertContains(res, '良い記録の例を選べるのは管理者・児発管だけです')
+        self.client.force_login(self.admin)
+        self.client.post(reverse('records:good_example', args=[r.pk]), {'action': 'add', 'note': '言葉がそのまま'})
+        r.refresh_from_db()
+        self.assertTrue(r.is_good_example)
+        res = self.client.get(reverse('records:examples'))
+        self.assertContains(res, 'この事業所の良い例（1 件）')
+        self.assertContains(res, '{名前}さんが折り紙で三回折った。{名前}さんは「できた」と言った。'
+                                 '{名前}くんと{名前}さんも見ていた。空を翔ぶ鳥を折った。')   # ほかの子・1 字の名前も伏せる
+        self.assertNotContains(res, '太郎')
+        self.assertNotContains(res, '森川')
+        self.assertContains(res, '言葉がそのまま')
+        res = self.client.get(reverse('records:list', args=[self.b.pk]) + f'?selected={r.pk}')
+        self.assertContains(res, 'id="goodExampleModal"')
+        self.client.post(reverse('records:good_example', args=[r.pk]), {'action': 'remove'})
+        r.refresh_from_db()
+        self.assertFalse(r.is_good_example)
+        # 下書きは良い例にできない
+        r.status = DailyRecord.STATUS_DRAFT
+        r.save()
+        self.client.post(reverse('records:good_example', args=[r.pk]), {'action': 'add'})
+        r.refresh_from_db()
+        self.assertFalse(r.is_good_example)
+        # 施設設定
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, 'name="journal_required" value="viewpoints"')
+        self.client.post(reverse('facilities:feature_settings'), {'journal_sections': ['observation', 'support'], 'journal_required_form': '1',
+                                                                   'journal_required': ['support', 'bogus'], 'journal_min_chars': '30'})
+        self.facility.refresh_from_db()
+        self.assertEqual((self.facility.journal_required, self.facility.journal_min_chars), (['support'], 30))
+        self.client.post(reverse('facilities:feature_settings'), {'journal_sections': ['observation']})   # 欄の無い古い画面からの保存では変えない
+        self.facility.refresh_from_db()
+        self.assertEqual(self.facility.journal_required, ['support'])
