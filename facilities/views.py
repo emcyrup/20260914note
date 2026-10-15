@@ -149,6 +149,10 @@ class SettingsView(LoginRequiredMixin, TemplateView):
         ctx['ai_enabled'] = bool(settings.ANTHROPIC_API_KEY)
         from records import quality
         ctx['journal_rule_choices'] = [(k, label, section) for k, label, section, _t, _n in quality.RULES]
+        from records import questions
+        from records.models import QuestionSetting
+        ctx['question_setting'] = QuestionSetting.objects.filter(facility=facility).first()
+        ctx['question_default'] = questions.DEFAULT_COMMON
         ctx.update({
             'facility':      facility,
             'facility_form': FacilityForm(instance=facility),
@@ -226,6 +230,20 @@ class FeatureSettingsView(LoginRequiredMixin, View):
                 facility.journal_min_chars = max(0, min(quality.MIN_CHARS_MAX, int(request.POST.get('journal_min_chars') or 0)))
             except ValueError:
                 pass
+        # 日誌の質問（共通の質問・個別の質問。records/questions.py）
+        if 'question_form' in request.POST:
+            from records import questions
+            from records.models import QuestionSetting
+            qs = QuestionSetting.objects.filter(facility=facility).first() or QuestionSetting(facility=facility)
+            qs.enabled = 'question_enabled' in request.POST
+            qs.common_questions = '\n'.join(questions.lines(request.POST.get('question_common', '')))
+            for name, lo, hi in (('window', 1, 50), ('rate', 1, 100)):
+                try:
+                    setattr(qs, name, max(lo, min(hi, int(request.POST.get(f'question_{name}') or getattr(qs, name)))))
+                except ValueError:
+                    pass
+            if qs.pk or qs.enabled:
+                qs.save()
         # 帳票様式は開発向けユーザーだけが変えられる（他の事業所の様式名を管理者に見せない）
         if request.user.can_switch_facility:
             form_set = request.POST.get('form_set', facility.form_set)

@@ -1,0 +1,10 @@
+{# 日誌の表示：共通の質問・個別の質問の答え（records/questions.py）。rows: with_labels の行 #}
+<div class="detail-section">
+  <div class="detail-section-label">きょうの様子（質問）</div>
+  <ul class="q-list">
+    {% for r in rows %}
+    {% ifchanged r.kind %}<li class="q-list-head">{% if r.kind == 'common' %}共通の質問{% else %}個別の質問（レベル {{ r.level }}）{% endif %}</li>{% endifchanged %}
+    <li class="q-a-{{ r.answer|default:'none' }}"><span class="q-badge">{{ r.label }}</span>{{ r.text }}</li>
+    {% endfor %}
+  </ul>
+</div>

@@ -20,6 +20,7 @@ from esignatures.models import EsignatureRecord
 from facilities.models import Facility, SupportContentTag
 from schedules.models import ScheduledVisit
 from .models import DailyRecord, ActivityTag, DailyRecordPhoto, PaperScan, RecordTemplate, StaffMemo
+from . import questions
 from facilities.context_processors import get_terms
 from ai_assist import trial
 from ai_assist.text import JAPANESE_RULES, clean_ai_dict, clean_ai_text, effort_kwargs
@@ -374,6 +375,13 @@ class DailyRecordListView(LoginRequiredMixin, TemplateView):
         ctx['journal_check_json'] = json.dumps(ctx['journal_check'], ensure_ascii=False)
         ctx['required_missing'] = quality.missing(quality.values_of(selected_record), facility) if selected_record else []
         ctx['can_mark_example'] = _can_mark_example(self.request.user)
+        if questions.enabled(facility):          # 共通の質問・個別の質問（ウィズユー藤森）
+            ctx['questions_on'] = True
+            ctx['question_rows_new'] = questions.blank_rows(beneficiary)
+            ctx['question_rows_edit'] = questions.with_labels(questions.rows_for(selected_record)) if selected_record else []
+            ctx['question_rows_saved'] = questions.with_labels(questions.clean(selected_record.question_answers)) if selected_record else []
+            ctx['question_stats'] = questions.level_stats(beneficiary, facility)
+            ctx['question_answers'] = questions.ANSWERS
         ctx.update({
             'beneficiary':     beneficiary,
             'records':         records,
@@ -517,6 +525,14 @@ def _send_line_for_record(request, record, auto=False):
         messages.error(request, f'{head}LINE送信に失敗しました：{error_message}')
 
 
+def _level_up(request, record):
+    """共通の質問・個別の質問（records/questions.py）：目安に届いたら個別の質問のレベルを上げて知らせる"""
+    level = questions.check_level_up(record.beneficiary, request.user.facility)
+    if level:
+        messages.success(request, f'{record.beneficiary.full_name} さんの個別の質問を、レベル {level} に上げました'
+                                  '（直近の記録で「はい」が目安を超えました）。次の日誌から新しい質問が出ます。')
+
+
 def _enforce_required(request, record):
     """
     確定の前のチェック（records/quality.py）：確定で保存したのに施設設定の必須項目が足りなければ、下書きに戻して知らせる。
@@ -613,6 +629,8 @@ class DailyRecordCreateView(LoginRequiredMixin, View):
             'parent_message_draft':    p.get('parent_message_draft', ''),
             'status':                  p.get('status', DailyRecord.STATUS_DRAFT),
         }
+        if 'q_count' in p and questions.enabled(facility):
+            defaults['question_answers'] = questions.from_post(p)
 
         # 同じ日の日誌がすでにある（他の職員が先に作った）ときは黙って上書きしない
         existing = DailyRecord.objects.filter(beneficiary=beneficiary, date=date).first()
@@ -648,6 +666,7 @@ class DailyRecordCreateView(LoginRequiredMixin, View):
         messages.success(request, f'{date} の日誌を保存しました。')
         _suggest_addons_after_save(record)
         _enforce_required(request, record)       # 必須項目が足りなければ下書きに戻す（LINE も送らない）
+        _level_up(request, record)
 
         # 「保存してLINE送信」ボタンが押された場合。そうでなければ、確定にしたときの自動送信（施設設定）
         if p.get('send_line') == '1' and record.status == DailyRecord.STATUS_CONFIRMED:
@@ -707,6 +726,8 @@ class DailyRecordUpdateView(LoginRequiredMixin, View):
         record.reaction_text           = p.get('reaction_text', '')
         record.parent_message_draft    = p.get('parent_message_draft', '')
         record.status                  = p.get('status', record.status)
+        if 'q_count' in p and questions.enabled(facility):
+            record.question_answers = questions.from_post(p)
         record.save()
 
         # 自施設のタグIDのみ受け付ける
@@ -726,6 +747,7 @@ class DailyRecordUpdateView(LoginRequiredMixin, View):
         messages.success(request, '日誌を更新しました。')
         _suggest_addons_after_save(record)
         _enforce_required(request, record)       # 必須項目が足りなければ下書きに戻す（LINE も送らない）
+        _level_up(request, record)
         _auto_send_line(request, record, was_confirmed)      # 下書き → 確定にしたときの自動送信（施設設定）
         return redirect(f'/records/{record.beneficiary_id}/?selected={record.pk}')
 

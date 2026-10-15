@@ -1,0 +1,73 @@
+{# 利用者情報：個別の質問（日誌で答える。レベル別）。records/question_views.py の section_context #}
+<div class="col-12" id="questions">
+  <div class="info-card">
+    <div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
+      <div>
+        <div class="section-title mb-0">個別の質問（日誌）</div>
+        <div class="small text-muted">日誌で、共通の質問（{{ common_questions|join:'・' }}）のあとに答える、{{ beneficiary.full_name }} さんだけの質問です。1 レベルに 4〜5 問。「はい／どちらでもない／いいえ」で答えます。</div>
+      </div>
+      {% if ai_ready %}
+      <button type="button" class="btn btn-sm btn-outline-primary" id="cq-suggest" data-url="{% url 'records:child_questions_suggest' beneficiary.pk %}">
+        <i class="bi bi-stars me-1"></i><span>個別支援計画の目標から案を出す</span>
+      </button>
+      {% endif %}
+    </div>
+    {% with st=child_q_stats %}
+    <div class="small mb-2 {% if st.ready and not st.last %}text-success{% endif %}">
+      {% if st.levels %}
+      いまは <b>レベル {{ st.level }}</b>（全 {{ st.levels }}）{% if child_q.leveled_at %}・{{ child_q.leveled_at|date:'Y/n/j' }} から{% endif %}。
+      直近 {{ st.records }} 回の記録で「はい」<b>{{ st.rate }}%</b>（{{ st.yes }}／{{ st.answers }}）。
+      {% if st.last %}最後のレベルです（次のレベルを入れると、目安に届いたときに上がります）。{% else %}{{ st.window }} 回で {{ st.need }}% 以上になると、次の日誌の保存でレベル {{ st.level|add:1 }} に上がります。{% endif %}
+      {% else %}まだ質問がありません。下に入れて保存してください。{% endif %}
+    </div>
+    {% endwith %}
+    <p class="small text-danger mb-2 d-none" id="cq-error"></p>
+    <form method="post" action="{% url 'records:child_questions_save' beneficiary.pk %}">
+      {% csrf_token %}
+      <div class="row g-2">
+        {% for n, text in child_q_levels %}
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold mb-1" for="cq-level-{{ n }}">レベル {{ n }}{% if child_q and child_q.level == n and child_q.levels %} <span class="badge bg-success">いま</span>{% endif %}</label>
+          <textarea name="level_{{ n }}" id="cq-level-{{ n }}" class="form-control form-control-sm cq-level" rows="5" maxlength="600"
+                    placeholder="{% if n == 1 %}例：&#10;自分から挨拶できた&#10;順番を待てた&#10;困ったときに言葉で伝えられた{% else %}1 行に 1 問{% endif %}">{{ text }}</textarea>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-2">
+        <label class="small d-flex align-items-center gap-2 mb-0">いまのレベル
+          <select name="level" class="form-select form-select-sm" style="width:auto;">
+            {% for n, text in child_q_levels %}<option value="{{ n }}" {% if child_q.level == n or not child_q and n == 1 %}selected{% endif %}>レベル {{ n }}</option>{% endfor %}
+          </select>
+          <span class="text-muted">（手で変えることもできます）</span>
+        </label>
+        <button class="btn btn-primary btn-sm"><i class="bi bi-check-lg me-1"></i>個別の質問を保存</button>
+      </div>
+      <div class="form-text">1 行に 1 問・1 レベル 8 問まで。質問を直しても、これまでの日誌の答えは書いたときの質問のまま残ります。</div>
+    </form>
+  </div>
+</div>
+<script>
+(function () {
+  var btn = document.getElementById('cq-suggest');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var boxes = document.querySelectorAll('.cq-level'), err = document.getElementById('cq-error');
+    var filled = Array.prototype.some.call(boxes, function (t) { return t.value.trim(); });
+    if (filled && !confirm('いま入っている質問を、AI の案に置きかえます（保存するまでは変わりません）。よろしいですか？')) return;
+    var label = btn.querySelector('span'), before = label.textContent;
+    btn.disabled = true; label.textContent = '作っています…'; err.classList.add('d-none');
+    var fd = new FormData();
+    fd.append('csrfmiddlewaretoken', document.querySelector('#questions [name=csrfmiddlewaretoken]').value);
+    fetch(btn.dataset.url, {method: 'POST', body: fd, credentials: 'same-origin'})
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.error) { err.textContent = d.error; err.classList.remove('d-none'); return; }
+        Array.prototype.forEach.call(boxes, function (t, i) { t.value = d.levels[i] || ''; });
+        err.textContent = 'AI の案を入れました。直してから「個別の質問を保存」を押してください。';
+        err.classList.remove('d-none', 'text-danger'); err.classList.add('text-success');
+      })
+      .catch(function () { err.textContent = 'AI につながりませんでした。'; err.classList.remove('d-none'); })
+      .finally(function () { btn.disabled = false; label.textContent = before; });
+  });
+})();
+</script>

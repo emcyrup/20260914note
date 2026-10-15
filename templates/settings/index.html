@@ -309,6 +309,25 @@
         </div>
         <div class="form-text">新人の職員でも書き漏れが無いように、日誌を「確定」で保存するときに足りない項目があれば下書きのまま保存して知らせます（入力の画面にも「確定の前のチェック」を出します）。何も選ばなければ、これまでどおり確定できます。良い記録の例は<a href="{% url 'records:examples' %}">記録の例</a>の画面で見られます。</div>
       </div>
+      <div class="mt-3" id="journal-questions">
+        <input type="hidden" name="question_form" value="1">
+        <div class="small fw-semibold mb-1"><i class="bi bi-ui-checks me-1"></i>日誌の質問（共通の質問・個別の質問）</div>
+        <label class="form-check small mb-1"><input type="checkbox" class="form-check-input" name="question_enabled" {% if question_setting.enabled %}checked{% endif %} {% if not is_admin %}disabled{% endif %}> 日誌で、全員に同じ「共通の質問」と、利用者ごとの「個別の質問」に「はい／どちらでもない／いいえ」で答える（AI が活動ごとに作る観点は出さない）</label>
+        <div class="row g-2">
+          <div class="col-md-6">
+            <textarea name="question_common" class="form-control form-control-sm" rows="4" maxlength="600" {% if not is_admin %}disabled{% endif %}
+                      placeholder="空なら標準の 4 問">{{ question_setting.common_questions }}</textarea>
+            <div class="form-text">共通の質問（1 行に 1 問・8 問まで）。空なら標準の 4 問（{{ question_default|join:'・' }}）。</div>
+          </div>
+          <div class="col-md-6 small">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span>直近</span><input type="number" name="question_window" class="form-control form-control-sm" style="width:80px;" min="1" max="50" value="{{ question_setting.window|default:10 }}" {% if not is_admin %}disabled{% endif %}>
+              <span>回の記録で、個別の質問の「はい」が</span><input type="number" name="question_rate" class="form-control form-control-sm" style="width:80px;" min="1" max="100" value="{{ question_setting.rate|default:80 }}" {% if not is_admin %}disabled{% endif %}><span>% 以上なら、次のレベルへ上げる</span>
+            </div>
+            <div class="form-text">個別の質問は利用者情報の画面で、レベルごとに入れます（個別支援計画の目標から AI が案を出せます）。</div>
+          </div>
+        </div>
+      </div>
       {% if is_admin %}
       <div class="text-end mt-3"><button class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>保存する</button></div>
       {% else %}

@@ -693,6 +693,7 @@
           </div>
         </div>
 
+        {% if questions_on and question_rows_saved %}{% include 'records/_questions_view.html' with rows=question_rows_saved %}{% endif %}
         {# 施設設定の「日誌の項目と順番」どおりに並べる #}
         {% for section in journal_sections %}
         {% if section == 'activity' %}
@@ -1023,6 +1024,7 @@
             </template>
           </div>
 
+          {% if questions_on %}{% include 'records/_questions_form.html' with rows=question_rows_new prefix='new' %}{% endif %}
           {% if 'activity' in journal_sections %}
           <!-- 活動・めあて・考察（活動名からAIで生成） -->
           <div class="mb-3" style="background:var(--sheet);border:1px solid var(--field-line);border-radius:12px;padding:14px;">
@@ -1045,11 +1047,12 @@
             </p>
             <p x-show="planErrorMsg" class="text-danger small mb-0 mt-1" x-text="planErrorMsg"></p>
             <input type="hidden" name="activity_aim" :value="activityAim">
-            <input type="hidden" name="activity_viewpoints" :value="JSON.stringify(activityViewpoints)">
+            <input type="hidden" name="activity_viewpoints" :value="JSON.stringify({% if questions_on %}activityViewpoints.filter(v => v.answer){% else %}activityViewpoints{% endif %})">
             <input type="hidden" name="activity_reflection" :value="activityReflection">
             <div x-show="activityAim || activityViewpoints.length || activityReflection" x-transition class="mt-2">
               <label class="form-label small fw-semibold mb-1">めあて</label>
               <input type="text" class="form-control form-control-sm mb-2" x-model="activityAim" placeholder="活動全体のめあて">
+              {% if not questions_on %}{# 共通の質問・個別の質問を使う事業所では、自由な観点は出さない #}
               <div class="d-flex justify-content-between align-items-center mb-1">
                 <label class="form-label small fw-semibold mb-0">観点（できていたら「はい」、できていなければ「いいえ」）</label>
                 <button type="button" class="btn btn-sm btn-outline-secondary py-0" style="min-height:28px;font-size:0.72rem;" @click="addViewpoint()"><i class="bi bi-plus"></i> 観点を追加</button>
@@ -1064,12 +1067,15 @@
                   </div>
                 </div>
               </template>
+              {% endif %}
               <div class="d-flex justify-content-between align-items-center mt-2 mb-1 flex-wrap gap-1">
                 <label class="form-label small fw-semibold mb-0">考察</label>
+                {% if not questions_on %}
                 <button type="button" class="ai-btn px-2 py-1" style="font-size:0.72rem;" @click="generateActivityPlan(true)"
                         :disabled="planning || !activityViewpoints.some(v => v.answer)" title="はい／いいえの結果をもとに考察を書き直します">
                   <i class="bi bi-arrow-repeat me-1"></i><span x-show="!planning">はい／いいえを反映して考察を作り直す</span><span x-show="planning">生成中...</span>
                 </button>
+                {% endif %}
               </div>
               <textarea class="form-control form-control-sm" rows="3" x-model="activityReflection"></textarea>
             </div>
@@ -1369,6 +1375,7 @@
             </template>
           </div>
 
+          {% if questions_on %}{% include 'records/_questions_form.html' with rows=question_rows_edit prefix='edit' %}{% endif %}
           {% if 'activity' in journal_sections %}
           <!-- 活動・めあて・考察（活動名からAIで生成） -->
           <div class="mb-3" style="background:var(--sheet);border:1px solid var(--field-line);border-radius:12px;padding:14px;">
@@ -1391,11 +1398,12 @@
             </p>
             <p x-show="planErrorMsg" class="text-danger small mb-0 mt-1" x-text="planErrorMsg"></p>
             <input type="hidden" name="activity_aim" :value="activityAim">
-            <input type="hidden" name="activity_viewpoints" :value="JSON.stringify(activityViewpoints)">
+            <input type="hidden" name="activity_viewpoints" :value="JSON.stringify({% if questions_on %}activityViewpoints.filter(v => v.answer){% else %}activityViewpoints{% endif %})">
             <input type="hidden" name="activity_reflection" :value="activityReflection">
             <div x-show="activityAim || activityViewpoints.length || activityReflection" x-transition class="mt-2">
               <label class="form-label small fw-semibold mb-1">めあて</label>
               <input type="text" class="form-control form-control-sm mb-2" x-model="activityAim" placeholder="活動全体のめあて">
+              {% if not questions_on %}{# 共通の質問・個別の質問を使う事業所では、自由な観点は出さない #}
               <div class="d-flex justify-content-between align-items-center mb-1">
                 <label class="form-label small fw-semibold mb-0">観点（できていたら「はい」、できていなければ「いいえ」）</label>
                 <button type="button" class="btn btn-sm btn-outline-secondary py-0" style="min-height:28px;font-size:0.72rem;" @click="addViewpoint()"><i class="bi bi-plus"></i> 観点を追加</button>
@@ -1410,19 +1418,22 @@
                   </div>
                 </div>
               </template>
+              {% endif %}
               <div class="d-flex justify-content-between align-items-center mt-2 mb-1 flex-wrap gap-1">
                 <label class="form-label small fw-semibold mb-0">考察</label>
+                {% if not questions_on %}
                 <button type="button" class="ai-btn px-2 py-1" style="font-size:0.72rem;" @click="generateActivityPlan(true)"
                         :disabled="planning || !activityViewpoints.some(v => v.answer)" title="はい／いいえの結果をもとに考察を書き直します">
                   <i class="bi bi-arrow-repeat me-1"></i><span x-show="!planning">はい／いいえを反映して考察を作り直す</span><span x-show="planning">生成中...</span>
                 </button>
+                {% endif %}
               </div>
               <textarea class="form-control form-control-sm" rows="3" x-model="activityReflection"></textarea>
             </div>
           </div>
 
           {% else %}
-          <input type="hidden" name="activity_name" :value="activityName"><input type="hidden" name="activity_aim" :value="activityAim"><input type="hidden" name="activity_viewpoints" :value="JSON.stringify(activityViewpoints)"><input type="hidden" name="activity_reflection" :value="activityReflection">
+          <input type="hidden" name="activity_name" :value="activityName"><input type="hidden" name="activity_aim" :value="activityAim"><input type="hidden" name="activity_viewpoints" :value="JSON.stringify({% if questions_on %}activityViewpoints.filter(v => v.answer){% else %}activityViewpoints{% endif %})"><input type="hidden" name="activity_reflection" :value="activityReflection">
           {% endif %}
           <!-- メモ入力（任意・AIで再生成する場合に使う） -->
           <div class="mb-3" style="background:#f8fffe;border:1.5px solid #4e7d89;border-radius:10px;padding:14px;">
@@ -1673,7 +1684,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{% static 'js/journal-check.js' %}?v=1"></script>
+<script src="{% static 'js/journal-check.js' %}?v=2"></script>
 <script>
 // ===== ライトボックス =====
 function openLightbox(src) {

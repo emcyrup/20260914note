@@ -1,5 +1,5 @@
 from django.urls import path
-from . import views
+from . import question_views, views
 
 app_name = 'records'
 
@@ -16,6 +16,8 @@ urlpatterns = [
     path('ai/polish/', views.AiPolishView.as_view(), name='ai_polish'),
     path('ai/generate-all/', views.AiGenerateAllView.as_view(), name='ai_generate_all'),
     path('ai/activity-plan/', views.AiActivityPlanView.as_view(), name='ai_activity_plan'),
+    path('questions/<int:pk>/', question_views.ChildQuestionsSaveView.as_view(), name='child_questions_save'),
+    path('questions/<int:pk>/suggest/', question_views.ChildQuestionsSuggestView.as_view(), name='child_questions_suggest'),
     path('photo/<int:photo_pk>/delete/', views.DailyRecordPhotoDeleteView.as_view(), name='photo_delete'),
     path('templates/', views.TemplateListView.as_view(), name='template_list'),
     path('templates/from/<int:record_pk>/', views.TemplateCreateFromRecordView.as_view(), name='template_from_record'),

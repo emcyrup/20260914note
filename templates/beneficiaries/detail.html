@@ -420,6 +420,11 @@
     </div>
     {% endif %}
 
+    {% if questions_on %}
+    <!-- 個別の質問（日誌で答える。レベル別。ウィズユー藤森） -->
+    {% include 'records/_child_questions_section.html' %}
+    {% endif %}
+
     {% if features.transport %}
     <!-- 送迎（迎え・送り・場所・いつもの車両） -->
     {% include 'transport/_profile_section.html' %}

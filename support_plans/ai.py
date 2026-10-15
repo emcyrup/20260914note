@@ -42,6 +42,9 @@ def record_text(r):
     """日誌1件を検索・要約用の1つの文字列に"""
     parts = [r.activity_name, r.observation_text, r.support_text, r.reaction_text, r.activity_reflection, r.observation_memo]
     parts += [f'{v.get("text")}：{ANSWER_LABEL.get(v.get("answer"), "未確認")}' for v in (r.activity_viewpoints or [])]
+    if r.question_answers:                 # 共通の質問・個別の質問（records/questions.py）
+        from records.questions import text_for_ai
+        parts.append(text_for_ai(r.question_answers))
     return '\n'.join(p for p in parts if p)
 
 
@@ -50,7 +53,11 @@ def record_line(r, limit=160):
     tags = '・'.join(t.name for t in r.activity_tags.all()[:3])
     body = ' / '.join(p for p in (r.observation_text, r.reaction_text) if p)[:limit]
     vps = ' '.join(f'{v.get("text")}={ANSWER_LABEL.get(v.get("answer"), "?")}' for v in (r.activity_viewpoints or []) if v.get('answer'))
-    return f'- {r.date} {r.activity_name or tags}: {body}' + (f'（観点: {vps}）' if vps else '')
+    qa = ''
+    if r.question_answers:                 # 共通の質問・個別の質問（records/questions.py）
+        from records.questions import text_for_ai
+        qa = text_for_ai(r.question_answers)
+    return f'- {r.date} {r.activity_name or tags}: {body}' + (f'（観点: {vps}）' if vps else '') + (f'（質問: {qa}）' if qa else '')
 
 
 def records_for(beneficiary, start, end, limit=60):

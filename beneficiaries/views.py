@@ -424,6 +424,10 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
             # 「今日の予定に追加」：きょうの時間枠と空き（reservations/views.py の AddTodayView で予約を作る）
             from reservations.services import add_today_choices
             ctx['add_today'] = add_today_choices(facility, b, timezone.localdate())
+        from records import questions
+        if questions.enabled(facility):          # 日誌の個別の質問（ウィズユー藤森）
+            from records.question_views import section_context
+            ctx.update(section_context(b))
         ctx['certificates'] = b.recipient_certificates.all()
         ctx['offices'] = b.offices.all()
         ctx['assessments'] = b.assessments.select_related('created_by')

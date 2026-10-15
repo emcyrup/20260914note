@@ -73,6 +73,12 @@ def _viewpoints_text(vps):
     return '\n'.join(f'{v.get("text", "")}：{label.get(v.get("answer"), "未確認")}' for v in (vps or []) if v.get('text'))
 
 
+def _questions_text(rows):
+    """共通の質問・個別の質問の答え（records/questions.py）"""
+    from records.questions import ANSWER_LABELS, clean
+    return '\n'.join(f'{r["text"]}：{ANSWER_LABELS.get(r["answer"], "未回答")}' for r in clean(rows))
+
+
 # =============================================
 # 1. サービス提供実績記録票（利用者別・月次）
 # =============================================
@@ -215,7 +221,7 @@ def beneficiary_records(facility, beneficiary, start, end):
     rows = []
     for r in records:
         activity = r.activity_name or '・'.join(t.name for t in r.activity_tags.all())
-        rows.append([fmt_date(r.date), WEEKDAYS[r.date.weekday()], activity, _viewpoints_text(r.activity_viewpoints),
+        rows.append([fmt_date(r.date), WEEKDAYS[r.date.weekday()], activity, '\n'.join(t for t in (_questions_text(r.question_answers), _viewpoints_text(r.activity_viewpoints)) if t),
                      r.observation_text, r.support_text, r.reaction_text, r.activity_reflection,
                      str(r.author) if r.author else ''])
     return Report(

@@ -22,6 +22,11 @@
         var left = vps.filter(function (v) { return v.answer !== 'yes' && v.answer !== 'no'; }).length;
         if (!vps.length) { ok = false; note = '観点がありません'; }
         else if (left) { ok = false; note = left + ' つが未確認'; }
+      } else if (r.kind === 'questions') {
+        // 共通の質問・個別の質問（records/questions.py）：q_answer_<i> がすべて選ばれているか
+        var qn = parseInt(fd.get('q_count') || '0', 10) || 0, qleft = 0;
+        for (var qi = 0; qi < qn; qi++) { if (!fd.get('q_answer_' + qi)) qleft++; }
+        if (qleft) { ok = false; note = qleft + ' 問が未回答'; }
       } else if (r.kind === 'domains') {
         ok = DOMAINS.some(function (d) { return fd.has(d); });
       } else {
