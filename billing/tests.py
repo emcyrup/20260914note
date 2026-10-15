@@ -229,3 +229,18 @@ class CopaymentJudgeAndFaxTests(TestCase):
         m10 = CopaymentManagement.objects.get(beneficiary=self.here, year_month='2026-10')
         self.assertTrue(m10.is_upper_limit_manager)
         self.assertEqual(list(m10.office_records.values_list('office_name', 'original_copayment')), [('はびりす', 0), ('児童デイ ひまわり', 0)])
+
+
+class HabilisBillingOnTests(TestCase):
+    """はびりすは請求機能を使う（billing/migrations/0002）"""
+
+    def test_turn_on_for_habilis(self):
+        import importlib
+        from django.apps import apps
+        mod = importlib.import_module('billing.migrations.0002_habilis_billing_on')
+        habilis = Facility.objects.create(name='はびりす', use_billing=False)
+        other = Facility.objects.create(name='ほかの事業所', use_billing=False)
+        mod.turn_on_for_habilis(apps, None)
+        habilis.refresh_from_db(); other.refresh_from_db()
+        self.assertTrue(habilis.use_billing)
+        self.assertFalse(other.use_billing)
