@@ -44,6 +44,58 @@ def section_context(beneficiary):
     }
 
 
+JOURNAL_MAX = 30         # AI に渡す日誌（新しい順にこの件数まで）
+
+
+def _cut(text, n):
+    text = ' '.join((text or '').split())
+    return text if len(text) <= n else text[:n] + '…'
+
+
+def _mask(text, b):
+    """名前を {名前} に伏せる（1 字の名前は「さん・くん・ちゃん」が付いたときだけ）"""
+    import re
+    from .models import RecordTemplate
+    text = RecordTemplate.anonymize(text, b)
+    for n in {b.first_name, b.last_name, b.first_name_kana, b.last_name_kana}:
+        if n and len(n) == 1:
+            text = re.sub(re.escape(n) + r'(?=(さん|くん|ちゃん|君))', RecordTemplate.NAME_PLACEHOLDER, text)
+    return text
+
+
+def journal_material(b):
+    """
+    個別の質問の案に使う日誌：直近の日誌（活動・観察・支援・反応・メモ・質問の答え）と、質問ごとの答えの数。
+    名前は {名前} に伏せる
+    """
+    from .models import DailyRecord
+    records = list(DailyRecord.objects.filter(beneficiary=b).prefetch_related('activity_tags')
+                   .order_by('-date', '-pk')[:JOURNAL_MAX])
+    if not records:
+        return ''
+    lines, tally = [], {}
+    for r in reversed(records):          # 古い順に
+        parts = [f'・{r.date.month}/{r.date.day}', r.activity_name or '・'.join(t.name for t in r.activity_tags.all())]
+        for label, text, n in (('観察', r.observation_text or r.observation_memo, 160), ('支援', r.support_text or r.support_memo, 100),
+                               ('反応', r.reaction_text or r.reaction_memo, 120), ('考察', r.activity_reflection, 100)):
+            if (text or '').strip():
+                parts.append(f'{label}：{_cut(text, n)}')
+        answers = questions.clean(r.question_answers)
+        if any(a['answer'] for a in answers):
+            parts.append('質問：' + questions.text_for_ai(answers))
+        for a in answers:
+            if a['answer']:
+                t = tally.setdefault((a['kind'], a['text']), {'yes': 0, 'neutral': 0, 'no': 0})
+                t[a['answer']] += 1
+        lines.append(_mask('　'.join(p for p in parts if p), b))
+    out = [f'【日誌（直近 {len(records)} 回・古い順）】', *lines]
+    if tally:
+        out.append('\n【質問ごとの答えの数（はい／どちらでもない／いいえ）】')
+        out += [f'・{"共通" if kind == "common" else "個別"}「{text}」：{t["yes"]}／{t["neutral"]}／{t["no"]}'
+                for (kind, text), t in tally.items()]
+    return '\n'.join(out)
+
+
 class ChildQuestionsSaveView(LoginRequiredMixin, View):
     """個別の質問を保存する（レベルごとに 1 行 1 問。空のレベルは詰める）。いまのレベルも変えられる"""
 
@@ -70,12 +122,15 @@ class ChildQuestionsSaveView(LoginRequiredMixin, View):
 
 
 class ChildQuestionsSuggestView(LoginRequiredMixin, View):
-    """個別支援計画の目標・アセスメントから、個別の質問の案（3 レベル × 4〜5 問）を AI で作る。保存はしない（職員が直して保存）"""
+    """日誌（直近の記録と質問の答え）・個別支援計画の目標・アセスメントから、個別の質問の案（3 レベル × 4〜5 問）を AI で作る。保存はしない（職員が直して保存）"""
 
     SYSTEM_PROMPT = """あなたは放課後等デイサービスの児童発達支援管理責任者を補助するAIです。
-利用者の個別支援計画の目標とアセスメントから、職員が毎回の日誌で「はい／どちらでもない／いいえ」で答える「個別の質問」を作ります。
+利用者の日誌・個別支援計画の目標・アセスメントから、職員が毎回の日誌で「はい／どちらでもない／いいえ」で答える「個別の質問」を作ります。
 
-- レベル 1〜3 の 3 段階。レベル 1 は今できかけていること、レベル 2・3 は少しずつ難しくする（同じ目標の次の段階）
+- 【日誌】をいちばん大事にする。日誌から、もうできていること（「はい」が続く）、できかけていること、
+  つまずく場面（「いいえ」「どちらでもない」・メモや反応に出てくる場面）を読み取り、日誌に出てくる活動・場面の言葉で書く
+- レベル 1〜3 の 3 段階。レベル 1 は日誌でよく出る場面の「できかけていること」、レベル 2・3 はその次の段階（個別支援計画の目標に近づく順）
+- もうほとんど「はい」の質問は入れない。{名前} は本人のこと（質問の文には名前を書かない）
 - 1 レベル 4〜5 問。1 問 25 字以内の「〜できた」の形で、その日の様子を見ればすぐ答えられる、目に見える行動で書く
 - 全員に聞く共通の質問（活動に参加できた／静かに座れた／指示を聞けていた／指示どおりに動けた）と同じことは書かない
 - 診断名・評価の言葉・あいまいな言葉（頑張れた、落ち着いていた など）は使わない
@@ -94,7 +149,7 @@ class ChildQuestionsSuggestView(LoginRequiredMixin, View):
             return JsonResponse({'error': over}, status=403)
         material = self.material(b)
         if not material:
-            return JsonResponse({'error': '個別支援計画の目標やアセスメントがまだありません。先に計画を作るか、質問を直接入れてください。'}, status=400)
+            return JsonResponse({'error': '日誌・個別支援計画・アセスメントがまだありません。日誌を何回か書いてから使うか、質問を直接入れてください。'}, status=400)
         try:
             client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
             response = client.messages.create(
@@ -137,6 +192,9 @@ class ChildQuestionsSuggestView(LoginRequiredMixin, View):
         asm = b.assessments.exclude(content='').order_by('-date', '-pk').first()
         if asm is not None:
             parts.append('【アセスメント】\n' + asm.content[:1500])
+        journal = journal_material(b)
+        if journal:
+            parts.insert(0, journal)
         if not parts:
             return ''
         cq = questions.child_set(b)
