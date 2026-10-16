@@ -11,7 +11,7 @@ class BeneficiaryForm(forms.ModelForm):
             'last_name', 'first_name',
             'last_name_kana', 'first_name_kana',
             'date_of_birth', 'gender',
-            'disability_class', 'disability_type', 'is_severe',
+            'disability_class', 'disability_type', 'is_severe', 'medical_care_level',
             'weekday_mon', 'weekday_tue', 'weekday_wed',
             'weekday_thu', 'weekday_fri', 'weekday_sat',
             'notes', 'status',
@@ -40,6 +40,14 @@ class BeneficiaryForm(forms.ModelForm):
         for name in ('cannot_pair', 'siblings'):
             self.fields[name].queryset = qs.order_by('last_name_kana', 'first_name_kana')
             self.fields[name].required = False
+        # 医療的ケア区分は請求を使う事業所の画面にだけ出る。欄が無い保存では今の値のまま
+        self.fields['medical_care_level'].required = False
+
+    def clean_medical_care_level(self):
+        value = self.cleaned_data.get('medical_care_level')
+        if value in (0, 3, 16, 32):
+            return value
+        return self.instance.medical_care_level if self.instance.pk else 0
 
 
 class GuardianForm(forms.ModelForm):

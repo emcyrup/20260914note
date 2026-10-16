@@ -166,6 +166,7 @@ class SettingsView(LoginRequiredMixin, TemplateView):
             'addon_groups':  [('個別加算（利用者×日）', addon_individual), ('体制加算（施設全体・月単位）', addon_facility)],
             'unit_price':    facility.unit_price,
             'base_units_table': codes.units_table(facility),
+            'base_codes_auto': {k: codes.table_code(facility.capacity_class, k) for k in (1, 2, 3)},
             'no_addons':     not addons.exists(),
         })
         return ctx
@@ -426,9 +427,10 @@ class AddonSettingView(AdminOnlyMixin, View):
         for addon in addons:
             code = (request.POST.get(f'code_{addon.pk}') or '').strip()[:10]
             units = to_int(request.POST.get(f'units_{addon.pk}'))
-            if code == addon.code:
+            by_cap = codes.capacity_addon(addon.name, facility.capacity_class) if facility.capacity_class else None
+            if code == addon.code or (by_cap and code == by_cap[0]):
                 code = ''
-            if units is not None and units == addon.unit_count:
+            if units is not None and (units == addon.unit_count or (by_cap and units == by_cap[1])):
                 units = None
             FacilityAddonSetting.objects.update_or_create(
                 facility=facility,

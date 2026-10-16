@@ -21,8 +21,8 @@ def issues(facility, month_start):
         add(f'施設設定の地域区分が「その他（1 単位 10 円）」のままです（いまの単価 {facility.unit_price} 円）')
     if not facility.capacity_class and not facility.base_unit_count:
         add('施設設定の基本報酬（定員区分、または 1 日あたりの単位数）が入っていません。空のままだと利用者負担は上限月額そのものになります')
-    if facility.capacity_class and not (facility.base_code_1 or facility.base_code_2 or facility.base_code_3):
-        add('基本報酬のサービスコード（区分1〜3）が入っていません（国保連のコード表の値。請求集計 CSV に出ます）')
+    if not facility.capacity_class and facility.base_unit_count and not (facility.base_code_1 or facility.base_code_2 or facility.base_code_3):
+        add('基本報酬のサービスコード（区分1〜3）が入っていません（定員区分を選べばコード表から自動で決まります）')
     if not facility.use_schedule:
         add('「来所予定（出欠）」を使う設定になっていません。請求の日数は出欠の記録から数えます')
     if not AddonMaster.objects.filter(is_active=True).exists():

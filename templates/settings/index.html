@@ -104,25 +104,25 @@
               <thead><tr><th>定員区分</th><th class="text-end">区分1</th><th class="text-end">区分2</th><th class="text-end">区分3（学校休業日）</th></tr></thead>
               <tbody>
               {% for row in base_units_table %}
-              <tr{% if row.current %} class="table-primary"{% endif %}><td>{{ row.label }}</td>{% for u in row.units %}<td class="text-end">{{ u }} 単位</td>{% endfor %}</tr>
+              <tr{% if row.current %} class="table-primary"{% endif %}><td>{{ row.label }}</td>{% for c in row.cells %}<td class="text-end">{{ c.1 }} 単位<br><span class="text-muted font-monospace" style="font-size:.72rem;">{{ c.0 }}</span></td>{% endfor %}</tr>
               {% endfor %}
               </tbody>
             </table>
           </div>
-          <div class="form-text">1 単位 {{ unit_price }} 円（{{ facility.get_region_category_display }}）。令和6年4月施行の単位数です。</div>
+          <div class="form-text">1 単位 {{ unit_price }} 円（{{ facility.get_region_category_display }}）。令和6年4月施行の単位数とサービスコード（医療的ケア区分なし）。医療的ケア児（利用者情報の「医療的ケア区分」）はその区分のコード・単位数になります。</div>
         </div>
         <div class="col-md-4">
-          <label class="form-label small fw-semibold">基本報酬のサービスコード（区分1）</label>
+          <label class="form-label small fw-semibold">基本報酬のサービスコード（区分1）<span class="text-muted fw-normal">（空ならコード表の {{ base_codes_auto.1|default:'—' }}）</span></label>
           {{ facility_form.base_code_1 }}
         </div>
         <div class="col-md-4">
-          <label class="form-label small fw-semibold">サービスコード（区分2）</label>
+          <label class="form-label small fw-semibold">サービスコード（区分2）<span class="text-muted fw-normal">（空なら {{ base_codes_auto.2|default:'—' }}）</span></label>
           {{ facility_form.base_code_2 }}
         </div>
         <div class="col-md-4">
-          <label class="form-label small fw-semibold">サービスコード（区分3）</label>
+          <label class="form-label small fw-semibold">サービスコード（区分3）<span class="text-muted fw-normal">（空なら {{ base_codes_auto.3|default:'—' }}）</span></label>
           {{ facility_form.base_code_3 }}
-          <div class="form-text">国保連のコード表（放課後等デイサービス・種類コード 63）の 6 桁。請求集計 CSV の 1 行目に出ます。</div>
+          <div class="form-text">定員区分を選べば令和6年4月のコード表の値が自動で入ります。違うコード表を使うときだけここに入れてください。</div>
         </div>
         {% endif %}
         <div class="col-md-4">

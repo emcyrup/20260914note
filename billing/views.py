@@ -826,8 +826,8 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
         headers += base_header
         headers += [f'{a.name}（件）' for a in individual_addons]
         headers += ['加算合計単位数（参考）']
-        writer.writerow([f'基本報酬のサービスコード：' + '／'.join(f'{codes.KUBUN_SHORT[k]} {facility.base_code(k) or "未入力"}' for k in (1, 2, 3))
-                         + f'　地域区分の単価 {facility.unit_price} 円'])
+        writer.writerow([f'基本報酬のサービスコード（医療的ケア区分なし）：' + '／'.join(f'{codes.KUBUN_SHORT[k]} {facility.base_code(k) or "未入力"}' for k in (1, 2, 3))
+                         + f'　地域区分の単価 {facility.unit_price} 円　※医療的ケア児は利用者ごとのコード（請求書の計算の根拠に出ます）'])
         writer.writerow(headers)
         kubun_entries = {}
         for entry in entries:
@@ -885,7 +885,7 @@ def base_rows_for(facility, beneficiary, entries):
         if units is not None and facility.is_new_facility_r8:
             units = int((Decimal(units) * Decimal('982') / Decimal('1000')).to_integral_value())
         rows.append({'kubun': k, 'label': codes.KUBUN_SHORT[k], 'days': counts[k], 'units': units,
-                     'code': facility.base_code(k), 'total': (units or 0) * counts[k]})
+                     'code': facility.base_code(k, beneficiary), 'total': (units or 0) * counts[k]})
         total += (units or 0) * counts[k]
     return rows, total
 

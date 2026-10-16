@@ -87,6 +87,9 @@ class Beneficiary(models.Model):
     disability_type = models.CharField(max_length=100, blank=True, verbose_name='障害種別')
     # 重症心身障害児（重身）。日誌の種類と基本報酬単位数の切り替えに使う
     is_severe = models.BooleanField(default=False, verbose_name='重症心身障害児（重身）')
+    # 医療的ケア区分（医療的ケア判定スコア。請求の基本報酬が変わる。billing/codes.py）
+    CARE_LEVEL_CHOICES = [(0, 'なし'), (3, '医療的ケア児（スコア 3 点以上）'), (16, '医療的ケア児（スコア 16 点以上）'), (32, '医療的ケア児（スコア 32 点以上）')]
+    medical_care_level = models.PositiveSmallIntegerField(default=0, choices=CARE_LEVEL_CHOICES, verbose_name='医療的ケア区分')
     notes = models.TextField(blank=True, verbose_name='備考')
     # --- 住まいと学校（計画書中心の画面のプロフィール） ---
     GRADE_CHOICES = [

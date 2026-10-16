@@ -780,6 +780,15 @@
                   <span class="text-muted">— 日誌が重身用（体温・排便などの記録つき）になり、請求は重身の基本報酬単位数を使います</span>
                 </label>
               </div>
+              {% if features.billing %}
+              <div class="d-flex align-items-center gap-2 mt-1 small">
+                <label for="edit_medical_care_level" class="mb-0">医療的ケア区分</label>
+                <select name="medical_care_level" id="edit_medical_care_level" class="form-select form-select-sm" style="width:auto;">
+                  {% for v, label in edit_form.fields.medical_care_level.choices %}<option value="{{ v }}" {% if edit_form.medical_care_level.value|default:0 == v %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                </select>
+                <span class="text-muted">— 請求の基本報酬の単位数が変わります</span>
+              </div>
+              {% endif %}
               {% if features.line %}
               <div class="form-check">
                 <input type="checkbox" name="line_send_journal" id="edit_line_send_journal" class="form-check-input"
