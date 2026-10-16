@@ -55,6 +55,14 @@
   details.settings-fold[open] > summary::before { transform: rotate(90deg); }
   details.settings-fold > summary .text-muted { font-weight: 400; font-size: .8rem; }
   details.settings-fold > .row { padding-bottom: 14px; }
+  .addon-table { min-width: 640px; }
+  .addon-table td:nth-child(2) { min-width: 16em; }
+  details.addon-desc { display: inline-block; margin-top: 2px; }
+  details.addon-desc > summary { cursor: pointer; list-style: none; font-size: .72rem; color: var(--ink-soft, #6b7b7d); display: inline-flex; align-items: center; gap: 4px; user-select: none; }
+  details.addon-desc > summary::-webkit-details-marker { display: none; }
+  details.addon-desc > summary::before { content: '▸'; font-size: .7rem; transition: transform .15s; }
+  details.addon-desc[open] > summary::before { transform: rotate(90deg); }
+  details.addon-desc > div { font-size: .72rem; color: #6b7b7d; margin-top: 2px; max-width: 48em; }
 </style>
 {% endblock %}
 
@@ -588,11 +596,15 @@
       </form>
       {% endif %}
     </div>
-    <p class="text-muted small mb-3">
-      放課後等デイサービスの加算のコードと単位数・料金の一覧です。料金は「単位数 × {{ facility.get_region_category_display }}の単価 {{ unit_price }}円」で計算しています。<br>
-      サービスコードは国保連の請求で使う番号です。マスタが空の加算や、区分によって変わる加算は、この事業所の値を入力してください（空にするとマスタの値に戻ります）。<br>
-      ※ 個別加算で「算定する」にしたものが日誌の「加算の入力」に出ます（1つも選んでいないときは全部出ます）。体制加算は施設全体の月単位の加算です。
-    </p>
+    <details class="settings-fold mt-2">
+      <summary>この画面の使い方 <span class="text-muted">料金は「単位数 × {{ facility.get_region_category_display }}の単価 {{ unit_price }}円」</span></summary>
+      <p class="text-muted small mb-3">
+        放課後等デイサービスの加算のコードと単位数・料金の一覧です。料金は「単位数 × {{ facility.get_region_category_display }}の単価 {{ unit_price }}円」で計算しています。<br>
+        サービスコードは国保連の請求で使う番号です。マスタが空の加算や、区分によって変わる加算は、この事業所の値を入力してください（空にするとマスタの値に戻ります）。<br>
+        ※ 個別加算で「算定する」にしたものが日誌の「加算の入力」に出ます（1つも選んでいないときは全部出ます）。体制加算は施設全体の月単位の加算です。<br>
+        各加算の「説明」は折りたたんであります。加算名の下の「▸ 説明」を押すと開きます（「すべての説明を開く」でまとめて開けます）。
+      </p>
+    </details>
 
     {% if no_addons %}
     <div class="text-center py-4" style="color:#a0b0b2;border:1px dashed #d0dadb;border-radius:10px;">
@@ -601,7 +613,12 @@
       <span class="small">「標準加算マスタを読み込む」ボタンで放課後等デイの加算を一括登録できます。</span>
     </div>
     {% else %}
-    <form method="post" action="{% url 'facilities:addon_setting' %}">
+    <div class="d-flex justify-content-end mt-3">
+      <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" id="addon-desc-toggle" data-open-label="すべての説明を開く" data-close-label="すべての説明を閉じる">
+        <i class="bi bi-chevron-expand me-1"></i>すべての説明を開く
+      </button>
+    </div>
+    <form method="post" action="{% url 'facilities:addon_setting' %}" id="addon-form">
       {% csrf_token %}
       {% for group_label, group in addon_groups %}
       <div class="fw-semibold small mt-3 mb-1" style="color:var(--color-primary-dark);">{{ group_label }}</div>
@@ -627,7 +644,10 @@
               <td>
                 <label class="fw-semibold mb-0" for="addon_{{ item.pk }}">{{ item.name }}</label>
                 {% if item.addon.description %}
-                <div class="text-muted" style="font-size:0.72rem;">{{ item.addon.description }}</div>
+                <details class="addon-desc">
+                  <summary>説明</summary>
+                  <div>{{ item.addon.description }}</div>
+                </details>
                 {% endif %}
               </td>
               <td>
@@ -904,5 +924,25 @@ document.getElementById('editSupportTagModal').addEventListener('show.bs.modal',
   document.getElementById('edit_support_price').value = btn.dataset.price || 0;
   document.getElementById('edit_support_active').checked = btn.dataset.active === 'true';
 });
+
+  (function () {
+    var btn = document.getElementById('addon-desc-toggle');
+    var form = document.getElementById('addon-form');
+    if (!btn || !form) return;
+    var folds = form.querySelectorAll('details.addon-desc');
+    if (!folds.length) { btn.style.display = 'none'; return; }
+    function allOpen() { for (var i = 0; i < folds.length; i++) { if (!folds[i].open) return false; } return true; }
+    function label() {
+      var open = allOpen();
+      btn.innerHTML = '<i class="bi bi-chevron-' + (open ? 'contract' : 'expand') + ' me-1"></i>' + btn.dataset[open ? 'closeLabel' : 'openLabel'];
+    }
+    btn.addEventListener('click', function () {
+      var to = !allOpen();
+      for (var i = 0; i < folds.length; i++) folds[i].open = to;
+      label();
+    });
+    form.addEventListener('toggle', label, true);
+    label();
+  })();
 </script>
 {% endblock %}
