@@ -48,6 +48,10 @@ class TherapyRecord(models.Model):
     # 2段の記録（2026-10-09〜）：事実（何をしたか）と様子（どうだったか：見えたこと・聞こえた言葉）を分ける。
     # 前からの記録は body だけ（様子が空なら「記録」として1段で出す）
     situation = models.TextField(blank=True, verbose_name='様子（どうだったか）')
+    # 音声入力を直接入れる事業所（therapy_voice_direct）：整える前の音声の文字と AI が整えた文を残し、
+    # 職員の直し方を次の整文の例にする（therapy/learning.py。90 日で消す）
+    spoken_text = models.TextField(blank=True, verbose_name='音声の文字（整える前）')
+    ai_body = models.TextField(blank=True, verbose_name='AI が整えた文')
     reservation = models.ForeignKey('reservations.Reservation', on_delete=models.SET_NULL, null=True, blank=True,
                                     related_name='therapy_records', verbose_name='もとになった予約')
     created_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,

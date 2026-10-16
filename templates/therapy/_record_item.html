@@ -36,5 +36,21 @@ voice_direct（ゆあーず）の事業所は「修正」を押さずに、は�
           {% include 'therapy/_record_fields.html' with rec=rec %}
           <div class="col-12 d-flex justify-content-end align-items-center gap-2"><span class="small text-muted th-save-hint"></span><button class="btn btn-sm btn-outline-secondary th-save-btn"><i class="bi bi-check2 me-1"></i>保存する</button></div>
         </form>
+        {% if voice_direct and rec.spoken_text or voice_direct and rec.ai_body %}
+        <details class="th-source" id="src{{ rec.pk }}">
+          <summary>音声の文字と AI の文（整える前）</summary>
+          <div class="th-source-body">
+            {% if rec.spoken_text %}<div><span class="th-lbl">音声の文字</span><span class="th-source-text">{{ rec.spoken_text }}</span></div>{% endif %}
+            {% if rec.ai_body %}<div><span class="th-lbl">AI の文</span><span class="th-source-text">{{ rec.ai_body }}</span></div>{% endif %}
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-1">
+              <span class="small text-muted">上の記録を直して保存すると、AI の文との違いが、この事業所の次の整え方の参考になります（名前は伏せて使います）。{{ keep_days }} 日たつと自動で消えます。</span>
+              <form method="post" onsubmit="return confirm('{{ rec.date|date:'n/j' }} の記録の、音声の文字と AI の文を消します（記録の本文は残ります）。よろしいですか？');">
+                {% csrf_token %}<input type="hidden" name="action" value="clear_source"><input type="hidden" name="record" value="{{ rec.pk }}">
+                <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle me-1"></i>これを消す</button>
+              </form>
+            </div>
+          </div>
+        </details>
+        {% endif %}
       </div>
     </div>

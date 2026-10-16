@@ -42,6 +42,10 @@
     {% endfor %}
   </div>
 </div>
+{% if voice_direct %}{% comment %}音声入力を整えて入れたときの、整える前の文字と AI の文（保存で記録に残す。下書きにも残る）{% endcomment %}
+<textarea name="spoken_text" class="d-none" hidden aria-hidden="true" tabindex="-1"></textarea>
+<textarea name="ai_body" class="d-none" hidden aria-hidden="true" tabindex="-1"></textarea>
+{% endif %}
 <div class="col-12">
   {% if today_slot %}
   <label class="form-label small fw-semibold" for="today-body">{% if voice_direct %}記録{% else %}記録（事実：したこと）{% endif %}</label>

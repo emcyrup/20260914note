@@ -864,3 +864,97 @@ class VoiceDirectTests(TestCase):
         self.assertTrue(self.f.therapy_voice_direct)
         self.assertTrue(self.f.knowledge_reflect)
         self.assertContains(self.client.get(reverse('facilities:settings')), 'name="knowledge_reflect" id="knowledge_reflect" checked')
+
+
+@override_settings(ANTHROPIC_API_KEY='test')
+class LearningTests(TestCase):
+    """整文を職員の直し方に寄せる（therapy/learning.py。2026-10-16 ゆあーず）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_therapy_record=True, therapy_voice_direct=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', last_name_kana='あおき',
+                                              date_of_birth=datetime.date(2019, 4, 1))
+        self.other = Beneficiary.objects.create(facility=self.f, last_name='山田', first_name='太郎', last_name_kana='やまだ',
+                                                date_of_birth=datetime.date(2018, 4, 1))
+        self.url = reverse('therapy:child', args=[self.kid.pk])
+        self.ai_url = reverse('therapy:cautions_summary', args=[self.kid.pk])
+
+    def _rec(self, b, day, ai, body, spoken='話した文字'):
+        return TherapyRecord.objects.create(facility=self.f, beneficiary=b, date=day, body=body, ai_body=ai, spoken_text=spoken)
+
+    def test_pairs_take_only_changed_sentences_and_mask_names(self):
+        from therapy import learning
+        self._rec(self.other, datetime.date(2026, 10, 1),
+                  ai='ウレタン棒で打ち合った。山田太郎さんは泣いた。意欲的だった。ブロックを積んだ。',
+                  body='ウレタン棒で打ち合った。太郎さんは負けて泣いた。ブロックを積んだ。「できた」と言った。')
+        self._rec(self.other, datetime.date(2026, 9, 30), ai='ブロックを積んだ。楽しそうだった。', body='ブロックを積んだ。')
+        # 続けて変えたところは 1 つの例に（消した文もいっしょに）。消しただけの文は「（この文は消した）」
+        self.assertEqual(learning.pairs_for(self.f), [('{名前}さんは泣いた。 意欲的だった。', '{名前}さんは負けて泣いた。'), ('楽しそうだった。', '')])
+        block = learning.examples_block(self.f)
+        self.assertIn('直し：{名前}さんは負けて泣いた。', block)
+        self.assertIn('直し：（この文は消した）', block)
+        self.assertNotIn('山田', block)
+        self.assertNotIn('「できた」', block)          # 職員が足した文は例にしない
+        # 直していない記録・ほかの事業所の記録は使わない
+        self._rec(self.kid, datetime.date(2026, 10, 2), ai='同じ。', body='同じ。')
+        g = Facility.objects.create(name='ほか', use_therapy_record=True, therapy_voice_direct=True)
+        o = Beneficiary.objects.create(facility=g, last_name='他', first_name='人', last_name_kana='ほか', date_of_birth=datetime.date(2018, 4, 1))
+        TherapyRecord.objects.create(facility=g, beneficiary=o, date=datetime.date(2026, 10, 3), body='よその直し', ai_body='よそ')
+        self.assertEqual(len(learning.pairs_for(self.f)), 2)
+        Facility.objects.filter(pk=self.f.pk).update(therapy_voice_direct=False)
+        self.assertEqual(learning.examples_block(Facility.objects.get(pk=self.f.pk)), '')
+
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_record_mode_sends_examples_and_returns_source(self, client_cls):
+        self._rec(self.other, datetime.date(2026, 10, 1), ai='山田さんは泣いた。', body='山田さんは負けて泣いた。')
+        client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(
+            type='text', text='{"activities": ["ブロック"], "body": "ブロックを積んだ。"}')])
+        d = self.client.post(self.ai_url, {'mode': 'record', 'text': 'ブロック積んだ'}).json()
+        self.assertEqual((d['spoken'], d['ai_body']), ('ブロック積んだ', 'ブロックを積んだ。'))
+        kwargs = client_cls.return_value.messages.create.call_args.kwargs
+        sent = kwargs['messages'][0]['content']
+        self.assertIn('【この事業所での直し方の例', sent)
+        self.assertIn('AI：{名前}さんは泣いた。\n　→ 直し：{名前}さんは負けて泣いた。', sent)
+        self.assertNotIn('山田', sent)
+        self.assertIn('直し方の例があるとき', kwargs['system'])
+        # 例が無ければ付けない
+        TherapyRecord.objects.all().delete()
+        self.client.post(self.ai_url, {'mode': 'record', 'text': 'ブロック積んだ'})
+        self.assertNotIn('直し方の例（', client_cls.return_value.messages.create.call_args.kwargs['messages'][0]['content'])
+
+    def test_save_keeps_source_and_shows_it(self):
+        today = datetime.date.today()
+        self.client.post(self.url, {'action': 'add', 'date': today.isoformat(), 'body': 'ブロックを積んで笑った。',
+                                    'spoken_text': 'ブロック積んで笑ってた', 'ai_body': 'ブロックを積んだ。笑っていた。'})
+        rec = TherapyRecord.objects.get(beneficiary=self.kid)
+        self.assertEqual((rec.spoken_text, rec.ai_body), ('ブロック積んで笑ってた', 'ブロックを積んだ。笑っていた。'))
+        page = self.client.get(self.url).content.decode()
+        self.assertIn(f'id="src{rec.pk}"', page)
+        self.assertIn('ブロック積んで笑ってた', page)
+        self.assertIn('name="spoken_text"', page)
+        self.assertIn('90 日たつと自動で消えます', page)
+        # 直すときに空で送られても、前の文字は残る
+        self.client.post(self.url, {'action': 'edit', 'record': rec.pk, 'date': today.isoformat(), 'body': 'ブロックを積んで笑った。直した。',
+                                    'spoken_text': '', 'ai_body': ''})
+        rec.refresh_from_db()
+        self.assertEqual((rec.body, rec.ai_body), ('ブロックを積んで笑った。直した。', 'ブロックを積んだ。笑っていた。'))
+        # 「これを消す」
+        res = self.client.post(self.url, {'action': 'clear_source', 'record': rec.pk})
+        self.assertEqual(res.status_code, 302)
+        rec.refresh_from_db()
+        self.assertEqual((rec.body, rec.spoken_text, rec.ai_body), ('ブロックを積んで笑った。直した。', '', ''))
+        self.assertNotIn(f'id="src{rec.pk}"', self.client.get(self.url).content.decode())
+
+    def test_expire_after_keep_days(self):
+        from therapy import learning
+        old = self._rec(self.kid, datetime.date.today() - datetime.timedelta(days=learning.KEEP_DAYS + 1), ai='古い', body='古い直し')
+        new = self._rec(self.kid, datetime.date.today() - datetime.timedelta(days=5), ai='新しい', body='新しい直し')
+        self.client.get(self.url)                                      # 画面を開いたときに消す
+        old.refresh_from_db(); new.refresh_from_db()
+        self.assertEqual((old.body, old.spoken_text, old.ai_body), ('古い直し', '', ''))
+        self.assertEqual((new.spoken_text, new.ai_body), ('話した文字', '新しい'))
+        # 切り替えがオフの事業所は何もしない（欄も出ない）
+        Facility.objects.filter(pk=self.f.pk).update(therapy_voice_direct=False)
+        self.assertNotContains(self.client.get(self.url), 'name="spoken_text"')
