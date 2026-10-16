@@ -38,7 +38,7 @@
   .btn-tag-action { padding: 2px 8px; font-size: 0.75rem; border-radius: 6px; }
   .modal-content { border-radius: 16px; border: none; }
   /* 項目ごとのタブ（長い設定画面を分ける。選んだタブはこの端末に覚える） */
-  .settings-tabs { position: sticky; top: 0; z-index: 5; display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; padding: 8px 0 10px;
+  .settings-tabs { position: sticky; top: var(--settings-tabs-top, 64px); z-index: 50; display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; padding: 8px 0 10px;
                    margin-bottom: 1rem; background: var(--paper, #f6f3ee); scrollbar-width: none; }
   .settings-tabs::-webkit-scrollbar { display: none; }
   .settings-tab { flex: none; border: 1px solid var(--line-dark, #cfc8bb); background: #fff; color: var(--ink-soft); border-radius: 999px;
@@ -887,6 +887,15 @@
     var el = document.querySelector(location.hash), pane = el && el.closest('.settings-pane');
     if (pane) fromHash = pane.id.replace('pane-', '');
   }
+  // トップバー（画面上部に固定）の下に止まるように、タブの固定位置をトップバーの高さに合わせる（スマホは高さが変わる）
+  var topbar = document.querySelector('.topbar');
+  function placeTabs() {
+    var h = topbar ? topbar.getBoundingClientRect().height : 0;
+    document.documentElement.style.setProperty('--settings-tabs-top', Math.round(h) + 'px');
+  }
+  placeTabs();
+  window.addEventListener('resize', placeTabs);
+  if (window.ResizeObserver && topbar) new ResizeObserver(placeTabs).observe(topbar);
   show(fromHash || saved || tabs[0].dataset.pane, false);
   tabs.forEach(function (t) { t.addEventListener('click', function () { show(t.dataset.pane, true); window.scrollTo({top: 0}); }); });
   window.addEventListener('hashchange', function () { var h = (location.hash || '').replace('#tab-', ''); if (h) show(h, false); });
