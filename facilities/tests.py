@@ -441,6 +441,7 @@ class AddonDefaultsLoadTests(TestCase):
     def test_rename_update_and_retire(self):
         from facilities.models import AddonMaster
         from facilities.views import DEFAULT_ADDONS, load_default_addons
+        AddonMaster.objects.all().delete()        # migration で入る標準マスタを消して、合わせ込みの動きを確かめる
         old = AddonMaster.objects.create(name='家族支援加算（オンライン）', addon_type='individual', unit_count=100)
         stale = AddonMaster.objects.create(name='欠席時対応加算', addon_type='individual', unit_count=90)
         keep = AddonMaster.objects.create(name='送迎加算（往・迎え）', addon_type='individual', unit_count=54, code='999999')

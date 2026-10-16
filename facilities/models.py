@@ -5,15 +5,27 @@ from .uploads import logo_upload_to
 
 
 # 地域区分別・1単位あたり単価（円）
-# 障害福祉サービス等報酬告示に基づく（令和6年度改定時点）
+# 地域区分ごとの 1 単位の単価（令和6年度改定。障害児通所支援：児童発達支援・放課後等デイサービス）
+# 上乗せ割合（1級地 20%・2級地 16%・3級地 15%・4級地 12%・5級地 10%・6級地 6%・7級地 3%）× 人件費割合 60%
 REGION_UNIT_PRICE = {
-    '1':     Decimal('11.40'),
-    '2':     Decimal('11.12'),
-    '3':     Decimal('11.05'),
-    '4':     Decimal('10.90'),
-    '5':     Decimal('10.70'),
-    '6':     Decimal('10.42'),
-    '7':     Decimal('10.21'),
+    '1':     Decimal('11.20'),
+    '2':     Decimal('10.96'),
+    '3':     Decimal('10.90'),
+    '4':     Decimal('10.72'),
+    '5':     Decimal('10.60'),
+    '6':     Decimal('10.36'),
+    '7':     Decimal('10.18'),
+    'other': Decimal('10.00'),
+}
+# 主として重症心身障害児を通わせる事業所（人件費割合 76%）
+REGION_UNIT_PRICE_SEVERE = {
+    '1':     Decimal('11.52'),
+    '2':     Decimal('11.22'),
+    '3':     Decimal('11.14'),
+    '4':     Decimal('10.91'),
+    '5':     Decimal('10.76'),
+    '6':     Decimal('10.46'),
+    '7':     Decimal('10.23'),
     'other': Decimal('10.00'),
 }
 
@@ -56,7 +68,19 @@ class Facility(models.Model):
         null=True, blank=True, verbose_name='通常終了時刻',
         help_text='例：17:00。延長支援加算の自動チェックに使います。'
     )
-    # 基本報酬単位数（請求書PDF生成に使用）
+    # 基本報酬（billing/codes.py）：定員区分を選ぶと、時間区分（区分1〜3）ごとの単位数は表から決まる。
+    # 空なら下の「1日あたり基本報酬単位数」を使う（主として重症心身障害児の事業所・医療的ケア児の区分など、表に無いとき）
+    CAPACITY_CHOICES = [('', '（単位数を手で入れる）'), ('10', '定員10人以下'), ('20', '定員11〜20人'), ('21', '定員21人以上')]
+    capacity_class = models.CharField(max_length=2, blank=True, choices=CAPACITY_CHOICES, verbose_name='定員区分（基本報酬）')
+    time_kubun_weekday = models.PositiveSmallIntegerField(default=2, verbose_name='平日の時間区分の初期値')
+    time_kubun_holiday = models.PositiveSmallIntegerField(default=3, verbose_name='学校休業日の時間区分の初期値')
+    # 基本報酬の国保連サービスコード（事業所が使っているコード表の値。区分ごと）
+    base_code_1 = models.CharField(max_length=10, blank=True, verbose_name='基本報酬のサービスコード（区分1）')
+    base_code_2 = models.CharField(max_length=10, blank=True, verbose_name='基本報酬のサービスコード（区分2）')
+    base_code_3 = models.CharField(max_length=10, blank=True, verbose_name='基本報酬のサービスコード（区分3）')
+    # 主として重症心身障害児を通わせる事業所（地域区分の単価が違う）
+    is_severe_facility = models.BooleanField(default=False, verbose_name='主として重症心身障害児を通わせる事業所')
+    # 基本報酬単位数（定員区分が空のときの 1 日の単位数。請求書PDF生成に使用）
     base_unit_count = models.IntegerField(
         null=True, blank=True, verbose_name='1日あたり基本報酬単位数'
     )
@@ -164,13 +188,26 @@ class Facility(models.Model):
 
     @property
     def unit_price(self):
-        """地域区分に応じた 1単位あたりの単価（円）"""
-        return REGION_UNIT_PRICE.get(self.region_category, Decimal('10.00'))
+        """地域区分に応じた 1 単位あたりの単価（円）。主として重症心身障害児の事業所は別の表"""
+        table = REGION_UNIT_PRICE_SEVERE if self.is_severe_facility else REGION_UNIT_PRICE
+        return table.get(self.region_category, Decimal('10.00'))
 
-    def base_units_for(self, beneficiary):
-        """利用者に応じた基本報酬単位数（重身なら重身用。未設定なら普通用）"""
+    def base_code(self, kubun):
+        """基本報酬のサービスコード（時間区分ごと。未入力なら空）"""
+        return getattr(self, f'base_code_{kubun}', '') if kubun in (1, 2, 3) else ''
+
+    def base_units_for(self, beneficiary, kubun=None):
+        """
+        その利用者の 1 日の基本報酬の単位数。
+        重身の利用者で重身の単位数があればそれ。定員区分と時間区分があれば表（billing/codes.py）、無ければ手入力の単位数
+        """
         if getattr(beneficiary, 'is_severe', False) and self.base_unit_count_severe:
             return self.base_unit_count_severe
+        if self.capacity_class and kubun:
+            from billing.codes import table_units
+            units = table_units(self.capacity_class, kubun)
+            if units is not None:
+                return units
         return self.base_unit_count
 
     def journal_section_keys(self):

@@ -192,10 +192,9 @@
 {% if doc_type == 'invoice' and unit_count_available and total_cost is not None %}
 <div style="font-size:8pt; color:#555; margin-bottom:4mm;">
   ＜計算の根拠＞
-  基本報酬単位数：{{ facility.base_unit_count }}単位
+  基本報酬 {% for r in base_rows %}{{ r.label }} {{ r.units }}単位×{{ r.days }}日{% if not forloop.last %}＋{% endif %}{% endfor %}＝{{ base_units_total }}単位
   {% if facility.is_new_facility_r8 %}（×982/1000 減算適用）{% endif %}
-  × 地域区分単価（{{ facility.region_category }}）
-  × {{ attended_days }}日
+  × 地域区分単価 {{ unit_price }}円（{{ facility.get_region_category_display }}）
   ＝ 総費用 {{ total_cost|floatformat:0 }}円 の10%
   → 上限月額（{{ monthly_cap|floatformat:0 }}円）と比較して低い方を適用
 </div>

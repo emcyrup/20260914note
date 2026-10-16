@@ -20,7 +20,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 
 from beneficiaries.models import Beneficiary
-from facilities.models import SupportContentTag, AddonMaster, REGION_UNIT_PRICE, facility_addon_rows
+from facilities.models import SupportContentTag, AddonMaster, facility_addon_rows
+from . import codes, readiness
 from schedules.models import ScheduledVisit
 
 from .forms import CopaymentManagementForm, CopaymentOfficeRecordForm
@@ -179,6 +180,7 @@ class BillingMatrixView(LoginRequiredMixin, BillingEnabledMixin, View):
             'next_month':         next_month,
             'today':              today,
             'unsaved_count':      unsaved_count,
+            'ready_issues':       readiness.issues(facility, date(year, month, 1)),
         })
 
 
@@ -208,6 +210,7 @@ class CellPopupView(LoginRequiredMixin, BillingEnabledMixin, View):
         ).first()
 
         current_status = entry.status if entry else (visit.status if visit else 'attended')
+        current_kubun = (entry.time_kubun if entry and entry.time_kubun else codes.default_kubun(facility, target_date))
 
         # 現在適用されている加算のIDセット
         applied_addon_ids = set()
@@ -249,6 +252,8 @@ class CellPopupView(LoginRequiredMixin, BillingEnabledMixin, View):
             'addon_list':     addon_list,
             'is_auto_suggested': is_auto_suggested,
             'daily_record':   daily_record,
+            'kubun_rows':     [(k, label, facility.base_units_for(beneficiary, k)) for k, label in codes.KUBUN_CHOICES],
+            'current_kubun':  current_kubun,
         })
 
 
@@ -355,11 +360,14 @@ class CellUpdateView(LoginRequiredMixin, BillingEnabledMixin, View):
 
         # BillingMatrixEntry を更新または作成
         # is_finalized=True = ポップアップで手動確認済み（◆を消す）
+        kubun = to_int(request.POST.get('time_kubun'))
+        if kubun not in (1, 2, 3):
+            kubun = codes.default_kubun(facility, target_date)
         entry, _ = BillingMatrixEntry.objects.update_or_create(
             facility    = facility,
             beneficiary = beneficiary,
             date        = target_date,
-            defaults    = {'status': new_status, 'is_finalized': True},
+            defaults    = {'status': new_status, 'is_finalized': True, 'time_kubun': kubun},
         )
 
         # ScheduledVisit の状態も同期更新（整合性のため）
@@ -420,7 +428,7 @@ class LoadFromScheduleView(LoginRequiredMixin, BillingEnabledMixin, View):
                 facility    = facility,
                 beneficiary = visit.beneficiary,
                 date        = visit.date,
-                defaults    = {'status': billing_status},
+                defaults    = {'status': billing_status, 'time_kubun': codes.default_kubun(facility, visit.date)},
             )
             if is_new:
                 created += 1
@@ -813,9 +821,18 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
             '利用者名', 'ふりがな', '受給者証番号', '上限月額（円）',
             '利用日数', '欠席日数', '振替日数',
         ]
+        # 基本報酬：時間区分ごとの日数と、サービスコード・単位数（billing/codes.py。施設設定の定員区分とコード）
+        base_header = [f'{codes.KUBUN_SHORT[k]} 日数' for k in (1, 2, 3)] + ['基本報酬単位数（参考）']
+        headers += base_header
         headers += [f'{a.name}（件）' for a in individual_addons]
         headers += ['加算合計単位数（参考）']
+        writer.writerow([f'基本報酬のサービスコード：' + '／'.join(f'{codes.KUBUN_SHORT[k]} {facility.base_code(k) or "未入力"}' for k in (1, 2, 3))
+                         + f'　地域区分の単価 {facility.unit_price} 円'])
         writer.writerow(headers)
+        kubun_entries = {}
+        for entry in entries:
+            if entry.status == 'attended':
+                kubun_entries.setdefault(entry.beneficiary_id, []).append(entry)
 
         # データ行（利用者ごとに1行）
         for b in beneficiaries:
@@ -830,6 +847,8 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
                 if a.unit_count and ac.get(a.pk, 0)
             )
 
+            base_rows, base_total = base_rows_for(facility, b, kubun_entries.get(b.pk, []))
+            base_days = {r['kubun']: r['days'] for r in base_rows}
             writer.writerow([
                 b.full_name,
                 b.full_name_kana,
@@ -838,7 +857,7 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
                 sc.get('attended', 0),
                 sc.get('absent', 0),
                 sc.get('transferred', 0),
-            ] + addon_counts + [total_units or ''])
+            ] + [base_days.get(k, 0) for k in (1, 2, 3)] + [base_total or ''] + addon_counts + [total_units or ''])
 
         # BOM は先頭に1つだけ（行ごとに付かないよう、まとめて encode する）
         response = HttpResponse(buf.getvalue().encode('utf-8-sig'), content_type='text/csv; charset=utf-8')
@@ -849,6 +868,26 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
             f"filename*=UTF-8''{utf8_filename}"
         )
         return response
+
+
+def base_rows_for(facility, beneficiary, entries):
+    """
+    利用日を時間区分ごとにまとめる：[{'kubun', 'label', 'days', 'units'（1 日。無ければ None）, 'code', 'total'}]、単位数の合計。
+    令和8年6月以降の新規指定事業所は 1 日の単位数を 982/1000 にする
+    """
+    counts = {}
+    for e in entries:
+        k = e.time_kubun if e.time_kubun in (1, 2, 3) else codes.default_kubun(facility, e.date)
+        counts[k] = counts.get(k, 0) + 1
+    rows, total = [], 0
+    for k in sorted(counts):
+        units = facility.base_units_for(beneficiary, k)
+        if units is not None and facility.is_new_facility_r8:
+            units = int((Decimal(units) * Decimal('982') / Decimal('1000')).to_integral_value())
+        rows.append({'kubun': k, 'label': codes.KUBUN_SHORT[k], 'days': counts[k], 'units': units,
+                     'code': facility.base_code(k), 'total': (units or 0) * counts[k]})
+        total += (units or 0) * counts[k]
+    return rows, total
 
 
 def _build_invoice_context(facility, beneficiary, year, month):
@@ -862,14 +901,16 @@ def _build_invoice_context(facility, beneficiary, year, month):
 
     month_start = date(year, month, 1)
 
-    # 利用日数（BillingMatrixEntry で status='attended' のもの）
-    attended_days = BillingMatrixEntry.objects.filter(
+    # 利用日（BillingMatrixEntry で status='attended' のもの）。基本報酬は日ごとの時間区分で数える（billing/codes.py）
+    attended = list(BillingMatrixEntry.objects.filter(
         facility=facility,
         beneficiary=beneficiary,
         date__year=year,
         date__month=month,
         status='attended',
-    ).count()
+    ).order_by('date'))
+    attended_days = len(attended)
+    base_rows, base_units_total = base_rows_for(facility, beneficiary, attended)
 
     # 当月有効な受給者証（最新）
     cert = (
@@ -885,16 +926,11 @@ def _build_invoice_context(facility, beneficiary, year, month):
     monthly_cap  = cert.monthly_cap if cert else None
     cert_number  = cert.certificate_number if cert else ''
 
-    # 公費自己負担額の計算（重身の利用者は重身用の基本報酬単位数）
-    base_unit_count = facility.base_units_for(beneficiary)
-    unit_count_available = base_unit_count is not None
+    # 公費自己負担額の計算（日ごとの基本報酬の単位数の合計 × 単価。重身の利用者は重身用の単位数）
+    unit_count_available = all(r['units'] is not None for r in base_rows) if base_rows else facility.base_units_for(beneficiary) is not None
+    unit_price = facility.unit_price
     if unit_count_available and monthly_cap is not None:
-        base_units = Decimal(str(base_unit_count))
-        # 令和8年6月以降新規指定事業所は 982/1000 の減算
-        if facility.is_new_facility_r8:
-            base_units = (base_units * Decimal('982') / Decimal('1000')).to_integral_value()
-        unit_price = REGION_UNIT_PRICE.get(facility.region_category, Decimal('10.00'))
-        total_cost = int(base_units * unit_price * attended_days)
+        total_cost = int(Decimal(base_units_total) * unit_price)       # 単位数の合計 × 単価（円未満切り捨て）
         # 利用者負担額 = min(総費用×10%、上限月額)
         user_burden = min(int(Decimal(str(total_cost)) * Decimal('0.1')), monthly_cap)
     elif monthly_cap is not None:
@@ -948,6 +984,9 @@ def _build_invoice_context(facility, beneficiary, year, month):
         'cert_number':        cert_number,
         'monthly_cap':        monthly_cap,
         'attended_days':      attended_days,
+        'base_rows':          base_rows,
+        'base_units_total':   base_units_total,
+        'unit_price':         unit_price,
         'unit_count_available': unit_count_available,
         'total_cost':         total_cost,
         'user_burden':        user_burden,

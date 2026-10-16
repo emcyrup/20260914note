@@ -32,6 +32,8 @@ class BillingMatrixEntry(models.Model):
         max_length=20, choices=STATUS_CHOICES, default=STATUS_ATTENDED, verbose_name='状態'
     )
     is_finalized = models.BooleanField(default=False, verbose_name='請求確定済み')
+    # 基本報酬の時間区分（1〜3。billing/codes.py）。空なら施設設定の初期値（平日／学校休業日）
+    time_kubun   = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name='時間区分')
     created_at   = models.DateTimeField(auto_now_add=True)
     updated_at   = models.DateTimeField(auto_now=True)
 
