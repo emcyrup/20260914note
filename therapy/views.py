@@ -20,7 +20,7 @@ from beneficiaries.models import Beneficiary
 from config.concurrency import check_conflict, keep_unsaved, pop_unsaved
 from config.utils import to_int
 
-from . import figure
+from . import figure, learning
 from .models import ACTIVITY_MAX, TherapyProfile, TherapyRecord
 
 PAGE_ENTRIES = 5     # 用紙1枚に入る回数
@@ -241,6 +241,7 @@ class ChildView(TherapyEnabledMixin, View):
         today = datetime.date.today()
         today_rec = today_hour = None
         if voice_direct:
+            learning.expire(facility, today)      # 古い記録の「整える前の文字・AI の文」を消す（本文は残る）
             today_rec = (TherapyRecord.objects.filter(beneficiary=beneficiary, date=today).select_related('staff')
                          .order_by('-time', '-pk').first())
             if today_rec is None and facility.use_reservation:
@@ -250,7 +251,7 @@ class ChildView(TherapyEnabledMixin, View):
                        .order_by('start_time').first())
                 today_hour = res.start_time.hour if res else None
         return render(request, self.template_name, {
-            'voice_direct': voice_direct, 'today': today, 'today_rec': today_rec, 'today_hour': today_hour,
+            'voice_direct': voice_direct, 'today': today, 'today_rec': today_rec, 'today_hour': today_hour, 'keep_days': learning.KEEP_DAYS,
             'today_in_list': bool(today_rec and any(r.pk == today_rec.pk for r in records)),
             'dup': dup, 'day_res': day_res,
             'beneficiary': beneficiary, 'profile': profile, 'records': records, 'ym': ym, 'months': months,
@@ -301,6 +302,13 @@ class ChildView(TherapyEnabledMixin, View):
             messages.success(request, '留意点を保存しました。')
             return back
 
+        if action == 'clear_source':      # その記録の「整える前の文字・AI の文」だけ消す（本文は残る）
+            rec = get_object_or_404(TherapyRecord, pk=to_int(p.get('record'), -1), beneficiary=beneficiary)
+            rec.spoken_text = rec.ai_body = ''
+            rec.save(update_fields=['spoken_text', 'ai_body'])
+            messages.success(request, f'{rec.date:%-m/%-d} の記録の、整える前の文字と AI の文を消しました。')
+            return redirect(f"{reverse('therapy:child', args=[pk])}#rec{rec.pk}")
+
         if action == 'delete':
             rec = get_object_or_404(TherapyRecord, pk=to_int(p.get('record'), -1), beneficiary=beneficiary)
             rec.delete()
@@ -323,6 +331,10 @@ class ChildView(TherapyEnabledMixin, View):
         }
         if 'situation' in p:     # 2段の記録の「様子」（無い画面から送られたときは変えない）
             fields['situation'] = p.get('situation', '').strip()[:4000]
+        for k in ('spoken_text', 'ai_body'):     # 音声入力を整えて入れたとき（therapy_voice_direct）。空なら前のまま
+            v = p.get(k, '').strip()[:CAUTIONS_MAX]
+            if v:
+                fields[k] = v
         if action == 'edit':
             rec = get_object_or_404(TherapyRecord, pk=to_int(p.get('record'), -1), beneficiary=beneficiary)
             conflict = check_conflict(request, rec)
@@ -477,6 +489,11 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
 - 漢字・かなの変換の誤り（音声入力の聞き違い）は、前後から明らかなときだけ直す
 - 文を短くしたり、まとめたり、内容を言いかえたりしない。話したことは1文も落とさない
 
+【この事業所での直し方の例があるとき】
+- 【この事業所での直し方の例】が付いていれば、以前に職員が直したとおりの言い回し・つなぎ方・言葉の選び方に合わせる
+  （同じような言い方・聞き違いが今回の文にもあれば、例と同じように直す）
+- 例の内容そのものは今回の文に混ぜない（例はあくまで直し方の参考）
+
 【分け方】
 - activities：話に出てきた「やったこと（活動・遊び・課題）」の名前。話に出てきた言葉のまま短く（例：ウレタン棒、ブロック）。出てきた順に5つまで。無ければ空
 - body（記録）：整えた文を全部、話した順のまま 1 つの記録にする（したこと・子どもの様子・言ったこと（「」でそのまま）を分けない）
@@ -517,7 +534,11 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
 
     def record(self, beneficiary, text):
         """話した言葉 → {'activities', 'body', 'situation'}（整文だけ。書類の内容は混ぜない）。分けられなければ全部を body に"""
-        raw, error = _ask_ai(self.RECORD_PROMPT, f'【{beneficiary.full_name}さんの今日の療育について職員が話したこと】\n{text[:CAUTIONS_MAX]}', 4096)
+        content = f'【{beneficiary.full_name}さんの今日の療育について職員が話したこと】\n{text[:CAUTIONS_MAX]}'
+        examples = learning.examples_block(beneficiary.facility)     # 職員の直し方（名前は伏せる）
+        if examples:
+            content += '\n\n' + examples
+        raw, error = _ask_ai(self.RECORD_PROMPT, content, 4096)
         if error:
             return error
         data = parse_record_split(raw)
@@ -527,7 +548,8 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
             data['situation'] = ''
         if not (data['body'] or data['activities']):
             return JsonResponse({'error': 'AIの返答が空でした。もう一度お試しください。'}, status=500)
-        return JsonResponse({**data, **asis.check(text, data['body'])})
+        # 整える前の文字と AI の文は、保存のときに記録へ一緒に残す（職員の直し方を次の例にする）
+        return JsonResponse({**data, 'spoken': text[:CAUTIONS_MAX], 'ai_body': data['body'], **asis.check(text, data['body'])})
 
     @staticmethod
     def tidy(raw):

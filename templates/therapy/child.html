@@ -10,6 +10,14 @@
   .th-card-title { font-weight: 700; display: flex; align-items: center; gap: 6px; }
   .th-tools { display: flex; gap: 6px; flex-wrap: wrap; }
   .th-tools .btn { white-space: nowrap; }
+  details.th-source { margin-top: 6px; font-size: .8rem; }
+  details.th-source > summary { cursor: pointer; color: var(--ink-soft, #6b7b7d); list-style: none; }
+  details.th-source > summary::-webkit-details-marker { display: none; }
+  details.th-source > summary::before { content: '▸ '; }
+  details.th-source[open] > summary::before { content: '▾ '; }
+  .th-source-body { border: 1px dashed var(--line, #d8d2c6); border-radius: 8px; padding: 6px 10px; margin-top: 4px; }
+  .th-source-body > div { margin-bottom: 4px; }
+  .th-source-text { white-space: pre-wrap; color: #555; }
   .th-voice.recording { color: #fff; background: var(--color-danger); border-color: var(--color-danger); animation: voice-rec 1s infinite; }
   @keyframes voice-rec { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
   #cautions { line-height: 1.7; }
@@ -98,7 +106,7 @@
     </div>
     <div id="voice-direct-note" class="alert alert-warning small py-1 px-2 mt-2 mb-0 d-none"></div>
     <textarea id="voice-buffer" class="d-none" style="display:none" hidden aria-hidden="true" tabindex="-1"></textarea>
-    <div id="voice-direct-status" class="small text-muted mt-2" aria-live="polite">押して話し、話し終えたらもう一度押してください。話した内容を書き言葉に整えて、下の「これまでの記録」の<b>今日（{{ today|date:'n/j' }}）の記録</b>のやったこと・事実・様子に入れます。確かめて直してから「保存する」を押してください（自動では保存しません）。</div>
+    <div id="voice-direct-status" class="small text-muted mt-2" aria-live="polite">押して話し、話し終えたらもう一度押してください。話した内容を書き言葉に整えて、下の「これまでの記録」の<b>今日（{{ today|date:'n/j' }}）の記録</b>のやったこと・事実・様子に入れます。確かめて直してから「保存する」を押してください（自動では保存しません）。直した内容は、この事業所の次の整え方の参考になります（名前は伏せて使います）。</div>
     <div id="voice-direct-asis"></div>
   </div></div>
   {% else %}
@@ -467,6 +475,16 @@
       ta.rows = Math.max(ta.rows, Math.min(14, ta.value.split('\n').length + Math.ceil(ta.value.length / 45)));
       fire(ta);
     });
+    // 整える前の文字と AI の文（保存で記録に残し、職員の直し方を次の整え方の例にする）
+    if (data.ai_body) {
+      [['spoken_text', data.spoken], ['ai_body', data.ai_body]].forEach(function (pair) {
+        var el = form.querySelector('[name="' + pair[0] + '"]'), text = (pair[1] || '').trim();
+        if (!el || !text) return;
+        before[pair[0]] = el.value;
+        el.value = el.value.trim() ? el.value.replace(/\s+$/, '') + '\n' + text : text;
+        fire(el);
+      });
+    }
     lastBefore = {form: form, values: before};
     var scroll = document.querySelector(tgt.dataset.scroll);
     if (scroll) scroll.scrollIntoView({block: 'start', behavior: 'smooth'});
