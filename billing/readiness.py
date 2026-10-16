@@ -10,7 +10,7 @@ from facilities.models import AddonMaster, FacilityAddonSetting
 def issues(facility, month_start):
     """足りないものの一覧 [{'text', 'url'}]。空なら準備できている"""
     out = []
-    settings_url = reverse('facilities:settings')
+    settings_url = reverse('facilities:settings') + '#tab-basic'
 
     def add(text, url=settings_url):
         out.append({'text': text, 'url': url})
@@ -25,10 +25,11 @@ def issues(facility, month_start):
         add('基本報酬のサービスコード（区分1〜3）が入っていません（定員区分を選べばコード表から自動で決まります）')
     if not facility.use_schedule:
         add('「来所予定（出欠）」を使う設定になっていません。請求の日数は出欠の記録から数えます')
+    addons_url = reverse('facilities:settings') + '#tab-billing'
     if not AddonMaster.objects.filter(is_active=True).exists():
-        add('加算マスタが空です（開発向けユーザーが「標準加算マスタを読み込む」を実行）')
+        add('加算マスタが空です（開発向けユーザーが「標準加算マスタを読み込む」を実行）', addons_url)
     elif not FacilityAddonSetting.objects.filter(facility=facility, is_enabled=True).exists():
-        add('施設設定の加算で「算定する」加算が 1 つもありません（日誌の加算の入力は全部出ます）')
+        add('施設設定の加算で「算定する」加算が 1 つもありません（日誌の加算の入力は全部出ます）', addons_url)
 
     active = list(Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE))
     if active:

@@ -37,13 +37,40 @@
   .tag-sub  { font-size: 0.75rem; color: #888; }
   .btn-tag-action { padding: 2px 8px; font-size: 0.75rem; border-radius: 6px; }
   .modal-content { border-radius: 16px; border: none; }
+  /* 項目ごとのタブ（長い設定画面を分ける。選んだタブはこの端末に覚える） */
+  .settings-tabs { position: sticky; top: 0; z-index: 5; display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; padding: 8px 0 10px;
+                   margin-bottom: 1rem; background: var(--paper, #f6f3ee); scrollbar-width: none; }
+  .settings-tabs::-webkit-scrollbar { display: none; }
+  .settings-tab { flex: none; border: 1px solid var(--line-dark, #cfc8bb); background: #fff; color: var(--ink-soft); border-radius: 999px;
+                  padding: 6px 14px; font-size: .88rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .settings-tab.active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+  .settings-tab .badge { font-size: .65rem; vertical-align: 1px; }
+  .settings-pane { display: none; }
+  .settings-pane.active { display: block; }
+  /* カードの中の折りたたみ */
+  details.settings-fold { border: 1px solid var(--line, #e4ded3); border-radius: 10px; padding: 0 14px; margin-top: 14px; background: rgba(255,255,255,.5); }
+  details.settings-fold > summary { cursor: pointer; list-style: none; padding: 10px 0; font-weight: 700; color: var(--lake-text); font-size: .95rem; display: flex; align-items: center; gap: 8px; }
+  details.settings-fold > summary::-webkit-details-marker { display: none; }
+  details.settings-fold > summary::before { content: '▸'; font-size: .8rem; color: var(--ink-soft); transition: transform .15s; }
+  details.settings-fold[open] > summary::before { transform: rotate(90deg); }
+  details.settings-fold > summary .text-muted { font-weight: 400; font-size: .8rem; }
+  details.settings-fold > .row { padding-bottom: 14px; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div style="max-width: 900px; margin: 0 auto;" class="px-2">
 
+  <nav class="settings-tabs" id="settings-tabs" aria-label="設定の項目">
+    <button type="button" class="settings-tab" data-pane="basic">施設基本情報</button>
+    <button type="button" class="settings-tab" data-pane="features">使う機能・日誌</button>
+    <button type="button" class="settings-tab" data-pane="tags">タグ</button>
+    {% if features.billing %}<button type="button" class="settings-tab" data-pane="billing">加算（請求）</button>{% endif %}
+    <button type="button" class="settings-tab" data-pane="ai">AI の資料</button>
+  </nav>
+
   <!-- ===== 施設基本情報 ===== -->
+  <section class="settings-pane" id="pane-basic">
   <div class="settings-card">
     <div class="settings-section-title">施設基本情報</div>
     <form method="post" action="{% url 'facilities:facility_update' %}" enctype="multipart/form-data" data-concurrency="facility:{{ facility.pk }}">
@@ -81,11 +108,12 @@
           </label>
           {{ facility_form.standard_close_time }}
         </div>
+      </div>
+      <details class="settings-fold" {% if not facility.use_billing or not facility.capacity_class %}open{% endif %}>
+        <summary>基本報酬{% if facility.use_billing %}（請求）<span class="text-muted">定員区分・時間区分・サービスコード</span>{% else %}<span class="text-muted">1 日あたりの単位数</span>{% endif %}</summary>
+        <div class="row g-3">
         {% if facility.use_billing %}
-        <div class="col-12 mt-3">
-          <div class="small fw-semibold mb-1"><i class="bi bi-receipt me-1"></i>基本報酬（請求）</div>
-          <div class="form-text mb-2">定員区分を選ぶと、時間区分（区分1〜3）ごとの単位数は令和6年度改定の表から決まります（医療的ケア区分なし）。請求マトリックスで日ごとに区分を選べます（初期値は下の設定）。表に無い事業所（主として重症心身障害児・医療的ケア児の区分）は「1日あたり基本報酬単位数」に手で入れてください。</div>
-        </div>
+        <div class="col-12"><div class="form-text">定員区分を選ぶと、時間区分（区分1〜3）ごとの単位数は令和6年度改定の表から決まります（医療的ケア区分なし）。請求マトリックスで日ごとに区分を選べます（初期値は下の設定）。表に無い事業所（主として重症心身障害児・医療的ケア児の区分）は「1日あたり基本報酬単位数」に手で入れてください。</div></div>
         <div class="col-md-4">
           <label class="form-label small fw-semibold">定員区分（基本報酬）</label>
           {{ facility_form.capacity_class }}
@@ -147,7 +175,12 @@
             </div>
           </div>
         </div>
+        </div>
+      </details>
         {% if features.line %}
+      <details class="settings-fold" {% if not facility.line_channel_access_token %}open{% endif %}>
+        <summary>LINE 公式アカウント<span class="text-muted">{% if facility.line_channel_access_token and facility.line_channel_secret %}設定済み{% else %}未設定{% endif %}</span></summary>
+        <div class="row g-3">
         {% if is_admin %}
         <div class="col-md-6">
           <label class="form-label small fw-semibold">LINEチャネルアクセストークン</label>
@@ -168,9 +201,12 @@
           <input type="text" class="form-control form-control-sm font-monospace" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'line_integration:webhook_facility' facility.pk %}">
           <div class="form-text">事業所ごとに URL が違います。LINE 公式アカウントのチャネル設定で「Webhook URL」に貼り、「Webhookの利用」をオン、「応答メッセージ」をオフにしてください。</div>
         </div>
+        </div>
+      </details>
         {% endif %}
-
-        <div class="col-12"><hr class="my-1"><div class="small fw-bold" style="color:var(--lake-text);">呼び方・ロゴ・配色（画面のメニューと見出しに反映されます）</div></div>
+      <details class="settings-fold">
+        <summary>呼び方・ロゴ・配色<span class="text-muted">画面のメニューと見出しに反映</span></summary>
+        <div class="row g-3">
         <div class="col-md-3">
           <label class="form-label small fw-semibold">職員の呼び方</label>
           {{ facility_form.term_staff }}
@@ -200,7 +236,8 @@
           </div>
           {% endif %}
         </div>
-      </div>
+        </div>
+      </details>
       <div class="mt-3 text-end">
         {% if is_admin %}<button type="submit" class="btn btn-primary">
           <i class="bi bi-check-lg me-1"></i>施設情報を保存
@@ -208,9 +245,10 @@
       </div>
     </form>
   </div>
-
+  </section>
 
   <!-- ===== 使う機能・日誌の項目 ===== -->
+  <section class="settings-pane" id="pane-features">
   <div class="settings-card">
     <div class="settings-section-title">使う機能と、日誌で AI が作る項目</div>
     <form method="post" action="{% url 'facilities:feature_settings' %}" id="featureForm" data-concurrency="facility:{{ facility.pk }}">
@@ -386,7 +424,10 @@
     </form>
   </div>
 
+  </section>
+
   <!-- ===== 活動タグ管理 ===== -->
+  <section class="settings-pane" id="pane-tags">
   <div class="settings-card">
     <div class="d-flex justify-content-between align-items-center mb-1">
       <div class="settings-section-title mb-0">活動タグ</div>
@@ -480,7 +521,10 @@
     {% endif %}
   </div>
 
+  </section>
+
   <!-- ===== 算定要件資料（AI加算提案・チャット用） ===== -->
+  <section class="settings-pane" id="pane-ai">
   <div class="settings-card" id="reference-docs">
     <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
       <div class="settings-section-title mb-0">算定要件資料（AI加算提案・チャットボット用）</div>
@@ -527,8 +571,11 @@
     {% endif %}
   </div>
 
+  </section>
+
   {% if features.billing %}
   <!-- ===== 加算設定（コード・単位数・料金） ===== -->
+  <section class="settings-pane" id="pane-billing">
   <div class="settings-card">
     <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
       <div class="settings-section-title mb-0">加算設定（サービスコード・単位数・料金）</div>
@@ -607,9 +654,10 @@
     </form>
     {% endif %}
   </div>
+  </section>
+  {% endif %}
 
 </div>
-  {% endif %}
 
 <!-- ===== 活動タグ追加モーダル ===== -->
 <div class="modal fade" id="addActivityTagModal" tabindex="-1">
@@ -799,6 +847,31 @@
 {% endblock %}
 
 {% block extra_js %}
+<script>
+// 設定の項目をタブで分ける：#tab-xxx か、この端末で最後に開いたタブを開く。保存して戻ってきても同じタブ
+(function () {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('#settings-tabs .settings-tab'));
+  if (!tabs.length) return;
+  function show(name, push) {
+    if (!document.getElementById('pane-' + name)) name = tabs[0].dataset.pane;
+    tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.pane === name); });
+    document.querySelectorAll('.settings-pane').forEach(function (p) { p.classList.toggle('active', p.id === 'pane-' + name); });
+    try { localStorage.setItem('settingsTab', name); } catch (e) {}
+    if (push && history.replaceState) history.replaceState(null, '', '#tab-' + name);
+  }
+  var fromHash = (location.hash || '').replace('#tab-', '');
+  var saved = '';
+  try { saved = localStorage.getItem('settingsTab') || ''; } catch (e) {}
+  // 画面の中のアンカー（#reference-docs など）は、その要素のあるタブを開く
+  if (!fromHash && location.hash) {
+    var el = document.querySelector(location.hash), pane = el && el.closest('.settings-pane');
+    if (pane) fromHash = pane.id.replace('pane-', '');
+  }
+  show(fromHash || saved || tabs[0].dataset.pane, false);
+  tabs.forEach(function (t) { t.addEventListener('click', function () { show(t.dataset.pane, true); window.scrollTo({top: 0}); }); });
+  window.addEventListener('hashchange', function () { var h = (location.hash || '').replace('#tab-', ''); if (h) show(h, false); });
+})();
+</script>
 <script>
 document.querySelectorAll('#sectionList .js-up, #sectionList .js-down').forEach(function (b) {
   b.addEventListener('click', function () {
