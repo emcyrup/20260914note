@@ -192,20 +192,31 @@ class Facility(models.Model):
         table = REGION_UNIT_PRICE_SEVERE if self.is_severe_facility else REGION_UNIT_PRICE
         return table.get(self.region_category, Decimal('10.00'))
 
-    def base_code(self, kubun):
-        """基本報酬のサービスコード（時間区分ごと。未入力なら空）"""
-        return getattr(self, f'base_code_{kubun}', '') if kubun in (1, 2, 3) else ''
+    def base_code(self, kubun, beneficiary=None):
+        """
+        基本報酬のサービスコード（時間区分ごと）。施設設定で入れた値があればそれ、無ければ定員区分と利用者の医療的ケア区分から
+        コード表（billing/codes.py）の値。どちらも無ければ空
+        """
+        if kubun not in (1, 2, 3):
+            return ''
+        manual = getattr(self, f'base_code_{kubun}', '')
+        care = getattr(beneficiary, 'medical_care_level', 0) or 0
+        if manual and not care:
+            return manual
+        from billing.codes import table_code
+        return table_code(self.capacity_class, kubun, care) or manual
 
     def base_units_for(self, beneficiary, kubun=None):
         """
         その利用者の 1 日の基本報酬の単位数。
-        重身の利用者で重身の単位数があればそれ。定員区分と時間区分があれば表（billing/codes.py）、無ければ手入力の単位数
+        重身の利用者で重身の単位数があればそれ。定員区分と時間区分があれば表（billing/codes.py。医療的ケア区分も見る）、
+        無ければ手入力の単位数
         """
         if getattr(beneficiary, 'is_severe', False) and self.base_unit_count_severe:
             return self.base_unit_count_severe
         if self.capacity_class and kubun:
             from billing.codes import table_units
-            units = table_units(self.capacity_class, kubun)
+            units = table_units(self.capacity_class, kubun, getattr(beneficiary, 'medical_care_level', 0) or 0)
             if units is not None:
                 return units
         return self.base_unit_count
@@ -330,8 +341,12 @@ class AddonRow:
         self.addon = addon
         self.setting = setting
         self.is_enabled = bool(setting and setting.is_enabled)
-        self.code = (setting.code if setting and setting.code else addon.code) or ''
-        self.unit_count = setting.unit_count if setting and setting.unit_count is not None else addon.unit_count
+        # 定員区分で単位数が変わる体制加算は、事業所の上書きが無ければコード表（billing/codes.py）の値
+        from billing.codes import capacity_addon
+        by_cap = capacity_addon(addon.name, facility.capacity_class) if facility.capacity_class else None
+        self.code = (setting.code if setting and setting.code else (by_cap[0] if by_cap else addon.code)) or ''
+        self.unit_count = (setting.unit_count if setting and setting.unit_count is not None
+                           else (by_cap[1] if by_cap else addon.unit_count))
         self.override_code = setting.code if setting else ''
         self.override_units = setting.unit_count if setting else None
 

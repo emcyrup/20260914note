@@ -543,7 +543,7 @@ class BeneficiaryUpdateView(LoginRequiredMixin, UpdateView):
     # 利用者の「編集」の窓（モーダル）と編集の画面（form.html）に出している項目。そこから保存したとき（_partial=1）は、
     # 画面に無い項目（住所・電話・学校・入所日など。取り込みや計画書中心の画面で入れる）を今の値のままにする（空で上書きして消さないように）
     MODAL_FIELDS = {'last_name', 'first_name', 'last_name_kana', 'first_name_kana', 'date_of_birth', 'gender',
-                    'disability_class', 'disability_type', 'is_severe', 'notes', 'status', 'cannot_pair', 'siblings',
+                    'disability_class', 'disability_type', 'is_severe', 'medical_care_level', 'notes', 'status', 'cannot_pair', 'siblings',
                     'weekday_mon', 'weekday_tue', 'weekday_wed', 'weekday_thu', 'weekday_fri', 'weekday_sat',
                     'line_send_journal'}
 

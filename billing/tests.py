@@ -351,3 +351,66 @@ class BaseRewardTests(TestCase):
         n = AddonMaster.objects.count()
         mod.load_addons(apps, None)
         self.assertEqual(AddonMaster.objects.count(), n)                                 # 2 回目は増えない
+
+
+class ServiceCodeTableTests(TestCase):
+    """令和6年4月のコード表（billing/codes.py）：基本報酬のサービスコード、医療的ケア区分、定員区分で変わる体制加算"""
+
+    def setUp(self):
+        self.facility = Facility.objects.create(name='はびりす', office_number='2650000001', use_billing=True, use_schedule=True,
+                                                region_category='3', capacity_class='10')
+        self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility,
+                                                     role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        self.ben = Beneficiary.objects.create(facility=self.facility, last_name='中村', first_name='みお', date_of_birth='2015-09-14')
+
+    def test_base_codes_from_table_and_override(self):
+        self.assertEqual(self.facility.base_code(2), '63H592')
+        self.assertEqual(self.facility.base_code(3, self.ben), '63H610')
+        self.facility.base_code_2 = '639999'
+        self.assertEqual(self.facility.base_code(2, self.ben), '639999')          # 施設設定の値が優先
+        self.facility.capacity_class = '21'
+        self.assertEqual((self.facility.base_code(1), self.facility.base_units_for(self.ben, 1)), ('63H790', 287))
+
+    def test_medical_care_level_changes_units_and_code(self):
+        from . import codes
+        self.ben.medical_care_level = 32
+        self.assertEqual((self.facility.base_code(1, self.ben), self.facility.base_units_for(self.ben, 1)), ('63G301', 2591))
+        self.ben.medical_care_level = 16
+        self.assertEqual(self.facility.base_units_for(self.ben, 2), 1618)
+        self.ben.medical_care_level = 3
+        self.facility.capacity_class = '20'
+        self.assertEqual((self.facility.base_code(3, self.ben), self.facility.base_units_for(self.ben, 3)), ('63H394', 1116))
+        self.assertEqual(codes.table_units('10', 2, 0), 609)
+        # 利用者の編集の窓で保存できる
+        res = self.client.post(reverse('beneficiaries:update', args=[self.ben.pk]), {
+            'last_name': '中村', 'first_name': 'みお', 'last_name_kana': 'なかむら', 'first_name_kana': 'みお', 'date_of_birth': '2015-09-14',
+            'gender': 'female', 'status': 'active', 'medical_care_level': '16', '_partial': '1'})
+        self.assertEqual(res.status_code, 302, res.content[:300])
+        self.ben.refresh_from_db()
+        self.assertEqual(self.ben.medical_care_level, 16)
+
+    def test_capacity_based_facility_addons(self):
+        from facilities.models import AddonMaster, FacilityAddonSetting
+        AddonMaster.objects.all().delete()
+        from facilities.addon_defaults import load_default_addons
+        load_default_addons()
+        rows = {r.name: r for r in facility_addon_rows(self.facility, addon_type='facility')}
+        self.assertEqual((rows['児童指導員等加配加算（常勤専従・経験5年以上）'].code, rows['児童指導員等加配加算（常勤専従・経験5年以上）'].unit_count), ('634400', 187))
+        self.assertEqual((rows['専門的支援体制加算'].code, rows['専門的支援体制加算'].unit_count), ('634551', 123))
+        self.assertEqual(rows['福祉・介護職員等処遇改善加算Ⅰ'].code, '635621')
+        self.facility.capacity_class = '21'
+        rows = {r.name: r for r in facility_addon_rows(self.facility, addon_type='facility')}
+        self.assertEqual((rows['児童指導員等加配加算（その他の従業者）'].code, rows['児童指導員等加配加算（その他の従業者）'].unit_count), ('634470', 36))
+        # 事業所の上書きがあればそれ
+        FacilityAddonSetting.objects.create(facility=self.facility, addon=rows['専門的支援体制加算'].addon, is_enabled=True, unit_count=50)
+        rows = {r.name: r for r in facility_addon_rows(self.facility, addon_type='facility')}
+        self.assertEqual((rows['専門的支援体制加算'].code, rows['専門的支援体制加算'].unit_count), ('634553', 50))
+        # 古い名前は付け替えられている
+        self.assertFalse(AddonMaster.objects.filter(name='児童指導員等加配加算').exists())
+        self.assertTrue(AddonMaster.objects.filter(name='福祉・介護職員等処遇改善加算Ⅳ', code='635624').exists())
+
+    def test_settings_shows_auto_codes(self):
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, '63H592')
+        self.assertContains(res, '空ならコード表の 63H574')
