@@ -21,6 +21,7 @@ class AddonSettingsTests(TestCase):
         self.facility = Facility.objects.create(name='はびりす', region_category='3', use_billing=True)
         self.admin = StaffAccount.objects.create_user(username='admin', password='pw12345678', facility=self.facility, role=StaffAccount.ROLE_ADMIN)
         self.client.force_login(self.admin)
+        AddonMaster.objects.all().delete()        # migration で入る標準マスタを消し、2 件だけで確かめる
         self.a1 = AddonMaster.objects.create(name='送迎加算（往・迎え）', addon_type='individual', unit_count=54, code='615001')
         self.a2 = AddonMaster.objects.create(name='児童指導員等加配加算', addon_type='facility', unit_count=0)
 
@@ -30,8 +31,8 @@ class AddonSettingsTests(TestCase):
         self.assertContains(res, '615001')
         self.assertContains(res, '個別加算（利用者×日）')
         self.assertContains(res, '体制加算（施設全体・月単位）')
-        # 54 × 11.05 = 596.7 → 596円
-        self.assertContains(res, '>596<')
+        # 54 × 10.90 = 588.6 → 588円
+        self.assertContains(res, '>588<')
 
     def test_save_overrides_and_reset_to_master(self):
         res = self.client.post(reverse('facilities:addon_setting'), {
@@ -51,7 +52,7 @@ class AddonSettingsTests(TestCase):
         rows = {r.pk: r for r in facility_addon_rows(self.facility)}
         self.assertEqual(rows[self.a2.pk].code, '615200')
         self.assertEqual(rows[self.a2.pk].unit_count, 187)
-        self.assertEqual(rows[self.a2.pk].price_yen, int(Decimal(187) * Decimal('11.05')))
+        self.assertEqual(rows[self.a2.pk].price_yen, int(Decimal(187) * Decimal('10.90')))
         # 空に戻すとマスタの値
         self.client.post(reverse('facilities:addon_setting'), {f'code_{self.a2.pk}': '', f'units_{self.a2.pk}': ''})
         s2.refresh_from_db()
@@ -142,11 +143,11 @@ class CopaymentSheetTests(TestCase):
         for d in (1, 2, 3):
             BillingMatrixEntry.objects.create(facility=self.facility, beneficiary=self.ben, date=f'2026-09-0{d}', status='attended')
         ctx = _build_invoice_context(self.facility, self.ben, 2026, 9)
-        self.assertEqual(ctx['total_cost'], int(Decimal(1756) * Decimal('11.05') * 3))
+        self.assertEqual(ctx['total_cost'], int(Decimal(1756 * 3) * Decimal('10.90')))
         self.ben.is_severe = False
         self.ben.save()
         ctx = _build_invoice_context(self.facility, self.ben, 2026, 9)
-        self.assertEqual(ctx['total_cost'], int(Decimal(604) * Decimal('11.05') * 3))
+        self.assertEqual(ctx['total_cost'], int(Decimal(604 * 3) * Decimal('10.90')))
 
 
 class CopaymentJudgeAndFaxTests(TestCase):
@@ -166,7 +167,7 @@ class CopaymentJudgeAndFaxTests(TestCase):
         BeneficiaryOffice.objects.create(beneficiary=self.here, name='児童デイ ひまわり', office_number='2650000101', order=1)
         BeneficiaryOffice.objects.create(beneficiary=self.other, name='はびりす', office_number='2650000001', is_this_office=True)
         BeneficiaryOffice.objects.create(beneficiary=self.other, name='児童デイ ひまわり', office_number='2650000101', is_manager=True, order=1)
-        for b in (self.here, self.other):          # 9 月に 10 日来所 → 総費用 604 × 11.05 × 10 = 66,742 円、負担 1 割 6,619 → 上限 4,600
+        for b in (self.here, self.other):          # 9 月に 10 日来所 → 総費用 604 × 10 × 10.90 = 65,836 円、負担 1 割 6,583 → 上限 4,600
             for d in range(1, 11):
                 BillingMatrixEntry.objects.create(facility=self.facility, beneficiary=b, date=date(2026, 9, d), status='attended')
 
@@ -193,7 +194,7 @@ class CopaymentJudgeAndFaxTests(TestCase):
         m = CopaymentManagement.objects.get(beneficiary=self.other, year_month='2026-09')
         mine = m.office_records.get(is_this_office=True)
         self.assertEqual((m.is_upper_limit_manager, m.management_result, mine.original_copayment, mine.adjusted_copayment, mine.total_cost),
-                         (False, '1', 4600, 0, 66742))
+                         (False, '1', 4600, 0, 65836))
         self.assertEqual(cp.judge(self.facility, self.other, 2026, 9, m)['text'], 'ほかの事業所が管理：結果を反映ずみ（当施設 0 円）')
         self.client.post(url, {'action': 'fax', 'ids': [self.other.pk], 'choice': 'amount', 'amount': '3000'})
         mine.refresh_from_db()
@@ -207,14 +208,14 @@ class CopaymentJudgeAndFaxTests(TestCase):
         edit = reverse('billing:copayment_edit', args=[self.here.pk, 2026, 9])
         res = self.client.get(edit)
         self.assertContains(res, '負担上限月額：<b>4600 円</b>')
-        self.assertContains(res, 'value="66742"')          # 当施設の総費用（請求と同じ計算）
+        self.assertContains(res, 'value="65836"')          # 当施設の総費用（請求と同じ計算）
         self.assertContains(res, 'value="4600"')           # 当施設の負担額
         data = {
             'is_upper_limit_manager': 'on', 'management_result': '2', 'action': 'allocate',
             'office_records-TOTAL_FORMS': '2', 'office_records-INITIAL_FORMS': '0',
             'office_records-MIN_NUM_FORMS': '0', 'office_records-MAX_NUM_FORMS': '1000',
             'office_records-0-office_name': 'はびりす', 'office_records-0-office_number': '2650000001',
-            'office_records-0-total_cost': '66742', 'office_records-0-original_copayment': '3000', 'office_records-0-adjusted_copayment': '3000',
+            'office_records-0-total_cost': '65836', 'office_records-0-original_copayment': '3000', 'office_records-0-adjusted_copayment': '3000',
             'office_records-1-office_name': '児童デイ ひまわり', 'office_records-1-office_number': '2650000101',
             'office_records-1-total_cost': '30000', 'office_records-1-original_copayment': '3000', 'office_records-1-adjusted_copayment': '3000',
         }
@@ -244,3 +245,109 @@ class HabilisBillingOnTests(TestCase):
         habilis.refresh_from_db(); other.refresh_from_db()
         self.assertTrue(habilis.use_billing)
         self.assertFalse(other.use_billing)
+
+
+class BaseRewardTests(TestCase):
+    """基本報酬の時間区分と定員区分（billing/codes.py）、地域区分の単価、請求の準備チェック"""
+
+    def setUp(self):
+        self.facility = Facility.objects.create(name='はびりす', office_number='2650000001', use_billing=True, use_schedule=True,
+                                                region_category='3', capacity_class='10', base_code_2='631211')
+        self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility,
+                                                     role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        self.ben = Beneficiary.objects.create(facility=self.facility, last_name='中村', first_name='みお', date_of_birth='2015-09-14')
+        RecipientCertificate.objects.create(beneficiary=self.ben, certificate_number='2600001234', granted_days=23,
+                                            monthly_cap=4600, valid_from='2026-04-01', valid_until='2027-03-31')
+
+    def test_unit_price_tables(self):
+        self.assertEqual(str(self.facility.unit_price), '10.90')
+        self.facility.is_severe_facility = True
+        self.assertEqual(str(self.facility.unit_price), '11.14')
+        self.facility.region_category = 'other'
+        self.assertEqual(str(self.facility.unit_price), '10.00')
+
+    def test_units_from_table_and_default_kubun(self):
+        from . import codes
+        self.assertEqual(self.facility.base_units_for(self.ben, 1), 574)
+        self.assertEqual(self.facility.base_units_for(self.ben, 3), 666)
+        self.assertEqual(codes.default_kubun(self.facility, date(2026, 10, 6)), 2)      # 火曜
+        self.assertEqual(codes.default_kubun(self.facility, date(2026, 10, 10)), 3)     # 土曜
+        self.assertEqual(codes.default_kubun(self.facility, date(2026, 10, 12)), 3)     # スポーツの日
+        self.facility.capacity_class = '20'
+        self.assertEqual(self.facility.base_units_for(self.ben, 2), 406)
+        self.facility.capacity_class = ''
+        self.facility.base_unit_count = 500
+        self.assertEqual(self.facility.base_units_for(self.ben, 2), 500)                # 表が無ければ手入力の単位数
+        self.ben.is_severe = True
+        self.facility.base_unit_count_severe = 1118
+        self.assertEqual(self.facility.base_units_for(self.ben, 2), 1118)
+
+    def test_cell_saves_kubun_and_invoice_sums_per_day(self):
+        from .models import BillingMatrixEntry
+        from .views import _build_invoice_context
+        res = self.client.get(reverse('billing:cell_popup', args=[self.ben.pk, 2026, 10, 10]))
+        self.assertContains(res, 'id="kb_3" checked')                                   # 土曜は区分3 が初期値
+        self.assertContains(res, '666 単位')
+        self.client.post(reverse('billing:cell_update', args=[self.ben.pk, 2026, 10, 10]), {'status': 'attended', 'time_kubun': '3'})
+        self.client.post(reverse('billing:cell_update', args=[self.ben.pk, 2026, 10, 6]), {'status': 'attended'})   # 区分は初期値（平日＝2）
+        self.client.post(reverse('billing:cell_update', args=[self.ben.pk, 2026, 10, 7]), {'status': 'attended', 'time_kubun': '1'})
+        self.assertEqual(BillingMatrixEntry.objects.get(beneficiary=self.ben, date=date(2026, 10, 6)).time_kubun, 2)
+        ctx = _build_invoice_context(self.facility, self.ben, 2026, 10)
+        self.assertEqual(ctx['attended_days'], 3)
+        self.assertEqual(ctx['base_units_total'], 574 + 609 + 666)
+        self.assertEqual(ctx['total_cost'], int(Decimal(574 + 609 + 666) * Decimal('10.90')))   # 月の合計で円未満切り捨て
+        self.assertEqual(ctx['user_burden'], min(int(ctx['total_cost'] * 0.1), 4600))
+        rows = {r['kubun']: r for r in ctx['base_rows']}
+        self.assertEqual((rows[2]['code'], rows[2]['days']), ('631211', 1))
+        html = self.client.get(reverse('billing:invoice_pdf', args=[self.ben.pk, 2026, 10]) + '?fmt=html')
+        if html.status_code == 200 and b'html' in html.content[:200]:
+            self.assertContains(html, '区分3 666単位×1日')
+        csv_res = self.client.get(reverse('billing:billing_csv', args=[2026, 10]))
+        body = csv_res.content.decode('utf-8-sig')
+        self.assertIn('区分2 631211', body)
+        self.assertIn('区分1 日数', body)
+        line = [ln for ln in body.splitlines() if ln.startswith('中村')][0]
+        self.assertIn(',1,1,1,1849,', line)                                             # 区分1〜3 が 1 日ずつ・合計 1849 単位
+
+    def test_readiness_issues_on_matrix(self):
+        from . import readiness
+        issues = [i['text'] for i in readiness.issues(self.facility, date(2026, 10, 1))]
+        self.assertTrue(any('「算定する」加算が 1 つもありません' in t for t in issues))   # マスタは migration で入っている
+        self.assertFalse(any('事業所番号' in t for t in issues))
+        AddonMaster.objects.all().delete()
+        issues = [i['text'] for i in readiness.issues(self.facility, date(2026, 10, 1))]
+        self.assertTrue(any('加算マスタが空' in t for t in issues))
+        self.facility.office_number = ''
+        self.facility.region_category = 'other'
+        self.facility.save()
+        RecipientCertificate.objects.update(valid_until='2026-09-30')          # 10 月に有効な受給者証が無い
+        issues = [i['text'] for i in readiness.issues(self.facility, date(2026, 10, 1))]
+        self.assertTrue(any('事業所番号' in t for t in issues))
+        self.assertTrue(any('地域区分' in t for t in issues))
+        self.assertTrue(any('有効な受給者証が無い利用者 1 名' in t for t in issues))
+        res = self.client.get(reverse('billing:matrix_month', args=[2026, 10]))
+        self.assertContains(res, '請求の準備チェック')
+
+    def test_settings_show_units_table_and_save(self):
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, '定員区分（基本報酬）')
+        self.assertContains(res, '574 単位')
+        res = self.client.post(reverse('facilities:facility_update'), {
+            'name': 'はびりす', 'office_number': '2650000001', 'region_category': '2', 'capacity_class': '20',
+            'time_kubun_weekday': '1', 'time_kubun_holiday': '2', 'base_code_1': '631111', 'term_staff': '職員', 'term_beneficiary': '利用者',
+            'brand_color': '#2f6f73'})
+        self.facility.refresh_from_db()
+        self.assertEqual((self.facility.capacity_class, self.facility.time_kubun_weekday, self.facility.base_code_1), ('20', 1, '631111'))
+        self.assertEqual(str(self.facility.unit_price), '10.96')
+
+    def test_migration_loads_addon_master(self):
+        import importlib
+        from django.apps import apps
+        from facilities.models import AddonMaster
+        mod = importlib.import_module('facilities.migrations.0031_billing_base_reward')
+        mod.load_addons(apps, None)
+        self.assertTrue(AddonMaster.objects.filter(name='欠席時対応加算', code='635495', unit_count=94).exists())
+        n = AddonMaster.objects.count()
+        mod.load_addons(apps, None)
+        self.assertEqual(AddonMaster.objects.count(), n)                                 # 2 回目は増えない

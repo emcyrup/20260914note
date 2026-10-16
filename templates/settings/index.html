@@ -81,20 +81,70 @@
           </label>
           {{ facility_form.standard_close_time }}
         </div>
+        {% if facility.use_billing %}
+        <div class="col-12 mt-3">
+          <div class="small fw-semibold mb-1"><i class="bi bi-receipt me-1"></i>基本報酬（請求）</div>
+          <div class="form-text mb-2">定員区分を選ぶと、時間区分（区分1〜3）ごとの単位数は令和6年度改定の表から決まります（医療的ケア区分なし）。請求マトリックスで日ごとに区分を選べます（初期値は下の設定）。表に無い事業所（主として重症心身障害児・医療的ケア児の区分）は「1日あたり基本報酬単位数」に手で入れてください。</div>
+        </div>
         <div class="col-md-4">
-          <label class="form-label small fw-semibold">1日あたり基本報酬単位数（普通用）</label>
+          <label class="form-label small fw-semibold">定員区分（基本報酬）</label>
+          {{ facility_form.capacity_class }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">平日の時間区分の初期値</label>
+          {{ facility_form.time_kubun_weekday }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">学校休業日（土日祝）の時間区分の初期値</label>
+          {{ facility_form.time_kubun_holiday }}
+        </div>
+        <div class="col-12">
+          <div class="table-responsive">
+            <table class="table table-sm small mb-1" style="max-width:560px;">
+              <thead><tr><th>定員区分</th><th class="text-end">区分1</th><th class="text-end">区分2</th><th class="text-end">区分3（学校休業日）</th></tr></thead>
+              <tbody>
+              {% for row in base_units_table %}
+              <tr{% if row.current %} class="table-primary"{% endif %}><td>{{ row.label }}</td>{% for u in row.units %}<td class="text-end">{{ u }} 単位</td>{% endfor %}</tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="form-text">1 単位 {{ unit_price }} 円（{{ facility.get_region_category_display }}）。令和6年4月施行の単位数です。</div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">基本報酬のサービスコード（区分1）</label>
+          {{ facility_form.base_code_1 }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">サービスコード（区分2）</label>
+          {{ facility_form.base_code_2 }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">サービスコード（区分3）</label>
+          {{ facility_form.base_code_3 }}
+          <div class="form-text">国保連のコード表（放課後等デイサービス・種類コード 63）の 6 桁。請求集計 CSV の 1 行目に出ます。</div>
+        </div>
+        {% endif %}
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">1日あたり基本報酬単位数{% if facility.use_billing %}<span class="text-muted fw-normal">（定員区分が空のとき）</span>{% else %}（普通用）{% endif %}</label>
           {{ facility_form.base_unit_count }}
         </div>
         <div class="col-md-4">
           <label class="form-label small fw-semibold">重身の基本報酬単位数
-            <span class="text-muted fw-normal">（重症心身障害児）</span>
+            <span class="text-muted fw-normal">（重症心身障害児の利用者）</span>
           </label>
           {{ facility_form.base_unit_count_severe }}
         </div>
         <div class="col-md-4 d-flex align-items-end">
-          <div class="form-check mb-2">
-            {{ facility_form.is_new_facility_r8 }}
-            <label class="form-check-label small">令和8年6月以降新規指定事業所</label>
+          <div>
+            <div class="form-check mb-1">
+              {{ facility_form.is_new_facility_r8 }}
+              <label class="form-check-label small">令和8年6月以降新規指定事業所（×982/1000）</label>
+            </div>
+            <div class="form-check mb-2">
+              {{ facility_form.is_severe_facility }}
+              <label class="form-check-label small">主として重症心身障害児を通わせる事業所（単価が変わる）</label>
+            </div>
           </div>
         </div>
         {% if features.line %}

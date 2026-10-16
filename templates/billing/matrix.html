@@ -54,6 +54,15 @@
     </a>
   </div>
 
+  {% if ready_issues %}
+  <div class="alert alert-warning py-2 mb-3 small" id="billing-ready">
+    <div class="fw-semibold mb-1"><i class="bi bi-clipboard-check me-1"></i>請求の準備チェック：足りない設定が {{ ready_issues|length }} 件あります</div>
+    <ul class="mb-0 ps-3">
+      {% for i in ready_issues %}<li><a href="{{ i.url }}" class="alert-link">{{ i.text }}</a></li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
   <!-- 未確認セル警告バナー -->
   {% if unsaved_count > 0 %}
   <div class="alert mb-3 d-flex align-items-center gap-2"
