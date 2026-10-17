@@ -2050,6 +2050,8 @@ class ScheduleToolsTests(TestCase):
         day = datetime.date(2030, 10, 8)
         ra, rb = self._pair_at_same_hour(day, [10, 11], [10, 11])
         self.assertEqual(len(monthly.pair_overlaps(self.f, 2030, 10)), 1)
+        # 職員が承知で同じ時間にした組（pair_ok）は、開いても自動では動かず赤いまま（2026-10-17）
+        Reservation.objects.filter(pk=ra.pk).update(pair_ok=True)
         page = self.client.get(reverse('reservations:monthly_schedule', args=[2030, 10]))
         self.assertContains(page, '共演NG で同じ時間の組が <b>1</b> 組')
         res = self.client.post(reverse('reservations:monthly_schedule_fix_pairs', args=[2030, 10]), follow=True)
@@ -2124,3 +2126,83 @@ class ScheduleToolsTests(TestCase):
         self.f.schedule_tools = False
         self.f.save()
         self.assertEqual(self.client.get(reverse('reservations:pair_check')).status_code, 404)
+
+
+class PairAutoMoveTests(TestCase):
+    """共演NG で同じ時間になった 2 人：希望に同じ日のほかの時刻（10 時と 11 時）があれば、どちらかを自動で移して赤にしない（2026-10-17 ゆあーず）"""
+
+    def setUp(self):
+        self.f, self.s = ryoiku()
+        self.f.schedule_tools = True
+        self.f.save()
+        self.user = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        d = datetime.date(2018, 1, 1)
+        self.a = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', last_name_kana='あおき', date_of_birth=d)
+        self.b = Beneficiary.objects.create(facility=self.f, last_name='木村', first_name='空', last_name_kana='きむら', date_of_birth=d)
+        self.a.cannot_pair.add(self.b)
+        self.day = datetime.date(2026, 10, 9)      # 金
+        self.today = datetime.date(2026, 10, 1)
+        for kid in (self.a, self.b):
+            monthly.save_request(self.f, kid, 2026, 10, 1, {'2026-10-09': [10, 11]})
+        # 2 人とも 10 時に入ってしまっている（共演NG を登録する前に入れた、など）
+        self.ra = Reservation.objects.create(facility=self.f, beneficiary=self.a, date=self.day, start_time=datetime.time(10, 0))
+        self.rb = Reservation.objects.create(facility=self.f, beneficiary=self.b, date=self.day, start_time=datetime.time(10, 0))
+
+    def _hours(self):
+        return {r.beneficiary_id: r.hour for r in Reservation.objects.filter(date=self.day, status=Reservation.STATUS_CONFIRMED)}
+
+    @mock.patch('reservations.monthly.datetime')
+    def test_schedule_opens_and_moves_one_to_eleven(self, dt):
+        dt.date.today.return_value = self.today
+        dt.date.side_effect = lambda *a, **k: datetime.date(*a, **k)
+        dt.time = datetime.time
+        dt.timedelta = datetime.timedelta
+        res = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))
+        self.assertContains(res, '共演NG で同じ時間だったので、利用希望のほかの時刻へ移しました：10月9日(金) 青木 子 さん 10時→11時')
+        self.assertEqual(self._hours(), {self.a.pk: 11, self.b.pk: 10})
+        self.assertNotContains(res, 'ms-box pair')           # 赤くない
+        # もう一度開いても動かない
+        res = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))
+        self.assertNotContains(res, '移しました')
+        self.assertEqual(self._hours(), {self.a.pk: 11, self.b.pk: 10})
+
+    @mock.patch('reservations.monthly.datetime')
+    def test_no_other_wish_stays_red_and_pair_ok_is_kept(self, dt):
+        dt.date.today.return_value = self.today
+        dt.date.side_effect = lambda *a, **k: datetime.date(*a, **k)
+        dt.time = datetime.time
+        dt.timedelta = datetime.timedelta
+        for kid in (self.a, self.b):
+            monthly.save_request(self.f, kid, 2026, 10, 1, {'2026-10-09': [10]})
+        res = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))
+        self.assertContains(res, 'ms-box pair')
+        self.assertEqual(self._hours(), {self.a.pk: 10, self.b.pk: 10})
+        # 職員が承知で同じ時間にした組（pair_ok）は、希望にほかの時刻があっても開いたときには動かさない
+        for kid in (self.a, self.b):
+            monthly.save_request(self.f, kid, 2026, 10, 1, {'2026-10-09': [10, 11]})
+        Reservation.objects.filter(pk=self.ra.pk).update(pair_ok=True)
+        self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))
+        self.assertEqual(self._hours(), {self.a.pk: 10, self.b.pk: 10})
+        # 「利用希望のほかの時刻へ移す」ボタンなら動く
+        self.client.post(reverse('reservations:monthly_schedule_fix_pairs', args=[2026, 10]))
+        self.assertEqual(self._hours(), {self.a.pk: 11, self.b.pk: 10})
+        self.assertFalse(Reservation.objects.get(pk=self.ra.pk).pair_ok)
+
+    def test_drag_onto_pair_slot_moves_to_other_wish_or_marks_ok(self):
+        Reservation.objects.filter(pk=self.ra.pk).update(date=datetime.date(2026, 10, 10), start_time=datetime.time(9, 0))
+        url = reverse('reservations:monthly_schedule_swap', args=[2026, 10])
+        res = self.client.post(url, {'action': 'move', 'a': self.ra.pk, 'date': '2026-10-09', 'hour': '10', 'allow_pairs': '1'}, follow=True)
+        self.assertContains(res, '10月9日(金) 10時 は共演NG の人と同じ時間だったので、青木 子 さんは利用希望の ')
+        self.assertContains(res, ' に入れました')
+        self.assertEqual(self._hours(), {self.a.pk: 11, self.b.pk: 10})
+        self.assertFalse(Reservation.objects.get(pk=self.ra.pk).pair_ok)
+        # 希望にほかの時刻が無いときは、承知のうえで同じ時間に（pair_ok）
+        monthly.save_request(self.f, self.a, 2026, 10, 1, {'2026-10-09': [10]})
+        res = self.client.post(url, {'action': 'move', 'a': self.ra.pk, 'date': '2026-10-09', 'hour': '10', 'allow_pairs': '1'}, follow=True)
+        self.assertContains(res, '利用希望にほかの時刻が無いので、予定表では赤く出ます')
+        self.assertEqual(self._hours(), {self.a.pk: 10, self.b.pk: 10})
+        self.assertTrue(Reservation.objects.get(pk=self.ra.pk).pair_ok)
+        # 共演NG の無い枠へ動かすと印は外れる
+        self.client.post(url, {'action': 'move', 'a': self.ra.pk, 'date': '2026-10-10', 'hour': '9', 'allow_pairs': '1'}, follow=True)
+        self.assertFalse(Reservation.objects.get(pk=self.ra.pk).pair_ok)

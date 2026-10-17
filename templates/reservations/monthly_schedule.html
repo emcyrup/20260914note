@@ -209,7 +209,7 @@
   <form method="post" action="{% url 'reservations:monthly_schedule_fix_pairs' year month %}" class="alert alert-danger py-2 px-3 small d-flex align-items-center flex-wrap gap-2 mb-2"
         onsubmit="return confirm('共演NG で同じ時間の組を、どちらかの利用希望（同じ日）のほかの時刻へ移します。保護者へのお知らせは積みません。よろしいですか？');">
     {% csrf_token %}
-    <span><i class="bi bi-exclamation-triangle me-1"></i>今日から先に、共演NG で同じ時間の組が <b>{{ pair_overlaps }}</b> 組あります（赤い名前）。</span>
+    <span><i class="bi bi-exclamation-triangle me-1"></i>今日から先に、共演NG で同じ時間の組が <b>{{ pair_overlaps }}</b> 組あります（赤い名前。利用希望に同じ日のほかの時刻がある組は、開いたときに自動で移しています）。</span>
     <button class="btn btn-sm btn-danger py-0">利用希望のほかの時刻へ移す</button>
     <a href="{% url 'reservations:pair_check' %}" class="alert-link">一覧で見る</a>
   </form>
@@ -371,7 +371,7 @@
     if (swap) check(target, src.dataset.date, src.dataset.hour, [src, target]);
     return out.filter(function (x, i) { return out.indexOf(x) === i; });
   }
-  function ngText(names) { return names.length ? '\n\n※共演NG：' + names.join('／') + ' が同じ時間になります（予定表では赤く出ます）。' : ''; }
+  function ngText(names) { return names.length ? '\n\n※共演NG：' + names.join('／') + ' が同じ時間になります。利用希望に同じ日のほかの時刻があればそちらへ入れます（無ければ赤く出ます）。' : ''; }
   // 画面の上（ヘッダー）に、いま触っている日時を出す
   var editing = document.getElementById('ms-editing');
   var WD = ['日', '月', '火', '水', '木', '金', '土'];

@@ -443,11 +443,40 @@ def pair_overlaps(facility, year, month, today=None):
     return out
 
 
-def fix_pair_slots(facility, year, month, setting=None, today=None):
+def move_to_other_wish(res, setting=None, request=None):
     """
-    共演NG の 2 人が同じ時間枠にいるとき、どちらかを、その人の利用希望で○の付いた同じ日のほかの時刻へ移す
-    （空きがあり、移った先にも共演NG の人がいない枠。早い時刻から）。実績を入れた予約・きょうだいと 1 枠の予約は動かさない。
+    その予約を、その人の利用希望で○の付いた同じ日のほかの時刻へ移す（空きがあり、移った先に共演NG の人がいない枠。早い時刻から）。
+    実績を入れた予約・きょうだいと 1 枠の予約は動かさない。移せたら前の時刻、移せなければ None。
+    （共演NG で同じ時間になったとき：「希望に 10 時と 11 時があるなら、どちらかが 11 時になれば赤にしなくてよい」2026-10-17 ゆあーず）
+    """
+    if res.status != Reservation.STATUS_CONFIRMED or res.attendance or res.share_seat or res.beneficiary_id is None:
+        return None
+    setting = setting or services.get_setting(res.facility)
+    if request is None:
+        request = MonthlyRequest.objects.filter(facility=res.facility, beneficiary_id=res.beneficiary_id,
+                                                year=res.date.year, month=res.date.month).first()
+    if request is None:
+        return None
+    old = res.hour
+    for hour in request.wish_hours(res.date, setting):
+        if hour == old:
+            continue
+        try:
+            move_on_schedule(res, res.date, hour)
+        except services.ReservationError:
+            continue
+        if res.pair_ok:
+            res.pair_ok = False
+            res.save(update_fields=['pair_ok'])
+        return old
+    return None
+
+
+def fix_pair_slots(facility, year, month, setting=None, today=None, skip_ok=False):
+    """
+    共演NG の 2 人が同じ時間枠にいるとき、どちらかを、その人の利用希望で○の付いた同じ日のほかの時刻へ移す（move_to_other_wish）。
     保護者へのお知らせは積まず、送信待ちの「ご利用日が決まりました」は書き直す。
+    skip_ok=True は、職員が共演NG を承知で同じ時間にした組（pair_ok）を動かさない（月間予定表を開いたときの自動の移動）。
     戻り値 (moved: [(予約, 前の時), ...], left: [(予約a, 予約b), ...] 動かせなかった組)
     """
     setting = setting or services.get_setting(facility)
@@ -456,30 +485,43 @@ def fix_pair_slots(facility, year, month, setting=None, today=None):
     for a, b in pair_overlaps(facility, year, month, today):
         if a.pk in done or b.pk in done:
             continue
+        if skip_ok and (a.pair_ok or b.pair_ok):
+            continue
         ok = False
         for res in (a, b):
-            req = requests.get(res.beneficiary_id)
-            if req is None or res.attendance or res.share_seat:
-                continue
-            old = res.hour
-            for hour in req.wish_hours(res.date, setting):
-                if hour == old:
-                    continue
-                try:
-                    move_on_schedule(res, res.date, hour)
-                except services.ReservationError:
-                    continue
+            old = move_to_other_wish(res, setting, requests.get(res.beneficiary_id))
+            if old is not None:
                 moved.append((res, old))
                 done.add(res.pk)
                 ok = True
-                break
-            if ok:
                 break
         if not ok:
             left.append((a, b))
     for b in {r.beneficiary for r, _ in moved if r.beneficiary_id}:
         refresh_month_notice(facility, b, year, month, setting)
     return moved, left
+
+
+def settle_pair(res, setting=None):
+    """
+    職員が共演NG と分かったうえで同じ枠に入れた直後の後始末：利用希望にほかの時刻があればそちらへ移す（戻り値 ('moved', 前の時)）。
+    無ければ pair_ok の印を付けて赤いまま残す（('kept', 相手の名前のリスト)）。共演NG が無ければ None
+    """
+    if res.beneficiary_id is None:
+        return None
+    names = services.pair_conflicts(res.beneficiary, res.date, exclude_pk=res.pk, start_time=res.start_time)
+    if not names:
+        if res.pair_ok:
+            res.pair_ok = False
+            res.save(update_fields=['pair_ok'])
+        return None
+    old = move_to_other_wish(res, setting)
+    if old is not None:
+        return ('moved', old)
+    if not res.pair_ok:
+        res.pair_ok = True
+        res.save(update_fields=['pair_ok'])
+    return ('kept', names)
 
 
 def fix_pairs_message(moved, left):

@@ -1193,6 +1193,12 @@ class MonthlyScheduleView(SlotModeMixin, View):
         year, month = month_or_404(year, month)
         facility = request.user.facility
         setting = services.get_setting(facility)
+        if facility.schedule_tools:
+            # 共演NG で同じ時間の組があり、どちらかの利用希望に同じ日のほかの時刻があれば、開いたときに自動で移す（赤にしない）。
+            # 職員が承知で同じ時間にした組（pair_ok）は動かさない（2026-10-17 ゆあーず）
+            moved, _left = monthly.fix_pair_slots(facility, year, month, setting, skip_ok=True)
+            if moved:
+                messages.info(request, monthly.fix_pairs_message(moved, []))
         rows = monthly.request_rows(facility, year, month, setting)
         schedule = monthly.month_schedule(facility, year, month, setting)
         cap = monthly.capacity_report(facility, year, month, setting)
@@ -1505,12 +1511,18 @@ class MonthlyScheduleSwapView(SlotModeMixin, View):
         if allow_pairs:
             moved = [res_a] + ([res_b] if action == 'swap' else [])
             for r in moved:
-                if r.beneficiary is None:
+                # 共演NG の人と同じ枠になったら、利用希望にほかの時刻があればそちらへ入れる。無ければ承知のうえ（pair_ok）で赤く残す
+                outcome = monthly.settle_pair(r, setting)
+                if outcome is None:
                     continue
-                names = services.pair_conflicts(r.beneficiary, r.date, exclude_pk=r.pk, start_time=r.start_time)
-                if names:
+                if outcome[0] == 'moved':
+                    monthly.refresh_month_notice(facility, r.beneficiary, r.date.year, r.date.month, setting)
+                    messages.info(request, f'{services.jp_date(r.date)} {outcome[1]}時 は共演NG の人と同じ時間だったので、'
+                                           f'{r.display_name} さんは利用希望の {r.time_label} に入れました。')
+                else:
                     messages.warning(request, f'{services.jp_date(r.date)} {r.time_label} は {r.display_name} さんと '
-                                              f'{"・".join(names)} さんが同じ時間です（共演NG）。予定表では赤く出ます。')
+                                              f'{"・".join(outcome[1])} さんが同じ時間です（共演NG）。利用希望にほかの時刻が無いので、'
+                                              '予定表では赤く出ます。')
         _warn_limit(request, facility, res_a.date)
         return back
 
