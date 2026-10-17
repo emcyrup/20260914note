@@ -181,6 +181,7 @@ class BillingMatrixView(LoginRequiredMixin, BillingEnabledMixin, View):
             'today':              today,
             'unsaved_count':      unsaved_count,
             'ready_issues':       readiness.issues(facility, date(year, month, 1)),
+            'diff_issues':        readiness.month_diff(facility, year, month),
         })
 
 
@@ -369,6 +370,7 @@ class CellUpdateView(LoginRequiredMixin, BillingEnabledMixin, View):
             date        = target_date,
             defaults    = {'status': new_status, 'is_finalized': True, 'time_kubun': kubun},
         )
+        snapshot_entry(entry, facility, beneficiary)
 
         # ScheduledVisit の状態も同期更新（整合性のため）
         ScheduledVisit.objects.filter(
@@ -424,13 +426,14 @@ class LoadFromScheduleView(LoginRequiredMixin, BillingEnabledMixin, View):
             billing_status = self.STATUS_MAP.get(visit.status)
             if not billing_status:
                 continue
-            _, is_new = BillingMatrixEntry.objects.get_or_create(
+            entry, is_new = BillingMatrixEntry.objects.get_or_create(
                 facility    = facility,
                 beneficiary = visit.beneficiary,
                 date        = visit.date,
                 defaults    = {'status': billing_status, 'time_kubun': codes.default_kubun(facility, visit.date)},
             )
             if is_new:
+                snapshot_entry(entry, facility, visit.beneficiary)
                 created += 1
             else:
                 skipped += 1
@@ -531,9 +534,10 @@ class CopaymentListView(LoginRequiredMixin, BillingEnabledMixin, View):
             if choice not in dict(cp.FAX_CHOICES) or (choice == 'amount' and amount is None):
                 messages.error(request, '反映する結果（0 円・全額・金額）を選んでください。')
                 return back
-            people = list(Beneficiary.objects.filter(facility=facility, pk__in=ids))
+            people = [b for b in Beneficiary.objects.filter(facility=facility, pk__in=ids)
+                      if cp.judge(facility, b, year, month, CopaymentManagement.objects.filter(facility=facility, beneficiary=b, year_month=f'{year}-{month:02d}').first())['state'] == 'other']
             if not people:
-                messages.error(request, '反映する利用者に印を付けてください。')
+                messages.error(request, '反映する利用者（ほかの事業所が管理する人）に印を付けてください。')
                 return back
             for b in people:
                 cp.apply_fax_result(facility, b, year, month, choice, amount)
@@ -743,6 +747,65 @@ class CopaymentSheetView(LoginRequiredMixin, BillingEnabledMixin, View):
                            f'上限額管理結果票_{beneficiary.full_name}_{year}{month:02d}')
 
 
+class CopaymentOfficeListView(LoginRequiredMixin, BillingEnabledMixin, View):
+    """
+    利用者負担額一覧表（送付先の事業所ごと）。当施設が上限額管理事業所として管理した月の結果を、
+    相手の事業所ごとに 1 枚にまとめて PDF で出す（結果票を 1 人ずつ送る代わりに、まとめて FAX するため）。
+    ?ids=<利用者pk>&ids=… で利用者を絞れる。?fmt=html で画面表示
+    """
+
+    def get(self, request, year, month):
+        from config.pdf import pdf_or_html
+        from beneficiaries.models import RecipientCertificate
+        from . import copayment as cp
+        facility = request.user.facility
+        year, month = month_or_404(year, month)
+        first = date(year, month, 1)
+        mgmts = (CopaymentManagement.objects.filter(facility=facility, year_month=f'{year}-{month:02d}', is_upper_limit_manager=True)
+                 .select_related('beneficiary').prefetch_related('office_records', 'beneficiary__offices'))
+        ids = [to_int(x, -1) for x in request.GET.getlist('ids')]
+        if ids:
+            mgmts = mgmts.filter(beneficiary_id__in=ids)
+        labels = dict(CopaymentManagement.MANAGEMENT_RESULT_CHOICES)
+        groups = {}
+        for m in mgmts:
+            records = list(m.office_records.all())
+            mine = next((r for r in records if r.is_this_office), None)
+            cert = (RecipientCertificate.objects.filter(beneficiary=m.beneficiary, valid_from__lte=first, valid_until__gte=first)
+                    .order_by('-valid_until').first())
+            for r in records:
+                if r.is_this_office:
+                    continue
+                key = (r.office_number or '', r.office_name)
+                g = groups.setdefault(key, {'office_number': r.office_number, 'office_name': r.office_name, 'contact': None, 'rows': []})
+                # 送付先の連絡先：利用者の「利用事業所」の登録から。FAX や担当者が入っている登録を優先
+                cand = next((o for o in m.beneficiary.offices.all() if not o.is_this_office
+                             and ((r.office_number and o.office_number == r.office_number) or o.name == r.office_name)), None)
+                cur = g['contact']
+                if cand is not None and (cur is None or (not cur.fax and cand.fax) or (not cur.fax and not cur.contact_name and cand.contact_name)):
+                    g['contact'] = cand
+                g['rows'].append({
+                    'beneficiary': m.beneficiary, 'cert': cert, 'cap': cp.cap_for(m.beneficiary, year, month),
+                    'result': m.management_result, 'result_label': labels.get(m.management_result, ''),
+                    'total_cost': r.total_cost, 'original': r.original_copayment, 'adjusted': r.adjusted_copayment,
+                    'mine_adjusted': mine.adjusted_copayment if mine else 0,
+                })
+        offices = sorted(groups.values(), key=lambda g: (g['office_name'], g['office_number']))
+        for g in offices:
+            g['rows'].sort(key=lambda x: (x['beneficiary'].last_name_kana, x['beneficiary'].first_name_kana))
+            g['sum_total_cost'] = sum(x['total_cost'] for x in g['rows'])
+            g['sum_original'] = sum(x['original'] for x in g['rows'])
+            g['sum_adjusted'] = sum(x['adjusted'] for x in g['rows'])
+        if not offices:
+            messages.warning(request, f'{year}年{month}月は、当施設が管理して保存した上限額管理（ほかの事業所の行があるもの）がありません。'
+                                      '「入力」でほかの事業所の額を入れて保存してから出してください。')
+            return redirect('billing:copayment_list_month', year=year, month=month)
+        ctx = {'facility': facility, 'year': year, 'month': month, 'offices': offices, 'issued_date': date.today(),
+               'people': sum(len(g['rows']) for g in offices),
+               'back_url': reverse('billing:copayment_list_month', args=[year, month])}
+        return pdf_or_html(request, 'billing/pdf/copayment_office_list.html', ctx, f'負担額一覧表_{year}{month:02d}')
+
+
 class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
     """
     月次請求集計 CSV ダウンロード（国保連請求作成・請求ソフト入力の参照資料）。
@@ -875,19 +938,41 @@ def base_rows_for(facility, beneficiary, entries):
     利用日を時間区分ごとにまとめる：[{'kubun', 'label', 'days', 'units'（1 日。無ければ None）, 'code', 'total'}]、単位数の合計。
     令和8年6月以降の新規指定事業所は 1 日の単位数を 982/1000 にする
     """
+    severe = facility.severe_units_apply(beneficiary)      # 重心の利用者：時間区分ではなく「授業終了後／学校休業日」で数える
     counts = {}
     for e in entries:
         k = e.time_kubun if e.time_kubun in (1, 2, 3) else codes.default_kubun(facility, e.date)
+        if severe:
+            k = codes.severe_kind(k)
         counts[k] = counts.get(k, 0) + 1
     rows, total = [], 0
     for k in sorted(counts):
         units = facility.base_units_for(beneficiary, k)
         if units is not None and facility.is_new_facility_r8:
             units = int((Decimal(units) * Decimal('982') / Decimal('1000')).to_integral_value())
-        rows.append({'kubun': k, 'label': codes.KUBUN_SHORT[k], 'days': counts[k], 'units': units,
+        rows.append({'kubun': k, 'label': codes.SEVERE_LABELS[k] if severe else codes.KUBUN_SHORT[k], 'days': counts[k], 'units': units,
                      'code': facility.base_code(k, beneficiary), 'total': (units or 0) * counts[k]})
         total += (units or 0) * counts[k]
     return rows, total
+
+
+def base_for_entry(facility, beneficiary, entry):
+    """そのセルの基本報酬 (サービスコード, 1 日の単位数)。重心の利用者は授業終了後／学校休業日"""
+    k = entry.time_kubun if entry.time_kubun in (1, 2, 3) else codes.default_kubun(facility, entry.date)
+    if facility.severe_units_apply(beneficiary):
+        k = codes.severe_kind(k)
+    return facility.base_code(k, beneficiary), facility.base_units_for(beneficiary, k)
+
+
+def snapshot_entry(entry, facility=None, beneficiary=None):
+    """保存したときの基本報酬を控えておく（請求前の差分チェックで先月と比べる）"""
+    facility = facility or entry.facility
+    beneficiary = beneficiary or entry.beneficiary
+    code, units = base_for_entry(facility, beneficiary, entry)
+    if (entry.base_code, entry.base_units) != (code, units):
+        entry.base_code, entry.base_units = code, units
+        entry.save(update_fields=['base_code', 'base_units'])
+    return entry
 
 
 def _build_invoice_context(facility, beneficiary, year, month):

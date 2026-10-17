@@ -40,3 +40,42 @@ def issues(facility, month_start):
             names = '・'.join(b.full_name for b in missing[:5]) + ('…' if len(missing) > 5 else '')
             add(f'{month_start.month}月 1 日に有効な受給者証が無い利用者 {len(missing)} 名（{names}）', reverse('beneficiaries:list'))
     return out
+
+
+def month_diff(facility, year, month):
+    """
+    請求前の差分チェック：先月のセルに控えた基本報酬（保存したときのサービスコード・単位数）と、
+    いまの設定で計算した今月の基本報酬が違う利用者を知らせる（定員区分・医療的ケア区分・重心の印・
+    時間区分の初期値を変えたときの誤適用に気づくため）。控えの無い先月のセルは、いまの値で控えを作る。
+    戻り値 [{'text', 'url'}]
+    """
+    from .models import BillingMatrixEntry
+    from .views import base_for_entry, snapshot_entry
+    py, pm = (year - 1, 12) if month == 1 else (year, month - 1)
+    changed = []
+    for b in Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE).order_by('last_name_kana', 'first_name_kana'):
+        cur = list(BillingMatrixEntry.objects.filter(facility=facility, beneficiary=b, date__year=year, date__month=month, status='attended'))
+        prev = list(BillingMatrixEntry.objects.filter(facility=facility, beneficiary=b, date__year=py, date__month=pm, status='attended'))
+        if not cur or not prev:
+            continue
+        before = {}
+        for e in prev:
+            if e.base_units is None and not e.base_code:
+                snapshot_entry(e, facility, b)
+            k = e.time_kubun if e.time_kubun in (1, 2, 3) else None
+            before.setdefault(k, (e.base_code, e.base_units))
+        now = {}
+        for e in cur:
+            k = e.time_kubun if e.time_kubun in (1, 2, 3) else None
+            now.setdefault(k, base_for_entry(facility, b, e))
+        for k in sorted(now, key=lambda x: x or 0):
+            if k in before and before[k] != now[k]:
+                o, n = before[k], now[k]
+                changed.append(f'{b.full_name}（{"区分" + str(k) if k else "初期値"}：{o[0] or "コードなし"}・{o[1] if o[1] is not None else "?"} 単位 → '
+                               f'{n[0] or "コードなし"}・{n[1] if n[1] is not None else "?"} 単位）')
+                break
+    if not changed:
+        return []
+    return [{'text': f'先月と基本報酬のサービスコード・単位数が違う利用者 {len(changed)} 名：' + '、'.join(changed[:5]) + ('…' if len(changed) > 5 else '')
+                     + '。設定を変えた覚えが無ければ確かめてください',
+             'url': reverse('facilities:settings') + '#tab-basic'}]

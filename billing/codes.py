@@ -63,6 +63,18 @@ FACILITY_ADDON_BY_CAPACITY = {
 }
 
 
+# 主として重症心身障害児を通わせる事業所（重心型）の基本報酬：時間区分は無く「授業終了後」「学校休業日」の 2 つ。
+# 定員は 3 人刻み（5〜7 人、8〜10 人、…）。単位数は施設設定に入れる（下は確かめられた参考値。令和 6 年 4 月）
+SEVERE_SCHOOL, SEVERE_HOLIDAY = 2, 3
+SEVERE_LABELS = {SEVERE_SCHOOL: '授業終了後', SEVERE_HOLIDAY: '学校休業日'}
+SEVERE_REFERENCE = [('定員 5〜7 人', 1771, 2056)]     # (定員区分, 授業終了後, 学校休業日)。ほかの定員区分は告示で確かめてから足す
+
+
+def severe_kind(kubun):
+    """時間区分 → 重心型の区分（区分 3 ＝ 学校休業日、それ以外は授業終了後）"""
+    return SEVERE_HOLIDAY if int(kubun or 0) == 3 else SEVERE_SCHOOL
+
+
 def base_row(care_level, capacity_class, kubun):
     """(サービスコード, 単位数)。表に無ければ None"""
     try:

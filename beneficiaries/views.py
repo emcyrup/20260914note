@@ -789,6 +789,7 @@ class RecipientCertificateOcrView(LoginRequiredMixin, View):
   "valid_from": "有効期間の開始日（YYYY-MM-DD形式）",
   "valid_until": "有効期間の終了日（YYYY-MM-DD形式）",
   "municipality": "市区町村名",
+  "municipality_code": "市町村番号（6桁の数字。受給者証に印字があれば）",
   "support_office": "相談支援事業所名"
 }
 """

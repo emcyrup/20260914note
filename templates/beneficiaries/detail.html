@@ -893,10 +893,16 @@
               <input type="number" name="granted_days" class="form-control"
                      value="{{ c.granted_days }}" min="0">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-3 cap-field">
               <label class="form-label small fw-semibold">負担上限月額（円）</label>
-              <input type="number" name="monthly_cap" class="form-control"
-                     value="{{ c.monthly_cap }}" min="0">
+              <select class="form-select cap-pick" aria-label="負担上限月額の区分">
+                <option value="0">0 円（生活保護・低所得）</option>
+                <option value="4600">4,600 円（一般 1）</option>
+                <option value="37200">37,200 円（一般 2）</option>
+                <option value="">その他（金額を入れる）</option>
+              </select>
+              <input type="number" name="monthly_cap" class="form-control mt-1 cap-other"
+                     value="{{ c.monthly_cap }}" min="0" aria-label="負担上限月額（円）">
             </div>
             <div class="col-md-6">
               <label class="form-label small fw-semibold">有効期間（開始）</label>
@@ -912,6 +918,11 @@
               <label class="form-label small fw-semibold">市区町村</label>
               <input type="text" name="municipality" class="form-control"
                      value="{{ c.municipality }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small fw-semibold">市町村番号（6 桁・結果票用）</label>
+              <input type="text" name="municipality_code" class="form-control" maxlength="6" inputmode="numeric"
+                     value="{{ c.municipality_code }}">
             </div>
             <div class="col-md-6">
               <label class="form-label small fw-semibold">相談支援事業所</label>
@@ -1266,9 +1277,15 @@
               <label class="form-label small fw-semibold">支給量（日/月）<span class="text-danger">*</span></label>
               <input type="number" name="granted_days" id="f_granted_days" class="form-control" min="0" required>
             </div>
-            <div class="col-sm-3">
+            <div class="col-sm-3 cap-field">
               <label class="form-label small fw-semibold">負担上限月額（円）</label>
-              <input type="number" name="monthly_cap" id="f_monthly_cap" class="form-control" min="0">
+              <select class="form-select cap-pick" id="f_monthly_cap_pick" aria-label="負担上限月額の区分">
+                <option value="0">0 円（生活保護・低所得）</option>
+                <option value="4600">4,600 円（一般 1）</option>
+                <option value="37200">37,200 円（一般 2）</option>
+                <option value="">その他（金額を入れる）</option>
+              </select>
+              <input type="number" name="monthly_cap" id="f_monthly_cap" class="form-control mt-1 cap-other" min="0" aria-label="負担上限月額（円）">
             </div>
             <div class="col-sm-6">
               <label class="form-label small fw-semibold">有効期間（開始）<span class="text-danger">*</span></label>
@@ -1281,6 +1298,10 @@
             <div class="col-sm-6">
               <label class="form-label small fw-semibold">市区町村</label>
               <input type="text" name="municipality" id="f_municipality" class="form-control">
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label small fw-semibold">市町村番号（6 桁・結果票用）</label>
+              <input type="text" name="municipality_code" id="f_municipality_code" class="form-control" maxlength="6" inputmode="numeric">
             </div>
             <div class="col-sm-6">
               <label class="form-label small fw-semibold">相談支援事業所</label>
@@ -1333,6 +1354,27 @@
 })();
 </script>
 <script>
+// 負担上限月額：0／4,600／37,200 の 3 パターンは選ぶだけ。ほかの金額は「その他」で入れる（2026-10-16 はびりす）
+function syncCapPicks() {
+  document.querySelectorAll('.cap-field').forEach(function (box) {
+    var pick = box.querySelector('.cap-pick'), other = box.querySelector('.cap-other');
+    if (!pick || !other) return;
+    var v = String(other.value || '').trim();
+    var preset = ['0', '4600', '37200'].indexOf(v) >= 0;
+    if (!v && !other.dataset.touched) { pick.value = '4600'; other.value = '4600'; preset = true; }   // 空なら一般 1 を初期値に
+    pick.value = preset ? String(parseInt(other.value, 10)) : '';
+    other.classList.toggle('d-none', preset);
+    if (!pick._wired) {
+      pick._wired = true;
+      pick.addEventListener('change', function () {
+        if (pick.value !== '') { other.value = pick.value; other.classList.add('d-none'); }
+        else { other.classList.remove('d-none'); other.dataset.touched = '1'; other.focus(); }
+      });
+      other.addEventListener('input', function () { other.dataset.touched = '1'; });
+    }
+  });
+}
+document.addEventListener('DOMContentLoaded', syncCapPicks);
 function ocrHandler(ocrUrl) {
   return {
     selectedFile: null, loading: false, errorMsg: '', successMsg: '',
@@ -1351,10 +1393,11 @@ function ocrHandler(ocrUrl) {
           const r = data.result;
           if (r.certificate_number) document.getElementById('f_cert_number').value = r.certificate_number;
           if (r.granted_days)       document.getElementById('f_granted_days').value = r.granted_days;
-          if (r.monthly_cap)        document.getElementById('f_monthly_cap').value = r.monthly_cap;
+          if (r.monthly_cap)      { document.getElementById('f_monthly_cap').value = r.monthly_cap; if (window.syncCapPicks) syncCapPicks(); }
           if (r.valid_from)         document.getElementById('f_valid_from').value = r.valid_from;
           if (r.valid_until)        document.getElementById('f_valid_until').value = r.valid_until;
           if (r.municipality)       document.getElementById('f_municipality').value = r.municipality;
+          if (r.municipality_code)  document.getElementById('f_municipality_code').value = r.municipality_code;
           if (r.support_office)     document.getElementById('f_support_office').value = r.support_office;
           this.successMsg = '読み取り完了！内容を確認して「登録する」を押してください。';
         }

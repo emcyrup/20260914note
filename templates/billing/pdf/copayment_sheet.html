@@ -48,14 +48,16 @@
     </tr>
     <tr>
       <th class="h">利用者負担上限月額</th><td>{% if cert %}{{ cert.monthly_cap }} 円{% endif %}</td>
-      <th class="h">市町村</th><td>{{ cert.municipality|default:"" }}</td>
+      <th class="h">市町村番号・市町村</th><td>{% if cert.municipality_code %}{{ cert.municipality_code }}　{% endif %}{{ cert.municipality|default:"" }}</td>
     </tr>
   </table>
 
   <div class="lbl">管理事業所</div>
   <table style="margin-top:4px;">
-    <tr><th class="h" style="width:18%;">事業所番号</th><td style="width:32%;">{{ facility.office_number }}</td>
+    <tr><th class="h" style="width:18%;">指定事業所番号</th><td style="width:32%;">{{ facility.office_number }}</td>
         <th class="h" style="width:18%;">事業所名称</th><td>{{ facility.name }}</td></tr>
+    <tr><th class="h">住所</th><td>{{ facility.address }}{{ facility.address2 }}</td>
+        <th class="h">電話番号</th><td>{{ facility.phone }}</td></tr>
   </table>
 
   <div class="lbl">利用者負担上限額管理結果</div>

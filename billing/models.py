@@ -34,6 +34,9 @@ class BillingMatrixEntry(models.Model):
     is_finalized = models.BooleanField(default=False, verbose_name='請求確定済み')
     # 基本報酬の時間区分（1〜3。billing/codes.py）。空なら施設設定の初期値（平日／学校休業日）
     time_kubun   = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name='時間区分')
+    # 保存したときの基本報酬（請求前の差分チェック用の控え。billing/readiness.py month_diff）
+    base_code    = models.CharField(max_length=10, blank=True, verbose_name='基本報酬サービスコード（保存時）')
+    base_units   = models.IntegerField(null=True, blank=True, verbose_name='基本報酬単位数（保存時）')
     created_at   = models.DateTimeField(auto_now_add=True)
     updated_at   = models.DateTimeField(auto_now=True)
 
