@@ -106,7 +106,7 @@
     </div>
     <div id="voice-direct-note" class="alert alert-warning small py-1 px-2 mt-2 mb-0 d-none"></div>
     <textarea id="voice-buffer" class="d-none" style="display:none" hidden aria-hidden="true" tabindex="-1"></textarea>
-    <div id="voice-direct-status" class="small text-muted mt-2" aria-live="polite">押して話し、話し終えたらもう一度押してください。話した内容を書き言葉に整えて、下の「これまでの記録」の<b>今日（{{ today|date:'n/j' }}）の記録</b>のやったこと・事実・様子に入れます。確かめて直してから「保存する」を押してください（自動では保存しません）。直した内容は、この事業所の次の整え方の参考になります（名前は伏せて使います）。</div>
+    <div id="voice-direct-status" class="small text-muted mt-2" aria-live="polite">押して話し、話し終えたらもう一度押してください。話した内容を活動ごとの段落にまとめ、書き言葉に整えて、下の「これまでの記録」の<b>今日（{{ today|date:'n/j' }}）の記録</b>に入れます（内容は足しません・変えません）。確かめて直してから「保存する」を押してください（自動では保存しません）。直した内容は、この事業所の次の整え方の参考になります（名前は伏せて使います）。</div>
     <div id="voice-direct-asis"></div>
   </div></div>
   {% else %}
@@ -488,7 +488,7 @@
     lastBefore = {form: form, values: before};
     var scroll = document.querySelector(tgt.dataset.scroll);
     if (scroll) scroll.scrollIntoView({block: 'start', behavior: 'smooth'});
-    say('書き言葉に整えて、今日の記録に入れました' + (left.length ? '（①〜⑤がいっぱいで入らなかったやったこと：' + left.join('、') + '）' : '') +
+    say('活動ごとにまとめて、今日の記録に入れました' + (left.length ? '（①〜⑤がいっぱいで入らなかったやったこと：' + left.join('、') + '）' : '') +
         '。確かめて直してから「保存する」を押してください。', 'info', [['入れたのを取り消す', undo]]);
     asisBox.textContent = '';
     if (data.added && data.added.length) {
@@ -513,7 +513,7 @@
   }
   function process(text) {
     working = true;
-    say('書き言葉に整えています…', 'light');
+    say('活動ごとにまとめて、書き言葉に整えています…', 'light');
     var body = new FormData();
     body.append('text', text); body.append('mode', 'record'); body.append('csrfmiddlewaretoken', csrf());
     fetch(url, {method: 'POST', body: body, credentials: 'same-origin'})

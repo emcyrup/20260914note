@@ -831,8 +831,9 @@ class VoiceDirectTests(TestCase):
         self.assertEqual(d['body'], 'ウレタン棒で10回打ち合った。\nブロックを積んだ。\n「もう1回」と言った。')
         self.assertEqual(d['situation'], '')
         kwargs = client_cls.return_value.messages.create.call_args.kwargs
-        self.assertIn('話したことは1文も落とさない', kwargs['system'])
-        self.assertIn('1 つの記録にする', kwargs['system'])
+        self.assertIn('活動・場面ごとに 1 つの段落にする', kwargs['system'])      # 2026-10-17 まとまる記録に
+        self.assertIn('肯定／否定）は 1 つも落とさず、変えない', kwargs['system'])
+        self.assertIn('肯定と否定を入れ替えない', kwargs['system'])
         self.assertNotIn('"situation"', kwargs['system'])
         self.assertIn('青木 子さん', kwargs['messages'][0]['content'])
         self.assertFalse(TherapyRecord.objects.exists())           # 返すだけで保存はしない
@@ -890,11 +891,17 @@ class LearningTests(TestCase):
                   ai='ウレタン棒で打ち合った。山田太郎さんは泣いた。意欲的だった。ブロックを積んだ。',
                   body='ウレタン棒で打ち合った。太郎さんは負けて泣いた。ブロックを積んだ。「できた」と言った。')
         self._rec(self.other, datetime.date(2026, 9, 30), ai='ブロックを積んだ。楽しそうだった。', body='ブロックを積んだ。')
-        # 続けて変えたところは 1 つの例に（消した文もいっしょに）。消しただけの文は「（この文は消した）」
-        self.assertEqual(learning.pairs_for(self.f), [('{名前}さんは泣いた。 意欲的だった。', '{名前}さんは負けて泣いた。'), ('楽しそうだった。', '')])
-        block = learning.examples_block(self.f)
+        # 言い回しの直しだけを例にする。消した文・足した文は例にしない。肯定／否定が変わる直し・大きく書き換えた直しも例にしない
+        self.assertEqual(learning.pairs_for(self.f), [('{名前}さんは泣いた。 意欲的だった。', '{名前}さんは負けて泣いた。')])
+        self._rec(self.other, datetime.date(2026, 9, 29), ai='靴をはけた。', body='靴をはけなかった。')
+        self._rec(self.other, datetime.date(2026, 9, 28), ai='ボールを投げた。', body='ブランコに乗って 10 回こいだ。')
+        self.assertEqual(len(learning.pairs_for(self.f)), 1)
+        # 例の投入は止めている（EXAMPLES_ENABLED=False）。再開したときの文
+        self.assertEqual(learning.examples_block(self.f), '')
+        with mock.patch.object(learning, 'EXAMPLES_ENABLED', True):
+            block = learning.examples_block(self.f)
         self.assertIn('直し：{名前}さんは負けて泣いた。', block)
-        self.assertIn('直し：（この文は消した）', block)
+        self.assertNotIn('この文は消した', block)
         self.assertNotIn('山田', block)
         self.assertNotIn('「できた」', block)          # 職員が足した文は例にしない
         # 直していない記録・ほかの事業所の記録は使わない
@@ -902,17 +909,23 @@ class LearningTests(TestCase):
         g = Facility.objects.create(name='ほか', use_therapy_record=True, therapy_voice_direct=True)
         o = Beneficiary.objects.create(facility=g, last_name='他', first_name='人', last_name_kana='ほか', date_of_birth=datetime.date(2018, 4, 1))
         TherapyRecord.objects.create(facility=g, beneficiary=o, date=datetime.date(2026, 10, 3), body='よその直し', ai_body='よそ')
-        self.assertEqual(len(learning.pairs_for(self.f)), 2)
+        self.assertEqual(len(learning.pairs_for(self.f)), 1)
         Facility.objects.filter(pk=self.f.pk).update(therapy_voice_direct=False)
-        self.assertEqual(learning.examples_block(Facility.objects.get(pk=self.f.pk)), '')
+        with mock.patch.object(learning, 'EXAMPLES_ENABLED', True):
+            self.assertEqual(learning.examples_block(Facility.objects.get(pk=self.f.pk)), '')
 
     @mock.patch('ai_assist.quick.anthropic.Anthropic')
     def test_record_mode_sends_examples_and_returns_source(self, client_cls):
+        from therapy import learning
         self._rec(self.other, datetime.date(2026, 10, 1), ai='山田さんは泣いた。', body='山田さんは負けて泣いた。')
         client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(
             type='text', text='{"activities": ["ブロック"], "body": "ブロックを積んだ。"}')])
         d = self.client.post(self.ai_url, {'mode': 'record', 'text': 'ブロック積んだ'}).json()
         self.assertEqual((d['spoken'], d['ai_body']), ('ブロック積んだ', 'ブロックを積んだ。'))
+        sent = client_cls.return_value.messages.create.call_args.kwargs['messages'][0]['content']
+        self.assertNotIn('直し方の例', sent)                           # 止めている間は渡さない（2026-10-17）
+        with mock.patch.object(learning, 'EXAMPLES_ENABLED', True):
+            self.client.post(self.ai_url, {'mode': 'record', 'text': 'ブロック積んだ'})
         kwargs = client_cls.return_value.messages.create.call_args.kwargs
         sent = kwargs['messages'][0]['content']
         self.assertIn('【この事業所での直し方の例', sent)
@@ -921,7 +934,8 @@ class LearningTests(TestCase):
         self.assertIn('直し方の例があるとき', kwargs['system'])
         # 例が無ければ付けない
         TherapyRecord.objects.all().delete()
-        self.client.post(self.ai_url, {'mode': 'record', 'text': 'ブロック積んだ'})
+        with mock.patch.object(learning, 'EXAMPLES_ENABLED', True):
+            self.client.post(self.ai_url, {'mode': 'record', 'text': 'ブロック積んだ'})
         self.assertNotIn('直し方の例（', client_cls.return_value.messages.create.call_args.kwargs['messages'][0]['content'])
 
     def test_save_keeps_source_and_shows_it(self):
