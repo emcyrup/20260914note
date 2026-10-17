@@ -166,11 +166,27 @@
           {{ facility_form.base_unit_count }}
         </div>
         <div class="col-md-4">
-          <label class="form-label small fw-semibold">重身の基本報酬単位数
+          <label class="form-label small fw-semibold">重身の基本報酬単位数（授業終了後）
             <span class="text-muted fw-normal">（重症心身障害児の利用者）</span>
           </label>
           {{ facility_form.base_unit_count_severe }}
         </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">重身の基本報酬単位数（学校休業日）</label>
+          {{ facility_form.base_unit_count_severe_holiday }}
+          <div class="form-text">重心型の基本報酬は時間区分が無く、授業終了後／学校休業日（請求マトリックスの区分 3）の 2 つ。空なら授業終了後と同じ。参考：定員 5〜7 人は 1,771／2,056 単位（令和 6 年 4 月）</div>
+        </div>
+        {% if facility.use_billing %}
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">重身のサービスコード（授業終了後）</label>
+          {{ facility_form.base_code_severe }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">重身のサービスコード（学校休業日）</label>
+          {{ facility_form.base_code_severe_holiday }}
+          <div class="form-text">重心の利用者の請求書・CSV に出ます。空なら授業終了後のコード</div>
+        </div>
+        {% endif %}
         <div class="col-md-4 d-flex align-items-end">
           <div>
             <div class="form-check mb-1">

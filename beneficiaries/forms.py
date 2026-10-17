@@ -77,7 +77,7 @@ class RecipientCertificateForm(forms.ModelForm):
         fields = [
             'certificate_number', 'granted_days', 'monthly_cap',
             'valid_from', 'valid_until',
-            'municipality', 'support_office',
+            'municipality', 'municipality_code', 'support_office',
             'scanned_image',
         ]
         widgets = {

@@ -32,6 +32,9 @@ urlpatterns = [
     # 上限額管理結果票（送付状つき PDF）
     path('copayment/<int:beneficiary_pk>/<int:year>/<int:month>/sheet/',
          views.CopaymentSheetView.as_view(), name='copayment_sheet'),
+    # 負担額一覧表（送付先の事業所ごとにまとめた PDF）
+    path('copayment/<int:year>/<int:month>/office-list/',
+         views.CopaymentOfficeListView.as_view(), name='copayment_office_list'),
 
     # 月次請求集計 CSV ダウンロード
     path('csv/<int:year>/<int:month>/billing/',

@@ -86,9 +86,13 @@ class Facility(models.Model):
     )
     # 重症心身障害児（重身）の基本報酬単位数（普通用と単位が異なる）
     base_unit_count_severe = models.IntegerField(
-        null=True, blank=True, verbose_name='重身の1日あたり基本報酬単位数',
-        help_text='重症心身障害児の利用者に使う単位数。空なら通常の単位数を使います。'
+        null=True, blank=True, verbose_name='重身の1日あたり基本報酬単位数（授業終了後）',
+        help_text='重症心身障害児の利用者に使う単位数（授業終了後）。空なら通常の単位数を使います。'
     )
+    # 重心型の基本報酬は時間区分が無く「授業終了後／学校休業日」の 2 つ（2026-10-16 はびりす）。学校休業日が空なら授業終了後と同じ
+    base_unit_count_severe_holiday = models.IntegerField(null=True, blank=True, verbose_name='重身の1日あたり基本報酬単位数（学校休業日）')
+    base_code_severe = models.CharField(max_length=10, blank=True, verbose_name='重身の基本報酬サービスコード（授業終了後）')
+    base_code_severe_holiday = models.CharField(max_length=10, blank=True, verbose_name='重身の基本報酬サービスコード（学校休業日）')
     is_new_facility_r8 = models.BooleanField(
         default=False, verbose_name='令和8年6月以降新規指定事業所',
         help_text='令和8年6月1日以降に新規指定された事業所の場合はチェック'
@@ -192,13 +196,20 @@ class Facility(models.Model):
         table = REGION_UNIT_PRICE_SEVERE if self.is_severe_facility else REGION_UNIT_PRICE
         return table.get(self.region_category, Decimal('10.00'))
 
+    def severe_units_apply(self, beneficiary):
+        """この利用者に重心型の基本報酬（授業終了後／学校休業日）を使うか"""
+        return bool(getattr(beneficiary, 'is_severe', False) and self.base_unit_count_severe)
+
     def base_code(self, kubun, beneficiary=None):
         """
         基本報酬のサービスコード（時間区分ごと）。施設設定で入れた値があればそれ、無ければ定員区分と利用者の医療的ケア区分から
-        コード表（billing/codes.py）の値。どちらも無ければ空
+        コード表（billing/codes.py）の値。どちらも無ければ空。重心の利用者は重心用のコード（授業終了後／学校休業日）
         """
         if kubun not in (1, 2, 3):
             return ''
+        if self.severe_units_apply(beneficiary):
+            from billing.codes import SEVERE_HOLIDAY, severe_kind
+            return self.base_code_severe_holiday or self.base_code_severe if severe_kind(kubun) == SEVERE_HOLIDAY else self.base_code_severe
         manual = getattr(self, f'base_code_{kubun}', '')
         care = getattr(beneficiary, 'medical_care_level', 0) or 0
         if manual and not care:
@@ -212,7 +223,10 @@ class Facility(models.Model):
         重身の利用者で重身の単位数があればそれ。定員区分と時間区分があれば表（billing/codes.py。医療的ケア区分も見る）、
         無ければ手入力の単位数
         """
-        if getattr(beneficiary, 'is_severe', False) and self.base_unit_count_severe:
+        if self.severe_units_apply(beneficiary):
+            from billing.codes import SEVERE_HOLIDAY, severe_kind
+            if kubun and severe_kind(kubun) == SEVERE_HOLIDAY and self.base_unit_count_severe_holiday:
+                return self.base_unit_count_severe_holiday
             return self.base_unit_count_severe
         if self.capacity_class and kubun:
             from billing.codes import table_units

@@ -414,3 +414,165 @@ class ServiceCodeTableTests(TestCase):
         res = self.client.get(reverse('facilities:settings'))
         self.assertContains(res, '63H592')
         self.assertContains(res, '空ならコード表の 63H574')
+
+
+class CopaymentRuleTests(TestCase):
+    """管理結果 1・2・3 の決め方と例外（2026-10-16 はびりす打ち合わせ。billing/copayment.py の allocate の docstring）"""
+
+    def test_result_rules(self):
+        from . import copayment as cp
+        mine = lambda n: {'is_this_office': True, 'original_copayment': n}
+        other = lambda n: {'is_this_office': False, 'original_copayment': n}
+        # 合算がちょうど上限 → 2（調整なし）
+        self.assertEqual(cp.allocate(4600, [mine(3000), other(1600)]), ([3000, 1600], '2'))
+        # 当施設だけで上限に達する → 1（ほかは 0）
+        self.assertEqual(cp.allocate(4600, [mine(4600), other(10)]), ([4600, 0], '1'))
+        self.assertEqual(cp.allocate(4600, [mine(9000), other(0)]), ([4600, 0], '1'))
+        # 当施設が上限未満でほかに配分 → 3
+        self.assertEqual(cp.allocate(4600, [mine(4000), other(1000)]), ([4000, 600], '3'))
+        # 当施設の来所 0 回でも、ほかの合算が上限を超えれば 3
+        self.assertEqual(cp.allocate(4600, [mine(0), other(3000), other(3000)]), ([0, 3000, 1600], '3'))
+        # 上限 0 円（生活保護・低所得）→ 全員 0 円、2
+        self.assertEqual(cp.allocate(0, [mine(3000), other(1000)]), ([0, 0], '2'))
+        # 上限が未登録 → 配分しない
+        self.assertEqual(cp.allocate(None, [mine(3000), other(3000)]), ([3000, 3000], '2'))
+        # 37,200 円（一般 2）
+        self.assertEqual(cp.allocate(37200, [mine(20000), other(20000)]), ([20000, 17200], '3'))
+
+    def test_judge_text_for_zero_cap(self):
+        from . import copayment as cp
+        f = Facility.objects.create(name='はびりす', office_number='2650000001', use_billing=True, base_unit_count=604, region_category='3')
+        b = Beneficiary.objects.create(facility=f, last_name='中村', first_name='みお', date_of_birth='2015-09-14')
+        RecipientCertificate.objects.create(beneficiary=b, certificate_number='1', granted_days=23, monthly_cap=0,
+                                            valid_from='2026-04-01', valid_until='2027-03-31')
+        BeneficiaryOffice.objects.create(beneficiary=b, name='はびりす', office_number='2650000001', is_this_office=True, is_manager=True)
+        BeneficiaryOffice.objects.create(beneficiary=b, name='ほか', office_number='2650000101', order=1)
+        self.assertEqual(cp.judge(f, b, 2026, 9)['text'], '当施設が管理：上限月額 0 円 → 全事業所 0 円（結果 2）')
+
+
+class CopaymentOfficeListTests(TestCase):
+    """負担額一覧表（送付先の事業所ごとにまとめた PDF）と、一覧の印の使い分け（2026-10-16 はびりす打ち合わせ）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='はびりす', office_number='2650000001', use_billing=True, base_unit_count=604, region_category='3',
+                                         address='京都市', phone='075-000-0100')
+        self.client.force_login(StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.f))
+        mk = lambda last, first, kana: Beneficiary.objects.create(facility=self.f, last_name=last, first_name=first, last_name_kana=kana, date_of_birth='2015-09-14')
+        self.a, self.b, self.c = mk('中村', 'みお', 'なかむら'), mk('田中', 'ひなた', 'たなか'), mk('佐藤', 'はると', 'さとう')
+        for b, cap in ((self.a, 4600), (self.b, 37200), (self.c, 4600)):
+            RecipientCertificate.objects.create(beneficiary=b, certificate_number=f'26000{b.pk:05d}', granted_days=23, monthly_cap=cap,
+                                                valid_from='2026-04-01', valid_until='2027-03-31', municipality='京都市', municipality_code='261009')
+            BeneficiaryOffice.objects.create(beneficiary=b, name='はびりす', office_number='2650000001', is_this_office=True, is_manager=(b is not self.c))
+        BeneficiaryOffice.objects.create(beneficiary=self.a, name='児童デイ ひまわり', office_number='2650000101', fax='075-000-0200', contact_name='担当 太郎', order=1)
+        BeneficiaryOffice.objects.create(beneficiary=self.b, name='児童デイ ひまわり', office_number='2650000101', order=1)
+        BeneficiaryOffice.objects.create(beneficiary=self.b, name='放デイ そら', office_number='2650000202', order=2)
+        BeneficiaryOffice.objects.create(beneficiary=self.c, name='児童デイ ひまわり', office_number='2650000101', is_manager=True, order=1)
+
+    def _mgmt(self, b, result, rows):
+        m = CopaymentManagement.objects.create(facility=self.f, beneficiary=b, year_month='2026-09', is_upper_limit_manager=True, management_result=result)
+        for i, (name, num, cost, orig, adj) in enumerate(rows):
+            CopaymentOfficeRecord.objects.create(management=m, is_this_office=(i == 0), office_name=name, office_number=num,
+                                                 total_cost=cost, original_copayment=orig, adjusted_copayment=adj)
+        return m
+
+    def test_office_list_groups_by_office(self):
+        self._mgmt(self.a, '1', [('はびりす', '2650000001', 60000, 6000, 4600), ('児童デイ ひまわり', '2650000101', 30000, 3000, 0)])
+        self._mgmt(self.b, '3', [('はびりす', '2650000001', 200000, 20000, 20000), ('児童デイ ひまわり', '2650000101', 100000, 10000, 10000),
+                                 ('放デイ そら', '2650000202', 120000, 12000, 7200)])
+        url = reverse('billing:copayment_office_list', args=[2026, 9])
+        html = self.client.get(url + '?fmt=html').content.decode()
+        self.assertEqual(html.count('御中'), 2)                                   # 送付先ごとに 1 枚
+        self.assertIn('児童デイ ひまわり　御中', html)
+        self.assertIn('放デイ そら　御中', html)
+        self.assertIn('FAX：075-000-0200', html)                                # 利用者の利用事業所に登録した連絡先
+        self.assertIn('負担額一覧表（2026年9月分）', html)
+        self.assertIn('合計（2 名）', html)                                       # ひまわり宛は 2 名
+        self.assertIn('合計（1 名）', html)
+        self.assertIn('<b>7200</b>', html)
+        self.assertIn('TEL：075-000-0100', html)
+        # 利用者を絞る
+        html = self.client.get(url + f'?fmt=html&ids={self.a.pk}').content.decode()
+        self.assertEqual(html.count('御中'), 1)
+        self.assertNotIn('放デイ そら', html)
+        # 一覧にボタン。印はすべての対象者に出し、管理する側・される側を data-state で分ける
+        res = self.client.get(reverse('billing:copayment_list_month', args=[2026, 9]))
+        self.assertContains(res, 'id="cp-office-list"')
+        self.assertContains(res, f'value="{self.a.pk}" form="cp-fax-form" class="form-check-input cp-pick" data-state="here"')
+        self.assertContains(res, f'value="{self.c.pk}" form="cp-fax-form" class="form-check-input cp-pick" data-state="other"')
+        # FAX の反映は「ほかの事業所が管理」の人だけに効く（当施設が管理する人に印を付けても反映しない）
+        res = self.client.post(reverse('billing:copayment_list_month', args=[2026, 9]), {'action': 'fax', 'ids': [self.a.pk], 'choice': 'zero'}, follow=True)
+        self.assertContains(res, 'ほかの事業所が管理する人）に印を付けてください')
+        self.assertEqual(CopaymentManagement.objects.get(beneficiary=self.a).is_upper_limit_manager, True)
+
+    def test_office_list_empty_redirects(self):
+        res = self.client.get(reverse('billing:copayment_office_list', args=[2026, 9]), follow=True)
+        self.assertContains(res, '当施設が管理して保存した上限額管理')
+
+    def test_sheet_has_municipality_code_and_manager_address(self):
+        self._mgmt(self.a, '1', [('はびりす', '2650000001', 60000, 6000, 4600), ('児童デイ ひまわり', '2650000101', 30000, 3000, 0)])
+        html = self.client.get(reverse('billing:copayment_sheet', args=[self.a.pk, 2026, 9]) + '?fmt=html').content.decode()
+        self.assertIn('261009　京都市', html)
+        self.assertIn('指定事業所番号', html)
+        self.assertIn('<th class="h">住所</th><td>京都市</td>', html)
+        self.assertIn('075-000-0100', html)
+
+
+class SevereAndDiffTests(TestCase):
+    """重心型の基本報酬（授業終了後／学校休業日）と、請求前の差分チェック（2026-10-16 はびりす打ち合わせ）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='はびりす', office_number='2650000001', use_billing=True, region_category='3', capacity_class='10',
+                                         base_unit_count_severe=1771, base_unit_count_severe_holiday=2056,
+                                         base_code_severe='63SEV01', base_code_severe_holiday='63SEV02')
+        self.client.force_login(StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.f))
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='中村', first_name='みお', last_name_kana='なかむら', date_of_birth='2015-09-14', is_severe=True)
+        RecipientCertificate.objects.create(beneficiary=self.kid, certificate_number='1', granted_days=23, monthly_cap=4600, valid_from='2026-04-01', valid_until='2027-03-31')
+
+    def test_severe_rows_by_school_or_holiday(self):
+        from .views import _build_invoice_context, base_rows_for
+        e = [BillingMatrixEntry.objects.create(facility=self.f, beneficiary=self.kid, date=date(2026, 9, d), status='attended', time_kubun=k)
+             for d, k in ((1, 2), (2, 1), (5, 3))]
+        rows, total = base_rows_for(self.f, self.kid, e)
+        self.assertEqual([(r['label'], r['days'], r['units'], r['code']) for r in rows],
+                         [('授業終了後', 2, 1771, '63SEV01'), ('学校休業日', 1, 2056, '63SEV02')])
+        self.assertEqual(total, 1771 * 2 + 2056)
+        ctx = _build_invoice_context(self.f, self.kid, 2026, 9)
+        self.assertEqual(ctx['total_cost'], int(Decimal(total) * Decimal('10.90')))
+        # 学校休業日の単位数・コードが空なら授業終了後と同じ
+        Facility.objects.filter(pk=self.f.pk).update(base_unit_count_severe_holiday=None, base_code_severe_holiday='')
+        f = Facility.objects.get(pk=self.f.pk)
+        self.assertEqual([(r['units'], r['code']) for r in base_rows_for(f, self.kid, e)[0]], [(1771, '63SEV01'), (1771, '63SEV01')])
+        # 重心でない利用者は定員区分の表のまま
+        other = Beneficiary.objects.create(facility=self.f, last_name='田中', first_name='ひなた', date_of_birth='2015-09-14')
+        self.assertEqual([(r['label'], r['units'], r['code']) for r in base_rows_for(self.f, other, e)[0]],
+                         [('区分1', 574, '63H574'), ('区分2', 609, '63H592'), ('区分3', 666, '63H610')])
+
+    def test_settings_fields(self):
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, 'name="base_unit_count_severe_holiday"')
+        self.assertContains(res, 'name="base_code_severe_holiday"')
+        self.assertContains(res, '定員 5〜7 人は 1,771／2,056 単位')
+
+    def test_month_diff_warns_when_code_changes(self):
+        from . import readiness
+        other = Beneficiary.objects.create(facility=self.f, last_name='田中', first_name='ひなた', last_name_kana='たなか', date_of_birth='2015-09-14')
+        for d in (1, 2):
+            BillingMatrixEntry.objects.create(facility=self.f, beneficiary=other, date=date(2026, 8, d), status='attended', time_kubun=2)
+            BillingMatrixEntry.objects.create(facility=self.f, beneficiary=other, date=date(2026, 9, d), status='attended', time_kubun=2)
+        self.assertEqual(readiness.month_diff(self.f, 2026, 9), [])        # 先月のセルに控え（保存時のコード）が付く
+        self.assertEqual(BillingMatrixEntry.objects.get(beneficiary=other, date=date(2026, 8, 1)).base_code, '63H592')
+        # 定員区分を変えた → 区分 2 のコード・単位数が先月の控えと違う
+        Facility.objects.filter(pk=self.f.pk).update(capacity_class='20')
+        f = Facility.objects.get(pk=self.f.pk)
+        out = readiness.month_diff(f, 2026, 9)
+        self.assertEqual(len(out), 1)
+        self.assertIn('田中 ひなた（区分2：63H592・609 単位 → 63H700・406 単位）', out[0]['text'])
+        res = self.client.get(reverse('billing:matrix_month', args=[2026, 9]))
+        self.assertContains(res, 'id="billing-diff"')
+        self.assertContains(res, '先月と基本報酬のサービスコード・単位数が違う利用者 1 名')
+        # 先月の記録が無い利用者は比べない
+        self.assertEqual(readiness.month_diff(f, 2026, 10), [])
+        # セルを保存すると控えが付く
+        self.client.post(reverse('billing:cell_update', args=[other.pk, 2026, 9, 3]), {'status': 'attended', 'time_kubun': '1'})
+        e = BillingMatrixEntry.objects.get(beneficiary=other, date=date(2026, 9, 3))
+        self.assertEqual((e.base_code, e.base_units), ('63H682', 382))

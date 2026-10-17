@@ -349,6 +349,7 @@ class RecipientCertificate(models.Model):
     valid_until = models.DateField(verbose_name='有効期間（終了）')
     # 市区町村・相談支援事業所
     municipality = models.CharField(max_length=50, blank=True, verbose_name='市区町村')
+    municipality_code = models.CharField(max_length=6, blank=True, verbose_name='市町村番号', help_text='受給者証の市町村番号（6 桁）。上限額管理結果票に印字')
     support_office = models.CharField(max_length=100, blank=True, verbose_name='相談支援事業所')
     # OCRで読み取った際の元画像
     scanned_image = models.ImageField(

@@ -43,11 +43,22 @@ def this_office_amounts(facility, beneficiary, year, month):
 def allocate(cap, rows):
     """
     配分。rows は [{'is_this_office': bool, 'original_copayment': int}]（当施設を先頭に、あとは入れた順）。
-    戻り値 (調整後の額のリスト, 管理結果)。cap が無い（None・0）ときは調整せず結果 2
+    戻り値 (調整後の額のリスト, 管理結果)。
+
+    管理結果の決め方（利用者負担上限額管理結果票の 1・2・3。docs：Notion「上限額管理の要件」）
+    - 上限月額が未登録（None）：配分しない。結果 2 のまま（画面では「受給者証が未登録」と知らせる）
+    - 上限月額 0 円（生活保護・低所得）：全事業所 0 円。結果 2（合算 0 ≦ 上限 0。管理の対象外に近いが票は出せる）
+    - 合算 ≦ 上限：調整なし → 結果 2（ちょうど上限と同じ額も 2）
+    - 合算 ＞ 上限：管理事業所（当施設）を先に上限まで充て、残りをほかの事業所に入れた順に充てる
+        - 当施設だけで上限に達し、ほかが全部 0 円 → 結果 1
+        - それ以外（当施設が上限未満で、ほかにも配分がある／当施設 0 円の月も含む） → 結果 3
+    - 当施設の来所が 0 回（負担 0 円）でも、ほかの事業所の合算が上限を超えれば結果 3 で配分する
     """
     originals = [max(int(r.get('original_copayment') or 0), 0) for r in rows]
-    if not cap:
+    if cap is None:
         return originals, RESULT_NO_ADJUST
+    if cap == 0:
+        return [0] * len(rows), RESULT_NO_ADJUST
     if sum(originals) <= cap:
         return originals, RESULT_NO_ADJUST
     order = sorted(range(len(rows)), key=lambda i: (not rows[i].get('is_this_office'), i))
@@ -84,6 +95,8 @@ def judge(facility, beneficiary, year, month, management=None):
             out['text'] = '当施設が管理：' + management.get_management_result_display()
         elif cap is None:
             out['text'] = '当施設が管理：受給者証（上限月額）が未登録'
+        elif cap == 0:
+            out['text'] = '当施設が管理：上限月額 0 円 → 全事業所 0 円（結果 2）'
         elif burden is not None and burden >= cap:
             out['text'] = f'当施設が管理：当施設だけで上限 {cap:,} 円に達する → ほかの事業所は 0 円'
         else:
