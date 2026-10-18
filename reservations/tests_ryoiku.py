@@ -1997,7 +1997,16 @@ class ScheduleToolsTests(TestCase):
         self._res(self.a, day, 10, source=Reservation.SOURCE_REQUEST)
         self._res(self.b, day, 11)
         url = reverse('reservations:monthly_schedule_reset', args=[2030, 10])
-        self.assertContains(self.client.get(reverse('reservations:monthly_schedule', args=[2030, 10])), url)
+        page = self.client.get(reverse('reservations:monthly_schedule', args=[2030, 10]))
+        self.assertContains(page, url)
+        # 確認ダイアログ：消す件数・残す件数が出て、「確認しました」に印を付けないと消せない（2026-10-18）
+        self.assertContains(page, 'id="ms-reset-modal"')
+        self.assertContains(page, '利用希望から割り当てた予約だけ消す</b>：消す <b class="text-danger">1</b> 件')
+        self.assertContains(page, 'すべての予約を消す（キャンセル待ちも）</b>：消す <b class="text-danger">2</b> 件')
+        self.assertContains(page, 'id="ms-reset-submit" disabled')
+        pv = monthly.reset_preview(self.f, 2030, 10, today=datetime.date(2030, 10, 9))
+        self.assertEqual((pv['assigned']['delete'], pv['all']['delete']), (0, 0))        # 今日より前は残す
+        self.assertEqual((pv['all']['keep'], pv['all']['past']), (2, 2))
         res = self.client.post(url, {'scope': 'assigned'}, follow=True)
         self.assertContains(res, '10月の、利用希望から割り当てた予約を 1 件消しました。')
         self.assertEqual(Reservation.objects.count(), 1)

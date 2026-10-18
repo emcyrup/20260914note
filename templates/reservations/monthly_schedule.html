@@ -147,21 +147,56 @@
         <button class="btn btn-primary btn-sm"><i class="bi bi-magic me-1"></i>利用希望から割り当てる</button>
       </form>
       {% if facility.schedule_tools %}
-      <div class="dropdown ms-hide-fit">
-        <button type="button" class="btn btn-outline-danger btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-arrow-counterclockwise me-1"></i>やり直す</button>
-        <form method="post" action="{% url 'reservations:monthly_schedule_reset' year month %}" class="dropdown-menu dropdown-menu-end p-2 small" style="min-width: 300px;" id="ms-reset-form">
-          {% csrf_token %}
-          <div class="fw-bold mb-1">{{ month }}月の予定をまとめて消す</div>
-          <div class="text-muted mb-2">今日より前の日・実績を入れた予約・療育記録に結びついた予約は残します。保護者へのお知らせは積みません（送信待ちの「ご利用日が決まりました」は書き直し、予約が無くなった方の分は消します）。</div>
-          <button class="btn btn-sm btn-outline-danger w-100 mb-1" name="scope" value="assigned"
-                  onclick="return confirm('{{ month }}月の、利用希望から割り当てた予約を消します。\n職員・保護者が入れた予約とキャンセル待ちは残します。よろしいですか？');">利用希望から割り当てた予約だけ消す</button>
-          <button class="btn btn-sm btn-danger w-100" name="scope" value="all"
-                  onclick="return confirm('{{ month }}月の予約をすべて消します（キャンセル待ちも）。\n元に戻せません。よろしいですか？');">すべての予約を消す（キャンセル待ちも）</button>
-        </form>
-      </div>
+      <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#ms-reset-modal"
+              title="この月の予約をまとめて消して、利用希望から作り直せるようにします（消す前に確認の画面が出ます）"><i class="bi bi-arrow-counterclockwise me-1"></i>リセット</button>
       {% endif %}
     </div>
   </div>
+
+  {% if facility.schedule_tools and reset_preview %}
+  {# 月間予定表のリセット（確認ダイアログ）：消す件数と残す件数を見せ、「確認した」に印を付けないと消せない（2026-10-18 ゆあーず） #}
+  <div class="modal fade" id="ms-reset-modal" tabindex="-1" aria-labelledby="ms-reset-title" aria-hidden="true">
+    <div class="modal-dialog">
+      <form method="post" action="{% url 'reservations:monthly_schedule_reset' year month %}" class="modal-content" id="ms-reset-form">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title" id="ms-reset-title"><i class="bi bi-exclamation-triangle text-danger me-1"></i>{{ year }}年{{ month }}月の月間予定表をリセット</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="閉じる"></button>
+        </div>
+        <div class="modal-body small">
+          <p class="mb-2">この月の予約をまとめて消します。<b>元に戻せません。</b>消したあとは「利用希望から割り当てる」で作り直せます。</p>
+          {% with a=reset_preview.assigned all=reset_preview.all %}
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="radio" name="scope" id="ms-reset-assigned" value="assigned" checked>
+            <label class="form-check-label" for="ms-reset-assigned">
+              <b>利用希望から割り当てた予約だけ消す</b>：消す <b class="text-danger">{{ a.delete }}</b> 件{% if a.keep %}（残す {{ a.keep }} 件）{% endif %}<br>
+              <span class="text-muted">職員・保護者が入れた予約とキャンセル待ちは残します。</span>
+            </label>
+          </div>
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="radio" name="scope" id="ms-reset-all" value="all">
+            <label class="form-check-label" for="ms-reset-all">
+              <b>すべての予約を消す（キャンセル待ちも）</b>：消す <b class="text-danger">{{ all.delete }}</b> 件{% if all.keep %}（残す {{ all.keep }} 件）{% endif %}
+            </label>
+          </div>
+          <div class="text-muted border-top pt-2 mt-2">
+            残すもの：今日より前の日{% if all.past %}（{{ all.past }} 件）{% endif %}・実績を入れた予約{% if all.attended %}（{{ all.attended }} 件）{% endif %}・療育記録に結びついた予約{% if all.recorded %}（{{ all.recorded }} 件）{% endif %}。
+            保護者へのお知らせは積みません（送信待ちの「ご利用日が決まりました」は書き直し、予約が無くなった方の分は消します）。
+          </div>
+          <div class="form-check mt-3">
+            <input class="form-check-input" type="checkbox" id="ms-reset-ok">
+            <label class="form-check-label fw-bold" for="ms-reset-ok">消す内容を確認しました</label>
+          </div>
+          {% endwith %}
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">やめる</button>
+          <button type="submit" class="btn btn-sm btn-danger" id="ms-reset-submit" disabled><i class="bi bi-trash me-1"></i>消す</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
 
   <div id="ms-swap-bar" class="alert alert-warning py-2 small mb-3">
     <i class="bi bi-arrow-left-right me-1"></i><strong>入れ替え・移動モード</strong>：
@@ -337,6 +372,16 @@
 <script>
 (function () {
   var body = document.body, form = document.getElementById('ms-swap-form');
+  (function () {   // リセットの確認ダイアログ：「確認しました」に印を付けたときだけ消せる
+    var ok = document.getElementById('ms-reset-ok'), btn = document.getElementById('ms-reset-submit'), form = document.getElementById('ms-reset-form');
+    if (!ok || !btn || !form) return;
+    ok.addEventListener('change', function () { btn.disabled = !ok.checked; });
+    form.addEventListener('submit', function (e) {
+      var scope = form.querySelector('input[name=scope]:checked');
+      var label = scope ? scope.nextElementSibling.querySelector('b').textContent : '';
+      if (!ok.checked || !confirm('{{ month }}月の予定表をリセットします（' + label + '）。\n元に戻せません。本当によろしいですか？')) e.preventDefault();
+    });
+  })();
   var msg = document.getElementById('ms-swap-msg'), picked = null;
   var first = msg.textContent;
   function reset() {

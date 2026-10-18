@@ -1218,6 +1218,8 @@ class MonthlyScheduleView(SlotModeMixin, View):
             'attendance_choices': Reservation.ATT_CHOICES,
             # 共演NG で同じ時間の組（今日から先）。「利用希望のほかの時刻へ移す」を出す（ゆあーず）
             'pair_overlaps': len(monthly.pair_overlaps(facility, year, month)) if facility.schedule_tools else 0,
+            # リセットの確認ダイアログ：消す件数・残す件数（ゆあーず）
+            'reset_preview': monthly.reset_preview(facility, year, month) if facility.schedule_tools else None,
             **_month_ctx(year, month),
         })
 

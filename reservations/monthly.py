@@ -584,6 +584,34 @@ RESET_ASSIGNED = 'assigned'   # 利用希望から割り当てた予約だけ
 RESET_ALL = 'all'             # この月の予約すべて（キャンセル待ちも）
 
 
+def _reset_scope(facility, year, month, scope):
+    """リセットの対象になりうる予約（消す・残すの判定前）"""
+    first, last = month_range(year, month)
+    statuses = (Reservation.STATUS_CONFIRMED,) if scope == RESET_ASSIGNED else Reservation.ACTIVE_STATUSES
+    qs = Reservation.objects.filter(facility=facility, date__gte=first, date__lte=last, status__in=statuses)
+    if scope == RESET_ASSIGNED:
+        qs = qs.filter(source=Reservation.SOURCE_REQUEST)
+    return qs
+
+
+def reset_preview(facility, year, month, today=None):
+    """
+    リセットの確認ダイアログ用：scope ごとに {'delete': 消す件数, 'keep': 残す件数, 'past', 'attended', 'recorded'（残す理由ごとの件数）}
+    （2026-10-18 ゆあーず「削除前に確認ダイアログを」）
+    """
+    today = today or datetime.date.today()
+    out = {}
+    for scope in (RESET_ASSIGNED, RESET_ALL):
+        qs = _reset_scope(facility, year, month, scope)
+        total = qs.count()
+        past = qs.filter(date__lt=today).count()
+        attended = qs.filter(date__gte=today).exclude(attendance='').count()
+        recorded = qs.filter(date__gte=today, attendance='', therapy_records__isnull=False).distinct().count()
+        delete = qs.filter(date__gte=today, attendance='').exclude(therapy_records__isnull=False).count()
+        out[scope] = {'delete': delete, 'keep': total - delete, 'past': past, 'attended': attended, 'recorded': recorded, 'total': total}
+    return out
+
+
 def reset_month(facility, year, month, scope=RESET_ASSIGNED, today=None):
     """
     月間予定表のやり直し（Facility.schedule_tools）：この月の予約をまとめて消す。戻り値 (消した数, 残した数)。
@@ -591,11 +619,7 @@ def reset_month(facility, year, month, scope=RESET_ASSIGNED, today=None):
     消した予約の送信待ちのお知らせも消し、「ご利用日が決まりました」はいまの予約に合わせて書き直す（無くなれば消す）。
     """
     today = today or datetime.date.today()
-    first, last = month_range(year, month)
-    statuses = (Reservation.STATUS_CONFIRMED,) if scope == RESET_ASSIGNED else Reservation.ACTIVE_STATUSES
-    qs = Reservation.objects.filter(facility=facility, date__gte=first, date__lte=last, status__in=statuses)
-    if scope == RESET_ASSIGNED:
-        qs = qs.filter(source=Reservation.SOURCE_REQUEST)
+    qs = _reset_scope(facility, year, month, scope)
     total = qs.count()
     target = qs.filter(date__gte=today, attendance='').exclude(therapy_records__isnull=False)
     people = {r.beneficiary for r in target.select_related('beneficiary') if r.beneficiary_id}
