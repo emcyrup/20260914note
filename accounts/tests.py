@@ -700,3 +700,91 @@ class LoginSecurityTests(TestCase):
         # 種類で絞る
         res = self.client.get(reverse('accounts:login_log') + '?kind=ok')
         self.assertNotContains(res, '192.0.2.3')
+
+
+
+class SecurityAlertTests(TestCase):
+    """不審なログイン・管理者の操作の通知（accounts/security.py alert。2026-10-20）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='テスト施設', representative_email='rep@example.com', line_channel_access_token='tok')
+        from reservations.models import ReservationSetting
+        ReservationSetting.objects.create(facility=self.f, notify_group_id='Cgroup1')
+        self.admin = StaffAccount.objects.create_user('taro', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN,
+                                                      display_name='太郎', email='taro@example.com')
+        self.url = reverse('accounts:login')
+
+    def _login(self, username='taro', password='pw12345678', ip='203.0.113.5'):
+        return self.client.post(self.url, {'username': username, 'password': password}, REMOTE_ADDR=ip)
+
+    def test_lock_alert_sent_to_line_and_mail(self):
+        from unittest import mock
+        from django.core import mail
+        from django.test import override_settings
+        from . import security
+        from .models import SecurityAlert
+        with override_settings(EMAIL_HOST='smtp.example.com', EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend'), \
+                mock.patch('line_integration.sending.push_text', return_value=(True, '')) as push:
+            for _ in range(security.USER_TRIES):
+                self._login(password='wrong')
+        a = SecurityAlert.objects.get(kind='lock')
+        self.assertIn('「taro」でログインの失敗が 5 回続いたため、15 分ロックしました（IP 203.0.113.5）', a.text)
+        self.assertTrue(a.line_sent and a.mail_sent)
+        self.assertEqual(push.call_args.args[1], 'Cgroup1')
+        self.assertIn('安全のお知らせ', push.call_args.args[2])
+        self.assertEqual(sorted(mail.outbox[0].to), ['rep@example.com', 'taro@example.com'])
+        self.assertEqual(SecurityAlert.objects.filter(kind='lock').count(), 1)       # 6 回目以降は知らせない
+        self._login(password='wrong')
+        self.assertEqual(SecurityAlert.objects.filter(kind='lock').count(), 1)
+
+    def test_new_ip_and_night_alerts(self):
+        from unittest import mock
+        from .models import SecurityAlert
+        with mock.patch('line_integration.sending.push_text', return_value=(True, '')):
+            self._login(ip='203.0.113.5')                      # 初めてのログインは知らせない
+            self.assertFalse(SecurityAlert.objects.filter(kind='new_ip').exists())
+            self.client.logout()
+            self._login(ip='203.0.113.5')                      # 同じ場所
+            self.assertFalse(SecurityAlert.objects.filter(kind='new_ip').exists())
+            self.client.logout()
+            self._login(ip='198.51.100.9')                     # 初めての場所
+        a = SecurityAlert.objects.get(kind='new_ip')
+        self.assertEqual(a.text, '太郎 さんが初めての場所（IP 198.51.100.9）からログインしました。')
+        self.assertTrue(a.line_sent)
+        # 深夜
+        import datetime
+        from django.utils import timezone
+        night = timezone.make_aware(datetime.datetime(2026, 10, 21, 2, 30))
+        with mock.patch('accounts.security.timezone.now', return_value=night), mock.patch('line_integration.sending.push_text', return_value=(True, '')):
+            self.client.logout()
+            self._login(ip='198.51.100.9')
+        self.assertTrue(SecurityAlert.objects.filter(kind='night', text__contains='深夜（2 時台）').exists())
+
+    def test_admin_actions_alert_and_switch_off(self):
+        from unittest import mock
+        from .models import SecurityAlert
+        self.client.force_login(self.admin)
+        with mock.patch('line_integration.sending.push_text', return_value=(True, '')) as push:
+            res = self.client.post(reverse('accounts:staff'), {'username': 'hana', 'display_name': '花', 'role': 'staff', 'password': 'pw12345678',
+                                                               'ui_theme': StaffAccount.THEME_STANDARD})
+            hana = StaffAccount.objects.get(username='hana')
+            self.client.post(reverse('accounts:staff_update', args=[hana.pk]), {'display_name': '花', 'role': 'admin', 'is_active': 'on',
+                                                                                'ui_theme': StaffAccount.THEME_STANDARD})
+        texts = list(SecurityAlert.objects.filter(kind='admin').order_by('created_at').values_list('text', flat=True))
+        self.assertTrue(any('「花」（職員）を追加しました' in t for t in texts), texts)
+        self.assertTrue(any('権限を職員→管理者' in t for t in texts), texts)
+        self.assertTrue(push.called)
+        # 画面に出る
+        res = self.client.get(reverse('accounts:login_log'))
+        self.assertContains(res, '知らせた出来事')
+        self.assertContains(res, '権限を職員→管理者')
+        self.assertContains(res, 'LINE 済')
+        # 通知を止めると記録だけ
+        Facility.objects.filter(pk=self.f.pk).update(security_notify=False)
+        with mock.patch('line_integration.sending.push_text', return_value=(True, '')) as push:
+            self.client.post(reverse('accounts:invitation_add'), {'role': 'staff', 'max_uses': 1, 'expires_days': 7, 'note': ''})
+        self.assertFalse(push.called)
+        inv = SecurityAlert.objects.filter(kind='admin', text__contains='招待リンク').first()
+        self.assertIsNotNone(inv)
+        self.assertFalse(inv.line_sent or inv.mail_sent)
+        self.assertContains(self.client.get(reverse('facilities:settings')), 'name="security_notify_email"')

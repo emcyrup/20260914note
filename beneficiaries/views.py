@@ -181,6 +181,8 @@ class BeneficiaryDeleteView(LoginRequiredMixin, View):
             return redirect('beneficiaries:delete', pk=pk)
         name, status = b.full_name, b.status
         delete_beneficiary(b, by=request.user)
+        from accounts import security
+        security.admin_action(request, f'{get_terms(request.user.facility)["beneficiary"]}「{name}」を削除しました（ごみ箱へ）')
         messages.success(request, f'「{name}」を削除しました（ごみ箱に {TRASH_DAYS} 日置きます。そのあいだは一覧の「ごみ箱」から戻せます）。')
         return redirect(f"{reverse('beneficiaries:list')}?status={status}")
 

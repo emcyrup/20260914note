@@ -239,3 +239,29 @@ class LoginEvent(models.Model):
 
     def __str__(self):
         return f'{self.created_at:%Y-%m-%d %H:%M} {self.username} {self.get_kind_display()}'
+
+
+class SecurityAlert(models.Model):
+    """不審なログイン・管理者の操作を知らせた記録（accounts/security.py alert）。LINE グループとメールへ送った結果も残す"""
+    KIND_LOCK = 'lock'
+    KIND_NEW_IP = 'new_ip'
+    KIND_NIGHT = 'night'
+    KIND_ADMIN = 'admin'
+    KIND_CHOICES = [(KIND_LOCK, 'ログインのロック'), (KIND_NEW_IP, '初めての場所からのログイン'), (KIND_NIGHT, '深夜のログイン'), (KIND_ADMIN, '管理者の操作')]
+
+    facility = models.ForeignKey('facilities.Facility', on_delete=models.CASCADE, related_name='security_alerts')
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES)
+    text = models.CharField(max_length=500)
+    actor = models.ForeignKey('StaffAccount', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    line_sent = models.BooleanField(default=False)
+    mail_sent = models.BooleanField(default=False)
+    error = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = '不正アクセスの通知'
+        verbose_name_plural = '不正アクセスの通知'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.created_at:%Y-%m-%d %H:%M} {self.get_kind_display()}'

@@ -19,6 +19,7 @@ class FacilityForm(forms.ModelForm):
             'is_severe_facility', 'base_unit_count', 'base_unit_count_severe', 'base_unit_count_severe_holiday',
             'base_code_severe', 'base_code_severe_holiday', 'is_new_facility_r8',
             'line_channel_access_token', 'line_channel_secret',
+            'security_notify', 'security_notify_email',
             'term_staff', 'term_beneficiary', 'logo', 'brand_color',
         ]
         widgets = {
@@ -44,6 +45,8 @@ class FacilityForm(forms.ModelForm):
             'is_new_facility_r8':       forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'line_channel_access_token': forms.TextInput(attrs={'class': 'form-control'}),
             'line_channel_secret':      forms.TextInput(attrs={'class': 'form-control'}),
+            'security_notify':          forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'security_notify_email':    forms.EmailInput(attrs={'class': 'form-control', 'placeholder': '例：admin@example.com'}),
         }
 
     def __init__(self, *args, **kwargs):

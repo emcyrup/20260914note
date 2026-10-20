@@ -106,6 +106,11 @@ class Facility(models.Model):
     logo = models.ImageField(upload_to=logo_upload_to, blank=True, null=True, verbose_name='ロゴ画像')
     brand_color = models.CharField(max_length=7, blank=True, verbose_name='コーポレートカラー',
                                    help_text='#4e7d89 のような16進数。空なら標準色')
+    # 不正アクセスの通知（accounts/security.py。2026-10-20）：ロック・初めての場所からのログイン・深夜のログイン・管理者の操作を知らせる
+    security_notify = models.BooleanField(default=True, verbose_name='不正アクセスの通知を送る',
+                                          help_text='予約の増減を知らせる LINE グループと、管理者・児発管のメール（または下の宛先）へ')
+    security_notify_email = models.EmailField(blank=True, verbose_name='通知のメール宛先',
+                                              help_text='空なら管理者・児発管のメールと代表者メール')
     line_channel_access_token = models.TextField(blank=True, verbose_name='LINEチャネルアクセストークン')
     line_channel_secret = models.CharField(max_length=100, blank=True, verbose_name='LINEチャネルシークレット')
     # 使う機能（事業所によっては請求・LINE を使わない）

@@ -1445,6 +1445,8 @@ class MonthlyScheduleResetView(SlotModeMixin, View):
         deleted, kept = monthly.reset_month(facility, year, month, scope)
         what = 'の予約' if scope == monthly.RESET_ALL else 'の、利用希望から割り当てた予約'
         if deleted:
+            from accounts import security
+            security.admin_action(request, f'{year}年{month}月の月間予定表をリセットしました（{what.lstrip("の、")} {deleted} 件を消去）')
             msg = f'{month}月{what}を {deleted} 件消しました。'
             if kept:
                 msg += f'（今日より前の日・実績を入れた・療育記録のある予約 {kept} 件は残しました）'
