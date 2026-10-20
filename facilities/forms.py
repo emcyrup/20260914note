@@ -19,7 +19,7 @@ class FacilityForm(forms.ModelForm):
             'is_severe_facility', 'base_unit_count', 'base_unit_count_severe', 'base_unit_count_severe_holiday',
             'base_code_severe', 'base_code_severe_holiday', 'is_new_facility_r8',
             'line_channel_access_token', 'line_channel_secret',
-            'security_notify', 'security_notify_email',
+            'security_notify', 'security_notify_email', 'mail_from',
             'term_staff', 'term_beneficiary', 'logo', 'brand_color',
         ]
         widgets = {
@@ -47,7 +47,29 @@ class FacilityForm(forms.ModelForm):
             'line_channel_secret':      forms.TextInput(attrs={'class': 'form-control'}),
             'security_notify':          forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'security_notify_email':    forms.EmailInput(attrs={'class': 'form-control', 'placeholder': '例：admin@example.com'}),
+            'mail_from':                forms.EmailInput(attrs={'class': 'form-control', 'placeholder': '例：michinote.alert@gmail.com', 'autocomplete': 'off'}),
         }
+
+    # Gmail のアプリ パスワード（保存ずみの値は画面に出さない。空なら変えない。「消す」に印で消す）
+    mail_app_password_new = forms.CharField(required=False, label='Gmail のアプリ パスワード', max_length=64,
+                                            widget=forms.PasswordInput(attrs={'class': 'form-control', 'autocomplete': 'new-password',
+                                                                              'placeholder': '16 桁（変えないときは空のまま）'}))
+    mail_app_password_clear = forms.BooleanField(required=False, label='アプリ パスワードを消す',
+                                                 widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}))
+
+    def clean_mail_app_password_new(self):
+        return (self.cleaned_data.get('mail_app_password_new') or '').replace(' ', '').strip()
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        if self.cleaned_data.get('mail_app_password_clear'):
+            obj.mail_app_password = ''
+        elif self.cleaned_data.get('mail_app_password_new'):
+            obj.mail_app_password = self.cleaned_data['mail_app_password_new']
+        if commit:
+            obj.save()
+            self.save_m2m()
+        return obj
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

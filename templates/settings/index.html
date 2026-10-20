@@ -243,6 +243,24 @@
           {{ facility_form.security_notify_email }}
           <div class="form-text">空なら管理者・児発管のメールと代表者メールへ</div>
         </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">送信用の Gmail アドレス</label>
+          {{ facility_form.mail_from }}
+          <div class="form-text">この Gmail から通知を送ります（期限のお知らせメールも）。空ならサーバーの設定{% if not mail_server_ok %}（この環境では無し）{% endif %}を使います</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">Gmail のアプリ パスワード
+            <span class="text-muted fw-normal">{% if facility.mail_app_password %}（設定済み）{% else %}（未設定）{% endif %}</span></label>
+          {{ facility_form.mail_app_password_new }}
+          <div class="form-text">Google アカウント → セキュリティ → 2 段階認証をオン → 「アプリ パスワード」で作った 16 桁。ふだんのパスワードではありません</div>
+          {% if facility.mail_app_password %}
+          <div class="form-check mt-1">{{ facility_form.mail_app_password_clear }}<label class="form-check-label small">アプリ パスワードを消す</label></div>
+          {% endif %}
+        </div>
+        <div class="col-12 small text-muted">
+          {% if mail_source %}いまの送信元：{{ mail_source }}。{% else %}いまはメールを送れません（送信用の Gmail を入れてください）。{% endif %}
+          保存したら「<a href="{% url 'accounts:login_log' %}">ログインの記録</a>」の「テスト送信」で届くことを確かめてください。
+        </div>
         </div>
       </details>
       <details class="settings-fold">

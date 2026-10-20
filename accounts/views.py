@@ -266,7 +266,7 @@ class SecurityTestView(AdminOnlyMixin, View):
         else:
             parts = []
             parts.append('LINE グループ：' + ('送りました' if row.line_sent else '送っていません（予約の「増減を知らせる LINE グループ」とチャネルトークンの設定が要ります）'))
-            parts.append('メール：' + ('送りました' if row.mail_sent else '送っていません（サーバーにメールの設定が無いか、宛先がありません）'))
+            parts.append('メール：' + ('送りました' if row.mail_sent else '送っていません（施設設定の「不正アクセスの通知」に送信用の Gmail とアプリ パスワードを入れるか、宛先（管理者・児発管のメールか通知のメール宛先）を入れてください）'))
             if row.error:
                 parts.append(f'エラー：{row.error}')
             (messages.success if (row.line_sent or row.mail_sent) and not row.error else messages.warning)(request, 'テスト送信：' + '／'.join(parts))

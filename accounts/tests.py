@@ -810,3 +810,34 @@ class SecurityAlertTests(TestCase):
         self.client.force_login(staff)
         self.assertEqual(self.client.post(reverse('accounts:security_test')).status_code, 302)
         self.assertEqual(SecurityAlert.objects.filter(kind='test').count(), 1)
+
+
+    def test_facility_gmail_from_settings_screen(self):
+        from unittest import mock
+        from django.core import mail
+        from .models import SecurityAlert
+        self.client.force_login(self.admin)
+        from facilities.forms import FacilityForm
+        url = reverse('facilities:facility_update')
+        base = {k: ('on' if v is True else v) for k, v in FacilityForm(instance=self.f).initial.items() if v not in (None, False, '')}
+        base.pop('logo', None)
+        base.update({'security_notify': 'on', 'mail_from': 'alert@gmail.com', 'mail_app_password_new': 'abcd efgh ijkl mnop'})
+        res = self.client.post(url, base, follow=True)
+        self.assertContains(res, '施設情報を更新しました')
+        f = Facility.objects.get(pk=self.f.pk)
+        self.assertEqual((f.mail_from, f.mail_app_password), ('alert@gmail.com', 'abcdefghijklmnop'))    # 空白は除く
+        page = self.client.get(reverse('facilities:settings'))
+        self.assertContains(page, '（設定済み）')
+        self.assertNotContains(page, 'abcdefghijklmnop')                                                   # 画面に出さない
+        self.assertContains(page, 'いまの送信元：施設設定の Gmail（alert@gmail.com）')
+        # 空で保存しても消えない。「消す」で消える
+        self.client.post(url, dict(base, mail_app_password_new=''))
+        self.assertEqual(Facility.objects.get(pk=self.f.pk).mail_app_password, 'abcdefghijklmnop')
+        # テスト送信は施設の Gmail から送る（接続は locmem に差し替え）
+        with mock.patch('facilities.mail.SMTP_BACKEND', 'django.core.mail.backends.locmem.EmailBackend'), \
+                mock.patch('line_integration.sending.push_text', return_value=(True, '')):
+            self.client.post(reverse('accounts:security_test'))
+        self.assertTrue(SecurityAlert.objects.filter(kind='test', mail_sent=True).exists())
+        self.assertEqual(mail.outbox[-1].from_email, 'alert@gmail.com')
+        self.client.post(url, dict(base, mail_app_password_new='', mail_app_password_clear='on'))
+        self.assertEqual(Facility.objects.get(pk=self.f.pk).mail_app_password, '')

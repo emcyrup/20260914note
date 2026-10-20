@@ -107,13 +107,12 @@ def deliver(facility, text):
     except Exception as e:  # noqa: BLE001
         errors.append(f'LINE: {type(e).__name__}')
     try:
-        if settings.EMAIL_HOST:
-            from django.core.mail import send_mail
+        from facilities import mail as fmail
+        if fmail.available(facility):
             from facilities.reminders import recipients
             to = [facility.security_notify_email] if facility.security_notify_email else recipients(facility)
             if to:
-                send_mail(f'【{facility.name}】みちノートからの安全のお知らせ', text, settings.DEFAULT_FROM_EMAIL, to, fail_silently=False)
-                mail_sent = True
+                mail_sent = fmail.send(facility, f'【{facility.name}】みちノートからの安全のお知らせ', text, to)
     except Exception as e:  # noqa: BLE001
         errors.append(f'メール: {type(e).__name__}')
     return line_sent, mail_sent, '；'.join(errors)[:200]
