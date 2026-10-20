@@ -426,6 +426,11 @@ class BeneficiaryDocument(models.Model):
     file = models.FileField(upload_to=document_upload_to, verbose_name='ファイル')
     file_name = models.CharField(max_length=200, blank=True, verbose_name='元のファイル名')
     title = models.CharField(max_length=100, blank=True, verbose_name='件名')
+    # 書類の分類：空は基本情報の「書類・画像」、support_plan は画面のいちばん下の「相談員支援計画」（2026-10-20 ゆあーず）
+    CATEGORY_GENERAL = ''
+    CATEGORY_SUPPORT_PLAN = 'support_plan'
+    CATEGORY_CHOICES = [(CATEGORY_GENERAL, '書類・画像'), (CATEGORY_SUPPORT_PLAN, '相談員支援計画')]
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default=CATEGORY_GENERAL, blank=True, verbose_name='分類')
     uploaded_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
                                     related_name='+', verbose_name='登録者')
     created_at = models.DateTimeField(auto_now_add=True)

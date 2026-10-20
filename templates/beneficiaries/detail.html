@@ -691,6 +691,59 @@
 
   {% if user.facility.is_ryoiku %}
   <div class="mt-3">{% include "beneficiaries/_support_flow.html" %}</div>
+
+  <!-- 相談員支援計画（相談支援事業所の計画をスキャン・写真で残す。2026-10-20 ゆあーず） -->
+  <div class="info-card mt-3" id="support-plan-docs">
+    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+      <div class="section-title mb-0"><i class="bi bi-file-earmark-medical me-1"></i>相談員支援計画（{{ plan_documents|length }}）</div>
+    </div>
+    <form method="post" action="{% url 'beneficiaries:document_upload' beneficiary.pk %}" enctype="multipart/form-data" class="doc-upload-form">
+      {% csrf_token %}<input type="hidden" name="category" value="support_plan">
+      <label class="doc-drop d-block" for="planFiles">
+        <i class="bi bi-cloud-arrow-up" style="font-size:1.6rem;color:var(--lake-text);"></i>
+        <div class="fw-semibold small">ここにファイルを置く（ドラッグ＆ドロップ）か、押して選ぶ</div>
+        <div class="small text-muted">相談支援専門員の計画（サービス等利用計画など）を、スキャンした PDF や写真で残せます。1回に20個まで、1つ {{ document_max_mb }} MB まで。</div>
+        <div class="small mt-1 doc-file-names"></div>
+        <input type="file" id="planFiles" name="files" accept="{{ document_accept }}" multiple class="doc-file-input">
+      </label>
+      <div class="d-flex gap-2 mt-2 align-items-center flex-wrap">
+        <label class="btn btn-sm btn-outline-secondary mb-0 text-nowrap" for="planCamera" title="スマートフォン・タブレットのカメラで書類を撮って取り込みます">
+          <i class="bi bi-camera me-1"></i>カメラで撮る</label>
+        <input type="file" id="planCamera" name="files" accept="image/*" capture="environment" class="d-none doc-file-input">
+        <input type="text" name="title" class="form-control form-control-sm" style="flex:1 1 200px;" maxlength="100" placeholder="件名（任意。例：2026年度 相談員支援計画）">
+        <button class="btn btn-sm btn-primary text-nowrap doc-upload-btn" disabled><i class="bi bi-upload me-1"></i>取り込む</button>
+      </div>
+    </form>
+    {% if plan_documents %}
+    <div class="doc-list mt-2">
+      {% for d in plan_documents %}
+      <div class="doc-item">
+        <a href="{{ d.file.url }}" target="_blank" rel="noopener" class="doc-link" title="{{ d.file_name }}">
+          {% if d.is_image %}<img src="{{ d.file.url }}" alt="" class="doc-thumb">
+          {% elif d.kind == 'pdf' %}<span class="doc-icon"><i class="bi bi-file-earmark-pdf"></i></span>
+          {% elif d.kind == 'sheet' %}<span class="doc-icon"><i class="bi bi-file-earmark-spreadsheet"></i></span>
+          {% else %}<span class="doc-icon"><i class="bi bi-file-earmark"></i></span>{% endif %}
+          <span class="min-w-0"><span class="doc-name d-block">{{ d.label }}</span><span class="doc-meta d-block">{{ d.created_at|date:'Y/n/j' }}{% if d.uploaded_by %}・{{ d.uploaded_by }}{% endif %}</span></span>
+        </a>
+        <button type="button" class="btn btn-sm btn-outline-secondary py-0 doc-rename-btn" title="名前を変える" data-target="doc-rename-{{ d.pk }}"><i class="bi bi-pencil"></i></button>
+        <form method="post" action="{% url 'beneficiaries:document_delete' beneficiary.pk d.pk %}" onsubmit="return confirm('「{{ d.label|escapejs }}」を削除します。よろしいですか？');">
+          {% csrf_token %}<button class="btn btn-sm btn-outline-danger py-0" title="削除"><i class="bi bi-trash"></i></button>
+        </form>
+      </div>
+      <form method="post" action="{% url 'beneficiaries:document_rename' beneficiary.pk d.pk %}" class="doc-rename d-none" id="doc-rename-{{ d.pk }}">
+        {% csrf_token %}
+        <div class="input-group input-group-sm">
+          <input type="text" name="title" class="form-control" maxlength="100" value="{{ d.label }}" placeholder="書類の名前" required>
+          <button class="btn btn-primary">名前を変える</button>
+          <button type="button" class="btn btn-outline-secondary doc-rename-cancel">やめる</button>
+        </div>
+      </form>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-muted small mb-0 mt-2">まだありません。</p>
+    {% endif %}
+  </div>
   {% endif %}
 </div>
 
@@ -1340,6 +1393,19 @@
     names.textContent = n ? (n === 1 ? input.files[0].name : n + ' 個を選びました') : '';
   });
   document.getElementById('docForm').addEventListener('submit', function () { btn.disabled = true; btn.textContent = '取り込み中…'; });
+  // 相談員支援計画の欄（ファイルを選ぶ／カメラで撮る）
+  document.querySelectorAll('.doc-upload-form').forEach(function (form) {
+    var b = form.querySelector('.doc-upload-btn'), shown = form.querySelector('.doc-file-names');
+    var inputs = Array.prototype.slice.call(form.querySelectorAll('.doc-file-input'));
+    inputs.forEach(function (inp) {
+      inp.addEventListener('change', function () {
+        inputs.forEach(function (o) { if (o !== inp) o.value = ''; });     // 選んだほうだけ送る
+        var n = inp.files.length; b.disabled = !n;
+        shown.textContent = n ? (n === 1 ? inp.files[0].name || '撮った写真' : n + ' 個を選びました') : '';
+      });
+    });
+    form.addEventListener('submit', function () { b.disabled = true; b.textContent = '取り込み中…'; });
+  });
   // 書類の名前を変える：鉛筆で入力欄を開く
   document.querySelectorAll('.doc-rename-btn').forEach(function (b) {
     b.addEventListener('click', function () {
