@@ -1,0 +1,17 @@
+{% extends 'kaigo/_person_base.html' %}
+{% block title %}{{ b.full_name }} 担当者会議の要点 — {{ app_label }}{% endblock %}
+{% block tab_content %}
+<div class="card"><div class="card-body">
+  <div class="d-flex justify-content-between align-items-center mb-2"><div class="fw-bold">サービス担当者会議の要点（第4表）</div>
+    <a href="{% url 'kaigo:meeting_new' b.pk %}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>会議の要点を書く</a></div>
+  {% for m in meetings %}
+  <div class="d-flex justify-content-between align-items-center border-top py-2 gap-2 flex-wrap">
+    <div><b>{{ m.held_on|date:'Y/n/j' }}（{{ m.held_on|date:'D' }}）</b> {{ m.time_label }}{% if m.place %}　{{ m.place }}{% endif %}{% if m.count %}　<span class="small text-muted">第{{ m.count }}回</span>{% endif %}
+      <span class="small text-muted ms-1">出席 {{ m.attendees|length }} 名</span>
+      {% if m.conclusion %}<div class="small text-muted text-truncate" style="max-width:640px;">結論：{{ m.conclusion }}</div>{% endif %}</div>
+    <div class="d-flex gap-1"><a href="{% url 'kaigo:meeting_edit' b.pk m.pk %}" class="btn btn-sm btn-outline-secondary">開く</a>
+      <a href="{% url 'kaigo:meeting_print' b.pk m.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary" title="第4表を印刷"><i class="bi bi-printer"></i></a></div>
+  </div>
+  {% empty %}<div class="small text-muted">まだありません。</div>{% endfor %}
+</div></div>
+{% endblock %}

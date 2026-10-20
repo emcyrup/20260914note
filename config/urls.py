@@ -27,6 +27,7 @@ urlpatterns = [
     path('therapy/', include('therapy.urls')),
     path('minutes/', include('minutes.urls')),
     path('homecare/', include('homecare.urls')),
+    path('kaigo/', include('kaigo.urls')),
     path('transport/', include('transport.urls')),
     path('surveys/', include('surveys.urls')),
     path('daily/', include('daily.urls')),

@@ -1,0 +1,19 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}居宅介護支援経過 {{ b.full_name }}{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'kaigo:logs' b.pk %}">支援経過へ戻る</a>{% endblock %}
+{% block body %}
+<div class="right small">第5表</div>
+<h1>居宅介護支援経過</h1>
+<table style="margin-bottom:6px;">
+  <tr><th style="width:12%;">利用者名</th><td style="width:38%;">{{ b.full_name }} 殿</td>
+      <th style="width:18%;">居宅サービス計画作成者</th><td>{{ facility.name }}</td></tr>
+  {% if start or end %}<tr><th>期間</th><td colspan="3">{{ start|date:'Y年n月j日' }} 〜 {{ end|date:'Y年n月j日' }}</td></tr>{% endif %}
+</table>
+<table>
+  <thead><tr><th style="width:15%;">年月日</th><th style="width:17%;">項目</th><th>内容</th></tr></thead>
+  <tbody>
+  {% for log in logs %}<tr><td class="c">{{ log.date|date:'Y/n/j' }}{% if log.time %}<br>{{ log.time|time:'H:i' }}{% endif %}</td><td>{{ log.heading }}</td><td>{{ log.content }}</td></tr>
+  {% empty %}<tr><td style="height:40px;"></td><td></td><td></td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endblock %}

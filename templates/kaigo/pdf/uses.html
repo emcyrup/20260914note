@@ -1,0 +1,27 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}サービス利用票 {{ b.full_name }} {{ year }}年{{ month }}月{% endblock %}
+{% block page_orientation %}landscape{% endblock %}
+{% block page_margin %}8mm{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'kaigo:uses' b.pk year month %}">予定・実績へ戻る</a>{% endblock %}
+{% block body %}
+<style>.g th, .g td { padding: 2px 1px; font-size: 8.5px; text-align: center; } .g td.l { text-align: left; padding: 2px 4px; } .g .sun { background: #fbe3e3; } .g .sat { background: #e3ecf8; }</style>
+<h1>サービス利用票（{{ year }}年{{ month }}月分）</h1>
+<table style="margin-bottom:6px;">
+  <tr><th style="width:10%;">被保険者番号</th><td style="width:15%;">{{ insurance.insured_number }}</td><th style="width:9%;">保険者番号</th><td style="width:10%;">{{ insurance.insurer_number }}</td>
+      <th style="width:9%;">利用者名</th><td style="width:17%;">{{ b.full_name }} 様</td><th style="width:9%;">要介護度</th><td>{{ insurance.care_level }}</td></tr>
+  <tr><th>認定の有効期間</th><td colspan="3">{% if insurance.valid_from %}{{ insurance.valid_from|date:'Y年n月j日' }} 〜 {{ insurance.valid_until|date:'Y年n月j日' }}{% endif %}</td>
+      <th>居宅介護支援事業者</th><td colspan="3">{{ facility.name }}</td></tr>
+</table>
+<table class="g">
+  <thead><tr><th style="width:70px;">提供時間</th><th style="width:110px;">サービス内容</th><th style="width:110px;">サービス事業者</th><th style="width:22px;"></th>
+    {% for d in days %}<th class="{% if d.weekday == 6 %}sun{% elif d.weekday == 5 %}sat{% endif %}">{{ d.day }}<br>{{ d|date:'D' }}</th>{% endfor %}<th style="width:24px;">合計</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr><td rowspan="2">{{ r.time_label }}</td><td class="l" rowspan="2">{{ r.service }}</td><td class="l" rowspan="2">{{ r.provider_label }}</td><td>予定</td>
+      {% for d in days %}<td class="{% if d.weekday == 6 %}sun{% elif d.weekday == 5 %}sat{% endif %}">{% if d.day in r.plan_set %}1{% endif %}</td>{% endfor %}<td>{{ r.plan_set|length }}</td></tr>
+    <tr><td>実績</td>{% for d in days %}<td class="{% if d.weekday == 6 %}sun{% elif d.weekday == 5 %}sat{% endif %}">{% if d.day in r.done_set %}1{% endif %}</td>{% endfor %}<td>{{ r.done_set|length }}</td></tr>
+  {% empty %}<tr><td colspan="{{ days|length|add:5 }}" style="height:30px;">この月の予定はありません。</td></tr>{% endfor %}
+  </tbody>
+</table>
+<div class="small muted" style="margin-top:4px;">単位数・利用者負担額の計算（給付管理）は、この票には入っていません。</div>
+{% endblock %}

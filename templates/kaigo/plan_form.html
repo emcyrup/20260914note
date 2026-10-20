@@ -1,0 +1,90 @@
+{% extends 'kaigo/_person_base.html' %}
+{% block title %}{{ b.full_name }} 居宅サービス計画書 — {{ app_label }}{% endblock %}
+{% block tab_content %}
+<form method="post" data-unsaved-warn>
+  {% csrf_token %}
+  <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+    <a href="{% url 'kaigo:plans' b.pk %}" class="small text-decoration-none"><i class="bi bi-chevron-left"></i> ケアプランの一覧</a>
+    <div class="d-flex gap-1">{% if plan.pk %}<a href="{% url 'kaigo:plan_print' b.pk plan.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>第1〜3表を印刷</a>{% endif %}
+      <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button></div>
+  </div>
+  {% if not plan.pk %}<div class="alert alert-info small py-2">新しい計画です。{% if plan.goals %}前の計画の内容を写してあります。変わったところを直して保存してください。{% endif %}要介護度・認定の期間は介護保険証から入れています。</div>{% endif %}
+
+  <div class="card mb-3"><div class="card-body">
+    <div class="fw-bold mb-2">第1表　居宅サービス計画書（1）</div>
+    <div class="row g-2">
+      <div class="col-6 col-md-3"><label class="form-label small mb-0" for="p-created">作成（変更）日</label><input type="date" name="created_on" id="p-created" class="form-control form-control-sm" value="{{ plan.created_on|date:'Y-m-d' }}" required></div>
+      <div class="col-6 col-md-3"><label class="form-label small mb-0" for="p-first">初回作成日</label><input type="date" name="first_created_on" id="p-first" class="form-control form-control-sm" value="{{ plan.first_created_on|date:'Y-m-d' }}"></div>
+      <div class="col-6 col-md-3"><label class="form-label small mb-0" for="p-type">初回・紹介・継続</label><select name="plan_type" id="p-type" class="form-select form-select-sm">{% for k, l in plan.PLAN_TYPES %}<option value="{{ k }}" {% if plan.plan_type == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-md-3"><label class="form-label small mb-0" for="p-state">認定済・申請中</label><select name="cert_state" id="p-state" class="form-select form-select-sm">{% for k, l in plan.CERT_STATES %}<option value="{{ k }}" {% if plan.cert_state == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-md-3"><label class="form-label small mb-0" for="p-level">要介護状態区分</label><select name="care_level" id="p-level" class="form-select form-select-sm">{% for k, l in levels %}<option value="{{ k }}" {% if plan.care_level == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-md-3"><label class="form-label small mb-0" for="p-cert">認定日</label><input type="date" name="certified_on" id="p-cert" class="form-control form-control-sm" value="{{ plan.certified_on|date:'Y-m-d' }}"></div>
+      <div class="col-6 col-md-3"><label class="form-label small mb-0" for="p-cf">認定の有効期間（開始）</label><input type="date" name="cert_from" id="p-cf" class="form-control form-control-sm" value="{{ plan.cert_from|date:'Y-m-d' }}"></div>
+      <div class="col-6 col-md-3"><label class="form-label small mb-0" for="p-cu">（終了）</label><input type="date" name="cert_until" id="p-cu" class="form-control form-control-sm" value="{{ plan.cert_until|date:'Y-m-d' }}"></div>
+      <div class="col-md-6"><label class="form-label small mb-0" for="p-planner">居宅サービス計画作成者</label><input name="planner" id="p-planner" class="form-control form-control-sm" value="{{ plan.planner }}"></div>
+      <div class="col-12"><label class="form-label small fw-semibold mb-0" for="p-wishes">利用者及び家族の生活に対する意向を踏まえた課題分析の結果</label><textarea name="wishes" id="p-wishes" class="form-control" rows="4">{{ plan.wishes }}</textarea></div>
+      <div class="col-12"><label class="form-label small fw-semibold mb-0" for="p-op">介護認定審査会の意見及びサービスの種類の指定</label><textarea name="committee_opinion" id="p-op" class="form-control" rows="2">{{ plan.committee_opinion }}</textarea></div>
+      <div class="col-12"><label class="form-label small fw-semibold mb-0" for="p-policy">総合的な援助の方針</label><textarea name="policy" id="p-policy" class="form-control" rows="4">{{ plan.policy }}</textarea></div>
+      <div class="col-md-5"><label class="form-label small mb-0" for="p-lr">生活援助中心型の算定理由</label><select name="living_reason" id="p-lr" class="form-select form-select-sm">{% for k, l in plan.LIVING_REASONS %}<option value="{{ k }}" {% if plan.living_reason == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-md-7"><label class="form-label small mb-0" for="p-lro">（3. その他 の内容）</label><input name="living_reason_other" id="p-lro" class="form-control form-control-sm" value="{{ plan.living_reason_other }}"></div>
+    </div>
+  </div></div>
+
+  <div class="card mb-3"><div class="card-body">
+    <div class="fw-bold mb-2">第2表　居宅サービス計画書（2）</div>
+    <datalist id="kinds">{% for k in service_kinds %}<option value="{{ k }}">{% endfor %}</datalist>
+    <datalist id="provs">{% for pv in providers %}<option value="{{ pv.name }}">{% endfor %}</datalist>
+    <input type="hidden" name="goal_count" value="{{ goals|length }}">
+    {% for g in goals %}{% with i=forloop.counter0 %}
+    <div class="kg-goal">
+      <div class="small text-muted mb-1">{{ forloop.counter }}{% if not g.need %}（空き。書くと増えます）{% endif %}</div>
+      <div class="row g-2">
+        <div class="col-12"><label class="form-label small fw-semibold mb-0" for="g{{ i }}-need">生活全般の解決すべき課題（ニーズ）</label><textarea name="g{{ i }}_need" id="g{{ i }}-need" class="form-control form-control-sm" rows="2">{{ g.need }}</textarea></div>
+        <div class="col-md-8"><label class="form-label small mb-0" for="g{{ i }}-lg">長期目標</label><textarea name="g{{ i }}_long_goal" id="g{{ i }}-lg" class="form-control form-control-sm" rows="2">{{ g.long_goal }}</textarea></div>
+        <div class="col-md-4"><label class="form-label small mb-0" for="g{{ i }}-lp">（期間）</label><input name="g{{ i }}_long_period" id="g{{ i }}-lp" class="form-control form-control-sm" value="{{ g.long_period }}" placeholder="R8.11.1〜R9.10.31"></div>
+        <div class="col-md-8"><label class="form-label small mb-0" for="g{{ i }}-sg">短期目標</label><textarea name="g{{ i }}_short_goal" id="g{{ i }}-sg" class="form-control form-control-sm" rows="2">{{ g.short_goal }}</textarea></div>
+        <div class="col-md-4"><label class="form-label small mb-0" for="g{{ i }}-sp">（期間）</label><input name="g{{ i }}_short_period" id="g{{ i }}-sp" class="form-control form-control-sm" value="{{ g.short_period }}"></div>
+        <div class="col-md-8"><label class="form-label small mb-0" for="g{{ i }}-sv">サービス内容</label><textarea name="g{{ i }}_service" id="g{{ i }}-sv" class="form-control form-control-sm" rows="2">{{ g.service }}</textarea></div>
+        <div class="col-md-4 d-flex align-items-end"><label class="small"><input type="checkbox" name="g{{ i }}_insured" value="1" class="form-check-input me-1" {% if g.insured %}checked{% endif %}>保険給付の対象（※1）</label></div>
+        <div class="col-md-4"><label class="form-label small mb-0" for="g{{ i }}-kind">サービス種別</label><input name="g{{ i }}_kind" id="g{{ i }}-kind" list="kinds" class="form-control form-control-sm" value="{{ g.kind }}"></div>
+        <div class="col-md-4"><label class="form-label small mb-0" for="g{{ i }}-prov">事業所（※2）</label><input name="g{{ i }}_provider" id="g{{ i }}-prov" list="provs" class="form-control form-control-sm" value="{{ g.provider }}"></div>
+        <div class="col-6 col-md-2"><label class="form-label small mb-0" for="g{{ i }}-freq">頻度</label><input name="g{{ i }}_frequency" id="g{{ i }}-freq" class="form-control form-control-sm" value="{{ g.frequency }}" placeholder="週2回"></div>
+        <div class="col-6 col-md-2"><label class="form-label small mb-0" for="g{{ i }}-per">期間</label><input name="g{{ i }}_period" id="g{{ i }}-per" class="form-control form-control-sm" value="{{ g.period }}"></div>
+      </div>
+    </div>
+    {% endwith %}{% endfor %}
+    <div class="small text-muted">欄が足りないときは、保存すると空きの欄が増えます。</div>
+  </div></div>
+
+  <div class="card mb-3"><div class="card-body">
+    <div class="fw-bold mb-2">第3表　週間サービス計画表</div>
+    <input type="hidden" name="weekly_count" value="{{ weekly|length }}">
+    <div class="table-responsive"><table class="table table-sm align-middle mb-2">
+      <thead><tr><th>曜日</th><th style="width:110px;">開始</th><th style="width:110px;">終了</th><th>内容（サービス）</th></tr></thead>
+      <tbody>{% for w in weekly %}{% with i=forloop.counter0 %}
+        <tr><td class="text-nowrap">{% for d, label in week %}<label class="me-1 small"><input type="checkbox" name="w{{ i }}_days" value="{{ d }}" class="form-check-input" {% if d in w.days %}checked{% endif %}> {{ label }}</label>{% endfor %}</td>
+          <td><input type="time" name="w{{ i }}_start" class="form-control form-control-sm" value="{{ w.start }}" aria-label="開始"></td>
+          <td><input type="time" name="w{{ i }}_end" class="form-control form-control-sm" value="{{ w.end }}" aria-label="終了"></td>
+          <td><input name="w{{ i }}_content" list="kinds" class="form-control form-control-sm" value="{{ w.content }}" aria-label="内容"></td></tr>
+      {% endwith %}{% endfor %}</tbody>
+    </table></div>
+    <div class="row g-2">
+      <div class="col-md-6"><label class="form-label small mb-0" for="p-daily">主な日常生活上の活動</label><textarea name="daily_life" id="p-daily" class="form-control" rows="3" placeholder="7:00 起床・朝食　12:00 昼食　…">{{ plan.daily_life }}</textarea></div>
+      <div class="col-md-6"><label class="form-label small mb-0" for="p-other">週単位以外のサービス</label><textarea name="other_services" id="p-other" class="form-control" rows="3" placeholder="福祉用具貸与（車いす）・月1回の通院 など">{{ plan.other_services }}</textarea></div>
+    </div>
+  </div></div>
+
+  <div class="card mb-3"><div class="card-body">
+    <div class="fw-bold mb-2">説明・同意</div>
+    <div class="row g-2">
+      <div class="col-6 col-md-3"><label class="form-label small mb-0" for="p-exp">説明・同意日</label><input type="date" name="explained_on" id="p-exp" class="form-control form-control-sm" value="{{ plan.explained_on|date:'Y-m-d' }}"></div>
+      <div class="col-6 col-md-4"><label class="form-label small mb-0" for="p-agree">同意した人</label><input name="agreed_by" id="p-agree" class="form-control form-control-sm" value="{{ plan.agreed_by }}"></div>
+    </div>
+  </div></div>
+  <div class="d-flex justify-content-between">
+    <span></span>
+    <button class="btn btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button>
+  </div>
+</form>
+{% if plan.pk %}<form method="post" class="text-end mt-3" onsubmit="return confirm('この居宅サービス計画書を消します。元に戻せません。よろしいですか？');">{% csrf_token %}<button name="action" value="delete" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>この計画を消す</button></form>{% endif %}
+{% endblock %}

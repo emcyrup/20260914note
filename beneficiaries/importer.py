@@ -11,6 +11,9 @@
 - もう1つの形「児童一覧」（前のシステムの CSV。1行が契約1件で、同じお子さまが複数行に出る）にも対応する。
   見出しあり（17列：保護者（名前）…児童（名前）…保訪退所日。1行目に「児童（名前）」があればこの形）と、見出しなし（15列）の両方を読む。
   列の意味は CHILDREN_COLUMNS。同じ姓・名・生年月日の行は1人にまとめ、利用中があれば在籍中、なければ退所にする
+- もう1つの形「カイポケの利用者一覧」（居宅介護支援の事業所。1行目に「氏名」「氏名カナ」「生年月日」と「被保証:被保険者番号」）にも対応する。
+  氏名を姓・名に分け、カナはひらがなに、表示状態「非表示」は退所にする。緊急連絡先は連絡先（保護者の欄）に、
+  被保険者証・負担割合証は介護保険証（kaigo.CareInsurance）に入れる。="0123" のような Excel 向けの書き方は中身だけ読む
 - すでに台帳にいる利用者は、登録のときに「取り込んだ値で上書きする」か「台帳の値を残す」かを選ぶ（MODE_*）。
   どちらでも、台帳の欄が空なら取り込んだ値を入れる
 """
@@ -107,6 +110,16 @@ CHILDREN_ACTIVE_WORDS = {'利用中', '契約中', '在籍', '在籍中', '利�
 CHILDREN_NONE_WORDS = {'', '利用なし', 'なし', '-', '－', '—'}
 PLACEHOLDER_DOB = datetime.date(2000, 1, 1)     # 児童の生年月日が無いときの仮の値（あとで直してもらう）
 RELATION_WORDS = {'父': 'father', '母': 'mother', '父親': 'father', '母親': 'mother', 'お父さん': 'father', 'お母さん': 'mother'}
+# カイポケ（ケアアプリ）の利用者一覧 CSV。(見出し, 介護保険証の欄)
+KAIPOKE_MARKS = ['氏名', '氏名カナ', '生年月日', '被保証:被保険者番号']
+KAIPOKE_CARE = [
+    ('被保証:保険者番号', 'insurer_number'), ('被保証:被保険者番号', 'insured_number'), ('被保証:要介護度', 'care_level'),
+    ('被保証:認定日', 'certified_on'), ('被保証:被保険者証交付日', 'issued_on'), ('被保証:適用開始日', 'applied_from'),
+    ('被保証:適用終了日', 'applied_until'), ('被保証:認定有効期間開始日', 'valid_from'), ('被保証:認定有効期間終了日', 'valid_until'),
+    ('負担割合証:負担割合', 'copay_ratio'), ('負担割合証:交付日', 'copay_issued_on'), ('負担割合証:適用開始日', 'copay_from'),
+]
+CARE_DATE_KEYS = ('certified_on', 'issued_on', 'applied_from', 'applied_until', 'valid_from', 'valid_until', 'copay_issued_on', 'copay_from')
+KAIPOKE_STATUS = {'表示': 'active', '非表示': 'inactive'}
 
 
 class RowError(Exception):
@@ -151,6 +164,9 @@ def rows_from_file(uploaded):
     rows = read_rows(uploaded)
     if not rows:
         return []
+    head = find_header(rows, KAIPOKE_MARKS)
+    if head is not None:
+        return _kaipoke_rows([(h or '').strip() for h in rows[head]], rows[head + 1:head + 1 + MAX_ROWS], head + 1)
     head = find_header(rows, [CHILDREN_MARK, '生年月日'])
     if head is not None:
         return _children_rows(_children_by_header(rows[head], rows[head + 1:head + 1 + MAX_ROWS]), head + 1, strict=False)
@@ -176,6 +192,60 @@ def rows_from_file(uploaded):
                 d[k] = (r[i] if i < len(r) else '').strip()
         if any(d.values()):
             out.append(d)
+    return out
+
+
+def _excel_text(v):
+    """="7630041" のような Excel 向けの書き方 → 7630041"""
+    v = (v or '').strip()
+    m = re.fullmatch(r'="(.*)"', v)
+    return (m.group(1) if m else v).strip()
+
+
+def _kaipoke_rows(header, body, offset):
+    """カイポケの利用者一覧 → 雛形と同じキーの dict（介護保険証は '_care' に）"""
+    col = {h: i for i, h in reversed(list(enumerate(header)))}
+
+    def get(r, label):
+        i = col.get(label)
+        return _excel_text(r[i]) if i is not None and i < len(r) else ''
+
+    out = []
+    for n, r in enumerate(body):
+        if not any((c or '').strip() for c in r):
+            continue
+        last, first = split_name(get(r, '氏名'))
+        kl, kf = split_name(get(r, '氏名カナ'))
+        el, ef = split_name(get(r, '緊急連絡先氏名'))
+        d = {'_format': FORMAT_BENEFICIARY, '_line': offset + n + 1, '_kaipoke': True,
+             'last_name': last, 'first_name': first, 'last_name_kana': _hira(kl), 'first_name_kana': _hira(kf),
+             'date_of_birth': get(r, '生年月日'), 'gender': get(r, '性別'), 'postal_code': get(r, '郵便番号'),
+             'address': get(r, '住所'), 'home_phone': get(r, '電話番号'), 'mobile_phone': get(r, '携帯番号'),
+             'status': KAIPOKE_STATUS.get(get(r, '表示状態'), ''), 'notes': get(r, '備考'),
+             'guardian_last_name': el, 'guardian_first_name': ef, 'guardian_phone': get(r, '緊急連絡先電話番号'),
+             'guardian_email': get(r, 'メールアドレス') if el else ''}
+        if not first:
+            d['_error'] = '氏名を姓と名に分けられません（姓と名のあいだに空白を入れてください）'
+        care = {key: get(r, label) for label, key in KAIPOKE_CARE}
+        if any(care.values()):
+            d['_care'] = care
+        out.append(d)
+    return out
+
+
+def parse_care(c):
+    """カイポケの被保険者証・負担割合証 → 介護保険証の値。問題があれば RowError"""
+    from kaigo.models import CARE_LEVELS
+    out = {'insurer_number': re.sub(r'\D', '', c.get('insurer_number', ''))[:8],
+           'insured_number': re.sub(r'\s', '', c.get('insured_number', ''))[:12]}
+    level = (c.get('care_level') or '').strip().translate(str.maketrans('１２３４５', '12345'))
+    if level and level not in CARE_LEVELS:
+        raise RowError(f'要介護度を読み取れません：{level}')
+    out['care_level'] = level
+    for k in CARE_DATE_KEYS:
+        out[k] = parse_date(c.get(k))
+    ratio = (c.get('copay_ratio') or '').strip().translate(str.maketrans('１２３', '123')).replace('割', '')
+    out['copay_ratio'] = int(ratio) if ratio in ('1', '2', '3') else None
     return out
 
 
@@ -400,11 +470,12 @@ def parse_row(r):
         'notes': r.get('notes', ''),
         'notes_append': r.get('notes_append', ''),
         'guardian': None, 'certificate': None,
+        'care': parse_care(r['_care']) if r.get('_care') else None,
     }
     gl, gf = r.get('guardian_last_name', '').strip(), r.get('guardian_first_name', '').strip()
     if gl or gf:
         out['guardian'] = {
-            'last_name': (gl or out['last_name'])[:50], 'first_name': (gf or '保護者')[:50],
+            'last_name': (gl or out['last_name'])[:50], 'first_name': (gf or ('' if r.get('_kaipoke') else '保護者'))[:50],
             'relation': _choice(r.get('guardian_relation'), RELATION, '保護者 続柄') or 'other',
             'kana': r.get('guardian_kana', '')[:100],
             'phone': r.get('guardian_phone', '')[:20], 'email': r.get('guardian_email', '')[:254],
@@ -646,6 +717,8 @@ def plan(facility, rows):
             extras.append('保護者')
         if data['certificate']:
             extras.append('受給者証')
+        if data.get('care'):
+            extras.append('介護保険証' + (f"（{data['care']['care_level']}）" if data['care']['care_level'] else ''))
         fills, diffs = compare(existing, data) if existing else ([], [])
         if existing:
             detail = 'すでに台帳にいます' + ('（台帳と違う値があります。下の「台帳と違う値」の扱いに従います）' if diffs else '')
@@ -763,8 +836,24 @@ def apply(facility, planned, mode=MODE_OVERWRITE, dob_lines=()):
                     if m == MODE_OVERWRITE or _empty(getattr(cert, k)) or getattr(cert, k) == 0:
                         setattr(cert, k, v)
                 cert.save()
+        if data.get('care'):
+            _apply_care(b, data['care'], m)
         if is_new:
             created += 1
         else:
             updated += 1
     return created, updated, errors
+
+
+def _apply_care(b, care, mode):
+    """介護保険証：同じ被保険者番号で認定の有効期間（開始）が同じものがあれば書き換え、なければ足す"""
+    from kaigo.models import CareInsurance
+    ins = CareInsurance.objects.filter(beneficiary=b, insured_number=care['insured_number'], valid_from=care['valid_from']) \
+        .order_by('-pk').first()
+    if ins is None:
+        CareInsurance.objects.create(beneficiary=b, **care)
+        return
+    for k, v in care.items():
+        if _take(getattr(ins, k), v, mode):
+            setattr(ins, k, v)
+    ins.save()

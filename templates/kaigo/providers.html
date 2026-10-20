@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block title %}取引先 — {{ app_label }}{% endblock %}
+{% block page_title %}取引先{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+{% block extra_css %}{% include 'kaigo/_style.html' %}{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1000px; margin: 0 auto;">
+  <div class="mb-2 small"><a href="{% url 'beneficiaries:list' %}" class="text-muted text-decoration-none"><i class="bi bi-people me-1"></i>{{ terms.beneficiary }}一覧</a></div>
+  <div class="row g-3">
+    <div class="col-lg-4">
+      <form method="post" class="card" id="pv-form"><div class="card-body">
+        {% csrf_token %}{% if edit %}<input type="hidden" name="provider" value="{{ edit.pk }}">{% endif %}
+        <div class="fw-bold mb-2">{% if edit %}取引先を直す{% else %}取引先を足す{% endif %}</div>
+        <datalist id="kinds">{% for k in service_kinds %}<option value="{{ k }}">{% endfor %}</datalist>
+        <label class="form-label small mb-0" for="pv-name">事業所名</label><input name="name" id="pv-name" class="form-control form-control-sm mb-1" value="{{ edit.name }}" required>
+        <label class="form-label small mb-0" for="pv-kind">サービスの種類</label><input name="service_kind" id="pv-kind" list="kinds" class="form-control form-control-sm mb-1" value="{{ edit.service_kind }}">
+        <label class="form-label small mb-0" for="pv-no">事業所番号</label><input name="office_number" id="pv-no" class="form-control form-control-sm mb-1" value="{{ edit.office_number }}" inputmode="numeric">
+        <div class="row g-1"><div class="col-6"><label class="form-label small mb-0" for="pv-tel">電話</label><input name="phone" id="pv-tel" class="form-control form-control-sm mb-1" value="{{ edit.phone }}" inputmode="tel"></div>
+          <div class="col-6"><label class="form-label small mb-0" for="pv-fax">FAX</label><input name="fax" id="pv-fax" class="form-control form-control-sm mb-1" value="{{ edit.fax }}" inputmode="tel"></div></div>
+        <label class="form-label small mb-0" for="pv-mail">メール</label><input type="email" name="email" id="pv-mail" class="form-control form-control-sm mb-1" value="{{ edit.email }}">
+        <label class="form-label small mb-0" for="pv-addr">住所</label><input name="address" id="pv-addr" class="form-control form-control-sm mb-1" value="{{ edit.address }}">
+        <label class="form-label small mb-0" for="pv-contact">担当者</label><input name="contact" id="pv-contact" class="form-control form-control-sm mb-1" value="{{ edit.contact }}">
+        <label class="form-label small mb-0" for="pv-notes">メモ</label><textarea name="notes" id="pv-notes" class="form-control form-control-sm" rows="2">{{ edit.notes }}</textarea>
+        <div class="d-flex justify-content-between mt-2">{% if edit %}<a href="{% url 'kaigo:providers' %}" class="btn btn-sm btn-outline-secondary">やめる</a>{% else %}<span></span>{% endif %}<button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button></div>
+      </div></form>
+    </div>
+    <div class="col-lg-8">
+      <div class="card"><div class="table-responsive"><table class="table table-sm align-middle mb-0">
+        <thead><tr><th>事業所名</th><th>種類</th><th>電話・FAX</th><th>担当者</th><th></th></tr></thead>
+        <tbody>{% for pv in providers %}
+          <tr class="{% if not pv.is_active %}text-muted{% endif %}"><td class="fw-semibold">{{ pv.name }}{% if not pv.is_active %} <span class="badge text-bg-secondary">取引をやめた</span>{% endif %}{% if pv.office_number %}<div class="small text-muted fw-normal">{{ pv.office_number }}</div>{% endif %}</td>
+            <td class="small">{{ pv.service_kind }}</td>
+            <td class="small text-nowrap">{% if pv.phone %}<a href="tel:{{ pv.phone }}">{{ pv.phone }}</a>{% endif %}{% if pv.fax %}<div>FAX {{ pv.fax }}</div>{% endif %}</td>
+            <td class="small">{{ pv.contact }}</td>
+            <td class="text-end text-nowrap"><a href="?edit={{ pv.pk }}#pv-form" class="btn btn-sm btn-outline-secondary py-0">直す</a>
+              <form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="provider" value="{{ pv.pk }}"><button name="action" value="toggle" class="btn btn-sm btn-outline-secondary py-0">{% if pv.is_active %}取引をやめる{% else %}取引中に戻す{% endif %}</button></form>
+              <form method="post" class="d-inline" onsubmit="return confirm('「{{ pv.name|escapejs }}」を消します。よろしいですか？（取引をやめただけなら「取引をやめる」にしてください）');">{% csrf_token %}<input type="hidden" name="provider" value="{{ pv.pk }}"><button name="action" value="delete" class="btn btn-sm btn-outline-danger py-0" title="消す"><i class="bi bi-trash"></i></button></form></td></tr>
+        {% empty %}<tr><td colspan="5" class="text-muted small">まだありません。左から足してください（訪問介護・デイサービス・福祉用具・病院・地域包括など）。</td></tr>{% endfor %}</tbody>
+      </table></div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

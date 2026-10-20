@@ -1,0 +1,36 @@
+{% extends 'kaigo/_person_base.html' %}
+{% block title %}{{ b.full_name }} 担当者会議の要点 — {{ app_label }}{% endblock %}
+{% block tab_content %}
+<form method="post" data-unsaved-warn>
+  {% csrf_token %}
+  <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+    <a href="{% url 'kaigo:meetings' b.pk %}" class="small text-decoration-none"><i class="bi bi-chevron-left"></i> 会議の一覧</a>
+    <div class="d-flex gap-1">{% if m.pk %}<a href="{% url 'kaigo:meeting_print' b.pk m.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>第4表を印刷</a>{% endif %}
+      <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button></div>
+  </div>
+  <div class="card mb-3"><div class="card-body">
+    <div class="row g-2">
+      <div class="col-6 col-md-3"><label class="form-label small mb-0" for="m-date">開催日</label><input type="date" name="held_on" id="m-date" class="form-control form-control-sm" value="{{ m.held_on|date:'Y-m-d' }}" required></div>
+      <div class="col-3 col-md-2"><label class="form-label small mb-0" for="m-start">開始</label><input type="time" name="start" id="m-start" class="form-control form-control-sm" value="{{ m.start|time:'H:i' }}"></div>
+      <div class="col-3 col-md-2"><label class="form-label small mb-0" for="m-end">終了</label><input type="time" name="end" id="m-end" class="form-control form-control-sm" value="{{ m.end|time:'H:i' }}"></div>
+      <div class="col-8 col-md-3"><label class="form-label small mb-0" for="m-place">開催場所</label><input name="place" id="m-place" class="form-control form-control-sm" value="{{ m.place }}"></div>
+      <div class="col-4 col-md-2"><label class="form-label small mb-0" for="m-count">開催回数</label><input type="number" min="1" name="count" id="m-count" class="form-control form-control-sm" value="{{ m.count|default:'' }}"></div>
+      <div class="col-md-6"><label class="form-label small mb-0" for="m-planner">居宅サービス計画作成者（担当者）</label><input name="planner" id="m-planner" class="form-control form-control-sm" value="{{ m.planner }}"></div>
+    </div>
+    <div class="small fw-semibold mt-3 mb-1">会議出席者（所属（職種）・氏名）</div>
+    <input type="hidden" name="attendee_count" value="{{ attendees|length }}">
+    <div class="row g-1">{% for a in attendees %}{% with i=forloop.counter0 %}
+      <div class="col-md-6 d-flex gap-1"><input name="a{{ i }}_org" class="form-control form-control-sm" placeholder="所属（職種）" value="{{ a.org }}" aria-label="所属（職種）{{ forloop.counter }}"><input name="a{{ i }}_name" class="form-control form-control-sm" style="max-width:40%;" placeholder="氏名" value="{{ a.name }}" aria-label="氏名{{ forloop.counter }}"></div>
+    {% endwith %}{% endfor %}</div>
+  </div></div>
+  <div class="card mb-3"><div class="card-body">
+    <label class="form-label small fw-semibold mb-0" for="m-topics">検討した項目</label><textarea name="topics" id="m-topics" class="form-control mb-2" rows="3">{{ m.topics }}</textarea>
+    <label class="form-label small fw-semibold mb-0" for="m-disc">検討内容</label><textarea name="discussion" id="m-disc" class="form-control mb-2" rows="6">{{ m.discussion }}</textarea>
+    <label class="form-label small fw-semibold mb-0" for="m-conc">結論</label><textarea name="conclusion" id="m-conc" class="form-control mb-2" rows="4">{{ m.conclusion }}</textarea>
+    <label class="form-label small fw-semibold mb-0" for="m-rem">残された課題（次回の開催時期）</label><textarea name="remaining" id="m-rem" class="form-control" rows="3">{{ m.remaining }}</textarea>
+    {% if not m.pk %}<label class="small mt-2 d-block"><input type="checkbox" name="add_log" value="1" class="form-check-input me-1" checked>支援経過にも「サービス担当者会議」として1件残す</label>{% endif %}
+  </div></div>
+  <div class="text-end"><button class="btn btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button></div>
+</form>
+{% if m.pk %}<form method="post" class="text-end mt-3" onsubmit="return confirm('この会議の要点を消します。元に戻せません。よろしいですか？');">{% csrf_token %}<button name="action" value="delete" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>この会議の要点を消す</button></form>{% endif %}
+{% endblock %}

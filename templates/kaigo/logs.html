@@ -1,0 +1,59 @@
+{% extends 'kaigo/_person_base.html' %}
+{% block title %}{{ b.full_name }} 支援経過 — {{ app_label }}{% endblock %}
+{% block tab_content %}
+<div class="row g-3">
+  <div class="col-lg-5">
+    <form method="post" class="card" id="log-form"><div class="card-body">
+      {% csrf_token %}
+      {% if edit %}<input type="hidden" name="log" value="{{ edit.pk }}">{% endif %}
+      <div class="fw-bold mb-2">{% if edit %}支援経過を直す{% else %}支援経過を書く{% endif %}</div>
+      <div class="row g-2">
+        <div class="col-7"><label class="form-label small mb-0" for="lg-date">日付</label>
+          <input type="date" name="date" id="lg-date" class="form-control form-control-sm" value="{% if edit %}{{ edit.date|date:'Y-m-d' }}{% else %}{{ now_date|date:'Y-m-d' }}{% endif %}" required></div>
+        <div class="col-5"><label class="form-label small mb-0" for="lg-time">時刻</label>
+          <input type="time" name="time" id="lg-time" class="form-control form-control-sm" value="{% if edit %}{{ edit.time|time:'H:i' }}{% else %}{{ now_time }}{% endif %}"></div>
+        <div class="col-7"><label class="form-label small mb-0" for="lg-cat">項目</label>
+          <select name="category" id="lg-cat" class="form-select form-select-sm">{% for k, label in categories %}<option value="{{ k }}" {% if edit.category == k %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+        <div class="col-5"><label class="form-label small mb-0" for="lg-method">方法</label>
+          <select name="method" id="lg-method" class="form-select form-select-sm">{% for k, label in methods %}<option value="{{ k }}" {% if edit.method == k %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+        <div class="col-12"><label class="form-label small mb-0" for="lg-prov">相手の事業所（取引先）</label>
+          <select name="provider" id="lg-prov" class="form-select form-select-sm"><option value="">—</option>{% for pv in providers %}<option value="{{ pv.pk }}" {% if edit.provider_id == pv.pk %}selected{% endif %}>{{ pv.name }}{% if pv.service_kind %}（{{ pv.service_kind }}）{% endif %}</option>{% endfor %}</select></div>
+        <div class="col-12"><label class="form-label small mb-0" for="lg-content">内容</label>
+          <textarea name="content" id="lg-content" class="form-control" rows="7" required placeholder="例：自宅を訪問しモニタリング。デイサービスは週2回楽しく通えている。膝の痛みは変わらず…">{{ edit.content }}</textarea></div>
+      </div>
+      <div class="d-flex justify-content-between mt-2">
+        {% if edit %}<a href="{% url 'kaigo:logs' b.pk %}" class="btn btn-sm btn-outline-secondary">やめる</a>{% else %}<span></span>{% endif %}
+        <button class="btn btn-primary btn-sm"><i class="bi bi-check2 me-1"></i>保存する</button>
+      </div>
+    </div></form>
+  </div>
+  <div class="col-lg-7">
+    <div class="card"><div class="card-body">
+      <form method="get" class="d-flex gap-2 flex-wrap align-items-end mb-2">
+        <div><label class="form-label small mb-0" for="f-cat">項目</label>
+          <select name="cat" id="f-cat" class="form-select form-select-sm"><option value="">すべて</option>{% for k, label in categories %}<option value="{{ k }}" {% if cat == k %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+        <div><label class="form-label small mb-0" for="f-from">いつから</label><input type="date" name="from" id="f-from" class="form-control form-control-sm" value="{{ start|date:'Y-m-d' }}"></div>
+        <div><label class="form-label small mb-0" for="f-to">いつまで</label><input type="date" name="to" id="f-to" class="form-control form-control-sm" value="{{ end|date:'Y-m-d' }}"></div>
+        <button class="btn btn-sm btn-outline-secondary">絞る</button>
+        <a href="{% url 'kaigo:logs_print' b.pk %}?fmt=html&{{ query }}" target="_blank" class="btn btn-sm btn-outline-primary ms-auto" title="居宅介護支援経過（第5表）を印刷する。絞った条件のとおりに出します"><i class="bi bi-printer me-1"></i>第5表を印刷</a>
+      </form>
+      {% for log in logs %}
+      <div class="kg-log">
+        <div class="d-flex justify-content-between gap-2 flex-wrap">
+          <div><b>{{ log.date|date:'Y/n/j' }}（{{ log.date|date:'D' }}）</b>{% if log.time %} <span class="text-muted">{{ log.time|time:'H:i' }}</span>{% endif %}
+            <span class="kg-cat {{ log.category }} ms-1">{{ log.get_category_display }}</span>
+            {% if log.method %}<span class="small text-muted ms-1">{{ log.get_method_display }}</span>{% endif %}
+            {% if log.provider %}<span class="small text-muted ms-1">／{{ log.provider.name }}</span>{% endif %}</div>
+          <div class="d-flex gap-1">
+            <a href="?edit={{ log.pk }}#log-form" class="btn btn-sm btn-outline-secondary py-0">直す</a>
+            <form method="post" onsubmit="return confirm('この支援経過を消します。よろしいですか？');">{% csrf_token %}<input type="hidden" name="log" value="{{ log.pk }}"><button name="action" value="delete" class="btn btn-sm btn-outline-danger py-0" title="消す"><i class="bi bi-trash"></i></button></form>
+          </div>
+        </div>
+        <div class="kg-log-body">{{ log.content }}</div>
+        {% if log.created_by %}<div class="small text-muted text-end">記録：{{ log.created_by }}</div>{% endif %}
+      </div>
+      {% empty %}<div class="text-muted small py-3">まだありません。左から書いてください。</div>{% endfor %}
+    </div></div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,53 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}居宅サービス計画書 {{ b.full_name }}{% endblock %}
+{% block page_orientation %}landscape{% endblock %}
+{% block page_margin %}9mm{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'kaigo:plan_edit' b.pk plan.pk %}">計画へ戻る</a>{% endblock %}
+{% block body %}
+<div class="right small">第1表　作成年月日 {{ plan.created_on|date:'Y年n月j日' }}</div>
+<h1>居宅サービス計画書（1）</h1>
+<div class="small" style="margin-bottom:4px;">
+  {% for k, l in plan.PLAN_TYPES %}<span class="chk {% if plan.plan_type == k %}on{% endif %}">{{ l }}</span>{% endfor %}　
+  {% for k, l in plan.CERT_STATES %}<span class="chk {% if plan.cert_state == k %}on{% endif %}">{{ l }}</span>{% endfor %}
+</div>
+<table>
+  <tr><th style="width:12%;">利用者名</th><td style="width:22%;">{{ b.full_name }} 殿</td><th style="width:9%;">生年月日</th><td style="width:16%;">{{ b.date_of_birth|date:'Y年n月j日' }}</td><th style="width:7%;">住所</th><td>{{ b.address }}</td></tr>
+  <tr><th>居宅サービス計画作成者氏名</th><td colspan="5">{{ plan.planner }}</td></tr>
+  <tr><th>居宅介護支援事業者・事業所名及び所在地</th><td colspan="5">{{ facility.name }}{% if facility.address %}　{{ facility.address }}{% endif %}</td></tr>
+  <tr><th>居宅サービス計画作成（変更）日</th><td>{{ plan.created_on|date:'Y年n月j日' }}</td><th colspan="2">初回居宅サービス計画作成日</th><td colspan="2">{{ plan.first_created_on|date:'Y年n月j日' }}</td></tr>
+  <tr><th>認定日</th><td>{{ plan.certified_on|date:'Y年n月j日' }}</td><th colspan="2">認定の有効期間</th><td colspan="2">{% if plan.cert_from %}{{ plan.cert_from|date:'Y年n月j日' }} 〜 {{ plan.cert_until|date:'Y年n月j日' }}{% endif %}</td></tr>
+  <tr><th>要介護状態区分</th><td colspan="5">{{ plan.care_level }}</td></tr>
+  <tr><th>利用者及び家族の生活に対する意向を踏まえた課題分析の結果</th><td colspan="5" style="height:70px;">{{ plan.wishes }}</td></tr>
+  <tr><th>介護認定審査会の意見及びサービスの種類の指定</th><td colspan="5" style="height:32px;">{{ plan.committee_opinion }}</td></tr>
+  <tr><th>総合的な援助の方針</th><td colspan="5" style="height:70px;">{{ plan.policy }}</td></tr>
+  <tr><th>生活援助中心型の算定理由</th><td colspan="5">{% for k, l in plan.LIVING_REASONS %}{% if k %}<span class="chk {% if plan.living_reason == k %}on{% endif %}">{{ l }}</span>{% endif %}{% endfor %}{% if plan.living_reason_other %}（{{ plan.living_reason_other }}）{% endif %}</td></tr>
+</table>
+<table style="margin-top:6px;"><tr><td style="height:34px;">居宅サービス計画について説明を受け、内容に同意し交付を受けました。　説明・同意日　{% if plan.explained_on %}{{ plan.explained_on|date:'Y年n月j日' }}{% else %}　　　年　　月　　日{% endif %}　　利用者同意欄　{{ plan.agreed_by }}　　　　　　　　印</td></tr></table>
+
+<div class="pb"></div>
+<div class="right small">第2表　作成年月日 {{ plan.created_on|date:'Y年n月j日' }}</div>
+<h1>居宅サービス計画書（2）</h1>
+<div style="margin-bottom:4px;">利用者名　{{ b.full_name }} 殿</div>
+<table>
+  <thead>
+    <tr><th rowspan="2" style="width:14%;">生活全般の解決すべき課題（ニーズ）</th><th colspan="4">目標</th><th colspan="6">援助内容</th></tr>
+    <tr><th style="width:11%;">長期目標</th><th style="width:7%;">（期間）</th><th style="width:11%;">短期目標</th><th style="width:7%;">（期間）</th>
+        <th style="width:15%;">サービス内容</th><th style="width:3%;">※1</th><th style="width:9%;">サービス種別</th><th style="width:10%;">※2</th><th style="width:6%;">頻度</th><th>期間</th></tr>
+  </thead>
+  <tbody>{% for g in goals %}<tr><td>{{ g.need }}</td><td>{{ g.long_goal }}</td><td>{{ g.long_period }}</td><td>{{ g.short_goal }}</td><td>{{ g.short_period }}</td>
+    <td>{{ g.service }}</td><td class="c">{{ g.insured }}</td><td>{{ g.kind }}</td><td>{{ g.provider }}</td><td>{{ g.frequency }}</td><td>{{ g.period }}</td></tr>
+  {% empty %}<tr><td style="height:60px;"></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>{% endfor %}</tbody>
+</table>
+<div class="small muted" style="margin-top:3px;">※1「保険給付の対象となるかどうかの区分」について、保険給付対象内サービスについては○印を付す。※2「当該サービス提供を行う事業所」について記入する。</div>
+
+<div class="pb"></div>
+<div class="right small">第3表　作成年月日 {{ plan.created_on|date:'Y年n月j日' }}</div>
+<h1>週間サービス計画表</h1>
+<div style="margin-bottom:4px;">利用者名　{{ b.full_name }} 殿</div>
+<table>
+  <thead><tr><th style="width:7%;"></th>{% for w in week %}<th>{{ w }}</th>{% endfor %}<th style="width:18%;">主な日常生活上の活動</th></tr></thead>
+  <tbody>{% for row in grid %}<tr><td class="c">{{ row.label }}</td>{% for cell in row.cells %}<td style="height:26px; font-size:9px;">{% for x in cell %}{{ x }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>{% endfor %}
+    {% if forloop.first %}<td rowspan="{{ grid|length }}">{{ plan.daily_life }}</td>{% endif %}</tr>{% endfor %}</tbody>
+</table>
+<table style="margin-top:6px;"><tr><th style="width:18%;">週単位以外のサービス</th><td style="height:34px;">{{ plan.other_services }}</td></tr></table>
+{% endblock %}

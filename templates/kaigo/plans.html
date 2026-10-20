@@ -1,0 +1,18 @@
+{% extends 'kaigo/_person_base.html' %}
+{% block title %}{{ b.full_name }} ケアプラン — {{ app_label }}{% endblock %}
+{% block tab_content %}
+<div class="card"><div class="card-body">
+  <div class="d-flex justify-content-between align-items-center mb-2"><div class="fw-bold">居宅サービス計画書（第1表・第2表・第3表）</div>
+    <a href="{% url 'kaigo:plan_new' b.pk %}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>{% if plans %}前の計画を写して作る{% else %}計画を作る{% endif %}</a></div>
+  {% for plan in plans %}
+  <div class="d-flex justify-content-between align-items-center border-top py-2 gap-2 flex-wrap">
+    <div><b>{{ plan.created_on|date:'Y/n/j' }}</b> 作成・{{ plan.get_plan_type_display }}{% if plan.care_level %}　<span class="kg-level">{{ plan.care_level }}</span>{% endif %}
+      {% if plan.cert_from %}<span class="small text-muted ms-1">認定 {{ plan.cert_from|date:'Y/n/j' }}〜{{ plan.cert_until|date:'Y/n/j' }}</span>{% endif %}
+      {% if plan.explained_on %}<span class="badge text-bg-success ms-1">同意 {{ plan.explained_on|date:'n/j' }}</span>{% else %}<span class="badge text-bg-warning ms-1">同意前</span>{% endif %}
+      {% if forloop.first %}<span class="badge text-bg-primary ms-1">いまの計画</span>{% endif %}</div>
+    <div class="d-flex gap-1"><a href="{% url 'kaigo:plan_edit' b.pk plan.pk %}" class="btn btn-sm btn-outline-secondary">開く</a>
+      <a href="{% url 'kaigo:plan_print' b.pk plan.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary" title="第1〜3表を印刷"><i class="bi bi-printer"></i></a></div>
+  </div>
+  {% empty %}<div class="small text-muted">まだありません。</div>{% endfor %}
+</div></div>
+{% endblock %}

@@ -1,0 +1,16 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}アセスメント {{ b.full_name }}{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'kaigo:assessment_edit' b.pk a.pk %}">アセスメントへ戻る</a>{% endblock %}
+{% block body %}
+<h1>アセスメント（課題分析）</h1>
+<table style="margin-bottom:6px;">
+  <tr><th style="width:12%;">利用者名</th><td style="width:30%;">{{ b.full_name }} 殿</td><th style="width:12%;">実施日</th><td>{{ a.assessed_on|date:'Y年n月j日' }}（{{ a.get_kind_display }}）</td></tr>
+  <tr><th>要介護度</th><td>{{ insurance.care_level }}</td><th>場所・実施者</th><td>{{ a.place }}{% if a.assessor %}・{{ a.assessor }}{% endif %}</td></tr>
+</table>
+{% for group, items in a.item_groups %}
+<div class="lbl">{{ group }}</div>
+<table>{% for k, label, v in items %}<tr><th style="width:24%; text-align:left;">{{ label }}</th><td>{{ v }}</td></tr>{% endfor %}</table>
+{% endfor %}
+<div class="lbl">課題のまとめ</div><div class="box">{{ a.summary }}</div>
+<div class="small muted right" style="margin-top:4px;">{{ facility.name }}</div>
+{% endblock %}

@@ -1,0 +1,70 @@
+{% extends 'kaigo/_person_base.html' %}
+{% block title %}{{ b.full_name }} 予定・実績 {{ year }}年{{ month }}月 — {{ app_label }}{% endblock %}
+{% block tab_content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+  <div class="d-flex align-items-center gap-2">
+    <a href="{% url 'kaigo:uses' b.pk prev.0 prev.1 %}" class="btn btn-sm btn-outline-secondary" aria-label="前の月"><i class="bi bi-chevron-left"></i></a>
+    <span class="fw-bold fs-5">{{ year }}年{{ month }}月</span>
+    <a href="{% url 'kaigo:uses' b.pk next.0 next.1 %}" class="btn btn-sm btn-outline-secondary" aria-label="次の月"><i class="bi bi-chevron-right"></i></a>
+    <span class="small text-muted">予定 {{ plan_total }} 回・実績 {{ done_total }} 回</span>
+  </div>
+  <div class="d-flex gap-1 flex-wrap">
+    {% if not filled and has_prev %}<form method="post">{% csrf_token %}<button name="action" value="copy_prev" class="btn btn-sm btn-outline-primary"><i class="bi bi-files me-1"></i>前の月を写す</button></form>{% endif %}
+    {% if filled %}<form method="post" onsubmit="return confirm('この月の実績を、予定のとおりに入れ直します（いまの実績の印は消えます）。よろしいですか？');">{% csrf_token %}<button name="action" value="plan_to_done" class="btn btn-sm btn-outline-success"><i class="bi bi-check2-all me-1"></i>予定を実績にする</button></form>
+    <a href="{% url 'kaigo:uses_print' b.pk year month %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>利用票を印刷</a>{% endif %}
+    <a href="{% url 'kaigo:monthly' year month %}" class="btn btn-sm btn-outline-secondary" title="全員の予定・実績"><i class="bi bi-list-check me-1"></i>全員の月の一覧</a>
+  </div>
+</div>
+<form method="post" id="uses-form">
+  {% csrf_token %}<input type="hidden" name="row_count" value="{{ rows|length }}">
+  <datalist id="kinds">{% for k in service_kinds %}<option value="{{ k }}">{% endfor %}</datalist>
+  <div class="kg-scroll card"><table class="kg-grid">
+    <thead><tr><th class="kg-meta">事業所・サービス・時間</th><th></th>
+      {% for d in days %}<th class="{% if d.weekday == 6 %}sun{% elif d.weekday == 5 %}sat{% endif %}">{{ d.day }}<br><span class="fw-normal">{{ d|date:'D' }}</span></th>{% endfor %}<th>回数</th></tr></thead>
+    <tbody>
+    {% for r in rows %}{% with i=forloop.counter0 %}
+      <tr class="kg-plan" data-row="{{ i }}">
+        <td class="kg-meta" rowspan="2">
+          <input type="hidden" name="r{{ i }}_id" value="{{ r.pk|default:'' }}">
+          <select name="r{{ i }}_provider" class="form-select form-select-sm mb-1" aria-label="事業所（取引先）"><option value="">事業所（取引先から選ぶ）</option>{% for pv in providers %}<option value="{{ pv.pk }}" {% if r.provider_id == pv.pk %}selected{% endif %}>{{ pv.name }}</option>{% endfor %}</select>
+          <input name="r{{ i }}_provider_name" class="form-control form-control-sm mb-1{% if r.provider_id %} d-none{% endif %}" placeholder="{% if providers %}または事業所名を書く{% else %}事業所名{% endif %}" value="{{ r.provider_name }}" aria-label="事業所名">
+          <input name="r{{ i }}_service" list="kinds" class="form-control form-control-sm mb-1" placeholder="サービス内容（例：訪問介護 身体1）" value="{{ r.service }}">
+          <div class="d-flex gap-1 align-items-center"><input type="time" name="r{{ i }}_start" class="form-control form-control-sm" value="{{ r.start }}" aria-label="開始"><span>〜</span><input type="time" name="r{{ i }}_end" class="form-control form-control-sm" value="{{ r.end }}" aria-label="終了"></div>
+          <div class="d-flex gap-1 flex-wrap mt-1 kg-wk" aria-label="曜日でまとめて予定に印">{% for w in week %}<button type="button" class="btn btn-outline-secondary py-0 px-1" style="font-size:.72rem;" data-wd="{{ forloop.counter0 }}" title="この行の{{ w }}曜日をまとめて予定にする／外す">{{ w }}</button>{% endfor %}</div>
+          {% if r.pk %}<label class="small text-danger mt-1 d-block"><input type="checkbox" name="r{{ i }}_delete" value="1" class="form-check-input me-1">この行を消す</label>{% endif %}
+        </td>
+        <th class="kg-kind">予定</th>
+        {% for d in days %}<td class="kg-day {% if d.weekday == 6 %}sun{% elif d.weekday == 5 %}sat{% endif %}"><input type="checkbox" name="r{{ i }}_plan" value="{{ d.day }}" data-wd="{{ d.weekday }}" aria-label="{{ d.day }}日 予定" {% if d.day in r.plan_set %}checked{% endif %}></td>{% endfor %}
+        <td class="kg-n">{{ r.plan_set|length }}</td>
+      </tr>
+      <tr class="kg-done">
+        <th class="kg-kind">実績</th>
+        {% for d in days %}<td class="kg-day {% if d.weekday == 6 %}sun{% elif d.weekday == 5 %}sat{% endif %}"><input type="checkbox" name="r{{ i }}_done" value="{{ d.day }}" aria-label="{{ d.day }}日 実績" {% if d.day in r.done_set %}checked{% endif %}></td>{% endfor %}
+        <td class="kg-n">{{ r.done_set|length }}</td>
+      </tr>
+    {% endwith %}{% endfor %}
+    </tbody>
+  </table></div>
+  <div class="d-flex justify-content-between align-items-center mt-2 flex-wrap gap-2">
+    <div class="small text-muted">空の行に書くと行が増えます（保存すると、さらに空の行が出ます）。事業所は「取引先」に登録すると選べます：<a href="{% url 'kaigo:providers' %}">取引先</a></div>
+    <button class="btn btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button>
+  </div>
+</form>
+{% endblock %}
+{% block extra_js %}
+<script>
+(function () {
+  document.querySelectorAll('#uses-form tr.kg-plan').forEach(function (tr) {
+    var sel = tr.querySelector('select[name$="_provider"]'), name = tr.querySelector('input[name$="_provider_name"]');
+    if (sel && name) sel.addEventListener('change', function () { name.classList.toggle('d-none', !!sel.value); });
+    tr.querySelectorAll('.kg-wk button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var boxes = tr.querySelectorAll('input[data-wd="' + btn.dataset.wd + '"]');
+        var on = Array.prototype.some.call(boxes, function (c) { return !c.checked; });
+        boxes.forEach(function (c) { c.checked = on; });
+      });
+    });
+  });
+})();
+</script>
+{% endblock %}

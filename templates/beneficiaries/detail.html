@@ -7,6 +7,7 @@
 {% block nav_beneficiaries %}active{% endblock %}
 
 {% block extra_css %}
+{% if user.facility.is_kyotaku %}{% include 'kaigo/_style.html' %}{% endif %}
 <style>
   .bd-grad { background: #7a5ea8; color: #fff; }
   .bd-grad-btn { background: #7a5ea8; color: #fff; border-color: #7a5ea8; }
@@ -117,6 +118,7 @@
     </nav>
     {% endif %}
   </div>
+  {% if user.facility.is_kyotaku %}{% include 'kaigo/_tabs.html' with b=beneficiary tab='info' %}{% endif %}
 
   <!-- ヘッダーカード -->
   <div class="info-card mb-3 d-flex justify-content-between align-items-start flex-wrap gap-3">
@@ -213,6 +215,7 @@
   </div>
   {% endif %}
 
+  {% if user.facility.is_kyotaku %}{% include 'kaigo/_insurance_card.html' %}{% endif %}
   {% if user.facility.is_kyotaku %}
   <!-- 居宅介護：設定・計画・訪問・記録へ -->
   <div class="info-card mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2">

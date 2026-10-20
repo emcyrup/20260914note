@@ -1,0 +1,30 @@
+{# 利用者情報の画面（居宅介護の事業所）：介護保険証と負担割合証。beneficiary・care_insurances を渡す #}
+<div class="info-card mb-3" id="care-insurance">
+  <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+    <div class="section-title mb-0">介護保険証・負担割合証</div>
+    <a href="{% url 'kaigo:insurance_new' beneficiary.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-plus-lg me-1"></i>{% if care_insurances %}認定が変わったら足す{% else %}登録する{% endif %}</a>
+  </div>
+  {% for ins in care_insurances %}
+  <div class="{% if not forloop.first %}border-top pt-2 mt-2 text-muted small{% endif %}">
+    <div class="d-flex justify-content-between gap-2 flex-wrap">
+      <div>{% if ins.care_level %}<span class="kg-level {% if ins.is_support %}support{% endif %} ms-0">{{ ins.care_level }}</span>{% endif %}
+        {% if ins.valid_from %}<span class="ms-1">認定 {{ ins.valid_from|date:'Y/n/j' }}〜{{ ins.valid_until|date:'Y/n/j' }}</span>{% endif %}
+        {% if forloop.first and ins.valid_until %}{% with left=ins.days_left %}{% if left < 0 %}<span class="badge text-bg-danger ms-1">期限切れ</span>{% elif left <= 60 %}<span class="badge text-bg-warning ms-1">あと {{ left }} 日（更新の準備を）</span>{% endif %}{% endwith %}{% endif %}
+        {% if ins.copay_ratio %}<span class="badge text-bg-light border ms-1">負担 {{ ins.copay_ratio }}割</span>{% endif %}</div>
+      <a href="{% url 'kaigo:insurance_edit' beneficiary.pk ins.pk %}" class="btn btn-sm btn-outline-secondary py-0">直す</a>
+    </div>
+    {% if forloop.first %}
+    <div class="row g-2 mt-1 small">
+      <div class="col-6 col-md-3"><div class="text-muted">保険者番号</div>{{ ins.insurer_number|default:'—' }}</div>
+      <div class="col-6 col-md-3"><div class="text-muted">被保険者番号</div>{{ ins.insured_number|default:'—' }}</div>
+      <div class="col-6 col-md-3"><div class="text-muted">認定日</div>{{ ins.certified_on|date:'Y/n/j'|default:'—' }}</div>
+      <div class="col-6 col-md-3"><div class="text-muted">交付日</div>{{ ins.issued_on|date:'Y/n/j'|default:'—' }}</div>
+      <div class="col-6 col-md-3"><div class="text-muted">適用期間</div>{% if ins.applied_from %}{{ ins.applied_from|date:'Y/n/j' }}〜{{ ins.applied_until|date:'Y/n/j' }}{% else %}—{% endif %}</div>
+      <div class="col-6 col-md-3"><div class="text-muted">負担割合証の交付日</div>{{ ins.copay_issued_on|date:'Y/n/j'|default:'—' }}</div>
+      <div class="col-6 col-md-3"><div class="text-muted">負担割合の適用開始</div>{{ ins.copay_from|date:'Y/n/j'|default:'—' }}</div>
+      {% if ins.notes %}<div class="col-12"><div class="text-muted">メモ</div>{{ ins.notes }}</div>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% empty %}<div class="small text-muted">まだ登録されていません。カイポケの利用者一覧（CSV）を取り込むと、まとめて入ります。</div>{% endfor %}
+</div>

@@ -1,0 +1,22 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}サービス担当者会議の要点 {{ b.full_name }}{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'kaigo:meeting_edit' b.pk m.pk %}">会議の要点へ戻る</a>{% endblock %}
+{% block body %}
+<div class="right small">第4表　作成年月日 {{ m.updated_at|date:'Y年n月j日' }}</div>
+<h1>サービス担当者会議の要点</h1>
+<table style="margin-bottom:6px;">
+  <tr><th style="width:12%;">利用者名</th><td style="width:30%;">{{ b.full_name }} 殿</td><th style="width:20%;">居宅サービス計画作成者（担当者）氏名</th><td>{{ m.planner }}</td></tr>
+  <tr><th>開催日</th><td>{{ m.held_on|date:'Y年n月j日' }}</td><th>開催場所</th><td>{{ m.place }}</td></tr>
+  <tr><th>開催時間</th><td>{{ m.time_label }}</td><th>開催回数</th><td>{% if m.count %}第{{ m.count }}回{% endif %}</td></tr>
+</table>
+<table>
+  <tr><th rowspan="{{ attendee_lines|length|add:1 }}" style="width:9%;">会議出席者</th>{% for x in '123' %}<th>所属（職種）</th><th style="width:12%;">氏名</th>{% endfor %}</tr>
+  {% for line in attendee_lines %}<tr>{% for a in line %}<td>{{ a.org }}</td><td>{{ a.name }}</td>{% endfor %}</tr>{% endfor %}
+</table>
+<table style="margin-top:6px;">
+  <tr><th style="width:16%;">検討した項目</th><td style="height:70px;">{{ m.topics }}</td></tr>
+  <tr><th>検討内容</th><td style="height:150px;">{{ m.discussion }}</td></tr>
+  <tr><th>結論</th><td style="height:100px;">{{ m.conclusion }}</td></tr>
+  <tr><th>残された課題<br>（次回の開催時期）</th><td style="height:70px;">{{ m.remaining }}</td></tr>
+</table>
+{% endblock %}

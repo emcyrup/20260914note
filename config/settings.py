@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'therapy',
     'minutes',
     'homecare',
+    'kaigo',
     'transport',
     'surveys',
     'daily',

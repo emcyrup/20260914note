@@ -1,0 +1,30 @@
+{% extends 'kaigo/_person_base.html' %}
+{% block title %}{{ b.full_name }} 介護保険証 — {{ app_label }}{% endblock %}
+{% block tab_content %}
+<form method="post" class="card mb-3" data-unsaved-warn><div class="card-body">
+  {% csrf_token %}
+  <div class="fw-bold mb-2">{% if ins.pk %}介護保険証を直す{% else %}介護保険証を足す（認定の更新・区分変更のとき）{% endif %}</div>
+  <div class="small fw-semibold">被保険者証</div>
+  <div class="row g-2 mb-2">
+    <div class="col-6 col-md-3"><label class="form-label small mb-0" for="in-insurer">保険者番号</label><input name="insurer_number" id="in-insurer" class="form-control form-control-sm" value="{{ ins.insurer_number }}" inputmode="numeric" maxlength="8"></div>
+    <div class="col-6 col-md-3"><label class="form-label small mb-0" for="in-insured">被保険者番号</label><input name="insured_number" id="in-insured" class="form-control form-control-sm" value="{{ ins.insured_number }}" inputmode="numeric" maxlength="12"></div>
+    <div class="col-6 col-md-3"><label class="form-label small mb-0" for="in-level">要介護度</label><select name="care_level" id="in-level" class="form-select form-select-sm">{% for k, l in levels %}<option value="{{ k }}" {% if ins.care_level == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+    <div class="col-6 col-md-3"><label class="form-label small mb-0" for="in-cert">認定日</label><input type="date" name="certified_on" id="in-cert" class="form-control form-control-sm" value="{{ ins.certified_on|date:'Y-m-d' }}"></div>
+    <div class="col-6 col-md-3"><label class="form-label small mb-0" for="in-vf">認定の有効期間（開始）</label><input type="date" name="valid_from" id="in-vf" class="form-control form-control-sm" value="{{ ins.valid_from|date:'Y-m-d' }}"></div>
+    <div class="col-6 col-md-3"><label class="form-label small mb-0" for="in-vu">（終了）</label><input type="date" name="valid_until" id="in-vu" class="form-control form-control-sm" value="{{ ins.valid_until|date:'Y-m-d' }}"></div>
+    <div class="col-6 col-md-3"><label class="form-label small mb-0" for="in-issued">交付日</label><input type="date" name="issued_on" id="in-issued" class="form-control form-control-sm" value="{{ ins.issued_on|date:'Y-m-d' }}"></div>
+    <div class="col-6 col-md-3"></div>
+    <div class="col-6 col-md-3"><label class="form-label small mb-0" for="in-af">適用開始日</label><input type="date" name="applied_from" id="in-af" class="form-control form-control-sm" value="{{ ins.applied_from|date:'Y-m-d' }}"></div>
+    <div class="col-6 col-md-3"><label class="form-label small mb-0" for="in-au">適用終了日</label><input type="date" name="applied_until" id="in-au" class="form-control form-control-sm" value="{{ ins.applied_until|date:'Y-m-d' }}"></div>
+  </div>
+  <div class="small fw-semibold">負担割合証</div>
+  <div class="row g-2 mb-2">
+    <div class="col-4 col-md-3"><label class="form-label small mb-0" for="in-ratio">負担割合</label><select name="copay_ratio" id="in-ratio" class="form-select form-select-sm"><option value="">—</option>{% for n in '123' %}<option value="{{ n }}" {% if ins.copay_ratio|stringformat:'s' == n %}selected{% endif %}>{{ n }}割</option>{% endfor %}</select></div>
+    <div class="col-4 col-md-3"><label class="form-label small mb-0" for="in-ci">交付日</label><input type="date" name="copay_issued_on" id="in-ci" class="form-control form-control-sm" value="{{ ins.copay_issued_on|date:'Y-m-d' }}"></div>
+    <div class="col-4 col-md-3"><label class="form-label small mb-0" for="in-cf">適用開始日</label><input type="date" name="copay_from" id="in-cf" class="form-control form-control-sm" value="{{ ins.copay_from|date:'Y-m-d' }}"></div>
+  </div>
+  <label class="form-label small mb-0" for="in-notes">メモ</label><input name="notes" id="in-notes" class="form-control form-control-sm" value="{{ ins.notes }}">
+  <div class="d-flex justify-content-between mt-2"><a href="{% url 'beneficiaries:detail' b.pk %}#care-insurance" class="btn btn-sm btn-outline-secondary">やめる</a><button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button></div>
+</div></form>
+{% if ins.pk %}<form method="post" class="text-end" onsubmit="return confirm('この介護保険証を消します。よろしいですか？');">{% csrf_token %}<button name="action" value="delete" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>この保険証を消す</button></form>{% endif %}
+{% endblock %}

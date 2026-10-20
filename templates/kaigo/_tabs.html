@@ -1,0 +1,9 @@
+{# 利用者ごとのタブ（カイポケのケアアプリと同じ並び）。b と tab を渡す #}
+<nav class="kg-tabs mb-3" aria-label="{{ b.full_name }}さんの画面">
+  <a href="{% url 'beneficiaries:detail' b.pk %}" class="{% if tab == 'info' %}active{% endif %}"><i class="bi bi-person-vcard"></i>利用者情報</a>
+  <a href="{% url 'kaigo:logs' b.pk %}" class="{% if tab == 'logs' %}active{% endif %}"><i class="bi bi-chat-left-text"></i>支援経過</a>
+  <a href="{% url 'kaigo:uses_now' b.pk %}" class="{% if tab == 'uses' %}active{% endif %}"><i class="bi bi-calendar3"></i>予定・実績</a>
+  <a href="{% url 'kaigo:plans' b.pk %}" class="{% if tab == 'plans' %}active{% endif %}"><i class="bi bi-clipboard2-check"></i>ケアプラン</a>
+  <a href="{% url 'kaigo:meetings' b.pk %}" class="{% if tab == 'meetings' %}active{% endif %}"><i class="bi bi-people"></i>担当者会議の要点</a>
+  <a href="{% url 'kaigo:assessments' b.pk %}" class="{% if tab == 'assessments' %}active{% endif %}"><i class="bi bi-ui-checks"></i>アセスメント</a>
+</nav>
