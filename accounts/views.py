@@ -253,6 +253,26 @@ class LoginLogView(AdminOnlyMixin, View):
         })
 
 
+class SecurityTestView(AdminOnlyMixin, View):
+    """不正アクセスの通知のテスト送信（管理者）：LINE グループとメールに届くかを確かめる"""
+
+    def post(self, request):
+        facility = request.user.facility
+        who = request.user.display_name or request.user.username
+        row = security.alert(facility, SecurityAlert.KIND_TEST, f'{who} さんがテスト送信しました（IP {security.client_ip(request) or "不明"}）。'
+                                                                 'この文が届いていれば、不正アクセスの通知はこの宛先に来ます。', actor=request.user)
+        if not facility.security_notify:
+            messages.warning(request, '施設設定で「不正アクセスの通知を送る」がオフなので、記録だけ残しました。')
+        else:
+            parts = []
+            parts.append('LINE グループ：' + ('送りました' if row.line_sent else '送っていません（予約の「増減を知らせる LINE グループ」とチャネルトークンの設定が要ります）'))
+            parts.append('メール：' + ('送りました' if row.mail_sent else '送っていません（サーバーにメールの設定が無いか、宛先がありません）'))
+            if row.error:
+                parts.append(f'エラー：{row.error}')
+            (messages.success if (row.line_sent or row.mail_sent) and not row.error else messages.warning)(request, 'テスト送信：' + '／'.join(parts))
+        return redirect('accounts:login_log')
+
+
 class StaffUpdateView(AdminOnlyMixin, View):
     """職員の編集：表示名・権限・画面・有効／無効・パスワード再設定"""
 
