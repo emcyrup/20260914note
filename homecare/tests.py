@@ -36,10 +36,16 @@ class LayoutTests(HomeCareBase):
         self.assertEqual((self.f.use_billing, self.f.use_schedule, self.f.use_reservation, self.f.use_line), (False,) * 4)
         self.assertEqual(self.f.term_staff, 'ヘルパー')
         res = self.client.get(reverse('facilities:dashboard'))
-        self.assertRedirects(res, reverse('homecare:day'))
+        self.assertRedirects(res, reverse('beneficiaries:list'))      # ホームは利用者管理（2026-10-20）
         page = self.client.get(reverse('homecare:day'))
-        for label in ('きょうの訪問', '訪問予定', 'サービス提供記録', '居宅介護計画', '実績記録票', '議事録', '施設設定'):
-            self.assertContains(page, label)
+        # メニューは利用者管理と議事録だけ（2026-10-20）。ほかの画面は URL では開ける
+        nav = page.content.decode().split('<nav', 1)[1].split('</nav>', 1)[0]
+        self.assertIn('利用者管理', nav)
+        self.assertIn(reverse('minutes:index'), nav)
+        for label in ('きょうの訪問', '訪問予定', 'サービス提供記録', '居宅介護計画', '実績記録票', '施設設定'):
+            self.assertNotIn(f'<span>{label}</span>', nav)
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(self.client.get(reverse('facilities:settings')).status_code, 200)
         self.assertNotContains(page, '運用管理')              # 職員は 1 人：職員・運用管理は出さない
         self.assertNotContains(page, '療育記録')
         self.assertNotContains(page, 'id="aiChatFab"')          # 放デイ向けの AI 相談とメモ（日誌）は出さない

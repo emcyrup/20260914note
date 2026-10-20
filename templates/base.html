@@ -151,48 +151,15 @@
       </li>
       {% elif features.kyotaku %}
       {% with rm=request.resolver_match %}
-      <!-- 居宅介護（ホームヘルプ）：職員 1 人向け。職員の管理の画面は出さない -->
-      <li class="sidebar-nav-label">訪問</li>
+      <!-- 居宅介護（コト）：メニューは利用者管理と議事録だけ（2026-10-20 依頼）。訪問・記録・計画・設定の画面は URL では開ける -->
       <li>
-        <a class="sidebar-nav-item {% if rm.app_name == 'homecare' and rm.url_name == 'day' %}active{% endif %}" href="{% url 'homecare:day' %}">
-          <i class="bi bi-house-heart"></i><span>きょうの訪問</span>
+        <a class="sidebar-nav-item {% if rm.app_name == 'beneficiaries' or rm.app_name == 'homecare' %}active{% endif %}" href="{% url 'beneficiaries:list' %}">
+          <i class="bi bi-people"></i><span>利用者管理</span>
         </a>
       </li>
       <li>
-        <a class="sidebar-nav-item {% if rm.app_name == 'homecare' and rm.url_name in 'month visit_new visit_edit' %}active{% endif %}" href="{% url 'homecare:month_now' %}">
-          <i class="bi bi-calendar3"></i><span>訪問予定</span>
-        </a>
-      </li>
-      <li>
-        <a class="sidebar-nav-item {% if rm.app_name == 'homecare' and rm.url_name in 'records record' %}active{% endif %}" href="{% url 'homecare:records' %}">
-          <i class="bi bi-journal-check"></i><span>サービス提供記録</span>
-        </a>
-      </li>
-      <li class="sidebar-nav-label">利用者・書類</li>
-      <li>
-        <a class="sidebar-nav-item {% if rm.app_name == 'beneficiaries' or rm.url_name == 'person' %}active{% endif %}" href="{% url 'beneficiaries:list' %}">
-          <i class="bi bi-people"></i><span>利用者情報</span>
-        </a>
-      </li>
-      <li>
-        <a class="sidebar-nav-item {% if rm.app_name == 'homecare' and rm.url_name|slice:':4' == 'plan' %}active{% endif %}" href="{% url 'homecare:plans' %}">
-          <i class="bi bi-file-earmark-text"></i><span>居宅介護計画</span>
-        </a>
-      </li>
-      <li>
-        <a class="sidebar-nav-item {% if rm.app_name == 'homecare' and rm.url_name|slice:':7' == 'jisseki' %}active{% endif %}" href="{% url 'homecare:jisseki_now' %}">
-          <i class="bi bi-table"></i><span>実績記録票</span>
-        </a>
-      </li>
-      <li>
-        <a class="sidebar-nav-item {% if rm.app_name == 'minutes' %}active{% endif %}" href="{% url 'minutes:index' %}" target="_blank" rel="noopener" title="別のタブで開きます">
-          <i class="bi bi-mic"></i><span>議事録 <i class="bi bi-box-arrow-up-right" style="font-size:0.7em;opacity:0.7;"></i></span>
-        </a>
-      </li>
-      <li class="sidebar-nav-label nav-secondary">設定</li>
-      <li class="nav-secondary">
-        <a class="sidebar-nav-item {% if rm.app_name == 'facilities' and rm.url_name == 'settings' %}active{% endif %}" href="{% url 'facilities:settings' %}">
-          <i class="bi bi-gear"></i><span>施設設定</span>
+        <a class="sidebar-nav-item {% if rm.app_name == 'minutes' %}active{% endif %}" href="{% url 'minutes:index' %}">
+          <i class="bi bi-mic"></i><span>議事録</span>
         </a>
       </li>
       {% endwith %}
