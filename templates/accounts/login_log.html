@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block title %}ログインの記録{% endblock %}
+{% block page_title %}ログインの記録{% endblock %}
+{% block content %}
+<div class="container-fluid px-3 pt-3" style="max-width: 1100px;">
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+    <a href="{% url 'accounts:staff' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>{{ terms.staff }}・運用管理</a>
+    <form method="get" class="d-flex align-items-center gap-2 ms-auto">
+      <select name="kind" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="種類で絞る">
+        <option value="">すべての種類</option>
+        {% for v, label in kinds %}<option value="{{ v }}" {% if kind == v %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </form>
+  </div>
+
+  <div class="card mb-2"><div class="card-body py-2 small">
+    <div class="d-flex flex-wrap gap-3">
+      <span>直近 7 日：ログイン <b>{{ summary.ok }}</b> 回</span>
+      <span>失敗 <b class="{% if summary.fail %}text-danger{% endif %}">{{ summary.fail }}</b> 回（{{ summary.ips }} か所の IP から）</span>
+      <span>ロック中の試行 <b class="{% if summary.lock %}text-danger{% endif %}">{{ summary.lock }}</b> 回</span>
+      {% if locked %}<span class="text-danger"><i class="bi bi-lock me-1"></i>いまロック中：{{ locked|join:'、' }}</span>{% endif %}
+    </div>
+    <div class="text-muted mt-1">
+      同じユーザー名で {{ policy.window }} 分に {{ policy.user }} 回、または同じ IP で {{ policy.ip }} 回失敗すると、{{ policy.lock }} 分のあいだログインを受け付けません（正しいパスワードでも）。
+      記録は {{ policy.keep }} 日で消えます。{% if scope == 'all' %}開発向けユーザーなので全事業所の記録と、事業所に結びつかない失敗も出ています。{% else %}この事業所の{{ terms.staff }}のぶんだけ出ています。{% endif %}
+      見覚えのない IP からの失敗が続いていたら、パスワードの変更を検討してください。
+    </div>
+  </div></div>
+
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" style="font-size:.85rem;">
+        <thead><tr style="background:#f8f9fa;"><th>日時</th><th>種類</th><th>ユーザー名</th>{% if scope == 'all' %}<th>事業所</th>{% endif %}<th>IP</th><th>ブラウザ</th></tr></thead>
+        <tbody>
+          {% for e in events %}
+          <tr class="{% if e.kind == 'fail' %}table-warning{% elif e.kind == 'lock' %}table-danger{% endif %}">
+            <td class="text-nowrap">{{ e.created_at|date:'Y/n/j H:i:s' }}</td>
+            <td class="text-nowrap">{{ e.get_kind_display }}</td>
+            <td>{{ e.username }}{% if e.user and e.user.display_name %} <span class="text-muted">（{{ e.user.display_name }}）</span>{% endif %}</td>
+            {% if scope == 'all' %}<td class="small">{{ e.facility.name|default:'—' }}</td>{% endif %}
+            <td class="font-monospace small">{{ e.ip|default:'—' }}</td>
+            <td class="small text-muted" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ e.user_agent }}">{{ e.user_agent|truncatechars:60 }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="6" class="text-center text-muted py-3">記録はまだありません。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if events|length == limit %}<div class="card-body py-1 small text-muted">新しい {{ limit }} 件だけ出しています。</div>{% endif %}
+  </div>
+</div>
+{% endblock %}

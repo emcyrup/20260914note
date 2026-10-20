@@ -616,3 +616,87 @@ class StaffRegisterOpenTests(TestCase):
         self.client.post(reverse('accounts:signup_code'), {'action': 'open'})
         self.f.refresh_from_db()
         self.assertFalse(self.f.staff_signup_open)                     # 職員は切り替えられない
+
+
+
+class LoginSecurityTests(TestCase):
+    """ログインの記録と一時ロック（accounts/security.py。2026-10-20）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='テスト施設')
+        self.user = StaffAccount.objects.create_user('taro', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.url = reverse('accounts:login')
+
+    def _login(self, username='taro', password='wrong', ip='203.0.113.5'):
+        return self.client.post(self.url, {'username': username, 'password': password}, REMOTE_ADDR=ip)
+
+    def test_fail_and_success_are_recorded(self):
+        from .models import LoginEvent
+        self._login(password='wrong')
+        self._login(password='pw12345678')
+        kinds = list(LoginEvent.objects.order_by('created_at').values_list('kind', 'username', 'ip'))
+        self.assertEqual(kinds, [('fail', 'taro', '203.0.113.5'), ('ok', 'taro', '203.0.113.5')])
+        self.assertEqual(LoginEvent.objects.get(kind='ok').facility, self.f)
+        self.client.get(reverse('accounts:logout')) if False else self.client.post(reverse('accounts:logout'))
+        self.assertEqual(LoginEvent.objects.filter(kind='logout', username='taro').count(), 1)
+
+    def test_lock_after_repeated_failures(self):
+        from . import security
+        from .models import LoginEvent
+        for _ in range(security.USER_TRIES):
+            self._login(password='wrong')
+        res = self._login(password='pw12345678')                     # 正しいパスワードでも受け付けない
+        self.assertContains(res, 'ログインの失敗が続いたため')
+        self.assertFalse(res.wsgi_request.user.is_authenticated)
+        self.assertEqual(LoginEvent.objects.filter(kind='lock').count(), 1)
+        # 別のユーザー名・別の IP は入れる
+        other = StaffAccount.objects.create_user('hana', password='pw12345678', facility=self.f)
+        res = self._login(username='hana', password='pw12345678', ip='203.0.113.9')
+        self.assertEqual(res.status_code, 302)
+        # ロックの時間が過ぎれば入れる
+        import datetime
+        from django.utils import timezone
+        LoginEvent.objects.filter(kind='fail').update(created_at=timezone.now() - datetime.timedelta(minutes=security.LOCK_MINUTES + 1))
+        self.client.logout()
+        res = self._login(password='pw12345678')
+        self.assertEqual(res.status_code, 302)
+
+    def test_ip_lock(self):
+        from . import security
+        for i in range(security.IP_TRIES):
+            self._login(username=f'nobody{i}', password='x', ip='198.51.100.7')
+        res = self._login(password='pw12345678', ip='198.51.100.7')
+        self.assertContains(res, 'ログインの失敗が続いたため')
+        res = self._login(password='pw12345678', ip='198.51.100.8')
+        self.assertEqual(res.status_code, 302)
+
+    def test_log_page_admin_only_and_scoped(self):
+        from .models import LoginEvent
+        other_f = Facility.objects.create(name='ほかの施設')
+        StaffAccount.objects.create_user('jiro', password='pw12345678', facility=other_f)
+        self._login(username='jiro', password='wrong', ip='192.0.2.1')
+        self._login(username='taro', password='wrong', ip='192.0.2.2')
+        self._login(username='ghost', password='wrong', ip='192.0.2.3')          # だれでもない名前
+        self.client.force_login(self.user)
+        res = self.client.get(reverse('accounts:login_log'))
+        self.assertContains(res, '192.0.2.2')
+        self.assertNotContains(res, '192.0.2.1')                                  # ほかの事業所の失敗は出ない
+        self.assertNotContains(res, '192.0.2.3')
+        self.assertContains(res, '失敗 <b class="text-danger">1</b> 回')
+        self.assertContains(self.client.get(reverse('accounts:staff')), reverse('accounts:login_log'))
+        # 職員は見られない
+        staff = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.force_login(staff)
+        self.assertEqual(self.client.get(reverse('accounts:login_log')).status_code, 302)
+        # 開発向けユーザーは全部
+        dev = StaffAccount.objects.create_superuser('root', 'root@example.com', 'pass12345')
+        dev.facility = self.f
+        dev.save()
+        self.client.force_login(dev)
+        res = self.client.get(reverse('accounts:login_log'))
+        self.assertContains(res, '192.0.2.1')
+        self.assertContains(res, '192.0.2.3')
+        self.assertContains(res, 'ほかの施設')
+        # 種類で絞る
+        res = self.client.get(reverse('accounts:login_log') + '?kind=ok')
+        self.assertNotContains(res, '192.0.2.3')
