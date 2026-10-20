@@ -10,6 +10,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LoginView, LogoutView
 from django.db import transaction
 from django.db.models import F
+from django.db.models import Q as models_q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
@@ -19,7 +20,7 @@ from django.views import View
 from config.utils import home_url, safe_next, to_int
 
 from .middleware import SESSION_KEY as DEV_FACILITY_SESSION_KEY
-from .models import StaffAccount, StaffInvitation
+from .models import LoginEvent, StaffAccount, StaffInvitation
 from facilities.context_processors import get_terms
 from facilities.models import Facility
 
@@ -37,6 +38,17 @@ class StaffLoginView(LoginView):
         ctx['signup_enabled'] = settings.ALLOW_FACILITY_SIGNUP
         ctx['signup_open'] = Facility.objects.filter(staff_signup_open=True).exists()
         return ctx
+
+    def post(self, request, *args, **kwargs):
+        # 失敗が続いたユーザー名・IP は、しばらくログインを受け付けない（accounts/security.py）。正しいパスワードでも
+        from . import security
+        username = (request.POST.get('username') or '').strip()
+        until = security.locked_until(username, security.client_ip(request))
+        if until is not None:
+            security.record(LoginEvent.KIND_LOCK, request, username)
+            form = self.get_form()
+            return self.render_to_response(self.get_context_data(form=form, locked_until=timezone.localtime(until)))
+        return super().post(request, *args, **kwargs)
 
     def form_invalid(self, form):
         # 承認待ちの人には、パスワード違いではなく承認待ちであることを伝える
@@ -190,6 +202,45 @@ class StaffListView(AdminOnlyMixin, View):
         u.save()
         messages.success(request, f'{u.display_name or u.username} さんを追加しました（ログインID: {u.username}）。')
         return redirect('accounts:staff')
+
+
+class LoginLogView(AdminOnlyMixin, View):
+    """ログインの記録（管理者）：この事業所の職員のログイン・失敗・ロック。開発向けユーザーは全事業所と、事業所に結びつかない失敗も"""
+    template_name = 'accounts/login_log.html'
+    LIMIT = 300
+
+    def get(self, request):
+        from . import security
+        security.cleanup()
+        facility = request.user.facility
+        qs = LoginEvent.objects.select_related('user', 'facility')
+        if request.user.can_switch_facility:
+            scope = 'all'
+        else:
+            scope = 'facility'
+            names = list(StaffAccount.objects.filter(facility=facility).values_list('username', flat=True))
+            qs = qs.filter(models_q(facility=facility) | models_q(facility__isnull=True, username__in=names))
+        kind = request.GET.get('kind') or ''
+        if kind in dict(LoginEvent.KIND_CHOICES):
+            qs = qs.filter(kind=kind)
+        events = list(qs[:self.LIMIT])
+        since = timezone.now() - datetime.timedelta(days=7)
+        week = LoginEvent.objects.filter(created_at__gte=since)
+        if scope == 'facility':
+            week = week.filter(models_q(facility=facility) | models_q(facility__isnull=True, username__in=names))
+        summary = {
+            'fail': week.filter(kind=LoginEvent.KIND_FAIL).count(),
+            'lock': week.filter(kind=LoginEvent.KIND_LOCK).count(),
+            'ok': week.filter(kind=LoginEvent.KIND_OK).count(),
+            'ips': week.filter(kind=LoginEvent.KIND_FAIL).values('ip').distinct().count(),
+        }
+        locked = sorted({e.username for e in events if e.kind == LoginEvent.KIND_FAIL and e.created_at >= timezone.now() - datetime.timedelta(minutes=security.WINDOW_MINUTES)
+                         and security.locked_until(e.username, '') is not None})
+        return render(request, self.template_name, {
+            'events': events, 'kind': kind, 'kinds': LoginEvent.KIND_CHOICES, 'summary': summary, 'scope': scope,
+            'locked': locked, 'limit': self.LIMIT, 'policy': {'window': security.WINDOW_MINUTES, 'user': security.USER_TRIES,
+                                                               'ip': security.IP_TRIES, 'lock': security.LOCK_MINUTES, 'keep': security.KEEP_DAYS},
+        })
 
 
 class StaffUpdateView(AdminOnlyMixin, View):

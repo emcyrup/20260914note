@@ -16,7 +16,12 @@
       </div>
 
       <!-- エラーメッセージ -->
-      {% if signup_pending %}
+      {% if locked_until %}
+      <div class="alert alert-danger py-2 small">
+        <i class="bi bi-lock me-1"></i>
+        ログインの失敗が続いたため、しばらく受け付けられません。{{ locked_until|date:'H:i' }} 以降にもう一度お試しください。心当たりが無ければ管理者に知らせてください。
+      </div>
+      {% elif signup_pending %}
       <div class="alert alert-warning py-2 small">
         <i class="bi bi-hourglass-split me-1"></i>
         管理者の承認を待っています。承認されるとログインできます。

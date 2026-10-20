@@ -210,3 +210,32 @@ class StaffInvitation(models.Model):
 
     def get_absolute_url(self):
         return reverse('accounts:join', args=[self.token])
+
+
+class LoginEvent(models.Model):
+    """
+    ログインの記録（成功・失敗・ロック・ログアウト）。不正アクセスの検知の土台（2026-10-20）。
+    失敗が続いたときの一時ロックの判定にも使う（accounts/security.py）。180 日で消す
+    """
+    KIND_OK = 'ok'
+    KIND_FAIL = 'fail'
+    KIND_LOCK = 'lock'
+    KIND_LOGOUT = 'logout'
+    KIND_CHOICES = [(KIND_OK, 'ログイン'), (KIND_FAIL, '失敗'), (KIND_LOCK, 'ロック中に試行'), (KIND_LOGOUT, 'ログアウト')]
+
+    facility = models.ForeignKey('facilities.Facility', on_delete=models.CASCADE, null=True, blank=True, related_name='login_events')
+    user = models.ForeignKey('StaffAccount', on_delete=models.SET_NULL, null=True, blank=True, related_name='login_events')
+    username = models.CharField(max_length=150, blank=True, verbose_name='入力されたユーザー名')
+    kind = models.CharField(max_length=10, choices=KIND_CHOICES, verbose_name='種類')
+    ip = models.CharField(max_length=64, blank=True, verbose_name='IP アドレス')
+    user_agent = models.CharField(max_length=200, blank=True, verbose_name='ブラウザ')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'ログインの記録'
+        verbose_name_plural = 'ログインの記録'
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['username', 'created_at']), models.Index(fields=['ip', 'created_at'])]
+
+    def __str__(self):
+        return f'{self.created_at:%Y-%m-%d %H:%M} {self.username} {self.get_kind_display()}'
