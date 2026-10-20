@@ -229,6 +229,23 @@
       </details>
         {% endif %}
       <details class="settings-fold">
+        <summary>不正アクセスの通知<span class="text-muted">{% if facility.security_notify %}送る{% else %}送らない{% endif %}</span></summary>
+        <div class="row g-3">
+        <div class="col-md-6">
+          <div class="form-check mt-2">
+            {{ facility_form.security_notify }}
+            <label class="form-check-label small fw-semibold">ログインのロック・初めての場所や深夜のログイン・管理者の操作（職員の追加や権限の変更、利用者の削除、予定表のリセット）を知らせる</label>
+          </div>
+          <div class="form-text">送り先：予約の「増減を知らせる LINE グループ」{% if features.reservation %}（予約 → LINE で設定）{% endif %}と、管理者・児発管のメール（サーバーにメールの設定があるとき）。記録は「職員・運用管理 → ログインの記録」にも残ります。</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">通知のメール宛先（任意）</label>
+          {{ facility_form.security_notify_email }}
+          <div class="form-text">空なら管理者・児発管のメールと代表者メールへ</div>
+        </div>
+        </div>
+      </details>
+      <details class="settings-fold">
         <summary>呼び方・ロゴ・配色<span class="text-muted">画面のメニューと見出しに反映</span></summary>
         <div class="row g-3">
         <div class="col-md-3">

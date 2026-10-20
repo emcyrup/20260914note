@@ -27,6 +27,27 @@
     </div>
   </div></div>
 
+  <div class="card mb-2">
+    <div class="card-body py-2">
+      <div class="fw-bold small mb-1"><i class="bi bi-bell me-1"></i>知らせた出来事（新しい 30 件）
+        <span class="text-muted fw-normal">— 通知は{% if notify_on %}オン{% else %}<span class="text-danger">オフ</span>{% endif %}（施設設定 → 施設基本情報 → 不正アクセスの通知）</span></div>
+      {% if alerts %}
+      <table class="table table-sm mb-0" style="font-size:.82rem;">
+        <tbody>
+          {% for a in alerts %}
+          <tr>
+            <td class="text-nowrap">{{ a.created_at|date:'n/j H:i' }}</td>
+            <td class="text-nowrap">{{ a.get_kind_display }}</td>
+            <td>{{ a.text }}</td>
+            <td class="text-nowrap small text-muted">{% if a.line_sent %}LINE 済{% endif %}{% if a.mail_sent %} メール済{% endif %}{% if not a.line_sent and not a.mail_sent %}記録のみ{% endif %}{% if a.error %} <span class="text-danger" title="{{ a.error }}">エラー</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}<div class="small text-muted">まだありません。</div>{% endif %}
+    </div>
+  </div>
+
   <div class="card">
     <div class="table-responsive">
       <table class="table table-sm align-middle mb-0" style="font-size:.85rem;">
