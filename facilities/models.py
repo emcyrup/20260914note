@@ -109,6 +109,9 @@ class Facility(models.Model):
     # 不正アクセスの通知（accounts/security.py。2026-10-20）：ロック・初めての場所からのログイン・深夜のログイン・管理者の操作を知らせる
     security_notify = models.BooleanField(default=True, verbose_name='不正アクセスの通知を送る',
                                           help_text='予約の増減を知らせる LINE グループと、管理者・児発管のメール（または下の宛先）へ')
+    # 送信用の Gmail（画面から設定。facilities/mail.py。空ならサーバーの .env の EMAIL_* を使う）
+    mail_from = models.EmailField(blank=True, verbose_name='送信用の Gmail アドレス')
+    mail_app_password = models.CharField(max_length=64, blank=True, verbose_name='Gmail のアプリ パスワード')
     security_notify_email = models.EmailField(blank=True, verbose_name='通知のメール宛先',
                                               help_text='空なら管理者・児発管のメールと代表者メール')
     line_channel_access_token = models.TextField(blank=True, verbose_name='LINEチャネルアクセストークン')

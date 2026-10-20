@@ -158,6 +158,8 @@ class SettingsView(LoginRequiredMixin, TemplateView):
         ctx.update({
             'facility':      facility,
             'facility_form': FacilityForm(instance=facility),
+            'mail_source': __import__('facilities.mail', fromlist=['source_label']).source_label(facility),
+            'mail_server_ok': bool(__import__('django.conf', fromlist=['settings']).settings.EMAIL_HOST),
             'activity_tags': ActivityTag.objects.filter(facility=facility),
             'support_tags':  SupportContentTag.objects.filter(facility=facility),
             'activity_form': ActivityTagForm(),
