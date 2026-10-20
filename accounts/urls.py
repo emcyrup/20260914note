@@ -11,6 +11,7 @@ urlpatterns = [
     path('staff/', views.StaffListView.as_view(), name='staff'),
     path('staff/<int:pk>/update/', views.StaffUpdateView.as_view(), name='staff_update'),
     path('staff/login-log/', views.LoginLogView.as_view(), name='login_log'),
+    path('staff/login-log/test/', views.SecurityTestView.as_view(), name='security_test'),
     path('staff/invitations/add/', views.InvitationCreateView.as_view(), name='invitation_add'),
     path('staff/invitations/<int:pk>/revoke/', views.InvitationRevokeView.as_view(), name='invitation_revoke'),
     path('join/<str:token>/', views.JoinView.as_view(), name='join'),

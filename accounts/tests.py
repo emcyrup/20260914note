@@ -788,3 +788,25 @@ class SecurityAlertTests(TestCase):
         self.assertIsNotNone(inv)
         self.assertFalse(inv.line_sent or inv.mail_sent)
         self.assertContains(self.client.get(reverse('facilities:settings')), 'name="security_notify_email"')
+
+
+    def test_test_send_button(self):
+        from unittest import mock
+        from django.core import mail
+        from django.test import override_settings
+        from .models import SecurityAlert
+        self.client.force_login(self.admin)
+        with override_settings(EMAIL_HOST='smtp.gmail.com', EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend'), \
+                mock.patch('line_integration.sending.push_text', return_value=(True, '')):
+            res = self.client.post(reverse('accounts:security_test'), follow=True)
+        self.assertContains(res, 'テスト送信：LINE グループ：送りました／メール：送りました')
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('テスト送信しました', mail.outbox[0].body)
+        a = SecurityAlert.objects.get(kind='test')
+        self.assertTrue(a.line_sent and a.mail_sent)
+        self.assertContains(self.client.get(reverse('accounts:login_log')), 'テスト送信</button>')
+        # 職員は押せない
+        staff = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.force_login(staff)
+        self.assertEqual(self.client.post(reverse('accounts:security_test')).status_code, 302)
+        self.assertEqual(SecurityAlert.objects.filter(kind='test').count(), 1)

@@ -247,7 +247,9 @@ class SecurityAlert(models.Model):
     KIND_NEW_IP = 'new_ip'
     KIND_NIGHT = 'night'
     KIND_ADMIN = 'admin'
-    KIND_CHOICES = [(KIND_LOCK, 'ログインのロック'), (KIND_NEW_IP, '初めての場所からのログイン'), (KIND_NIGHT, '深夜のログイン'), (KIND_ADMIN, '管理者の操作')]
+    KIND_TEST = 'test'
+    KIND_CHOICES = [(KIND_LOCK, 'ログインのロック'), (KIND_NEW_IP, '初めての場所からのログイン'), (KIND_NIGHT, '深夜のログイン'), (KIND_ADMIN, '管理者の操作'),
+                    (KIND_TEST, 'テスト送信')]
 
     facility = models.ForeignKey('facilities.Facility', on_delete=models.CASCADE, related_name='security_alerts')
     kind = models.CharField(max_length=10, choices=KIND_CHOICES)

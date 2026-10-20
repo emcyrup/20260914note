@@ -1,0 +1,80 @@
+name: Set mail (dev)
+
+# 通知メール（不正アクセスの通知・期限のお知らせ）の送信設定を、サーバーの .env に書く（Gmail の SMTP）。
+#   必要な Secrets：DEV_MAIL_USER（Gmail のアドレス）・DEV_MAIL_PASSWORD（Google の「アプリ パスワード」16 桁）
+#   DEV_… が無ければ YOURS_MAIL_… を使う
+#   値は Actions のログに出さない。外すときは action=clear
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "set＝Gmail の設定を書く／clear＝メールの設定を外す"
+        type: choice
+        default: set
+        options: [set, clear]
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: ${{ secrets.DEV_APP_DIR || '~/michinotedemo' }}
+  SSH_PORT: ${{ secrets.DEV_DEPLOY_SSH_PORT || secrets.YOURS_DEPLOY_SSH_PORT || '22' }}
+  HEALTH_URL: ${{ secrets.DEV_HEALTH_URL || 'https://st-michinotedemo.ai-labo.cloud/healthz/' }}
+
+jobs:
+  set-mail:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEV_DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ env.SSH_PORT }}" -H "${{ secrets.DEV_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Write mail settings to .env and restart
+        env:
+          ACTION: ${{ github.event.inputs.action }}
+          MAIL_USER: ${{ secrets.DEV_MAIL_USER || secrets.YOURS_MAIL_USER }}
+          MAIL_PASSWORD: ${{ secrets.DEV_MAIL_PASSWORD || secrets.YOURS_MAIL_PASSWORD }}
+          REMOTE_APP_DIR: ${{ env.APP_DIR }}
+        run: |
+          if [ "$ACTION" = "set" ] && { [ -z "$MAIL_USER" ] || [ -z "$MAIL_PASSWORD" ]; }; then
+            echo "ERROR: Secrets の DEV_MAIL_USER / DEV_MAIL_PASSWORD（または YOURS_…）が要ります"; exit 1
+          fi
+          ssh -i ~/.ssh/deploy_key -p "${{ env.SSH_PORT }}" "${{ secrets.DEV_DEPLOY_USER }}@${{ secrets.DEV_DEPLOY_HOST }}" \
+            "ACTION='$ACTION' MAIL_USER='$MAIL_USER' MAIL_PASSWORD='${MAIL_PASSWORD// /}' APP_DIR_IN='$REMOTE_APP_DIR' bash -s" <<'REMOTE'
+            set -euo pipefail
+            APP_DIR=$(eval echo "$APP_DIR_IN")
+            cd "$APP_DIR"
+            cp .env ".env.bak-$(date +%Y%m%d-%H%M%S)"
+            grep -vE '^(EMAIL_HOST|EMAIL_PORT|EMAIL_HOST_USER|EMAIL_HOST_PASSWORD|EMAIL_USE_TLS|DEFAULT_FROM_EMAIL)=' .env > .env.new || true
+            if [ "$ACTION" = "set" ]; then
+              {
+                echo "EMAIL_HOST=smtp.gmail.com"
+                echo "EMAIL_PORT=587"
+                echo "EMAIL_USE_TLS=True"
+                printf 'EMAIL_HOST_USER=%s\n' "$MAIL_USER"
+                printf 'EMAIL_HOST_PASSWORD=%s\n' "$MAIL_PASSWORD"
+                printf 'DEFAULT_FROM_EMAIL=%s\n' "$MAIL_USER"
+              } >> .env.new
+              echo "set: Gmail の SMTP（送信元 $(printf '%s' "$MAIL_USER" | sed -E 's/^(..).*(@.*)$/\1…\2/')）"
+            else
+              echo "clear: メールの設定を外した"
+            fi
+            mv .env.new .env
+            chmod 600 .env
+            bash deploy/venv-deploy.sh "$(git rev-parse HEAD)"
+          REMOTE
+
+      - name: Health check (public URL)
+        run: |
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${{ env.HEALTH_URL }}" || true)
+            case "$code" in 200) echo "healthy ($code)"; exit 0;; esac
+            echo "waiting... ($code)"; sleep 5
+          done
+          echo "health check failed"; exit 1
