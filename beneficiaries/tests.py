@@ -175,6 +175,29 @@ class BeneficiaryDocumentTests(TestCase):
         from django.core.files.uploadedfile import SimpleUploadedFile
         return SimpleUploadedFile(name, data, content_type=ctype)
 
+    def test_support_plan_section(self):
+        """いちばん下の「相談員支援計画」（2026-10-20 ゆあーず）：書類・画像とは別の欄に入り、戻る場所もその欄"""
+        from .models import BeneficiaryDocument
+        page = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk])).content.decode()
+        self.assertIn('id="support-plan-docs"', page)
+        self.assertIn('相談員支援計画（0）', page)
+        self.assertIn('capture="environment"', page)
+        self.assertGreater(page.index('id="support-plan-docs"'), page.index('id="documents"'))   # 画面のいちばん下
+        res = self.client.post(self.url, {'files': [self.up('計画.pdf')], 'title': '2026年度 相談員支援計画', 'category': 'support_plan'})
+        self.assertRedirects(res, reverse('beneficiaries:detail', args=[self.kid.pk]) + '#support-plan-docs', fetch_redirect_response=False)
+        d = BeneficiaryDocument.objects.get(beneficiary=self.kid)
+        self.assertEqual((d.category, d.label), ('support_plan', '2026年度 相談員支援計画'))
+        page = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk])).content.decode()
+        self.assertIn('相談員支援計画（1）', page)
+        self.assertIn('書類・画像（0）', page)                       # 基本情報の書類・画像には出さない
+        self.assertNotIn('2026年度 相談員支援計画', page[:page.index('id="support-plan-docs"')])   # 上の欄には出ない
+        res = self.client.post(reverse('beneficiaries:document_delete', args=[self.kid.pk, d.pk]))
+        self.assertTrue(res['Location'].endswith('#support-plan-docs'))
+        self.assertFalse(BeneficiaryDocument.objects.exists())
+        # 分類の値が変なら基本の書類・画像に
+        self.client.post(self.url, {'files': [self.up('x.pdf')], 'category': 'evil'})
+        self.assertEqual(BeneficiaryDocument.objects.get().category, '')
+
     def test_upload_list_delete(self):
         from .models import BeneficiaryDocument
         res = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
