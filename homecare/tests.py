@@ -50,8 +50,8 @@ class LayoutTests(HomeCareBase):
         self.assertNotContains(page, '療育記録')
         self.assertNotContains(page, 'id="aiChatFab"')          # 放デイ向けの AI 相談とメモ（日誌）は出さない
         self.assertNotContains(page, 'data-bs-target="#globalMemoModal"')
-        self.assertContains(page, '— 居宅介護業務支援</title>')
-        self.assertContains(page, '<div class="sidebar-brand-sub">居宅介護</div>')
+        self.assertContains(page, '— ケアマネ業務支援</title>')
+        self.assertContains(page, '<div class="sidebar-brand-sub">居宅介護支援</div>')
 
     def test_other_facilities_cannot_open(self):
         other = Facility.objects.create(name='ほか')
@@ -62,7 +62,12 @@ class LayoutTests(HomeCareBase):
 
     def test_beneficiary_pages(self):
         res = self.client.get(reverse('beneficiaries:detail', args=[self.b.pk]))
-        self.assertContains(res, reverse('homecare:person', args=[self.b.pk]))
+        # 居宅介護支援（ケアマネ）の画面に。障害福祉の居宅介護の入口・受給者証・上限額管理・卒業は出さない（2026-10-22）
+        self.assertNotContains(res, reverse('homecare:person', args=[self.b.pk]))
+        for word in ('受給者証が未登録', '利用事業所（上限額管理）', '障害区分', '面談資料', 'value="graduated"'):
+            self.assertNotContains(res, word)
+        self.assertContains(res, '家族・緊急連絡先')
+        self.assertContains(res, '<div class="detail-label">住所</div>')
         self.assertNotContains(self.client.get(reverse('beneficiaries:update', args=[self.b.pk])), '重症心身障害児（重身）')
 
     def test_create_facility_command(self):

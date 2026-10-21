@@ -3,7 +3,7 @@
 {% block page_title %}記録の設定{% endblock %}
 {% block nav_beneficiaries %}active{% endblock %}
 {% block content %}
-<div class="px-2" style="max-width: 760px; margin: 0 auto;">
+<div class="px-2" style="max-width: 800px; margin: 0 auto;">
   {% if back %}<div class="mb-2 small"><a href="{{ back }}" class="text-muted text-decoration-none"><i class="bi bi-chevron-left"></i> 記録の画面へ戻る</a></div>{% endif %}
   <form method="post" class="card"><div class="card-body">
     {% csrf_token %}<input type="hidden" name="back" value="{{ back }}">

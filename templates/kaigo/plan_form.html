@@ -36,7 +36,7 @@
     <datalist id="provs">{% for pv in providers %}<option value="{{ pv.name }}">{% endfor %}</datalist>
     <input type="hidden" name="goal_count" value="{{ goals|length }}">
     {% for g in goals %}{% with i=forloop.counter0 %}
-    <div class="kg-goal">
+    <div class="kg-goal{% if not g.need and not g.long_goal and not g.service and i > first_blank_goal %} kg-more-hidden{% endif %}" data-more="goal">
       <div class="small text-muted mb-1">{{ forloop.counter }}{% if not g.need %}（空き。書くと増えます）{% endif %}</div>
       <div class="row g-2">
         <div class="col-12"><label class="form-label small fw-semibold mb-0" for="g{{ i }}-need">生活全般の解決すべき課題（ニーズ）</label><textarea name="g{{ i }}_need" id="g{{ i }}-need" class="form-control form-control-sm" rows="2">{{ g.need }}</textarea></div>
@@ -53,7 +53,8 @@
       </div>
     </div>
     {% endwith %}{% endfor %}
-    <div class="small text-muted">欄が足りないときは、保存すると空きの欄が増えます。</div>
+    <button type="button" class="btn btn-sm btn-outline-secondary" data-more-btn="goal"><i class="bi bi-plus-lg me-1"></i>課題（ニーズ）の欄を足す</button>
+    <span class="small text-muted ms-1">足りないときは、保存すると空きの欄が増えます。</span>
   </div></div>
 
   <div class="card mb-3"><div class="card-body">
@@ -62,12 +63,13 @@
     <div class="table-responsive"><table class="table table-sm align-middle mb-2">
       <thead><tr><th>曜日</th><th style="width:110px;">開始</th><th style="width:110px;">終了</th><th>内容（サービス）</th></tr></thead>
       <tbody>{% for w in weekly %}{% with i=forloop.counter0 %}
-        <tr><td class="text-nowrap">{% for d, label in week %}<label class="me-1 small"><input type="checkbox" name="w{{ i }}_days" value="{{ d }}" class="form-check-input" {% if d in w.days %}checked{% endif %}> {{ label }}</label>{% endfor %}</td>
+        <tr data-more="week" {% if not w.content and not w.days and i > first_blank_week %}class="kg-more-hidden"{% endif %}><td class="text-nowrap">{% for d, label in week %}<label class="me-1 small"><input type="checkbox" name="w{{ i }}_days" value="{{ d }}" class="form-check-input" {% if d in w.days %}checked{% endif %}> {{ label }}</label>{% endfor %}</td>
           <td><input type="time" name="w{{ i }}_start" class="form-control form-control-sm" value="{{ w.start }}" aria-label="開始"></td>
           <td><input type="time" name="w{{ i }}_end" class="form-control form-control-sm" value="{{ w.end }}" aria-label="終了"></td>
           <td><input name="w{{ i }}_content" list="kinds" class="form-control form-control-sm" value="{{ w.content }}" aria-label="内容"></td></tr>
       {% endwith %}{% endfor %}</tbody>
     </table></div>
+    <button type="button" class="btn btn-sm btn-outline-secondary mb-3" data-more-btn="week"><i class="bi bi-plus-lg me-1"></i>行を足す</button>
     <div class="row g-2">
       <div class="col-md-6"><label class="form-label small mb-0" for="p-daily">主な日常生活上の活動</label><textarea name="daily_life" id="p-daily" class="form-control" rows="3" placeholder="7:00 起床・朝食　12:00 昼食　…">{{ plan.daily_life }}</textarea></div>
       <div class="col-md-6"><label class="form-label small mb-0" for="p-other">週単位以外のサービス</label><textarea name="other_services" id="p-other" class="form-control" rows="3" placeholder="福祉用具貸与（車いす）・月1回の通院 など">{{ plan.other_services }}</textarea></div>
@@ -87,4 +89,17 @@
   </div>
 </form>
 {% if plan.pk %}<form method="post" class="text-end mt-3" onsubmit="return confirm('この居宅サービス計画書を消します。元に戻せません。よろしいですか？');">{% csrf_token %}<button name="action" value="delete" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>この計画を消す</button></form>{% endif %}
+{% endblock %}
+{% block extra_js %}
+<script>
+document.querySelectorAll('[data-more-btn]').forEach(function (btn) {
+  var kind = btn.dataset.moreBtn;
+  function left() { return document.querySelectorAll('[data-more="' + kind + '"].kg-more-hidden'); }
+  if (!left().length) btn.classList.add('d-none');
+  btn.addEventListener('click', function () {
+    var rest = left(); if (rest.length) rest[0].classList.remove('kg-more-hidden');
+    if (left().length <= 0) btn.classList.add('d-none');
+  });
+});
+</script>
 {% endblock %}

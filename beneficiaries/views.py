@@ -628,14 +628,24 @@ class BeneficiaryUpdateView(LoginRequiredMixin, UpdateView):
                     'weekday_mon', 'weekday_tue', 'weekday_wed', 'weekday_thu', 'weekday_fri', 'weekday_sat',
                     'line_send_journal'}
 
+    # 居宅介護支援（コト）の窓：障害区分・利用予定曜日などは出さず、住所・電話を出す
+    KYOTAKU_MODAL_FIELDS = (MODAL_FIELDS - {'disability_class', 'disability_type', 'is_severe', 'weekday_mon', 'weekday_tue',
+                                            'weekday_wed', 'weekday_thu', 'weekday_fri', 'weekday_sat', 'line_send_journal',
+                                            'cannot_pair', 'siblings'}) \
+        | {'postal_code', 'address', 'home_phone', 'mobile_phone'}
+
+    def modal_fields(self):
+        return self.KYOTAKU_MODAL_FIELDS if self.request.user.facility.is_kyotaku else self.MODAL_FIELDS
+
     def get_form_kwargs(self):
         kwargs = {**super().get_form_kwargs(), 'facility': self.request.user.facility}
         data = kwargs.get('data')
         if data is not None and data.get('_partial') == '1':
             data = data.copy()
             obj = self.object
+            modal = self.modal_fields()
             for name, field in BeneficiaryForm.base_fields.items():
-                if name in self.MODAL_FIELDS:
+                if name in modal:
                     continue
                 value = getattr(obj, name)
                 if hasattr(value, 'all'):                  # 多対多

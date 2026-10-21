@@ -50,7 +50,7 @@ def branding(request):
                      'planbook': facility.is_planbook, 'therapy': facility.use_therapy_record,
                      'transport': facility.use_transport, 'dev_assessment': facility.use_dev_assessment, 'survey': facility.use_survey, 'daily': facility.use_daily_ops,
                      'ryoiku': facility.is_ryoiku, 'kyotaku': facility.is_kyotaku},
-        'app_label': '居宅介護業務支援' if facility.is_kyotaku else '放課後等デイサービス業務支援',
+        'app_label': 'ケアマネ業務支援' if facility.is_kyotaku else '放課後等デイサービス業務支援',
         'trial_ai': _trial_ai(facility),
         'planbook_unread': _planbook_unread(facility) if facility.is_planbook else 0,
         'pending_staff_count': _pending_staff(user, facility),

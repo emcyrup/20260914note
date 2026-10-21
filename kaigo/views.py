@@ -348,8 +348,12 @@ class PlanFormView(PersonMixin, View):
         return self._render(request, b, plan)
 
     def _render(self, request, b, plan):
+        goals, weekly = plan.goal_rows(), plan.weekly_rows()
+        filled_goals = sum(1 for g in goals if g.get('need') or g.get('long_goal') or g.get('service'))
+        filled_weeks = sum(1 for w in weekly if w.get('content') or w.get('days'))
         return render(request, 'kaigo/plan_form.html', self.ctx(
-            b, plan=plan, goals=plan.goal_rows(), weekly=plan.weekly_rows(), levels=CARE_LEVEL_CHOICES, week=list(enumerate(WEEK_JP)),
+            b, plan=plan, goals=goals, weekly=weekly, levels=CARE_LEVEL_CHOICES, week=list(enumerate(WEEK_JP)),
+            first_blank_goal=filled_goals, first_blank_week=filled_weeks + 1,
             service_kinds=SERVICE_KINDS, providers=Provider.objects.filter(facility=self.facility, is_active=True)))
 
     def post(self, request, pk, plan_pk=None):

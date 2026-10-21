@@ -31,10 +31,10 @@
   .kg-item-label { font-weight: 600; font-size: .9rem; }
 </style>
 <style>
-  .kg-drop { border: 2px dashed #cfc8bb; border-radius: 10px; padding: 14px; text-align: center; cursor: pointer; background: rgba(255,255,255,.6); }
+  .kg-drop { border: 2px dashed #cfc8bb; border-radius: 10px; padding: 10px; text-align: center; cursor: pointer; background: rgba(255,255,255,.6); }
   .kg-drop.over { border-color: var(--color-primary, #4e7d89); background: #eef5f3; }
   .kg-drop input[type=file] { display: none; }
-  .kg-drop .bi { font-size: 1.4rem; display: block; color: #6b8f8a; }
+  .kg-drop .bi { font-size: 1.2rem; display: block; color: #6b8f8a; }
   .kg-thumb { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; border: 1px solid #ddd; display: inline-flex; align-items: center; justify-content: center; }
   .kg-thumb-pdf { background: #fbecec; color: #b3261e; font-size: 1.6rem; }
   .kg-feed .kg-entry { padding: 14px 4px 12px; border-top: 1px solid var(--line, #e5e0d6); }
@@ -46,4 +46,16 @@
   .kg-entry-foot { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-top: 4px; }
   .kg-month { font-weight: 700; color: #6b6458; font-size: .85rem; padding: 10px 4px 2px; border-top: 2px solid #e5e0d6; }
   .kg-group { font-weight: 700; font-size: .85rem; color: #555; padding: 8px 4px 4px; }
+</style>
+<style>
+  .kg-more-hidden { display: none; }
+  .kg-tabs { scrollbar-width: none; }
+  .kg-tabs::-webkit-scrollbar { display: none; }
+  @media (max-width: 576px) {
+    .kg-tabs a { padding: 7px 10px; font-size: .86rem; }
+    .kg-head .kg-name { font-size: 1.05rem; }
+    .kg-grid .kg-meta { min-width: 150px; max-width: 160px; }
+    .kg-grid .kg-meta .form-control, .kg-grid .kg-meta .form-select { font-size: .74rem; padding: 1px 4px; }
+    .kg-grid .kg-wk .btn { font-size: .66rem !important; padding: 0 3px !important; }
+  }
 </style>

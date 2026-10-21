@@ -466,3 +466,25 @@ class DemoTests(KaigoBase):
         other = Facility.objects.create(name='ほか')
         with self.assertRaises(CommandError):
             call_command('kaigo_demo', '--facility', str(other.pk))
+
+
+class LayoutPolishTests(KaigoBase):
+    def test_modal_saves_address_and_keeps_hidden_fields(self):
+        self.b.disability_type = '前からの値'
+        self.b.save()
+        res = self.client.post(reverse('beneficiaries:update', args=[self.b.pk]), {
+            '_partial': '1', 'last_name': '山本', 'first_name': '和子', 'last_name_kana': 'やまもと', 'first_name_kana': '',
+            'date_of_birth': '1940-05-12', 'gender': 'female', 'status': 'active', 'notes': '',
+            'postal_code': '1000001', 'address': '架空市1-1', 'home_phone': '000-0000-0000', 'mobile_phone': ''})
+        self.assertEqual(res.status_code, 302)
+        self.b.refresh_from_db()
+        self.assertEqual((self.b.address, self.b.postal_code, self.b.home_phone), ('架空市1-1', '1000001', '000-0000-0000'))
+        self.assertEqual(self.b.disability_type, '前からの値')          # 窓に出していない項目はそのまま
+
+    def test_plan_form_hides_extra_blank_rows(self):
+        res = self.client.get(reverse('kaigo:plan_new', args=[self.b.pk]))
+        self.assertContains(res, 'kg-more-hidden')
+        self.assertContains(res, '課題（ニーズ）の欄を足す')
+        self.assertContains(res, 'data-bs-target="#scan-form-plan"', count=0)     # 新しく作るときは紙の欄を出さない
+        res = self.client.get(reverse('kaigo:plans', args=[self.b.pk]))
+        self.assertContains(res, 'data-bs-target="#scan-form-plan"')               # 取り込みはたたんである
