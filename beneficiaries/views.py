@@ -47,6 +47,25 @@ def neighbors(b):
 CARE_SORTS = [('', '50音順'), ('care_desc', '要介護度の重い順'), ('care_asc', '要介護度の軽い順'), ('cert', '認定の終わりが近い順')]
 
 
+# 要介護度で絞る（居宅介護支援）。(キー, 見出し)
+CARE_FILTERS = [('', 'すべて'), ('support', '要支援（事業対象者・要支援1・2）'), ('care', '要介護（1〜5）'),
+                ('要支援1', '要支援1'), ('要支援2', '要支援2'), ('要介護1', '要介護1'), ('要介護2', '要介護2'), ('要介護3', '要介護3'),
+                ('要介護4', '要介護4'), ('要介護5', '要介護5'), ('other', '申請中・非該当・保険証なし')]
+
+
+def care_match(b, key):
+    level = b.care.care_level if getattr(b, 'care', None) else ''
+    if key == '':
+        return True
+    if key == 'support':
+        return level in ('事業対象者', '要支援1', '要支援2')
+    if key == 'care':
+        return level.startswith('要介護')
+    if key == 'other':
+        return level in ('', '申請中', '非該当')
+    return level == key
+
+
 def care_sorted(people, sort):
     """
     居宅介護支援：要介護度（いちばん新しい介護保険証）で並べ替える。同じ区分の中は 50 音順のまま。
@@ -140,8 +159,14 @@ class BeneficiaryListView(LoginRequiredMixin, ListView):
                 b.care = latest.get(b.pk)
             ctx['sort'] = self.request.GET.get('sort', '') if self.request.GET.get('sort') in dict(CARE_SORTS) else ''
             ctx['care_sorts'] = CARE_SORTS
+            people = list(ctx['beneficiaries'])
+            ctx['care'] = self.request.GET.get('care', '') if self.request.GET.get('care') in dict(CARE_FILTERS) else ''
+            ctx['care_filters'] = [(k, label, sum(1 for b in people if care_match(b, k))) for k, label in CARE_FILTERS]
+            if ctx['care']:
+                people = [b for b in people if care_match(b, ctx['care'])]
             if ctx['sort']:
-                ctx['beneficiaries'] = ctx['object_list'] = care_sorted(list(ctx['beneficiaries']), ctx['sort'])
+                people = care_sorted(people, ctx['sort'])
+            ctx['beneficiaries'] = ctx['object_list'] = people
         return ctx
 
 

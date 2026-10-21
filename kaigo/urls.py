@@ -6,6 +6,10 @@ app_name = 'kaigo'
 
 urlpatterns = [
     path('providers/', views.ProviderListView.as_view(), name='providers'),
+    path('settings/', views.SettingView.as_view(), name='settings'),
+    path('ai/summarize/', views.AiSummarizeView.as_view(), name='ai_summarize'),
+    path('ai/read/', views.AiReadImageView.as_view(), name='ai_read'),
+    path('ai/meeting/', views.AiMeetingView.as_view(), name='ai_meeting'),
     path('monthly/', views.MonthlyView.as_view(), name='monthly_now'),
     path('monthly/<int:year>/<int:month>/', views.MonthlyView.as_view(), name='monthly'),
     path('users/<int:pk>/insurance/new/', views.InsuranceView.as_view(), name='insurance_new'),

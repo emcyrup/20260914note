@@ -111,10 +111,11 @@ class Provider(models.Model):
 
 class SupportLog(models.Model):
     """居宅介護支援経過（第5表）の1件"""
+    # 記録の種別（2026-10-20 の打ち合わせで決めた 10 種。名前は事業所ごとに KaigoSetting.category_labels で変えられる）
     CATEGORIES = [
-        ('monitoring', 'モニタリング'), ('provider', '事業所との連絡'), ('meeting', 'サービス担当者会議'),
-        ('family', '利用者・家族との連絡'), ('visit', '訪問'), ('assessment', 'アセスメント'), ('plan', 'ケアプラン'),
-        ('medical', '医療機関との連絡'), ('agency', '行政・包括との連絡'), ('other', 'その他'),
+        ('monitoring', 'モニタリング'), ('meeting', 'サービス担当者会議'), ('family', '家族との連絡'),
+        ('user', '利用者との連絡'), ('hospital', '入院・退院'), ('assessment', 'アセスメント'),
+        ('certification', '要介護認定'), ('provider', '事業所との連絡'), ('medical', '医療連携'), ('other', 'その他'),
     ]
     METHODS = [('', '—'), ('visit', '訪問'), ('phone', '電話'), ('fax', 'FAX'), ('mail', 'メール'), ('office', '来所'),
                ('online', 'オンライン'), ('other', 'その他')]
@@ -145,9 +146,14 @@ class SupportLog(models.Model):
         return wareki(self.date)
 
     @property
+    def cat_label(self):
+        """種別の名前（事業所で名前を変えていればその名前。views で labels を付ける）"""
+        return getattr(self, '_labels', {}).get(self.category) or self.get_category_display()
+
+    @property
     def heading(self):
         """第5表の「項目」欄"""
-        parts = [self.get_category_display()]
+        parts = [self.cat_label]
         if self.method:
             parts.append(self.get_method_display())
         if self.provider_id:
@@ -396,3 +402,33 @@ class ScanDocument(models.Model):
     @property
     def is_image(self):
         return self.ext in ('jpg', 'jpeg', 'png', 'webp', 'gif')
+
+
+SUMMARY_CHOICES = [200, 300, 400, 600, 800, 1000]
+
+
+class KaigoSetting(models.Model):
+    """居宅介護支援の事業所ごとの設定：AI でまとめるときの文字数・文体の希望、記録の種別の名前"""
+    facility = models.OneToOneField(Facility, on_delete=models.CASCADE, related_name='kaigo_setting')
+    summary_chars = models.PositiveSmallIntegerField(default=400, verbose_name='AI でまとめる文字数のめやす')
+    style_note = models.TextField(blank=True, verbose_name='文体の希望',
+                                  help_text='例：もう少し締めた文に／砕けすぎないように／「〜とのこと」を多用しない')
+    category_labels = models.JSONField(default=dict, blank=True, verbose_name='記録の種別の名前（変えたものだけ）')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '居宅介護支援の設定'
+        verbose_name_plural = '居宅介護支援の設定'
+
+    @classmethod
+    def of(cls, facility):
+        obj, _ = cls.objects.get_or_create(facility=facility)
+        return obj
+
+    def labels(self):
+        names = {k: str(v).strip() for k, v in (self.category_labels or {}).items() if str(v).strip()}
+        return {k: names.get(k, label) for k, label in SupportLog.CATEGORIES}
+
+    def categories(self):
+        labels = self.labels()
+        return [(k, labels[k]) for k, _ in SupportLog.CATEGORIES]

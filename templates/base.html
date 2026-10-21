@@ -151,10 +151,10 @@
       </li>
       {% elif features.kyotaku %}
       {% with rm=request.resolver_match %}
-      <!-- 居宅介護（コト）：メニューは利用者管理と議事録だけ（2026-10-20 依頼）。訪問・記録・計画・設定の画面は URL では開ける -->
+      <!-- 居宅介護（コト）：メニューは利用者情報と議事録の 2 本だけ（2026-10-20 の打ち合わせ）。支援経過・ケアプランなどは利用者の画面のタブから -->
       <li>
-        <a class="sidebar-nav-item {% if rm.app_name == 'beneficiaries' or rm.app_name == 'homecare' %}active{% endif %}" href="{% url 'beneficiaries:list' %}">
-          <i class="bi bi-people"></i><span>利用者管理</span>
+        <a class="sidebar-nav-item {% if rm.app_name == 'beneficiaries' or rm.app_name == 'homecare' or rm.app_name == 'kaigo' %}active{% endif %}" href="{% url 'beneficiaries:list' %}">
+          <i class="bi bi-people"></i><span>利用者情報</span>
         </a>
       </li>
       <li>

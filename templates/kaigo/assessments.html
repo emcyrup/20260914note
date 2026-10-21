@@ -7,7 +7,8 @@
   {% for a in assessments %}
   <div class="d-flex justify-content-between align-items-center border-top py-2 gap-2 flex-wrap">
     <div><b>{{ a.assessed_on|date:'Y/n/j' }}</b>　{{ a.get_kind_display }}{% if a.place %}・{{ a.place }}{% endif %}{% if a.assessor %}<span class="small text-muted ms-1">{{ a.assessor }}</span>{% endif %}
-      <span class="small text-muted ms-1">{{ a.filled }} / {{ total }} 項目</span></div>
+      <span class="small text-muted ms-1">{{ a.filled }} / {{ total }} 項目</span>
+      {% if a.changed is not None %}<div class="small text-muted">{% if a.changed %}前回から変わった項目：{{ a.changed|join:'・' }}{% else %}前回から変わった項目はありません{% endif %}</div>{% endif %}</div>
     <div class="d-flex gap-1"><a href="{% url 'kaigo:assessment_edit' b.pk a.pk %}" class="btn btn-sm btn-outline-secondary">開く</a>
       <a href="{% url 'kaigo:assessment_print' b.pk a.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer"></i></a></div>
   </div>

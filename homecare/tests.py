@@ -40,7 +40,7 @@ class LayoutTests(HomeCareBase):
         page = self.client.get(reverse('homecare:day'))
         # メニューは利用者管理と議事録だけ（2026-10-20）。ほかの画面は URL では開ける
         nav = page.content.decode().split('<nav', 1)[1].split('</nav>', 1)[0]
-        self.assertIn('利用者管理', nav)
+        self.assertIn('利用者情報', nav)          # 打ち合わせ（2026-10-20）で「利用者情報」に
         self.assertIn(reverse('minutes:index'), nav)
         for label in ('きょうの訪問', '訪問予定', 'サービス提供記録', '居宅介護計画', '実績記録票', '施設設定'):
             self.assertNotIn(f'<span>{label}</span>', nav)

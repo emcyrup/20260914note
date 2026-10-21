@@ -23,6 +23,15 @@
       <div class="col-md-6 d-flex gap-1"><input name="a{{ i }}_org" class="form-control form-control-sm" placeholder="所属（職種）" value="{{ a.org }}" aria-label="所属（職種）{{ forloop.counter }}"><input name="a{{ i }}_name" class="form-control form-control-sm" style="max-width:40%;" placeholder="氏名" value="{{ a.name }}" aria-label="氏名{{ forloop.counter }}"></div>
     {% endwith %}{% endfor %}</div>
   </div></div>
+  <details class="card mb-3" {% if not m.pk %}open{% endif %}>
+    <summary class="card-body py-2 fw-bold" style="cursor:pointer;"><i class="bi bi-magic me-1"></i>会議のメモ・音声から下書きを作る</summary>
+    <div class="card-body pt-0">
+      <div class="small text-muted mb-1">会議で話したことを音声入力で入れるか、メモの写真を読ませてから「下書きを作る」を押すと、下の4つの欄に下書きが入ります（メモは保存しません）。</div>
+      <textarea id="m-memo" class="form-control" rows="5" placeholder="例：本人・長女・デイの相談員・ヘルパーのサ責が参加。入浴は週2回デイで…"></textarea>
+      {% include 'kaigo/_ai_tools.html' with target='m-memo' %}
+      <div class="d-flex align-items-center gap-2 mt-2"><button type="button" class="btn btn-sm btn-primary" data-meeting-draft data-memo="m-memo" data-status="m-draft-status"><i class="bi bi-magic me-1"></i>下書きを作る</button><span class="small text-muted" id="m-draft-status"></span></div>
+    </div>
+  </details>
   <div class="card mb-3"><div class="card-body">
     <label class="form-label small fw-semibold mb-0" for="m-topics">検討した項目</label><textarea name="topics" id="m-topics" class="form-control mb-2" rows="3">{{ m.topics }}</textarea>
     <label class="form-label small fw-semibold mb-0" for="m-disc">検討内容</label><textarea name="discussion" id="m-disc" class="form-control mb-2" rows="6">{{ m.discussion }}</textarea>
@@ -34,3 +43,4 @@
 </form>
 {% if m.pk %}<form method="post" class="text-end mt-3" onsubmit="return confirm('この会議の要点を消します。元に戻せません。よろしいですか？');">{% csrf_token %}<button name="action" value="delete" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>この会議の要点を消す</button></form>{% endif %}
 {% endblock %}
+{% block extra_js %}{% include 'kaigo/_ai_js.html' %}{% endblock %}

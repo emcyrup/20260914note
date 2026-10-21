@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}記録の設定 — {{ app_label }}{% endblock %}
+{% block page_title %}記録の設定{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 760px; margin: 0 auto;">
+  {% if back %}<div class="mb-2 small"><a href="{{ back }}" class="text-muted text-decoration-none"><i class="bi bi-chevron-left"></i> 記録の画面へ戻る</a></div>{% endif %}
+  <form method="post" class="card"><div class="card-body">
+    {% csrf_token %}<input type="hidden" name="back" value="{{ back }}">
+    <div class="fw-bold mb-2">AI でまとめるとき</div>
+    <div class="row g-2 mb-2">
+      <div class="col-sm-4"><label class="form-label small mb-0" for="st-chars">文字数のめやす（いつもの値）</label>
+        <select name="summary_chars" id="st-chars" class="form-select form-select-sm">{% for n in summary_choices %}<option value="{{ n }}" {% if n == setting.summary_chars %}selected{% endif %}>{{ n }}字くらい</option>{% endfor %}</select></div>
+    </div>
+    <label class="form-label small mb-0" for="st-style">文体の希望（AI に毎回伝えます）</label>
+    <textarea name="style_note" id="st-style" class="form-control" rows="3" placeholder="例：もう少し締めた文に／砕けすぎないように／「〜とのこと」を続けて使わない">{{ setting.style_note }}</textarea>
+    <div class="small text-muted mt-1">はじめから「現場のケアマネが自分で書くような、自然で飾らない言葉にする。上品すぎる・歯が浮くような言い回しは使わない。話に無いことは書かない」と伝えています。使ってみて気になったところを、ここに足してください。</div>
+
+    <div class="fw-bold mt-4 mb-1">記録の種別の名前</div>
+    <div class="small text-muted mb-2">名前を変えたいものだけ書いてください（空ならもとの名前）。種別の数・並びは変わりません。</div>
+    <div class="row g-2">
+      {% for k, label, custom in rows %}
+      <div class="col-sm-6 d-flex align-items-center gap-2"><span class="small text-nowrap" style="min-width:9em;">{{ label }}</span>
+        <input name="label_{{ k }}" value="{{ custom }}" maxlength="20" class="form-control form-control-sm" placeholder="{{ label }}" aria-label="{{ label }} の名前"></div>
+      {% endfor %}
+    </div>
+    <div class="text-end mt-3"><button class="btn btn-primary btn-sm"><i class="bi bi-check2 me-1"></i>保存する</button></div>
+  </div></form>
+</div>
+{% endblock %}

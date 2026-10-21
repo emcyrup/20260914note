@@ -1,0 +1,15 @@
+{# 記録の欄の下の道具：音声入力・写真から文字に・AI でまとめる（target＝テキストエリアの id、cat_select＝種別の select の id。summarize＝まとめるボタンを出すか） #}
+<div class="kg-ai d-flex flex-wrap gap-1 align-items-center mt-1" data-target="{{ target }}" data-cat="{{ cat_select|default:'' }}">
+  <button type="button" class="btn btn-sm btn-outline-secondary" data-voice-target="{{ target }}" data-voice-note="{{ target }}-note"><i class="bi bi-mic"></i> 音声入力</button>
+  <label class="btn btn-sm btn-outline-secondary mb-0" title="紙の書類・メモの写真（PDF も）から、書いてある文字をそのまま起こして欄の最後に足します"><i class="bi bi-camera"></i> 写真から文字に<input type="file" accept="image/*,.pdf" class="d-none kg-ai-photo"></label>
+  {% if summarize %}
+  <span class="d-inline-flex align-items-center gap-1 ms-1">
+    <select class="form-select form-select-sm kg-ai-chars" style="width:auto;" aria-label="まとめる文字数">{% for n in summary_choices %}<option value="{{ n }}" {% if n == setting.summary_chars %}selected{% endif %}>{{ n }}字くらい</option>{% endfor %}</select>
+    <button type="button" class="btn btn-sm btn-outline-primary kg-ai-sum" title="話した言葉・メモを、自然な言葉で指定の文字数くらいにまとめます"><i class="bi bi-magic"></i> AIでまとめる</button>
+  </span>
+  {% endif %}
+  <button type="button" class="btn btn-sm btn-link kg-ai-undo d-none">元に戻す</button>
+  <a href="{% url 'kaigo:settings' %}?back={{ request.get_full_path|urlencode }}" class="small text-muted ms-auto" title="まとめる文字数・文体の希望・記録の種別の名前"><i class="bi bi-gear"></i> 記録の設定</a>
+</div>
+<div id="{{ target }}-note" class="alert alert-warning small py-1 px-2 mt-1 mb-0 d-none"></div>
+<div class="small text-muted mt-1 kg-ai-status"></div>

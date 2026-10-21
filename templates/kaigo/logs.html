@@ -18,7 +18,8 @@
       <div class="col-md-3"><label class="form-label small mb-0" for="lg-prov">相手の事業所（取引先）</label>
         <select name="provider" id="lg-prov" class="form-select form-select-sm"><option value="">—</option>{% for pv in providers %}<option value="{{ pv.pk }}" {% if edit.provider_id == pv.pk %}selected{% endif %}>{{ pv.name }}{% if pv.service_kind %}（{{ pv.service_kind }}）{% endif %}</option>{% endfor %}</select></div>
       <div class="col-12"><label class="form-label small mb-0" for="lg-content">内容</label>
-        <textarea name="content" id="lg-content" class="form-control" rows="5" required placeholder="例：自宅にて本人と面談してモニタリング実施。デイサービスは週2回楽しく通えている。膝の痛みは変わらず…">{{ edit.content }}</textarea></div>
+        <textarea name="content" id="lg-content" class="form-control" rows="6" required placeholder="例：自宅にて本人と面談してモニタリング実施。デイサービスは週2回楽しく通えている。膝の痛みは変わらず…（音声入力で話して「AIでまとめる」と、指定の文字数くらいの文になります）">{{ edit.content }}</textarea>
+        {% include 'kaigo/_ai_tools.html' with target='lg-content' cat_select='lg-cat' summarize=True %}</div>
     </div>
     <div class="d-flex justify-content-between mt-2">
       {% if edit %}<a href="{% url 'kaigo:logs' b.pk %}" class="btn btn-sm btn-outline-secondary">やめる</a>{% else %}<span></span>{% endif %}
@@ -42,7 +43,7 @@
     {% for log in logs %}
     <article class="kg-entry" id="log-{{ log.pk }}">
       <div class="kg-entry-head">
-        <div class="kg-entry-cat">{{ log.get_category_display }}{% if log.method %}<span class="small text-muted fw-normal ms-2">{{ log.get_method_display }}</span>{% endif %}{% if log.provider %}<span class="small text-muted fw-normal ms-1">／{{ log.provider.name }}</span>{% endif %}</div>
+        <div class="kg-entry-cat">{{ log.cat_label }}{% if log.method %}<span class="small text-muted fw-normal ms-2">{{ log.get_method_display }}</span>{% endif %}{% if log.provider %}<span class="small text-muted fw-normal ms-1">／{{ log.provider.name }}</span>{% endif %}</div>
         <div class="kg-entry-date">{{ log.wareki }}（{{ log.date|date:'D' }}）{% if log.time %} {{ log.time|time:'H:i' }}{% endif %}</div>
       </div>
       <div class="kg-entry-body">{{ log.content }}</div>
@@ -60,3 +61,4 @@
 </div></div>
 {% include 'kaigo/_scans.html' %}
 {% endblock %}
+{% block extra_js %}{% include 'kaigo/_ai_js.html' %}{% endblock %}

@@ -8,6 +8,8 @@ import datetime
 from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.db import models as db_models
+from django.http import JsonResponse
 from django.views import View
 
 from beneficiaries.models import Beneficiary
@@ -15,8 +17,8 @@ from config.pdf import pdf_or_html
 from homecare.views import KyotakuMixin, parse_date, parse_time
 
 from .models import (ASSESSMENT_ITEMS, ASSESSMENT_KEYS, CARE_LEVEL_CHOICES, SCAN_EXTENSIONS, SCAN_MAX_BYTES, SCAN_MAX_FILES,
-                     SERVICE_KINDS, WEEK_JP, Assessment, CareInsurance, KaigoPlan, Meeting, Provider, ScanDocument, ServiceUse,
-                     SupportLog, latest_insurance)
+                     SERVICE_KINDS, SUMMARY_CHOICES, WEEK_JP, Assessment, CareInsurance, KaigoPlan, KaigoSetting, Meeting,
+                     Provider, ScanDocument, ServiceUse, SupportLog, latest_insurance)
 
 TEXT_MAX = 4000
 
@@ -88,6 +90,17 @@ class InsuranceView(PersonMixin, View):
 
 # ---------------------------------------------------------------- 支援経過（第5表）
 LOG_PAGE = 100      # 一度に出す件数（新しい順。「もっと前を見る」で足す）
+
+
+def with_labels(logs, setting):
+    """種別の名前（事業所で変えたもの）を付ける"""
+    labels = setting.labels()
+    logs = list(logs)
+    for log in logs:
+        log._labels = labels
+    return logs
+
+
 class LogListView(PersonMixin, View):
     tab = 'logs'
     scan_kind = 'logs'
@@ -119,9 +132,10 @@ class LogListView(PersonMixin, View):
         if request.GET.get('edit'):
             edit = SupportLog.objects.filter(pk=request.GET['edit'], beneficiary=b).first()
         now = datetime.datetime.now()
+        setting = KaigoSetting.of(self.facility)
         return render(request, 'kaigo/logs.html', self.ctx(
-            b, logs=logs[:shown], total=total, more_query=more.urlencode(), cat=cat, start=start, end=end, edit=edit,
-            categories=SupportLog.CATEGORIES,
+            b, logs=with_labels(logs[:shown], setting), total=total, more_query=more.urlencode(), cat=cat, start=start, end=end,
+            edit=edit, categories=setting.categories(), setting=setting, summary_choices=SUMMARY_CHOICES,
             methods=SupportLog.METHODS, providers=Provider.objects.filter(facility=self.facility, is_active=True),
             now_date=now.date(), now_time=now.strftime('%H:%M'), query=request.GET.urlencode()))
 
@@ -156,7 +170,8 @@ class LogPrintView(LogListView):
         b = self.person_or_404(pk)
         logs, cat, start, end = self._filtered(request, b)
         return pdf_or_html(request, 'kaigo/pdf/logs.html', self.ctx(
-            b, logs=list(reversed(list(logs[:1000]))), facility=self.facility, start=start, end=end),
+            b, logs=list(reversed(with_labels(logs[:1000], KaigoSetting.of(self.facility)))), facility=self.facility,
+            start=start, end=end),
             f'居宅介護支援経過_{b.full_name}')
 
 
@@ -457,14 +472,33 @@ class MeetingPrintView(PersonMixin, View):
 
 
 # ---------------------------------------------------------------- アセスメント（課題分析標準項目）
+def previous_assessment(a):
+    """a の一つ前のアセスメント（新しく作るときは、いちばん新しいもの）"""
+    qs = Assessment.objects.filter(beneficiary=a.beneficiary, facility=a.facility)
+    if a.pk:
+        qs = qs.filter(db_models.Q(assessed_on__lt=a.assessed_on) | db_models.Q(assessed_on=a.assessed_on, pk__lt=a.pk))
+    return qs.order_by('-assessed_on', '-pk').first()
+
+
+def changed_items(a, prev):
+    """前回から書きかえた項目の名前（前回が無ければ空）"""
+    if prev is None:
+        return []
+    old, new = prev.items or {}, a.items or {}
+    labels = {k: label for _, items in ASSESSMENT_ITEMS for k, label in items}
+    return [labels[k] for k in ASSESSMENT_KEYS if (old.get(k) or '').strip() != (new.get(k) or '').strip()]
+
+
 class AssessmentListView(PersonMixin, View):
     tab = 'assessments'
     scan_kind = 'assessment'
 
     def get(self, request, pk):
         b = self.person_or_404(pk)
-        return render(request, 'kaigo/assessments.html', self.ctx(
-            b, assessments=Assessment.objects.filter(beneficiary=b, facility=self.facility), total=len(ASSESSMENT_KEYS)))
+        rows = list(Assessment.objects.filter(beneficiary=b, facility=self.facility).order_by('-assessed_on', '-pk'))
+        for i, a in enumerate(rows):
+            a.changed = changed_items(a, rows[i + 1]) if i + 1 < len(rows) else None
+        return render(request, 'kaigo/assessments.html', self.ctx(b, assessments=rows, total=len(ASSESSMENT_KEYS)))
 
 
 class AssessmentFormView(PersonMixin, View):
@@ -478,8 +512,13 @@ class AssessmentFormView(PersonMixin, View):
             prev = Assessment.objects.filter(beneficiary=b, facility=self.facility).first()
             a = Assessment(facility=self.facility, beneficiary=b, assessed_on=datetime.date.today(), place='自宅',
                            kind='regular' if prev else 'first', items=dict(prev.items) if prev else {},
-                           assessor=prev.assessor if prev else '')
-        return render(request, 'kaigo/assessment_form.html', self.ctx(b, a=a, kinds=Assessment.KINDS))
+                           assessor=prev.assessor if prev else '', summary=prev.summary if prev else '')
+        prev = previous_assessment(a)
+        prev_items = (prev.items or {}) if prev else {}
+        groups = [(group, [(k, label, v, prev_items.get(k, '')) for k, label, v in items]) for group, items in a.item_groups()]
+        return render(request, 'kaigo/assessment_form.html', self.ctx(
+            b, a=a, kinds=Assessment.KINDS, prev=prev, groups=groups,
+            changed=changed_items(a, prev) if a.pk else []))
 
     def post(self, request, pk, a_pk=None):
         b = self.person_or_404(pk)
@@ -498,7 +537,9 @@ class AssessmentFormView(PersonMixin, View):
         a.items = {k: _text(p, f'i_{k}') for k in ASSESSMENT_KEYS if _text(p, f'i_{k}')}
         a.summary = _text(p, 'summary')
         a.save()
-        messages.success(request, f'{b.full_name}さんのアセスメントを保存しました。')
+        changed = changed_items(a, previous_assessment(a))
+        messages.success(request, f'{b.full_name}さんのアセスメントを保存しました。'
+                         + (f'前回から変わった項目：{"・".join(changed)}' if changed else ''))
         return redirect('kaigo:assessment_edit', pk=b.pk, a_pk=a.pk)
 
 
@@ -610,3 +651,99 @@ class ScanEditView(PersonMixin, View):
         doc.save()
         messages.success(request, f'「{doc.label}」を直しました。')
         return redirect(scan_back(b, doc.kind))
+
+
+# ---------------------------------------------------------------- 記録の AI（音声・写真の文字起こし・要約）と設定
+def _json_body(request):
+    import json
+    try:
+        return json.loads(request.body.decode('utf-8') or '{}')
+    except (ValueError, UnicodeDecodeError):
+        return {}
+
+
+class AiSummarizeView(KyotakuMixin, View):
+    """話した言葉・メモ → 支援経過に残す文（指定の文字数）。{'text', 'chars', 'category'} → {'text', 'added'?}"""
+
+    def post(self, request):
+        from ai_assist import asis
+
+        from . import ai
+        data = _json_body(request)
+        text = str(data.get('text') or '').strip()[:12000]
+        if not text:
+            return JsonResponse({'error': 'まとめる文がありません。話すか書いてから押してください。'}, status=400)
+        setting = KaigoSetting.of(self.facility)
+        try:
+            chars = int(data.get('chars') or setting.summary_chars)
+        except (TypeError, ValueError):
+            chars = setting.summary_chars
+        chars = min(max(chars, 100), 1500)
+        key = str(data.get('category') or '')
+        out, error = ai.summarize(text, chars, key, setting.labels().get(key, ''), setting)
+        if error is not None:
+            return error
+        return JsonResponse({'text': out, 'length': len(out), **asis.check(text, out)})
+
+
+class AiReadImageView(KyotakuMixin, View):
+    """紙・メモの写真（PDF も）→ 書いてある文字。{'text'}"""
+
+    def post(self, request):
+        from . import ai
+        f = request.FILES.get('file')
+        if f is None:
+            return JsonResponse({'error': '写真を選んでください。'}, status=400)
+        if f.size > SCAN_MAX_BYTES:
+            return JsonResponse({'error': '大きすぎます（20MB まで）。'}, status=400)
+        try:
+            out, error = ai.read_image(f)
+        except ValueError as e:
+            return JsonResponse({'error': str(e)}, status=400)
+        if error is not None:
+            return error
+        return JsonResponse({'text': out})
+
+
+class AiMeetingView(KyotakuMixin, View):
+    """会議のメモ → 担当者会議の要点の下書き。{'text'} → {'topics', 'discussion', 'conclusion', 'remaining'}"""
+
+    def post(self, request):
+        from . import ai
+        text = str(_json_body(request).get('text') or '').strip()[:15000]
+        if not text:
+            return JsonResponse({'error': '会議のメモがありません。話すか書いてから押してください。'}, status=400)
+        out, error = ai.meeting(text, KaigoSetting.of(self.facility))
+        if error is not None:
+            return error
+        return JsonResponse(out)
+
+
+class SettingView(KyotakuMixin, View):
+    """記録の設定：AI でまとめる文字数・文体の希望・記録の種別の名前"""
+
+    def get(self, request):
+        setting = KaigoSetting.of(self.facility)
+        labels = setting.category_labels or {}
+        return render(request, 'kaigo/settings.html', {
+            'setting': setting, 'summary_choices': SUMMARY_CHOICES,
+            'rows': [(k, label, labels.get(k, '')) for k, label in SupportLog.CATEGORIES],
+            'back': request.GET.get('back', '')})
+
+    def post(self, request):
+        setting = KaigoSetting.of(self.facility)
+        p = request.POST
+        try:
+            chars = int(p.get('summary_chars') or 400)
+        except ValueError:
+            chars = 400
+        setting.summary_chars = min(max(chars, 100), 1500)
+        setting.style_note = _text(p, 'style_note', 600)
+        setting.category_labels = {k: _text(p, f'label_{k}', 20) for k, _ in SupportLog.CATEGORIES if _text(p, f'label_{k}', 20)}
+        setting.save()
+        messages.success(request, '記録の設定を保存しました。')
+        back = p.get('back') or ''
+        from django.utils.http import url_has_allowed_host_and_scheme
+        if back and url_has_allowed_host_and_scheme(back, allowed_hosts={request.get_host()}):
+            return redirect(back)
+        return redirect('kaigo:settings')

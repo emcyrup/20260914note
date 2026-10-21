@@ -8,19 +8,30 @@
     <div class="d-flex gap-1">{% if a.pk %}<a href="{% url 'kaigo:assessment_print' b.pk a.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>印刷</a>{% endif %}
       <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button></div>
   </div>
-  {% if not a.pk and a.items %}<div class="alert alert-info small py-2">前回の内容を写してあります。変わったところを直して保存してください。</div>{% endif %}
+  {% if prev %}<div class="alert alert-info small py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span>{% if not a.pk %}前回（{{ prev.assessed_on|date:'Y/n/j' }}）の内容を写してあります。変わったところだけ直して保存してください。{% else %}前回（{{ prev.assessed_on|date:'Y/n/j' }}）とくらべています。{% endif %}
+      書きかえた項目には <span class="badge text-bg-warning">前回から変更</span> が付きます。</span>
+    <span class="d-flex gap-1"><button type="button" class="btn btn-sm btn-outline-secondary" id="as-only-changed">変わった項目だけ見る</button><span class="small align-self-center" id="as-changed-count"></span></span>
+  </div>{% endif %}
+  {% if changed %}<div class="small text-muted mb-2">前回から変わった項目：{{ changed|join:'・' }}</div>{% endif %}
   <div class="card mb-3"><div class="card-body"><div class="row g-2">
     <div class="col-6 col-md-3"><label class="form-label small mb-0" for="as-date">実施日</label><input type="date" name="assessed_on" id="as-date" class="form-control form-control-sm" value="{{ a.assessed_on|date:'Y-m-d' }}" required></div>
     <div class="col-6 col-md-3"><label class="form-label small mb-0" for="as-kind">理由</label><select name="kind" id="as-kind" class="form-select form-select-sm">{% for k, l in kinds %}<option value="{{ k }}" {% if a.kind == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
     <div class="col-6 col-md-3"><label class="form-label small mb-0" for="as-place">場所</label><input name="place" id="as-place" class="form-control form-control-sm" value="{{ a.place }}"></div>
     <div class="col-6 col-md-3"><label class="form-label small mb-0" for="as-who">実施した人</label><input name="assessor" id="as-who" class="form-control form-control-sm" value="{{ a.assessor }}"></div>
   </div></div></div>
-  {% for group, items in a.item_groups %}
+  {% for group, items in groups %}
   <div class="card mb-3"><div class="card-body">
     <div class="fw-bold mb-2">{{ group }}</div>
-    {% for k, label, v in items %}
-    <label class="kg-item-label mt-2 d-block" for="i-{{ k }}">{{ label }}</label>
-    <textarea name="i_{{ k }}" id="i-{{ k }}" class="form-control form-control-sm" rows="{% if v %}3{% else %}2{% endif %}">{{ v }}</textarea>
+    {% for k, label, v, pv in items %}
+    <div class="kg-asm-item" data-key="{{ k }}">
+      <div class="d-flex align-items-center gap-2 mt-2 flex-wrap"><label class="kg-item-label mb-0" for="i-{{ k }}">{{ label }}</label>
+        <span class="badge text-bg-warning d-none kg-asm-changed">前回から変更</span>
+        {% if prev %}<button type="button" class="btn btn-link btn-sm p-0 small kg-asm-restore d-none" title="前回の文に戻す">前回に戻す</button>{% endif %}</div>
+      <textarea name="i_{{ k }}" id="i-{{ k }}" class="form-control form-control-sm" rows="{% if v %}3{% else %}2{% endif %}">{{ v }}</textarea>
+      {% if prev %}<textarea class="d-none kg-asm-prev" aria-hidden="true" tabindex="-1">{{ pv }}</textarea>
+      <details class="small text-muted kg-asm-prevbox d-none"><summary>前回（{{ prev.assessed_on|date:'Y/n/j' }}）の文を見る</summary><div style="white-space:pre-wrap;">{{ pv|default:'（空）' }}</div></details>{% endif %}
+    </div>
     {% endfor %}
   </div></div>
   {% endfor %}
@@ -31,4 +42,34 @@
   <div class="text-end"><button class="btn btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button></div>
 </form>
 {% if a.pk %}<form method="post" class="text-end mt-3" onsubmit="return confirm('このアセスメントを消します。元に戻せません。よろしいですか？');">{% csrf_token %}<button name="action" value="delete" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>このアセスメントを消す</button></form>{% endif %}
+{% endblock %}
+{% block extra_js %}
+<script>
+(function () {
+  var items = document.querySelectorAll('.kg-asm-item');
+  var counter = document.getElementById('as-changed-count'), only = document.getElementById('as-only-changed'), onlyOn = false;
+  function norm(t) { return (t || '').replace(/\s+$/, '').replace(/^\s+/, ''); }
+  function refresh() {
+    var n = 0;
+    items.forEach(function (it) {
+      var prev = it.querySelector('.kg-asm-prev'); if (!prev) return;
+      var cur = it.querySelector('textarea[name]');
+      var changed = norm(cur.value) !== norm(prev.value);
+      if (changed) n++;
+      it.querySelector('.kg-asm-changed').classList.toggle('d-none', !changed);
+      var r = it.querySelector('.kg-asm-restore'); if (r) r.classList.toggle('d-none', !changed);
+      it.querySelector('.kg-asm-prevbox').classList.toggle('d-none', !changed);
+      it.style.display = onlyOn && !changed ? 'none' : '';
+    });
+    if (counter) counter.textContent = '変わった項目 ' + n;
+  }
+  items.forEach(function (it) {
+    var cur = it.querySelector('textarea[name]'), prev = it.querySelector('.kg-asm-prev'), r = it.querySelector('.kg-asm-restore');
+    cur.addEventListener('input', refresh);
+    if (r && prev) r.addEventListener('click', function () { cur.value = prev.value; refresh(); });
+  });
+  if (only) only.addEventListener('click', function () { onlyOn = !onlyOn; only.textContent = onlyOn ? 'すべての項目を見る' : '変わった項目だけ見る'; refresh(); });
+  refresh();
+})();
+</script>
 {% endblock %}

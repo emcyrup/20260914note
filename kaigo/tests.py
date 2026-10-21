@@ -336,3 +336,97 @@ class ScanTests(KaigoBase):
         self.assertContains(res, '保険証.png')
         from beneficiaries.trash import file_names
         self.assertEqual(len(file_names(self.b)), 1)
+
+
+class MinutesFollowupTests(KaigoBase):
+    """2026-10-20 の打ち合わせの対応（記録の種別・AI・アセスメントの差分・絞り込み・メニュー）"""
+
+    def test_ten_categories_and_custom_names(self):
+        from .models import KaigoSetting
+        self.assertEqual([label for _, label in SupportLog.CATEGORIES],
+                         ['モニタリング', 'サービス担当者会議', '家族との連絡', '利用者との連絡', '入院・退院', 'アセスメント',
+                          '要介護認定', '事業所との連絡', '医療連携', 'その他'])
+        self.client.post(reverse('kaigo:settings'), {'summary_chars': '600', 'style_note': 'もう少し締める',
+                                                     'label_medical': '医療機関との連携', 'label_other': ''})
+        st = KaigoSetting.of(self.f)
+        self.assertEqual((st.summary_chars, st.style_note, st.category_labels), (600, 'もう少し締める', {'medical': '医療機関との連携'}))
+        SupportLog.objects.create(facility=self.f, beneficiary=self.b, date=datetime.date(2026, 10, 1), category='medical', content='主治医へ連絡')
+        res = self.client.get(reverse('kaigo:logs', args=[self.b.pk]))
+        self.assertContains(res, '<div class="kg-entry-cat">医療機関との連携')
+        self.assertContains(res, '入院・退院')
+        self.assertContains(res, 'value="600" selected')
+        res = self.client.get(reverse('kaigo:logs_print', args=[self.b.pk]) + '?fmt=html')
+        self.assertContains(res, '医療機関との連携')
+
+    def test_summarize_prompt_has_chars_style_and_plain_words(self):
+        from unittest import mock
+        from .models import KaigoSetting
+        st = KaigoSetting.of(self.f)
+        st.style_note = '砕けすぎないように'
+        st.save()
+        with mock.patch('kaigo.ai.ask_ai', return_value=('自宅で面談した。デイは週2回通えている。', None)) as ask:
+            res = self.client.post(reverse('kaigo:ai_summarize'), {'text': 'えっと自宅で面談して、デイは週2回行けてるって', 'chars': 300,
+                                                                   'category': 'monitoring'}, content_type='application/json')
+        data = res.json()
+        self.assertEqual(data['text'], '自宅で面談した。デイは週2回通えている。')
+        system, content = ask.call_args[0][0], ask.call_args[0][1]
+        self.assertIn('300 文字くらい', system)
+        self.assertIn('砕けすぎないように', system)
+        self.assertIn('歯が浮くような', system)
+        self.assertIn('モニタリング', content)
+        res = self.client.post(reverse('kaigo:ai_summarize'), {'text': ''}, content_type='application/json')
+        self.assertEqual(res.status_code, 400)
+
+    def test_read_image_and_meeting_draft(self):
+        import io
+        from unittest import mock
+
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new('RGB', (20, 20), 'white').save(buf, format='PNG')
+        photo = SimpleUploadedFile('memo.png', buf.getvalue(), content_type='image/png')
+        with mock.patch('kaigo.ai.ask_ai', return_value=('入浴　週2回', None)) as ask:
+            res = self.client.post(reverse('kaigo:ai_read'), {'file': photo})
+        self.assertEqual(res.json()['text'], '入浴　週2回')
+        self.assertEqual(ask.call_args[0][1][0]['type'], 'image')
+        heic = SimpleUploadedFile('a.heic', b'x', content_type='image/heic')
+        self.assertEqual(self.client.post(reverse('kaigo:ai_read'), {'file': heic}).status_code, 400)
+        reply = '```json\n{"topics": "1. 入浴", "discussion": "デイで週2回", "conclusion": "続ける", "remaining": ""}\n```'
+        with mock.patch('kaigo.ai.ask_ai', return_value=(reply, None)):
+            res = self.client.post(reverse('kaigo:ai_meeting'), {'text': '入浴の話'}, content_type='application/json')
+        self.assertEqual(res.json(), {'topics': '1. 入浴', 'discussion': 'デイで週2回', 'conclusion': '続ける', 'remaining': ''})
+        res = self.client.get(reverse('kaigo:meeting_new', args=[self.b.pk]))
+        self.assertContains(res, '会議のメモ・音声から下書きを作る')
+        self.assertContains(res, 'kaigo-ai.js')
+
+    def test_assessment_copy_and_diff(self):
+        url = reverse('kaigo:assessment_new', args=[self.b.pk])
+        self.client.post(url, {'assessed_on': '2026-04-01', 'kind': 'first', 'i_health': '高血圧', 'i_adl': '杖で歩く', 'summary': '入浴に介助'})
+        res = self.client.get(url)
+        self.assertContains(res, '前回（2026/4/1）の内容を写してあります')
+        self.assertContains(res, '杖で歩く')
+        self.assertContains(res, '入浴に介助')                                   # 課題のまとめも写す
+        res = self.client.post(url, {'assessed_on': '2026-10-01', 'kind': 'regular', 'i_health': '高血圧', 'i_adl': '車いす',
+                                     'summary': '入浴に介助'}, follow=True)
+        self.assertContains(res, '前回から変わった項目：ADL')
+        res = self.client.get(reverse('kaigo:assessments', args=[self.b.pk]))
+        self.assertContains(res, '前回から変わった項目：ADL')
+        new = Assessment.objects.get(assessed_on=datetime.date(2026, 10, 1))
+        res = self.client.get(reverse('kaigo:assessment_edit', args=[self.b.pk, new.pk]))
+        self.assertContains(res, '前回（2026/4/1）とくらべています')
+        self.assertContains(res, 'kg-asm-prev')
+
+    def test_list_filter_by_care_level_and_menu(self):
+        for last, level in (('青木', '要支援1'), ('井上', '要介護3'), ('上田', '申請中')):
+            b = Beneficiary.objects.create(facility=self.f, last_name=last, first_name='一', date_of_birth=datetime.date(1940, 1, 1))
+            CareInsurance.objects.create(beneficiary=b, care_level=level)
+        url = reverse('beneficiaries:list')
+        names = lambda res: sorted(b.last_name for b in res.context['beneficiaries'])      # noqa: E731
+        self.assertEqual(names(self.client.get(url + '?care=support')), ['青木'])
+        self.assertEqual(names(self.client.get(url + '?care=care')), ['井上'])
+        self.assertEqual(names(self.client.get(url + '?care=要介護3')), ['井上'])
+        self.assertEqual(names(self.client.get(url + '?care=other')), ['上田', '山本'])
+        res = self.client.get(url + '?care=care&sort=care_desc')
+        self.assertContains(res, '要介護（1〜5）（1）')
+        nav = res.content.decode().split('<nav', 1)[1].split('</nav>', 1)[0]
+        self.assertIn('<span>利用者情報</span>', nav)
