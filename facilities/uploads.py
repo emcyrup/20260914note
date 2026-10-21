@@ -53,3 +53,7 @@ def assessment_upload_to(instance, filename):
 
 def document_upload_to(instance, filename):
     return _name('beneficiary_documents', filename)
+
+
+def kaigo_scan_upload_to(instance, filename):
+    return _name('kaigo_scans', filename)

@@ -1,7 +1,8 @@
 import datetime
+import tempfile
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from accounts.models import StaffAccount
@@ -9,7 +10,7 @@ from beneficiaries import importer
 from beneficiaries.models import Beneficiary, DeletedBeneficiary
 from facilities.models import Facility
 
-from .models import Assessment, CareInsurance, KaigoPlan, Meeting, Provider, ServiceUse, SupportLog
+from .models import Assessment, CareInsurance, KaigoPlan, Meeting, Provider, ScanDocument, ServiceUse, SupportLog
 
 # カイポケの利用者一覧と同じ形（中身は架空）
 KAIPOKE_HEADER = ('台帳対象月,表示状態,氏名,氏名カナ,性別,生年月日,年齢,郵便番号,住所,電話番号,携帯番号,緊急連絡先氏名,'
@@ -247,3 +248,91 @@ class ScreenTests(KaigoBase):
         self.assertEqual(self.client.get(reverse('kaigo:logs', args=[ob.pk])).status_code, 404)
         self.client.force_login(StaffAccount.objects.create_user('o', password='pw12345678', facility=other))
         self.assertEqual(self.client.get(reverse('kaigo:providers')).status_code, 404)
+
+
+class ListSortTests(KaigoBase):
+    def test_sort_by_care_level(self):
+        def person(last, kana, level=None, until=None):
+            b = Beneficiary.objects.create(facility=self.f, last_name=last, first_name='一', last_name_kana=kana,
+                                           date_of_birth=datetime.date(1940, 1, 1))
+            if level is not None:
+                CareInsurance.objects.create(beneficiary=b, care_level=level, valid_from=datetime.date(2026, 1, 1), valid_until=until)
+            return b
+        person('青木', 'あおき', '要支援1', datetime.date(2027, 3, 31))
+        person('井上', 'いのうえ', '要介護3', datetime.date(2026, 11, 30))
+        person('上田', 'うえだ', '申請中')
+        person('江口', 'えぐち', '要介護3', datetime.date(2027, 1, 31))
+        CareInsurance.objects.create(beneficiary=self.b, care_level='要介護5', valid_from=datetime.date(2026, 1, 1))   # 山本
+        url = reverse('beneficiaries:list')
+        names = lambda res: [b.last_name for b in res.context['beneficiaries']]      # noqa: E731
+        self.assertEqual(names(self.client.get(url)), ['青木', '井上', '上田', '江口', '山本'])            # 50 音順
+        res = self.client.get(url + '?sort=care_desc')
+        self.assertEqual(names(res), ['山本', '井上', '江口', '青木', '上田'])
+        self.assertContains(res, '要介護3（2 名）')
+        self.assertContains(res, 'value="care_desc" selected')
+        self.assertEqual(names(self.client.get(url + '?sort=care_asc')), ['青木', '井上', '江口', '山本', '上田'])
+        self.assertEqual(names(self.client.get(url + '?sort=cert')), ['井上', '江口', '青木', '上田', '山本'])
+        self.assertEqual(names(self.client.get(url + '?sort=care_desc&row=あ')), ['井上', '江口', '青木', '上田'])
+        self.assertContains(self.client.get(url + '?sort=care_desc'), '&sort=care_desc')       # タブ・50 音でも並びを保つ
+
+
+class LogFeedTests(KaigoBase):
+    def test_feed_newest_first_with_wareki_and_more(self):
+        from kaigo import views
+        for i in range(views.LOG_PAGE + 5):
+            SupportLog.objects.create(facility=self.f, beneficiary=self.b, date=datetime.date(2026, 1, 1) + datetime.timedelta(days=i),
+                                      content=f'経過{i}', category='monitoring')
+        url = reverse('kaigo:logs', args=[self.b.pk])
+        res = self.client.get(url)
+        logs = list(res.context['logs'])
+        self.assertEqual(len(logs), views.LOG_PAGE)
+        self.assertEqual(logs[0].content, f'経過{views.LOG_PAGE + 4}')          # 新しいものが上、過去分が下に積み上がる
+        self.assertContains(res, '令和8年4月15日')
+        self.assertContains(res, 'もっと前を見る')
+        self.assertNotContains(res, '<details class="card mb-3" id="log-write" open')     # 書く欄はたたんでおく
+        res = self.client.get(url + f'?n={views.LOG_PAGE * 2}')
+        self.assertEqual(len(res.context['logs']), views.LOG_PAGE + 5)
+        self.assertNotContains(res, 'もっと前を見る')
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class ScanTests(KaigoBase):
+    def upload(self, kind, *files, **extra):
+        return self.client.post(reverse('kaigo:scan_upload', args=[self.b.pk]), {'kind': kind, 'files': list(files), **extra})
+
+    def test_upload_list_edit_delete(self):
+        pdf = SimpleUploadedFile('ケアプラン.pdf', b'%PDF-1.4 test', content_type='application/pdf')
+        jpg = SimpleUploadedFile('第4表.jpg', b'\xff\xd8\xff test', content_type='image/jpeg')
+        bad = SimpleUploadedFile('memo.txt', b'x', content_type='text/plain')
+        res = self.upload('plan', pdf, bad, title='居宅サービス計画書（R8.4）', doc_date='2026-04-01')
+        self.assertRedirects(res, reverse('kaigo:plans', args=[self.b.pk]) + '#scans', fetch_redirect_response=False)
+        self.upload('meeting', jpg)
+        doc = ScanDocument.objects.get(kind='plan')
+        self.assertEqual((doc.title, doc.doc_date, doc.file_name), ('居宅サービス計画書（R8.4）', datetime.date(2026, 4, 1), 'ケアプラン.pdf'))
+        self.assertEqual(ScanDocument.objects.filter(beneficiary=self.b).count(), 2)       # .txt は入れない
+        res = self.client.get(reverse('kaigo:plans', args=[self.b.pk]))
+        self.assertContains(res, '紙・スキャンのケアプラン')
+        self.assertContains(res, '居宅サービス計画書（R8.4）')
+        self.assertNotContains(res, '第4表.jpg')                                            # ほかのタブの書類は出さない
+        self.assertContains(self.client.get(reverse('kaigo:meetings', args=[self.b.pk])), '第4表.jpg')
+        for name in ('logs', 'uses_now', 'assessments'):
+            res = self.client.get(reverse(f'kaigo:{name}', args=[self.b.pk]), follow=True)
+            self.assertContains(res, 'id="scans"')
+        self.assertEqual(self.client.get(doc.file.url).status_code, 200)                   # ログインした事業所の人は開ける
+        other = Facility.objects.create(name='ほか')
+        self.client.force_login(StaffAccount.objects.create_user('o', password='pw12345678', facility=other))
+        self.assertEqual(self.client.get(doc.file.url).status_code, 404)                   # ほかの事業所は開けない
+        self.client.force_login(self.user)
+        self.client.post(reverse('kaigo:scan_edit', args=[self.b.pk, doc.pk]), {'title': '第1〜3表', 'doc_date': '', 'kind': 'assessment'})
+        doc.refresh_from_db()
+        self.assertEqual((doc.title, doc.doc_date, doc.kind), ('第1〜3表', None, 'assessment'))
+        self.client.post(reverse('kaigo:scan_edit', args=[self.b.pk, doc.pk]), {'action': 'delete'})
+        self.assertFalse(ScanDocument.objects.filter(pk=doc.pk).exists())
+
+    def test_insurance_scans_on_detail_and_trash(self):
+        self.upload('insurance', SimpleUploadedFile('保険証.png', b'\x89PNG test', content_type='image/png'))
+        res = self.client.get(reverse('beneficiaries:detail', args=[self.b.pk]))
+        self.assertContains(res, '紙・スキャンの介護保険証・負担割合証')
+        self.assertContains(res, '保険証.png')
+        from beneficiaries.trash import file_names
+        self.assertEqual(len(file_names(self.b)), 1)

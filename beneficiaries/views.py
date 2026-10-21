@@ -44,6 +44,40 @@ def neighbors(b):
     return prev_b, next_b, i + 1, len(ids)
 
 
+CARE_SORTS = [('', '50音順'), ('care_desc', '要介護度の重い順'), ('care_asc', '要介護度の軽い順'), ('cert', '認定の終わりが近い順')]
+
+
+def care_sorted(people, sort):
+    """
+    居宅介護支援：要介護度（いちばん新しい介護保険証）で並べ替える。同じ区分の中は 50 音順のまま。
+    申請中・非該当・保険証の無い人は最後。要介護度の順のときは、区分が変わる人に group（見出し：区分と人数）を付ける
+    """
+    from kaigo.models import CARE_ORDER
+    order = {b.pk: i for i, b in enumerate(people)}
+    if sort == 'cert':
+        def until(b):
+            return b.care.valid_until if b.care and b.care.valid_until else None
+        people.sort(key=lambda b: (until(b) is None, until(b) or datetime.date.max, order[b.pk]))
+        return people
+    rest = ['申請中', '非該当', '未登録', '介護保険証なし']
+    for b in people:
+        b.care_key = (b.care.care_level or '未登録') if b.care else '介護保険証なし'
+    sign = -1 if sort == 'care_desc' else 1
+
+    def key(b):
+        lv = CARE_ORDER.get(b.care_key)
+        return (0, sign * lv, order[b.pk]) if lv is not None else (1, rest.index(b.care_key) if b.care_key in rest else 0, order[b.pk])
+    people.sort(key=key)
+    counts = {}
+    for b in people:
+        counts[b.care_key] = counts.get(b.care_key, 0) + 1
+    prev = None
+    for b in people:
+        b.group = f'{b.care_key}（{counts[b.care_key]} 名）' if b.care_key != prev else ''
+        prev = b.care_key
+    return people
+
+
 class BeneficiaryListView(LoginRequiredMixin, ListView):
     """
     利用者一覧。ログインユーザーの施設に紐づく利用者のみ表示する。
@@ -104,6 +138,10 @@ class BeneficiaryListView(LoginRequiredMixin, ListView):
                 latest.setdefault(ins.beneficiary_id, ins)
             for b in ctx['beneficiaries']:
                 b.care = latest.get(b.pk)
+            ctx['sort'] = self.request.GET.get('sort', '') if self.request.GET.get('sort') in dict(CARE_SORTS) else ''
+            ctx['care_sorts'] = CARE_SORTS
+            if ctx['sort']:
+                ctx['beneficiaries'] = ctx['object_list'] = care_sorted(list(ctx['beneficiaries']), ctx['sort'])
         return ctx
 
 
@@ -134,6 +172,7 @@ def related_counts(b):
         ('担当者会議の要点', b.kaigo_meetings.count()),
         ('予定・実績', b.kaigo_uses.count()),
         ('アセスメント（課題分析）', b.kaigo_assessments.count()),
+        ('紙・スキャンの書類', b.kaigo_scans.count()),
     ]
     return [(label, n) for label, n in rows if n]
 
@@ -437,6 +476,10 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
             ctx['prev_b'], ctx['next_b'], ctx['nav_pos'], ctx['nav_total'] = neighbors(b)
         if facility.is_kyotaku:      # 居宅介護支援：介護保険証（新しい順）
             ctx['care_insurances'] = list(b.care_insurances.all())
+            from kaigo.models import SCAN_EXTENSIONS, ScanDocument
+            ctx.update(scan_kind='insurance', scan_kind_label='介護保険証・負担割合証', scan_kinds=ScanDocument.KINDS,
+                       scans=list(b.kaigo_scans.filter(kind='insurance').select_related('uploaded_by')),
+                       scan_accept=','.join('.' + e for e in SCAN_EXTENSIONS))
         if facility.is_ryoiku and b.status == 'active' and reservation_enabled(facility):
             # 「今日の予定に追加」：きょうの時間枠と空き（reservations/views.py の AddTodayView で予約を作る）
             from reservations.services import add_today_choices

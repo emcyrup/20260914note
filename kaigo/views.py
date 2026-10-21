@@ -14,8 +14,9 @@ from beneficiaries.models import Beneficiary
 from config.pdf import pdf_or_html
 from homecare.views import KyotakuMixin, parse_date, parse_time
 
-from .models import (ASSESSMENT_ITEMS, ASSESSMENT_KEYS, CARE_LEVEL_CHOICES, SERVICE_KINDS, WEEK_JP, Assessment,
-                     CareInsurance, KaigoPlan, Meeting, Provider, ServiceUse, SupportLog, latest_insurance)
+from .models import (ASSESSMENT_ITEMS, ASSESSMENT_KEYS, CARE_LEVEL_CHOICES, SCAN_EXTENSIONS, SCAN_MAX_BYTES, SCAN_MAX_FILES,
+                     SERVICE_KINDS, WEEK_JP, Assessment, CareInsurance, KaigoPlan, Meeting, Provider, ScanDocument, ServiceUse,
+                     SupportLog, latest_insurance)
 
 TEXT_MAX = 4000
 
@@ -37,8 +38,15 @@ class PersonMixin(KyotakuMixin):
     """利用者ごとのタブの画面"""
     tab = ''
 
+    scan_kind = ''
+
     def ctx(self, b, **extra):
-        return {'b': b, 'tab': self.tab, 'insurance': latest_insurance(b), 'today': datetime.date.today(), **extra}
+        c = {'b': b, 'tab': self.tab, 'insurance': latest_insurance(b), 'today': datetime.date.today(), **extra}
+        if self.scan_kind:      # 紙・スキャンの書類（そのタブの種類のもの）
+            c.update(scan_kind=self.scan_kind, scan_kind_label=dict(ScanDocument.KINDS)[self.scan_kind],
+                     scans=list(ScanDocument.objects.filter(beneficiary=b, kind=self.scan_kind).select_related('uploaded_by')),
+                     scan_accept=','.join('.' + e for e in SCAN_EXTENSIONS), scan_kinds=ScanDocument.KINDS)
+        return c
 
 
 # ---------------------------------------------------------------- 介護保険証
@@ -79,8 +87,10 @@ class InsuranceView(PersonMixin, View):
 
 
 # ---------------------------------------------------------------- 支援経過（第5表）
+LOG_PAGE = 100      # 一度に出す件数（新しい順。「もっと前を見る」で足す）
 class LogListView(PersonMixin, View):
     tab = 'logs'
+    scan_kind = 'logs'
 
     def _filtered(self, request, b):
         qs = SupportLog.objects.filter(beneficiary=b, facility=self.facility).select_related('provider', 'created_by')
@@ -97,12 +107,21 @@ class LogListView(PersonMixin, View):
     def get(self, request, pk):
         b = self.person_or_404(pk)
         logs, cat, start, end = self._filtered(request, b)
+        total = logs.count()
+        try:
+            shown = min(max(int(request.GET.get('n') or LOG_PAGE), LOG_PAGE), 5000)
+        except ValueError:
+            shown = LOG_PAGE
+        more = request.GET.copy()
+        more['n'] = shown + LOG_PAGE
+        more.pop('edit', None)
         edit = None
         if request.GET.get('edit'):
             edit = SupportLog.objects.filter(pk=request.GET['edit'], beneficiary=b).first()
         now = datetime.datetime.now()
         return render(request, 'kaigo/logs.html', self.ctx(
-            b, logs=logs[:300], cat=cat, start=start, end=end, edit=edit, categories=SupportLog.CATEGORIES,
+            b, logs=logs[:shown], total=total, more_query=more.urlencode(), cat=cat, start=start, end=end, edit=edit,
+            categories=SupportLog.CATEGORIES,
             methods=SupportLog.METHODS, providers=Provider.objects.filter(facility=self.facility, is_active=True),
             now_date=now.date(), now_time=now.strftime('%H:%M'), query=request.GET.urlencode()))
 
@@ -153,6 +172,7 @@ class UsesNowView(PersonMixin, View):
 
 class UsesView(PersonMixin, View):
     tab = 'uses'
+    scan_kind = 'uses'
 
     def _rows(self, b, year, month):
         return list(ServiceUse.objects.filter(beneficiary=b, facility=self.facility, year=year, month=month)
@@ -281,6 +301,7 @@ class MonthlyView(KyotakuMixin, View):
 # ---------------------------------------------------------------- ケアプラン（第1〜3表）
 class PlanListView(PersonMixin, View):
     tab = 'plans'
+    scan_kind = 'plan'
 
     def get(self, request, pk):
         b = self.person_or_404(pk)
@@ -370,6 +391,7 @@ class PlanPrintView(PersonMixin, View):
 # ---------------------------------------------------------------- サービス担当者会議の要点（第4表）
 class MeetingListView(PersonMixin, View):
     tab = 'meetings'
+    scan_kind = 'meeting'
 
     def get(self, request, pk):
         b = self.person_or_404(pk)
@@ -437,6 +459,7 @@ class MeetingPrintView(PersonMixin, View):
 # ---------------------------------------------------------------- アセスメント（課題分析標準項目）
 class AssessmentListView(PersonMixin, View):
     tab = 'assessments'
+    scan_kind = 'assessment'
 
     def get(self, request, pk):
         b = self.person_or_404(pk)
@@ -523,3 +546,67 @@ class ProviderListView(KyotakuMixin, View):
         pv.save()
         messages.success(request, f'取引先「{pv.name}」を保存しました。')
         return redirect('kaigo:providers')
+
+
+# ---------------------------------------------------------------- 紙・スキャンの書類
+SCAN_BACK = {'plan': 'kaigo:plans', 'meeting': 'kaigo:meetings', 'assessment': 'kaigo:assessments', 'logs': 'kaigo:logs',
+             'uses': 'kaigo:uses_now'}
+
+
+def scan_back(b, kind):
+    if kind in SCAN_BACK:
+        return reverse(SCAN_BACK[kind], args=[b.pk]) + '#scans'
+    return reverse('beneficiaries:detail', args=[b.pk]) + '#care-insurance'
+
+
+class ScanUploadView(PersonMixin, View):
+    """紙・スキャンの書類を取り込む（PDF・写真。1回に SCAN_MAX_FILES 個まで。スマートフォンはその場で撮れる）"""
+
+    def post(self, request, pk):
+        b = self.person_or_404(pk)
+        p = request.POST
+        kind = p.get('kind') if p.get('kind') in dict(ScanDocument.KINDS) else 'other'
+        files = request.FILES.getlist('files')[:SCAN_MAX_FILES]
+        title, doc_date = _text(p, 'title', 100), parse_date(p.get('doc_date'))
+        made, skipped = 0, []
+        for f in files:
+            ext = (f.name or '').lower().rsplit('.', 1)[-1] if '.' in (f.name or '') else ''
+            if ext not in SCAN_EXTENSIONS:
+                skipped.append(f'{f.name}（PDF か写真だけ入れられます）')
+                continue
+            if f.size > SCAN_MAX_BYTES:
+                skipped.append(f'{f.name}（{SCAN_MAX_BYTES // (1024 * 1024)} MB を超えています）')
+                continue
+            ScanDocument.objects.create(beneficiary=b, kind=kind, doc_date=doc_date, title=title, file=f,
+                                        file_name=(f.name or '')[:200], uploaded_by=request.user)
+            made += 1
+        if made:
+            messages.success(request, f'{dict(ScanDocument.KINDS)[kind]}の書類を {made} 件取り込みました。')
+        if skipped:
+            messages.error(request, '取り込めなかったもの：' + '、'.join(skipped))
+        if not made and not skipped:
+            messages.error(request, 'ファイルを選ぶか、枠の中に置いてください（PDF・写真）。')
+        return redirect(scan_back(b, kind))
+
+
+class ScanEditView(PersonMixin, View):
+    """件名・書類の日付・種類を直す／消す"""
+
+    def post(self, request, pk, scan_pk):
+        b = self.person_or_404(pk)
+        doc = get_object_or_404(ScanDocument, pk=scan_pk, beneficiary=b)
+        p = request.POST
+        back = scan_back(b, doc.kind)
+        if p.get('action') == 'delete':
+            name = doc.label
+            doc.file.delete(save=False)
+            doc.delete()
+            messages.success(request, f'「{name}」を消しました。')
+            return redirect(back)
+        doc.title = _text(p, 'title', 100)
+        doc.doc_date = parse_date(p.get('doc_date'))
+        if p.get('kind') in dict(ScanDocument.KINDS):
+            doc.kind = p['kind']
+        doc.save()
+        messages.success(request, f'「{doc.label}」を直しました。')
+        return redirect(scan_back(b, doc.kind))

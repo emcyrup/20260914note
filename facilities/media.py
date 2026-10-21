@@ -26,6 +26,7 @@ OWNERS = [
     ('request_scans/',          'reservations.RequestScan',        'image',           'facility'),
     ('beneficiary_assessments/', 'beneficiaries.BeneficiaryAssessment', 'file',       'beneficiary__facility'),
     ('beneficiary_documents/',  'beneficiaries.BeneficiaryDocument',  'file',            'beneficiary__facility'),
+    ('kaigo_scans/',            'kaigo.ScanDocument',                'file',            'beneficiary__facility'),
 ]
 SALT = 'protected-media'
 DEFAULT_MAX_AGE = 30 * 60  # 署名 URL の有効期限（秒）

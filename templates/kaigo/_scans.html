@@ -1,0 +1,66 @@
+{# 紙・スキャンの書類（b・scan_kind・scan_kind_label・scans・scan_accept・scan_kinds を渡す） #}
+<div class="card mt-3 kg-scans" id="scans"><div class="card-body">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+    <div class="fw-bold"><i class="bi bi-file-earmark-image me-1"></i>紙・スキャンの{{ scan_kind_label }}{% if scans %} <span class="badge text-bg-light border">{{ scans|length }}</span>{% endif %}</div>
+    <div class="small text-muted">手書きの書類や前のシステムの帳票を、PDF・写真のまま残せます</div>
+  </div>
+  <form method="post" action="{% url 'kaigo:scan_upload' b.pk %}" enctype="multipart/form-data" class="kg-scan-form">
+    {% csrf_token %}<input type="hidden" name="kind" value="{{ scan_kind }}">
+    <label class="kg-drop d-block mb-2">
+      <input type="file" name="files" accept="{{ scan_accept }}" multiple class="kg-scan-files">
+      <i class="bi bi-cloud-arrow-up"></i>
+      <span class="fw-semibold small">ここにファイルを置く（ドラッグ＆ドロップ）か、押して選ぶ</span>
+      <span class="small text-muted d-block">PDF・写真（JPEG・PNG・HEIC）／1回に 20 個・1つ 20MB まで</span>
+      <span class="small kg-scan-names d-block mt-1"></span>
+    </label>
+    <div class="d-flex gap-2 flex-wrap align-items-end">
+      <label class="btn btn-sm btn-outline-secondary mb-0"><i class="bi bi-camera me-1"></i>カメラで撮る<input type="file" name="files" accept="image/*" capture="environment" class="d-none kg-scan-files"></label>
+      <div><label class="form-label small mb-0">件名（なくてもよい）</label><input name="title" class="form-control form-control-sm" placeholder="例：{% if scan_kind == 'plan' %}居宅サービス計画書（令和8年4月）{% elif scan_kind == 'meeting' %}担当者会議の要点（第4表）{% elif scan_kind == 'logs' %}支援経過（カイポケ）{% else %}{{ scan_kind_label }}{% endif %}"></div>
+      <div><label class="form-label small mb-0">書類の日付</label><input type="date" name="doc_date" class="form-control form-control-sm"></div>
+      <button class="btn btn-sm btn-primary kg-scan-submit" disabled><i class="bi bi-upload me-1"></i>取り込む</button>
+    </div>
+  </form>
+  {% if scans %}
+  <div class="kg-scan-list mt-3">
+    {% for d in scans %}
+    <div class="kg-scan d-flex align-items-center gap-2 py-2 {% if not forloop.first %}border-top{% endif %}">
+      <a href="{{ d.file.url }}" target="_blank" rel="noopener" class="flex-shrink-0">{% if d.is_image %}<img src="{{ d.file.url }}" alt="" class="kg-thumb">{% else %}<span class="kg-thumb kg-thumb-pdf"><i class="bi bi-file-earmark-pdf"></i></span>{% endif %}</a>
+      <div class="flex-grow-1 min-w-0">
+        <a href="{{ d.file.url }}" target="_blank" rel="noopener" class="fw-semibold text-decoration-none">{{ d.label }}</a>
+        <div class="small text-muted">{% if d.doc_date %}{{ d.doc_date|date:'Y/n/j' }}の書類・{% endif %}{{ d.created_at|date:'Y/n/j' }} 取り込み{% if d.uploaded_by %}（{{ d.uploaded_by }}）{% endif %}</div>
+        <form method="post" action="{% url 'kaigo:scan_edit' b.pk d.pk %}" class="collapse mt-1" id="scan-edit-{{ d.pk }}">
+          {% csrf_token %}
+          <div class="d-flex gap-1 flex-wrap align-items-end">
+            <input name="title" value="{{ d.title }}" class="form-control form-control-sm" style="max-width:240px;" placeholder="件名" aria-label="件名">
+            <input type="date" name="doc_date" value="{{ d.doc_date|date:'Y-m-d' }}" class="form-control form-control-sm" style="max-width:160px;" aria-label="書類の日付">
+            <select name="kind" class="form-select form-select-sm" style="max-width:200px;" aria-label="書類の種類">{% for k, l in scan_kinds %}<option value="{{ k }}" {% if d.kind == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+            <button class="btn btn-sm btn-primary">直す</button>
+          </div>
+        </form>
+      </div>
+      <div class="d-flex gap-1 flex-shrink-0">
+        <button type="button" class="btn btn-sm btn-outline-secondary py-0" data-bs-toggle="collapse" data-bs-target="#scan-edit-{{ d.pk }}" title="件名・日付・種類を直す"><i class="bi bi-pencil"></i></button>
+        <form method="post" action="{% url 'kaigo:scan_edit' b.pk d.pk %}" onsubmit="return confirm('「{{ d.label|escapejs }}」を消します。元に戻せません。よろしいですか？');">{% csrf_token %}<button name="action" value="delete" class="btn btn-sm btn-outline-danger py-0" title="消す"><i class="bi bi-trash"></i></button></form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div></div>
+<script>
+(function () {
+  var box = document.currentScript.previousElementSibling;
+  var form = box.querySelector('.kg-scan-form'), drop = box.querySelector('.kg-drop');
+  var inputs = box.querySelectorAll('.kg-scan-files'), names = box.querySelector('.kg-scan-names'), btn = box.querySelector('.kg-scan-submit');
+  function refresh() {
+    var list = [];
+    inputs.forEach(function (i) { Array.prototype.forEach.call(i.files, function (f) { list.push(f.name); }); });
+    names.textContent = list.length ? list.length + ' 個：' + list.join('、') : '';
+    btn.disabled = !list.length;
+  }
+  inputs.forEach(function (i) { i.addEventListener('change', refresh); });
+  ['dragenter', 'dragover'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
+  ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); }); });
+  drop.addEventListener('drop', function (e) { if (e.dataTransfer && e.dataTransfer.files.length) { inputs[0].files = e.dataTransfer.files; refresh(); } });
+})();
+</script>

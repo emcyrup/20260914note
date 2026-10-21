@@ -8,6 +8,7 @@
 - Meeting      ：サービス担当者会議の要点（第4表）
 - ServiceUse   ：予定・実績（サービス利用票。月 × 事業所・サービスごとの予定日と実績日）
 - Assessment   ：アセスメント（課題分析標準項目 23 項目）
+- ScanDocument ：紙・スキャンの書類（前のシステムや手書きのケアプラン・会議録・アセスメントなど。PDF・写真をそのまま保管）
 カイポケ（ケアアプリ）の画面の分け方にそろえている。給付管理・ケアプラン料の請求はここでは扱わない。
 """
 import calendar
@@ -17,10 +18,22 @@ from django.db import models
 
 from beneficiaries.models import Beneficiary
 from facilities.models import Facility
+from facilities.uploads import kaigo_scan_upload_to
 
 CARE_LEVELS = ['要支援1', '要支援2', '要介護1', '要介護2', '要介護3', '要介護4', '要介護5', '事業対象者', '申請中', '非該当']
 CARE_LEVEL_CHOICES = [('', '—')] + [(x, x) for x in CARE_LEVELS]
 WEEK_JP = '月火水木金土日'
+# 要介護度の重さの順（一覧の並べ替え）。申請中・非該当・未登録は最後
+CARE_ORDER = {'事業対象者': 0, '要支援1': 1, '要支援2': 2, '要介護1': 3, '要介護2': 4, '要介護3': 5, '要介護4': 6, '要介護5': 7}
+
+
+def wareki(d):
+    """2026-10-20 → 令和8年10月20日"""
+    if not d:
+        return ''
+    if d >= datetime.date(2019, 5, 1):
+        return f'令和{d.year - 2018}年{d.month}月{d.day}日'
+    return f'平成{d.year - 1988}年{d.month}月{d.day}日'
 
 
 class CareInsurance(models.Model):
@@ -126,6 +139,10 @@ class SupportLog(models.Model):
 
     def __str__(self):
         return f'{self.date} {self.get_category_display()}'
+
+    @property
+    def wareki(self):
+        return wareki(self.date)
 
     @property
     def heading(self):
@@ -338,3 +355,44 @@ class Assessment(models.Model):
     @property
     def filled(self):
         return sum(1 for k in ASSESSMENT_KEYS if (self.items or {}).get(k))
+
+
+SCAN_EXTENSIONS = ('jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'pdf')
+SCAN_MAX_BYTES = 20 * 1024 * 1024
+SCAN_MAX_FILES = 20
+
+
+class ScanDocument(models.Model):
+    """紙・スキャンの書類。中身は読み取らず、そのまま保管して開けるようにする"""
+    KINDS = [('plan', 'ケアプラン'), ('meeting', '担当者会議の要点'), ('assessment', 'アセスメント'),
+             ('logs', '支援経過'), ('uses', '予定・実績（利用票・提供票）'), ('insurance', '介護保険証・負担割合証'),
+             ('other', 'そのほか')]
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='kaigo_scans', verbose_name='利用者')
+    kind = models.CharField(max_length=12, choices=KINDS, default='other', verbose_name='書類の種類')
+    doc_date = models.DateField(null=True, blank=True, verbose_name='書類の日付')
+    title = models.CharField(max_length=100, blank=True, verbose_name='件名')
+    file = models.FileField(upload_to=kaigo_scan_upload_to, verbose_name='ファイル')
+    file_name = models.CharField(max_length=200, blank=True, verbose_name='元のファイル名')
+    uploaded_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='+', verbose_name='取り込んだ人')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = '紙・スキャンの書類'
+        verbose_name_plural = '紙・スキャンの書類'
+        ordering = [models.F('doc_date').desc(nulls_last=True), '-created_at', '-pk']
+
+    def __str__(self):
+        return f'{self.beneficiary.full_name} {self.label}'
+
+    @property
+    def label(self):
+        return self.title or self.file_name or self.get_kind_display()
+
+    @property
+    def ext(self):
+        return (self.file_name or self.file.name or '').lower().rsplit('.', 1)[-1]
+
+    @property
+    def is_image(self):
+        return self.ext in ('jpg', 'jpeg', 'png', 'webp', 'gif')

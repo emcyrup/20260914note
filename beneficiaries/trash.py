@@ -20,11 +20,12 @@ from .models import TRASH_DAYS, Beneficiary, DeletedBeneficiary
 
 
 def file_names(b):
-    """その利用者を消すと使われなくなるファイル（書類・アセスメントの添付・受給者証の写真・日誌の写真）"""
+    """その利用者を消すと使われなくなるファイル（書類・アセスメントの添付・受給者証の写真・日誌の写真・紙・スキャンの書類）"""
     from records.models import DailyRecordPhoto
     files = [d.file for d in b.documents.all()] + [a.file for a in b.assessments.all() if a.file] \
         + [c.scanned_image for c in b.recipient_certificates.all() if c.scanned_image] \
-        + [ph.photo for ph in DailyRecordPhoto.objects.filter(daily_record__beneficiary=b) if ph.photo]
+        + [ph.photo for ph in DailyRecordPhoto.objects.filter(daily_record__beneficiary=b) if ph.photo] \
+        + [d.file for d in b.kaigo_scans.all()]
     return [f.name for f in files if f and f.name]
 
 
