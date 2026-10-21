@@ -5,6 +5,7 @@
 #       ゆあーず       https://michinote.yours.ai-labo.cloud/  → Gunicorn 0.0.0.0:8030（~/michinoteyours）
 #       オウル         https://michinote.owl.ai-labo.cloud/    → Gunicorn 0.0.0.0:8034（~/michinoteowl）
 #       コト（居宅介護。開発環境のサーバー）https://st-kaigonote.kyotaku.ai-labo.cloud/ → Gunicorn 0.0.0.0:8039（~/kaigonotekyotaku）
+#       コト（本番。ゆあーずと同じサーバー）https://kaigonote.koto.ai-labo.cloud/ → Gunicorn 0.0.0.0:8043（~/kaigonotekoto）
 #
 # 使い方（サーバー上で）
 #   bash ~/michinotedemo/deploy/venv-deploy.sh            # 現在のブランチの最新に更新して再起動
