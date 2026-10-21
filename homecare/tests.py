@@ -70,9 +70,9 @@ class LayoutTests(HomeCareBase):
                      '--demo', stdout=open('/dev/null', 'w'))
         f = Facility.objects.get(name='居宅介護テスト')
         self.assertTrue(f.is_kyotaku)
-        self.assertEqual(Beneficiary.objects.filter(facility=f).count(), 3)
-        self.assertTrue(Visit.objects.filter(facility=f).exists())
-        self.assertEqual(CarePlan.objects.filter(facility=f).count(), 3)
+        self.assertEqual(Beneficiary.objects.filter(facility=f).count(), 4)          # 居宅介護支援のサンプル（kaigo_demo）
+        from kaigo.models import SupportLog
+        self.assertTrue(SupportLog.objects.filter(facility=f).exists())
 
 
 class VisitTests(HomeCareBase):

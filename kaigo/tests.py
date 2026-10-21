@@ -430,3 +430,39 @@ class MinutesFollowupTests(KaigoBase):
         self.assertContains(res, '要介護（1〜5）（1）')
         nav = res.content.decode().split('<nav', 1)[1].split('</nav>', 1)[0]
         self.assertIn('<span>利用者情報</span>', nav)
+
+
+class DemoTests(KaigoBase):
+    def test_seed_twice_render_and_remove_only_demo(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+        real_provider = Provider.objects.create(facility=self.f, name='本物の事業所')
+        out = StringIO()
+        call_command('kaigo_demo', stdout=out)
+        self.assertIn('利用者 4 人', out.getvalue())
+        self.assertNotIn('見本', out.getvalue())                        # 出力は件数だけ
+        call_command('kaigo_demo', '--facility', str(self.f.pk), stdout=out)
+        self.assertIn('もう入っています', out.getvalue())
+        demo_people = Beneficiary.objects.filter(facility=self.f, notes__startswith='【サンプル】')
+        self.assertEqual(demo_people.count(), 4)
+        b = demo_people.get(last_name='試験')
+        self.assertEqual(b.care_insurances.get().care_level, '要介護4')
+        for name in ('logs', 'plans', 'meetings', 'assessments', 'uses_now'):
+            self.assertEqual(self.client.get(reverse(f'kaigo:{name}', args=[b.pk]), follow=True).status_code, 200)
+        plan = KaigoPlan.objects.get(beneficiary=b)
+        self.assertContains(self.client.get(reverse('kaigo:plan_print', args=[b.pk, plan.pk]) + '?fmt=html'), '週間サービス計画表')
+        self.assertContains(self.client.get(reverse('beneficiaries:list') + '?sort=care_desc'), '要介護4（1 名）')
+        self.assertContains(self.client.get(reverse('kaigo:monthly_now')), '試験')
+        call_command('kaigo_demo', '--facility', str(self.f.pk), '--remove', stdout=out)
+        self.assertFalse(Beneficiary.objects.filter(facility=self.f, notes__startswith='【サンプル】').exists())
+        self.assertTrue(Beneficiary.objects.filter(pk=self.b.pk).exists())                  # 本物の利用者は残る
+        self.assertEqual(list(Provider.objects.filter(facility=self.f)), [real_provider])
+        self.assertFalse(SupportLog.objects.filter(facility=self.f).exists())
+
+    def test_other_layout_refused(self):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        other = Facility.objects.create(name='ほか')
+        with self.assertRaises(CommandError):
+            call_command('kaigo_demo', '--facility', str(other.pk))

@@ -12,7 +12,7 @@
 - --preset ryoiku で、療育の事業所向けの設定にする（予約管理＋療育記録を使う。予約は時間枠：1枠45分・1枠3人・
   平日 10〜18 時・土日祝 9〜17 時・12 時は枠なし・月曜日と木曜日はお休み）
 - --preset kyotaku で、居宅介護（ホームヘルプ）の事業所にする（訪問予定・サービス提供記録・居宅介護計画・実績記録票。
-  職員 1 人向けで職員・運用管理の画面は出さない。請求・来所予定・予約・LINE は使わない）。--demo は居宅介護の架空データ
+  職員 1 人向けで職員・運用管理の画面は出さない。請求・来所予定・予約・LINE は使わない）。--demo は居宅介護支援（ケアマネ）の架空データ（kaigo_demo）
 記録（利用者・日誌・計画・請求）は施設ごとに完全に分かれる。職員は1つの施設にだけ所属する。
 """
 from django.core.management import call_command
@@ -168,9 +168,8 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.SUCCESS(f'管理者アカウント「{o["admin"]}」を作成しました（初回ログイン後にパスワードを変えてください）'))
 
         if o.get('demo') and o.get('preset') == 'kyotaku':
-            from homecare.demo import seed
-            n = seed(facility)
-            self.stdout.write(f'居宅介護の架空データを入れました（利用者 {n["people"]} 人・訪問 {n["visits"]} 件・計画 {n["plans"]} 件）')
+            # 居宅介護支援（ケアマネ）の架空データ（2026-10-21 から。前の訪問・記録のサンプルは homecare/demo.py に残してある）
+            call_command('kaigo_demo', '--facility', str(facility.pk), stdout=self.stdout)
         elif o.get('demo'):
             call_command('seed_demo', '--facility', str(facility.pk), stdout=self.stdout)
 
