@@ -488,3 +488,25 @@ class LayoutPolishTests(KaigoBase):
         self.assertContains(res, 'data-bs-target="#scan-form-plan"', count=0)     # 新しく作るときは紙の欄を出さない
         res = self.client.get(reverse('kaigo:plans', args=[self.b.pk]))
         self.assertContains(res, 'data-bs-target="#scan-form-plan"')               # 取り込みはたたんである
+
+
+class HardeningTests(KaigoBase):
+    """数字でない ID・件数を渡しても 500 にしない（2026-10-22 の点検）"""
+
+    def test_non_numeric_ids_do_not_crash(self):
+        pv = Provider.objects.create(facility=self.f, name='架空')
+        url = reverse('kaigo:logs', args=[self.b.pk])
+        self.assertEqual(self.client.get(url + '?edit=abc&n=xyz').status_code, 200)
+        self.assertEqual(self.client.post(url, {'log': 'abc', 'action': 'delete'}).status_code, 302)
+        self.assertEqual(self.client.post(url, {'date': '2026-10-01', 'category': 'other', 'provider': 'x', 'content': 'a'}).status_code, 302)
+        self.assertEqual(SupportLog.objects.get(content='a').provider, None)
+        self.assertEqual(self.client.get(reverse('kaigo:providers') + '?edit=abc').status_code, 200)
+        self.assertEqual(self.client.post(reverse('kaigo:providers'), {'provider': 'abc', 'action': 'toggle', 'name': 'x'}).status_code, 302)
+        self.assertTrue(Provider.objects.filter(pk=pv.pk, is_active=True).exists())
+        uses = reverse('kaigo:uses', args=[self.b.pk, 2026, 10])
+        self.assertEqual(self.client.post(uses, {'row_count': 'abc'}).status_code, 302)
+        self.assertEqual(self.client.post(uses, {'row_count': '1', 'r0_provider': 'abc', 'r0_service': 'x'}).status_code, 302)
+        self.assertEqual(self.client.post(reverse('kaigo:plan_new', args=[self.b.pk]), {'created_on': '2026-10-01', 'goal_count': 'x',
+                                                                                        'weekly_count': '-3'}).status_code, 302)
+        self.assertEqual(self.client.post(reverse('kaigo:meeting_new', args=[self.b.pk]), {'held_on': '2026-10-01', 'attendee_count': 'x'}).status_code, 302)
+        self.assertEqual(self.client.get(reverse('homecare:plan_new') + '?b=abc').status_code, 404)

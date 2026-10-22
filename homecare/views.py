@@ -45,10 +45,12 @@ class KyotakuMixin(LoginRequiredMixin):
         return Beneficiary.objects.filter(facility=self.facility, status=Beneficiary.STATUS_ACTIVE)
 
     def person_or_404(self, pk):
-        return get_object_or_404(Beneficiary, pk=pk, facility=self.facility)
+        from config.utils import to_int
+        return get_object_or_404(Beneficiary, pk=to_int(pk, 0), facility=self.facility)
 
     def visit_or_404(self, pk):
-        return get_object_or_404(Visit.objects.select_related('beneficiary'), pk=pk, facility=self.facility)
+        from config.utils import to_int
+        return get_object_or_404(Visit.objects.select_related('beneficiary'), pk=to_int(pk, 0), facility=self.facility)
 
 
 def parse_date(value, default=None):

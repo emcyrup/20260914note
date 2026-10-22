@@ -14,6 +14,7 @@ from django.views import View
 
 from beneficiaries.models import Beneficiary
 from config.pdf import pdf_or_html
+from config.utils import to_int
 from homecare.views import KyotakuMixin, parse_date, parse_time
 
 from .models import (ASSESSMENT_ITEMS, ASSESSMENT_KEYS, CARE_LEVEL_CHOICES, SCAN_EXTENSIONS, SCAN_MAX_BYTES, SCAN_MAX_FILES,
@@ -122,7 +123,7 @@ class LogListView(PersonMixin, View):
         logs, cat, start, end = self._filtered(request, b)
         total = logs.count()
         try:
-            shown = min(max(int(request.GET.get('n') or LOG_PAGE), LOG_PAGE), 5000)
+            shown = min(max(to_int(request.GET.get('n'), LOG_PAGE), LOG_PAGE), 5000)
         except ValueError:
             shown = LOG_PAGE
         more = request.GET.copy()
@@ -130,7 +131,7 @@ class LogListView(PersonMixin, View):
         more.pop('edit', None)
         edit = None
         if request.GET.get('edit'):
-            edit = SupportLog.objects.filter(pk=request.GET['edit'], beneficiary=b).first()
+            edit = SupportLog.objects.filter(pk=to_int(request.GET['edit'], 0), beneficiary=b).first()
         now = datetime.datetime.now()
         setting = KaigoSetting.of(self.facility)
         return render(request, 'kaigo/logs.html', self.ctx(
@@ -142,7 +143,7 @@ class LogListView(PersonMixin, View):
     def post(self, request, pk):
         b = self.person_or_404(pk)
         p = request.POST
-        log = SupportLog.objects.filter(pk=p.get('log'), beneficiary=b).first() if p.get('log') else None
+        log = SupportLog.objects.filter(pk=to_int(p.get('log'), 0), beneficiary=b).first() if p.get('log') else None
         back = reverse('kaigo:logs', args=[b.pk])
         if log and p.get('action') == 'delete':
             log.delete()
@@ -158,7 +159,7 @@ class LogListView(PersonMixin, View):
         log.time = parse_time(p.get('time'))
         log.category = p.get('category') if p.get('category') in dict(SupportLog.CATEGORIES) else 'other'
         log.method = p.get('method') if p.get('method') in dict(SupportLog.METHODS) else ''
-        log.provider = Provider.objects.filter(pk=p.get('provider') or 0, facility=self.facility).first()
+        log.provider = Provider.objects.filter(pk=to_int(p.get('provider'), 0), facility=self.facility).first()
         log.content = content
         log.save()
         messages.success(request, f'支援経過を保存しました（{log.date:%Y/%-m/%-d} {log.get_category_display()}）。')
@@ -239,10 +240,10 @@ class UsesView(PersonMixin, View):
             return back
         existing = {str(r.pk): r for r in self._rows(b, year, month)}
         kept = 0
-        for i in range(int(p.get('row_count') or 0)):
+        for i in range(min(to_int(p.get('row_count'), 0) or 0, 200)):
             key = p.get(f'r{i}_id', '')
             r = existing.get(key) or ServiceUse(facility=self.facility, beneficiary=b, year=year, month=month)
-            provider = Provider.objects.filter(pk=p.get(f'r{i}_provider') or 0, facility=self.facility).first()
+            provider = Provider.objects.filter(pk=to_int(p.get(f'r{i}_provider'), 0), facility=self.facility).first()
             name = _text(p, f'r{i}_provider_name', 100)
             service = _text(p, f'r{i}_service', 100)
             plan = sorted({int(x) for x in p.getlist(f'r{i}_plan') if x.isdigit() and 1 <= int(x) <= n_days})
@@ -379,14 +380,14 @@ class PlanFormView(PersonMixin, View):
         for f in self.TEXT_FIELDS:
             setattr(plan, f, _text(p, f))
         goals = []
-        for i in range(int(p.get('goal_count') or 0)):
+        for i in range(min(to_int(p.get('goal_count'), 0) or 0, 50)):
             row = {k: _text(p, f'g{i}_{k}', 1000) for k in KaigoPlan.GOAL_KEYS}
             row['insured'] = '○' if p.get(f'g{i}_insured') else ''
             if any(v for k, v in row.items() if k != 'insured'):
                 goals.append(row)
         plan.goals = goals
         weekly = []
-        for i in range(int(p.get('weekly_count') or 0)):
+        for i in range(min(to_int(p.get('weekly_count'), 0) or 0, 100)):
             days = sorted({int(x) for x in p.getlist(f'w{i}_days') if x.isdigit() and 0 <= int(x) <= 6})
             row = {'days': days, 'start': _text(p, f'w{i}_start', 5), 'end': _text(p, f'w{i}_end', 5),
                    'content': _text(p, f'w{i}_content', 100)}
@@ -450,7 +451,7 @@ class MeetingFormView(PersonMixin, View):
         for f in self.TEXT_FIELDS:
             setattr(m, f, _text(p, f))
         attendees = []
-        for i in range(int(p.get('attendee_count') or 0)):
+        for i in range(min(to_int(p.get('attendee_count'), 0) or 0, 50)):
             a = {'org': _text(p, f'a{i}_org', 100), 'name': _text(p, f'a{i}_name', 50)}
             if a['org'] or a['name']:
                 attendees.append(a)
@@ -560,13 +561,13 @@ class ProviderListView(KyotakuMixin, View):
     FIELDS = ('name', 'service_kind', 'office_number', 'phone', 'fax', 'email', 'address', 'contact', 'notes')
 
     def get(self, request):
-        edit = Provider.objects.filter(pk=request.GET.get('edit') or 0, facility=self.facility).first()
+        edit = Provider.objects.filter(pk=to_int(request.GET.get('edit'), 0), facility=self.facility).first()
         return render(request, 'kaigo/providers.html', {
             'providers': Provider.objects.filter(facility=self.facility), 'edit': edit, 'service_kinds': SERVICE_KINDS})
 
     def post(self, request):
         p = request.POST
-        pv = Provider.objects.filter(pk=p.get('provider') or 0, facility=self.facility).first() if p.get('provider') else None
+        pv = Provider.objects.filter(pk=to_int(p.get('provider'), 0), facility=self.facility).first() if p.get('provider') else None
         if pv and p.get('action') == 'delete':
             pv.delete()
             messages.success(request, f'取引先「{pv.name}」を消しました（支援経過・予定の行には名前が残りません。取引をやめただけなら「取引をやめる」にしてください）。')
