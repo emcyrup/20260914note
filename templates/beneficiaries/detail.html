@@ -153,7 +153,7 @@
           <div class="small text-muted px-2 py-1">{{ add_today.day|date:'n/j' }}（{{ add_today.day|date:'D' }}）の枠を選ぶ</div>
           {% for s in add_today.slots %}
           <button name="start_time" value="{{ s.hour }}:00" class="dropdown-item d-flex justify-content-between gap-2 small"
-                  {% if s.ng %}disabled title="同じ時間にできない {{ s.ng|join:'・' }} さんがいます"{% elif s.full %}onclick="return confirm('{{ s.label }} の枠はいっぱいです。キャンセル待ちで入れます。よろしいですか？');"{% endif %}>
+                  {% if s.ng %}disabled title="同じ時間にできない {{ s.ng|join:'・' }} さんがいます"{% elif s.full %}onclick="return confirm('{{ s.label|escapejs }} の枠はいっぱいです。キャンセル待ちで入れます。よろしいですか？');"{% endif %}>
             <span>{{ s.label }}</span>
             <span class="{% if s.ng %}text-danger{% elif s.full %}text-warning{% else %}text-success{% endif %}">{% if s.ng %}共演NG：{{ s.ng|join:'・' }}{% elif s.full %}いっぱい{% else %}空き {{ s.remaining }}{% endif %}</span>
           </button>

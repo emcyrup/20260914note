@@ -26,7 +26,7 @@
         {% if r.status == 'waitlist' %}キャンセル待ち{% else %}ご予約{% endif %}
       </div>
     </div>
-    <form method="post" onsubmit="return confirm('{{ r.date|date:'n月j日' }} {{ r.display_name }} さんのご予約を取り消します。よろしいですか？');">
+    <form method="post" onsubmit="return confirm('{{ r.date|date:'n月j日' }} {{ r.display_name|escapejs }} さんのご予約を取り消します。よろしいですか？');">
       {% csrf_token %}
       <input type="hidden" name="action" value="cancel">
       <input type="hidden" name="reservation" value="{{ r.pk }}">
