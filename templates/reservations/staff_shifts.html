@@ -63,7 +63,7 @@
         <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('sh-edit{{ s.pk }}').classList.toggle('d-none')">直す</button>
         <form method="post">{% csrf_token %}<input type="hidden" name="action" value="toggle"><input type="hidden" name="shift" value="{{ s.pk }}">
           <button class="btn btn-sm btn-outline-secondary">{% if s.is_active %}休止する{% else %}使う{% endif %}</button></form>
-        <form method="post" onsubmit="return confirm('{{ s.label }} のシフトを消しますか？（すでに入れた担当はそのまま残ります）');">
+        <form method="post" onsubmit="return confirm('{{ s.label|escapejs }} のシフトを消しますか？（すでに入れた担当はそのまま残ります）');">
           {% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="shift" value="{{ s.pk }}">
           <button class="btn btn-sm btn-outline-danger">消す</button></form>
       </div>

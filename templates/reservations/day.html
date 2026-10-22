@@ -87,7 +87,7 @@
         <button type="button" class="btn btn-sm btn-outline-secondary flex-grow-1 flex-md-grow-0"
                 onclick="toggleEdit({{ r.pk }})">変更</button>
         <form method="post" class="flex-grow-1 flex-md-grow-0"
-              onsubmit="return confirm('{{ r.display_name }} さんの予約を取り消しますか？\nキャンセル待ちがいれば繰り上げます。');">
+              onsubmit="return confirm('{{ r.display_name|escapejs }} さんの予約を取り消しますか？\nキャンセル待ちがいれば繰り上げます。');">
           {% csrf_token %}<input type="hidden" name="action" value="cancel"><input type="hidden" name="reservation" value="{{ r.pk }}">
           <button class="btn btn-sm btn-outline-danger w-100 w-md-auto">取り消す</button>
         </form>
@@ -121,7 +121,7 @@
         </div>
         <div class="col-6 col-md-2 d-grid">
           <button class="btn btn-sm btn-outline-danger" formnovalidate name="do_delete" value="1"
-                  onclick="return confirm('{{ r.display_name }} さんの予約を記録ごと削除します。\n取り消しのお知らせは送りません。よろしいですか？');">削除する</button>
+                  onclick="return confirm('{{ r.display_name|escapejs }} さんの予約を記録ごと削除します。\n取り消しのお知らせは送りません。よろしいですか？');">削除する</button>
         </div>
         <div class="col-12"><div class="form-text">
           日にちを変えると、もとの日はキャンセル待ちを繰り上げ、変更のお知らせを送信待ちに入れます。

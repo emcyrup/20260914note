@@ -208,6 +208,7 @@ if not DEBUG:
         # ブラウザに1年間HTTPSを強制させる（HSTS）
         SECURE_HSTS_SECONDS = 31536000
         SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+        SECURE_HSTS_PRELOAD = True
 
 # ログ: アプリ内の例外を gunicorn の標準エラー（docker compose logs app）に出す
 LOGGING = {
