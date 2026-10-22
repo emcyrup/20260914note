@@ -90,3 +90,18 @@
   5. 不審なアクセスを検知したときの連絡先と手順
 - **まだ無いもの**：WAF（アプリの前で攻撃を止める装置）。必要になればプロバイダのサービスか Cloudflare を検討する。プロバイダ管理のサーバー（ゆあーず・オウル・開発・コト）は SSH の攻撃遮断とアクセスログの保全をプロバイダに確認する。
 - **前日点検に足す**：「ログインの記録」で、直近 7 日の失敗と見覚えのない IP が無いかを見る。
+
+## 9. 脆弱性診断（2026-10-22〜。全環境共通）
+
+各環境（ゆあーず・オウル・開発・コト）は同じコードと同じ部品の一覧（`requirements.txt`）で動くので、診断はコードに対して行い、直したものを各環境へ配備する。サーバーそのもの（OS・nginx・SSH）はプロバイダ管理なので、8 章の依頼事項で確かめる。
+
+- **部品の既知の脆弱性**：`pip install pip-audit` → `pip-audit -r requirements.txt`。見つかったら `requirements.txt` の版を上げ、テストを全部通してから配備する（venv はゆあーず・オウル・コトで共用なので、ryoiku と kyotaku の `requirements.txt` は同じにしておく）。
+- **Django の配備チェック**：`DEBUG=False SECRET_KEY=… DJANGO_ALLOWED_HOSTS=… python manage.py check --deploy`。警告が 0 件であること。
+- **コードの点検（grep で見るところ）**：
+  - `|safe`・`mark_safe`・`autoescape off`：中身が自分で作った文字（JSON・SVG・固定の表）だけか
+  - HTML の属性の中の `onclick="… confirm('{{ x }}') …"`：`{{ x }}` に `|escapejs` が付いているか（属性の中では自動エスケープの `&#x27;` がブラウザで `'` に戻り、スクリプトを差し込める）
+  - `csrf_exempt`：署名を検証する Webhook だけか
+  - `request.GET`・`request.POST` を `int()` に直接渡していないか（数字でないと 500）。`config.utils.to_int` を使う
+  - 「利用者」「記録」の検索に `facility=request.user.facility` が付いているか（2026-09-14 の監査のやり方）
+- **2026-10-22 の結果**：部品は pillow（画像の読み込み：24 件）・aiohttp（LINE の部品：8 件）・certifi（1 件）に既知の脆弱性 → pillow 13.0.0・aiohttp 3.14.5・certifi 2026.10.19 に更新。`check --deploy` は HSTS の preload だけ警告 → `SECURE_HSTS_PRELOAD = True`。コードは、公開予約で入れた名前などが職員の画面の `confirm('…')` でスクリプトになりうる箇所 8 つ → `|escapejs`。コトの画面で数字でない ID が 500 になる箇所 → `to_int`。ファイルの配信（ログイン・事業所の確認・署名 URL は 24 時間まで）、アップロード（拡張子と大きさの制限・UUID の名前・nosniff）、ログインのロック、パスワードの強さ、管理画面の絞り込み、Actions の入力の扱いは問題なし。
+- **残っている注意点（直していない）**：ログインの有効期間は Django の既定（2 週間）。端末を共用する事業所では短くする（`SESSION_COOKIE_AGE`）か、ログアウトを習慣に。Content-Security-Policy は未設定（画面の中にスクリプトを直接書いている箇所が多く、入れると画面が動かなくなるため。入れるなら nonce 方式で段階的に）。

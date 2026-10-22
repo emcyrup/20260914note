@@ -175,7 +175,7 @@
       <div class="d-flex gap-2">
         <button class="btn btn-primary">保存する</button>
         <button class="btn btn-outline-primary" name="action" value="assign"
-                onclick="return confirm('保存して、この{{ terms.beneficiary }}のぶんだけ予約を割り当てます。よろしいですか？');">保存して割り当てる</button>
+                onclick="return confirm('保存して、この{{ terms.beneficiary|escapejs }}のぶんだけ予約を割り当てます。よろしいですか？');">保存して割り当てる</button>
       </div>
       {% if req %}
       <button class="btn btn-outline-danger" name="action" value="delete" formnovalidate

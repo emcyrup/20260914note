@@ -196,6 +196,15 @@ class ReservationScreenTests(TestCase):
         self.client.post(reverse('reservations:settings'), {'capacity': 0})
         self.assertEqual(services.get_setting(self.f).capacity, 5)
 
+    def test_guest_name_cannot_break_out_of_inline_js(self):
+        # 公開予約で入れた名前が、職員の画面の confirm('…') の中でスクリプトにならない（2026-10-22 の点検）
+        services.create_reservation(self.f, None, self.day, guest_name="');alert(1);//")
+        res = self.client.get(reverse('reservations:day', args=[2026, 10, 1]))
+        body = res.content.decode()
+        self.assertNotIn("confirm('');alert(1);//", body)
+        self.assertNotIn("confirm('&#x27;);alert(1);//", body)
+        self.assertIn("\\u0027)\\u003Balert(1)", body)                    # escapejs の形（' と ; が \u 表記になる）
+
     def test_day_add_cancel_close(self):
         url = reverse('reservations:day', args=[2026, 10, 1])
         res = self.client.post(url, {'action': 'add', 'beneficiary': self.a.pk, 'note': 'きょうだいと'})
