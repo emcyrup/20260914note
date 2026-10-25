@@ -342,6 +342,8 @@ class FacilityAddonSetting(models.Model):
     # 事業所ごとの上書き（区分や地域で単位数・コードが変わる加算のため）。空ならマスタの値
     code       = models.CharField(max_length=10, blank=True, verbose_name='サービスコード（事業所）')
     unit_count = models.IntegerField(null=True, blank=True, verbose_name='単位数（事業所）')
+    # 処遇改善加算の率（%）。空なら billing/codes.py の標準の率（月で変わる）
+    rate       = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True, verbose_name='加算率（%・事業所）')
 
     class Meta:
         verbose_name        = '施設加算設定'
@@ -371,6 +373,23 @@ class AddonRow:
                            else (by_cap[1] if by_cap else addon.unit_count))
         self.override_code = setting.code if setting else ''
         self.override_units = setting.unit_count if setting else None
+        self.override_rate = setting.rate if setting else None
+
+    @property
+    def is_rate(self):
+        """単位数ではなく率で算定する加算（処遇改善加算）"""
+        from billing.codes import is_treatment
+        return is_treatment(self.addon.name)
+
+    def rate_on(self, day):
+        """処遇改善加算の率（%）。事業所の率があればそれ、無ければその日の標準の率"""
+        from billing.codes import treatment_rate
+        return self.override_rate if self.override_rate is not None else treatment_rate(self.addon.name, day)
+
+    @property
+    def rate(self):
+        import datetime
+        return self.rate_on(datetime.date.today())
 
     @property
     def pk(self):
