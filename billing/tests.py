@@ -576,3 +576,114 @@ class SevereAndDiffTests(TestCase):
         self.client.post(reverse('billing:cell_update', args=[other.pk, 2026, 9, 3]), {'status': 'attended', 'time_kubun': '1'})
         e = BillingMatrixEntry.objects.get(beneficiary=other, date=date(2026, 9, 3))
         self.assertEqual((e.base_code, e.base_units), ('63H682', 382))
+
+
+class AddonInTotalCostTests(TestCase):
+    """請求書の総費用に個別加算・体制加算・処遇改善加算を入れる。セル画面は「算定する」加算だけ"""
+
+    def setUp(self):
+        self.facility = Facility.objects.create(name='はびりす', office_number='2650000001', use_billing=True, use_schedule=True,
+                                                region_category='3', capacity_class='10')
+        self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility,
+                                                     role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        self.ben = Beneficiary.objects.create(facility=self.facility, last_name='中村', first_name='みお', date_of_birth='2015-09-14')
+        RecipientCertificate.objects.create(beneficiary=self.ben, certificate_number='2600001234', granted_days=23,
+                                            monthly_cap=37200, valid_from='2026-04-01', valid_until='2027-03-31')
+        AddonMaster.objects.all().delete()
+        self.pickup = AddonMaster.objects.create(name='送迎加算（往・迎え）', addon_type='individual', unit_count=54, code='615001')
+        self.unused = AddonMaster.objects.create(name='個別サポート加算Ⅲ（不登校）', addon_type='individual', unit_count=70)
+        self.staffing = AddonMaster.objects.create(name='専門的支援体制加算', addon_type='facility', unit_count=0)
+        self.off = AddonMaster.objects.create(name='福祉専門職員配置等加算Ⅰ', addon_type='facility', unit_count=15)
+        self.limit = AddonMaster.objects.create(name='利用者負担上限額管理加算', addon_type='facility', unit_count=150)
+        self.treat = AddonMaster.objects.create(name='福祉・介護職員等処遇改善加算Ⅰ', addon_type='facility', unit_count=0)
+        for a in (self.pickup, self.staffing, self.limit, self.treat):
+            FacilityAddonSetting.objects.create(facility=self.facility, addon=a, is_enabled=True)
+        FacilityAddonSetting.objects.create(facility=self.facility, addon=self.unused, is_enabled=False)
+        FacilityAddonSetting.objects.create(facility=self.facility, addon=self.off, is_enabled=False)
+
+    def _attend(self, year, month, days, addons=()):
+        for d in days:
+            data = {'status': 'attended', 'time_kubun': '2'}
+            if addons:
+                data['addon_ids'] = [a.pk for a in addons]
+            self.client.post(reverse('billing:cell_update', args=[self.ben.pk, year, month, d]), data)
+
+    def test_rates_by_month(self):
+        from . import codes
+        name = '福祉・介護職員等処遇改善加算Ⅰ'
+        self.assertEqual(codes.treatment_rate(name, date(2026, 5, 1)), Decimal('13.4'))
+        self.assertEqual(codes.treatment_rate(name, date(2026, 6, 1)), Decimal('15.5'))
+        self.assertEqual(codes.treatment_rate('福祉・介護職員等処遇改善加算Ⅳ', date(2026, 10, 1)), Decimal('11.9'))
+        self.assertIsNone(codes.treatment_rate(name, date(2024, 5, 1)))
+        self.assertEqual(codes.treatment_units(1000, Decimal('15.5')), 155)
+        self.assertEqual(codes.treatment_units(1003, Decimal('15.5')), 155)        # 155.465 → 155
+        self.assertEqual(codes.treatment_units(1013, Decimal('15.5')), 157)        # 157.015 → 157（四捨五入）
+
+    def test_invoice_total_cost_includes_addons_and_treatment(self):
+        from .views import _build_invoice_context
+        self._attend(2026, 10, [6, 7], addons=[self.pickup])        # 2 日・送迎あり
+        self._attend(2026, 10, [8])                                 # 1 日・送迎なし
+        ctx = _build_invoice_context(self.facility, self.ben, 2026, 10)
+        base = 609 * 3
+        addons = 54 * 2 + 123 * 3                                   # 送迎 2 回 ＋ 専門的支援体制加算（定員10人以下 123）× 利用 3 日
+        treat = int((Decimal(base + addons) * Decimal('15.5') / 100).quantize(Decimal('1'), rounding='ROUND_HALF_UP'))
+        self.assertEqual(ctx['base_units_total'], base)
+        self.assertEqual(ctx['addon_units_total'], addons)
+        self.assertEqual(ctx['treatment']['units'], treat)
+        self.assertEqual(ctx['units_total'], base + addons + treat)
+        self.assertEqual(ctx['total_cost'], int(Decimal(base + addons + treat) * Decimal('10.90')))
+        self.assertEqual(ctx['user_burden'], int(ctx['total_cost'] * Decimal('0.1')))      # 上限 37,200 円より下
+        names = {r['name'] for r in ctx['addon_rows']}
+        self.assertNotIn('福祉専門職員配置等加算Ⅰ', names)          # 「算定する」でない体制加算は入れない
+        self.assertNotIn('利用者負担上限額管理加算', names)          # 上限額管理をしていない月は入れない
+        from django.template.loader import render_to_string
+        html = render_to_string('billing/invoice_pdf.html', {**ctx, 'doc_type': 'invoice'})
+        self.assertIn('専門的支援体制加算 123単位×3回', html)
+        self.assertIn(f'福祉・介護職員等処遇改善加算Ⅰ（15.5%）{treat}単位', html)
+        self.assertIn(f'合計 {base + addons + treat}単位', html)
+        line = [ln for ln in self.client.get(reverse('billing:billing_csv', args=[2026, 10])).content.decode('utf-8-sig').splitlines()
+                if ln.startswith('中村')][0]
+        self.assertTrue(line.endswith(f',{54 * 2},{123 * 3},{treat},{base + addons + treat}'), line)
+
+    def test_limit_management_addon_once_a_month(self):
+        from .views import _build_invoice_context
+        self._attend(2026, 10, [6, 7])
+        m = CopaymentManagement.objects.create(facility=self.facility, beneficiary=self.ben, year_month='2026-10', is_upper_limit_manager=True)
+        CopaymentOfficeRecord.objects.create(management=m, office_name='はびりす', is_this_office=True)
+        ctx = _build_invoice_context(self.facility, self.ben, 2026, 10)
+        self.assertNotIn('利用者負担上限額管理加算', {r['name'] for r in ctx['addon_rows']})   # 当施設だけなら管理していない
+        CopaymentOfficeRecord.objects.create(management=m, office_name='ほかの事業所', is_this_office=False)
+        ctx = _build_invoice_context(self.facility, self.ben, 2026, 10)
+        rows = {r['name']: r for r in ctx['addon_rows']}
+        self.assertEqual((rows['利用者負担上限額管理加算']['count'], rows['利用者負担上限額管理加算']['total']), (1, 150))
+
+    def test_facility_rate_overrides_standard(self):
+        from .views import _build_invoice_context
+        self._attend(2026, 10, [6])
+        res = self.client.post(reverse('facilities:addon_setting'), {
+            'addon_ids': [self.pickup.pk, self.staffing.pk, self.limit.pk, self.treat.pk], f'rate_{self.treat.pk}': '16.1'})
+        self.assertEqual(res.status_code, 302)
+        s = FacilityAddonSetting.objects.get(facility=self.facility, addon=self.treat)
+        self.assertEqual(s.rate, Decimal('16.1'))
+        ctx = _build_invoice_context(self.facility, self.ben, 2026, 10)
+        self.assertEqual(ctx['treatment']['rate'], Decimal('16.1'))
+        # 標準の率と同じ値なら事業所の率は持たない（標準が変わっても付いていく）
+        self.client.post(reverse('facilities:addon_setting'), {'addon_ids': [self.treat.pk], f'rate_{self.treat.pk}': '15.5'})
+        s.refresh_from_db()
+        self.assertIsNone(s.rate)
+        self.client.post(reverse('facilities:addon_setting'), {'addon_ids': [self.treat.pk], f'rate_{self.treat.pk}': 'abc'})
+        s.refresh_from_db()
+        self.assertIsNone(s.rate)
+        self.assertContains(self.client.get(reverse('facilities:settings')), f'name="rate_{self.treat.pk}"')
+
+    def test_cell_popup_lists_only_enabled_addons_and_applied_ones(self):
+        res = self.client.get(reverse('billing:cell_popup', args=[self.ben.pk, 2026, 10, 6]))
+        self.assertContains(res, '送迎加算（往・迎え）')
+        self.assertNotContains(res, '個別サポート加算Ⅲ（不登校）')       # 算定しない加算は出さない
+        self._attend(2026, 10, [6], addons=[self.unused])                  # 前に付けたものは外せるように出す
+        res = self.client.get(reverse('billing:cell_popup', args=[self.ben.pk, 2026, 10, 6]))
+        self.assertContains(res, '個別サポート加算Ⅲ（不登校）')
+        csv_body = self.client.get(reverse('billing:billing_csv', args=[2026, 10])).content.decode('utf-8-sig')
+        self.assertIn('個別サポート加算Ⅲ（不登校）（件）', csv_body)        # その月に付いていれば CSV の列にも出す
+        self.assertNotIn('福祉専門職員配置等加算Ⅰ', csv_body)

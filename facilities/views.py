@@ -1,4 +1,5 @@
 import datetime
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.contrib import messages
@@ -416,6 +417,15 @@ class SupportTagLoadDefaultsView(AdminOnlyMixin, View):
 # 加算マスタ・施設加算設定
 # =============================================
 
+def to_rate(value):
+    """加算率の入力（%）→ Decimal（小数 1 桁、0 より大きく 50 以下）。読めなければ None"""
+    try:
+        rate = Decimal(str(value).strip().rstrip('%％')).quantize(Decimal('0.1'))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+    return rate if Decimal(0) < rate <= Decimal(50) else None
+
+
 class AddonSettingView(AdminOnlyMixin, View):
     """
     施設が算定する加算（個別・体制）の ON/OFF と、事業所ごとのサービスコード・単位数を保存する。
@@ -434,10 +444,17 @@ class AddonSettingView(AdminOnlyMixin, View):
                 code = ''
             if units is not None and (units == addon.unit_count or (by_cap and units == by_cap[1])):
                 units = None
+            # 処遇改善加算は率（%）。標準の率と同じなら空（月で標準の率が変わっても付いていく）
+            rate = None
+            if codes.is_treatment(addon.name):
+                units = None
+                rate = to_rate(request.POST.get(f'rate_{addon.pk}'))
+                if rate is not None and rate == codes.treatment_rate(addon.name, datetime.date.today()):
+                    rate = None
             FacilityAddonSetting.objects.update_or_create(
                 facility=facility,
                 addon=addon,
-                defaults={'is_enabled': str(addon.pk) in enabled_ids, 'code': code, 'unit_count': units},
+                defaults={'is_enabled': str(addon.pk) in enabled_ids, 'code': code, 'unit_count': units, 'rate': rate},
             )
         messages.success(request, '加算設定を保存しました。')
         return redirect('facilities:settings')

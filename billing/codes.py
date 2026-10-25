@@ -12,6 +12,9 @@
 - 減算（自己評価結果等未公表・開所時間・個別支援計画未作成・支援プログラム未公表）はコード表の「・評減」「・開減」「・未計画」「・支減」の行。ここでは扱わない
 - 令和8年6月以降の新規指定事業所は 982/1000（Facility.is_new_facility_r8）
 """
+import datetime
+from decimal import ROUND_HALF_UP, Decimal
+
 from config.jp_holidays import is_weekend_or_holiday
 
 KUBUN_CHOICES = [(1, '区分1（30分以上1時間30分以下）'), (2, '区分2（1時間30分超3時間以下）'), (3, '区分3（3時間超5時間以下・学校休業日のみ）')]
@@ -91,6 +94,37 @@ def table_units(capacity_class, kubun, care_level=0):
 def table_code(capacity_class, kubun, care_level=0):
     row = base_row(care_level, capacity_class, kubun)
     return row[0] if row else ''
+
+
+# 福祉・介護職員等処遇改善加算：単位数ではなく、ほかの単位数の合計に加算率を掛ける（1 単位未満は四捨五入）。
+# 放課後等デイサービスの率（%）。{適用開始日: {区分: 率}}。令和8年6月から率が上がり、Ⅰ・Ⅱは「イ」「ロ」に分かれた。
+# ここでは Ⅰ・Ⅱ は「イ」の率。「ロ」（イ＋0.6）などで違うときは、施設設定の加算設定で事業所の率を入れる
+TREATMENT_PREFIX = '福祉・介護職員等処遇改善加算'
+TREATMENT_RATES = [
+    (datetime.date(2024, 6, 1), {'Ⅰ': '13.4', 'Ⅱ': '13.1', 'Ⅲ': '12.1', 'Ⅳ': '9.8'}),
+    (datetime.date(2026, 6, 1), {'Ⅰ': '15.5', 'Ⅱ': '15.2', 'Ⅲ': '14.2', 'Ⅳ': '11.9'}),
+]
+# 利用者負担上限額管理加算：上限額管理をした月に 1 回（日ごとではない）
+MONTHLY_ADDONS = ('利用者負担上限額管理加算',)
+
+
+def is_treatment(name):
+    return (name or '').startswith(TREATMENT_PREFIX)
+
+
+def treatment_rate(name, day):
+    """処遇改善加算の標準の率（%・Decimal）。その日に当てはまる表が無ければ None"""
+    grade = (name or '')[len(TREATMENT_PREFIX):][:1]
+    rate = None
+    for start, table in TREATMENT_RATES:
+        if day >= start and grade in table:
+            rate = Decimal(table[grade])
+    return rate
+
+
+def treatment_units(units, rate):
+    """処遇改善加算の単位数：単位数の合計 × 率（%）、1 単位未満は四捨五入"""
+    return int((Decimal(units) * Decimal(rate) / Decimal(100)).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
 
 
 def capacity_addon(name, capacity_class):

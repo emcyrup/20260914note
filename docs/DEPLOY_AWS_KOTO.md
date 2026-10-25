@@ -34,6 +34,7 @@ Actions → **Deploy (koto)** → Run workflow（ブランチ **`kyotaku`**）�
 - 初回は `~/kaigonotekoto` に clone し、`.env` を `deploy/.env.koto-aws.example` から作る（`SECRET_KEY` はサーバー上で生成、`DB_PASSWORD`・`ANTHROPIC_API_KEY`・音声の設定は `~/michinoteyours/.env` から写す。ログには項目名だけ）。2 回目以降は `.env` を上書きしない
 - コトの機能（`kaigo`）が無いコミット（ゆあーずのブランチなど）を選ぶと止まる
 - venv はゆあーずと共用なので、`requirements.txt` がゆあーずと違うと止まる（ゆあーずの部品を変えないため）
+  - 部品を変えたときは **先に Deploy (yours) を終わらせてから** Deploy (koto) を実行する（同時に動かすと、ゆあーずの更新前に比べて止まる。止まったら、ゆあーずが終わったあとにもう一度実行すればよい）
 - そのあと `deploy/venv-deploy.sh` が `pip install` → `migrate` → `collectstatic` → Gunicorn 起動 → `https://kaigonote.koto.ai-labo.cloud/healthz/` の確認まで行う。再起動するのはコトの Gunicorn だけ（ゆあーず・オウルは止まらない）
 - 切り戻し：Run workflow の「配備するコミット」に前のコミットの番号を入れる
 

@@ -194,6 +194,9 @@
   ＜計算の根拠＞
   基本報酬 {% for r in base_rows %}{{ r.label }} {{ r.units }}単位×{{ r.days }}日{% if not forloop.last %}＋{% endif %}{% endfor %}＝{{ base_units_total }}単位
   {% if facility.is_new_facility_r8 %}（×982/1000 減算適用）{% endif %}
+  {% for a in addon_rows %}＋ {{ a.name }} {{ a.units }}単位×{{ a.count }}回{% endfor %}
+  {% if treatment %}＋ {{ treatment.name }}（{{ treatment.rate }}%）{{ treatment.units }}単位{% endif %}
+  {% if addon_rows or treatment %}＝ 合計 {{ units_total }}単位{% endif %}
   × 地域区分単価 {{ unit_price }}円（{{ facility.get_region_category_display }}）
   ＝ 総費用 {{ total_cost|floatformat:0 }}円 の10%
   → 上限月額（{{ monthly_cap|floatformat:0 }}円）と比較して低い方を適用

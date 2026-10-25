@@ -221,19 +221,17 @@ class CellPopupView(LoginRequiredMixin, BillingEnabledMixin, View):
                 .values_list('addon_id', flat=True)
             )
 
-        # 個別加算の一覧
-        individual_addons = AddonMaster.objects.filter(is_active=True, addon_type='individual')
+        # 個別加算の一覧：施設設定で「算定する」にしたもの（設定が無ければ全部）と、このセルにもう付いているもの
+        enabled = {r.pk for r in facility_addon_rows(facility, addon_type='individual', enabled_only=True)}
+        shown = [r for r in facility_addon_rows(facility, addon_type='individual') if r.pk in enabled or r.pk in applied_addon_ids]
+        individual_addons = [r.addon for r in shown]
 
         # 手動保存済みの加算がない場合のみ自動提案を実施
         is_auto_suggested = not bool(applied_addon_ids)
         if is_auto_suggested:
             applied_addon_ids = _suggest_addons(visit, facility, target_date, beneficiary, individual_addons)
 
-        rows = {r.pk: r for r in facility_addon_rows(facility, addon_type='individual')}
-        addon_list = [
-            {'addon': a, 'is_applied': a.pk in applied_addon_ids, 'row': rows.get(a.pk)}
-            for a in individual_addons
-        ]
+        addon_list = [{'addon': r.addon, 'is_applied': r.pk in applied_addon_ids, 'row': r} for r in shown]
 
         # 日次記録が存在するか確認（リンク用）
         from records.models import DailyRecord
@@ -822,10 +820,8 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
         year, month = month_or_404(year, month)
         month_start = date(year, month, 1)
 
-        # 個別加算マスタ（CSV列ヘッダーの順番を固定するためリスト化）
-        individual_addons = list(
-            AddonMaster.objects.filter(is_active=True, addon_type='individual').order_by('pk')
-        )
+        # 個別加算（事業所の単位数の上書きを含む）。列は「算定する」にしたものと、この月に付いているもの
+        addon_rows_all = facility_addon_rows(facility, addon_type='individual')
 
         # 当月の BillingMatrixEntry から利用状態別カウントを集計
         # {beneficiary_id: {'attended': N, 'absent': N, 'transferred': N}}
@@ -849,6 +845,10 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
             for ba in entry.addons.filter(is_applied=True):
                 aid = ba.addon_id
                 addon_count[bid][aid] = addon_count[bid].get(aid, 0) + 1
+
+        enabled = {r.pk for r in facility_addon_rows(facility, addon_type='individual', enabled_only=True)}
+        used = {aid for ac in addon_count.values() for aid in ac}
+        individual_addons = sorted((r for r in addon_rows_all if r.pk in enabled or r.pk in used), key=lambda r: r.pk)
 
         # 当月有効な受給者証を利用者IDごとに取得: {beneficiary_id: RecipientCertificate}
         certs = RecipientCertificate.objects.filter(
@@ -888,7 +888,7 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
         base_header = [f'{codes.KUBUN_SHORT[k]} 日数' for k in (1, 2, 3)] + ['基本報酬単位数（参考）']
         headers += base_header
         headers += [f'{a.name}（件）' for a in individual_addons]
-        headers += ['加算合計単位数（参考）']
+        headers += ['加算合計単位数（参考）', '体制加算単位数（参考）', '処遇改善加算単位数（参考）', '合計単位数（参考）']
         writer.writerow([f'基本報酬のサービスコード（医療的ケア区分なし）：' + '／'.join(f'{codes.KUBUN_SHORT[k]} {facility.base_code(k) or "未入力"}' for k in (1, 2, 3))
                          + f'　地域区分の単価 {facility.unit_price} 円　※医療的ケア児は利用者ごとのコード（請求書の計算の根拠に出ます）'])
         writer.writerow(headers)
@@ -912,6 +912,10 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
 
             base_rows, base_total = base_rows_for(facility, b, kubun_entries.get(b.pk, []))
             base_days = {r['kubun']: r['days'] for r in base_rows}
+            # 体制加算・処遇改善加算は請求書と同じ計算（billing/views.addon_rows_for）
+            month_rows, month_total, treatment = addon_rows_for(facility, b, year, month, sc.get('attended', 0), base_total)
+            facility_units = month_total - total_units
+            treatment_units = treatment['units'] if treatment else 0
             writer.writerow([
                 b.full_name,
                 b.full_name_kana,
@@ -920,7 +924,8 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
                 sc.get('attended', 0),
                 sc.get('absent', 0),
                 sc.get('transferred', 0),
-            ] + [base_days.get(k, 0) for k in (1, 2, 3)] + [base_total or ''] + addon_counts + [total_units or ''])
+            ] + [base_days.get(k, 0) for k in (1, 2, 3)] + [base_total or ''] + addon_counts
+                + [total_units or '', facility_units or '', treatment_units or '', (base_total + month_total + treatment_units) or ''])
 
         # BOM は先頭に1つだけ（行ごとに付かないよう、まとめて encode する）
         response = HttpResponse(buf.getvalue().encode('utf-8-sig'), content_type='text/csv; charset=utf-8')
@@ -954,6 +959,52 @@ def base_rows_for(facility, beneficiary, entries):
                      'code': facility.base_code(k, beneficiary), 'total': (units or 0) * counts[k]})
         total += (units or 0) * counts[k]
     return rows, total
+
+
+def addon_rows_for(facility, beneficiary, year, month, attended_days, base_units):
+    """
+    その月の加算の単位数（請求書の総費用に入れる）。戻り値 (行の一覧, 加算の単位数の合計, 処遇改善加算の行 or None)。
+    - 個別加算：請求セルで付けた加算の回数 × 単位数（事業所の上書きがあればその単位数）
+    - 体制加算：施設設定で「算定する」にした加算 × 利用日数（1 日につき）
+    - 利用者負担上限額管理加算：当施設が上限額管理事業所で、他の事業所の利用もある月に 1 回
+    - 処遇改善加算：「算定する」にした区分の率 × （基本報酬＋加算の単位数）。1 単位未満は四捨五入
+    行は {'name', 'code', 'units'（1 回）, 'count', 'total'}
+    """
+    rows, total = [], 0
+    individual = {r.pk: r for r in facility_addon_rows(facility, addon_type='individual')}
+    counts = {}
+    for aid in BillingMatrixAddon.objects.filter(
+            entry__facility=facility, entry__beneficiary=beneficiary,
+            entry__date__year=year, entry__date__month=month, is_applied=True).values_list('addon_id', flat=True):
+        counts[aid] = counts.get(aid, 0) + 1
+    for aid, n in counts.items():
+        r = individual.get(aid)
+        if r is None or not r.unit_count:
+            continue
+        rows.append({'name': r.name, 'code': r.code, 'units': r.unit_count, 'count': n, 'total': r.unit_count * n})
+    treatment = None
+    for r in facility_addon_rows(facility, addon_type='facility'):
+        if not r.is_enabled:
+            continue
+        if r.is_rate:
+            treatment = treatment or r
+            continue
+        if not r.unit_count:
+            continue
+        if r.name in codes.MONTHLY_ADDONS:
+            m = CopaymentManagement.objects.filter(facility=facility, beneficiary=beneficiary,
+                                                   year_month=f'{year:04d}-{month:02d}', is_upper_limit_manager=True).first()
+            n = 1 if m and m.office_records.filter(is_this_office=False).exists() else 0
+        else:
+            n = attended_days
+        if n:
+            rows.append({'name': r.name, 'code': r.code, 'units': r.unit_count, 'count': n, 'total': r.unit_count * n})
+    total = sum(x['total'] for x in rows)
+    if treatment is not None:
+        rate = treatment.rate_on(date(year, month, 1))
+        treatment = ({'name': treatment.name, 'code': treatment.code, 'rate': rate,
+                      'units': codes.treatment_units(base_units + total, rate)} if rate else None)
+    return rows, total, treatment
 
 
 def base_for_entry(facility, beneficiary, entry):
@@ -1014,8 +1065,11 @@ def _build_invoice_context(facility, beneficiary, year, month):
     # 公費自己負担額の計算（日ごとの基本報酬の単位数の合計 × 単価。重身の利用者は重身用の単位数）
     unit_count_available = all(r['units'] is not None for r in base_rows) if base_rows else facility.base_units_for(beneficiary) is not None
     unit_price = facility.unit_price
+    # 加算（個別・体制）と処遇改善加算も総費用に入れる
+    addon_rows, addon_units_total, treatment = addon_rows_for(facility, beneficiary, year, month, attended_days, base_units_total)
+    units_total = base_units_total + addon_units_total + (treatment['units'] if treatment else 0)
     if unit_count_available and monthly_cap is not None:
-        total_cost = int(Decimal(base_units_total) * unit_price)       # 単位数の合計 × 単価（円未満切り捨て）
+        total_cost = int(Decimal(units_total) * unit_price)       # 単位数の合計 × 単価（円未満切り捨て）
         # 利用者負担額 = min(総費用×10%、上限月額)
         user_burden = min(int(Decimal(str(total_cost)) * Decimal('0.1')), monthly_cap)
     elif monthly_cap is not None:
@@ -1071,6 +1125,10 @@ def _build_invoice_context(facility, beneficiary, year, month):
         'attended_days':      attended_days,
         'base_rows':          base_rows,
         'base_units_total':   base_units_total,
+        'addon_rows':         addon_rows,
+        'addon_units_total':  addon_units_total,
+        'treatment':          treatment,
+        'units_total':        units_total,
         'unit_price':         unit_price,
         'unit_count_available': unit_count_available,
         'total_cost':         total_cost,
