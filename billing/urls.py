@@ -45,6 +45,8 @@ urlpatterns = [
          views.InvoiceListView.as_view(), name='invoice_list'),
     path('invoice/<int:year>/<int:month>/',
          views.InvoiceListView.as_view(), name='invoice_list_month'),
+    path('invoice/<int:beneficiary_pk>/<int:year>/<int:month>/reduction/',
+         views.ReductionUpdateView.as_view(), name='reduction_update'),
     path('invoice/<int:beneficiary_pk>/<int:year>/<int:month>/pdf/',
          views.InvoicePdfView.as_view(), name='invoice_pdf'),
     path('receipt/<int:beneficiary_pk>/<int:year>/<int:month>/pdf/',

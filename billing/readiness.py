@@ -27,6 +27,10 @@ def issues(facility, month_start):
         add('基本報酬のサービスコード（区分1〜3）が入っていません（定員区分を選べばコード表から自動で決まります）')
     if not facility.use_schedule:
         add('「来所予定（出欠）」を使う設定になっていません。請求の日数は出欠の記録から数えます')
+    on = [label for flag, label in ((facility.reduce_self_eval, '自己評価結果等未公表減算'), (facility.reduce_program, '支援プログラム未公表減算'),
+                                    (facility.reduce_hours in ('85', '70'), f'開所時間減算（{facility.reduce_hours}%）')) if flag]
+    if on:
+        add('施設設定で減算が付いています：' + '・'.join(on) + '。当てはまらない月になったら外してください')
     addons_url = reverse('facilities:settings') + '#tab-billing'
     if not AddonMaster.objects.filter(is_active=True).exists():
         add('加算マスタが空です（開発向けユーザーが「標準加算マスタを読み込む」を実行）', addons_url)

@@ -33,7 +33,8 @@
   <div class="alert mb-3 small" style="background-color: var(--color-primary-bg); border: 1px solid var(--color-primary-light); color: var(--color-primary-dark);">
     <i class="bi bi-info-circle me-1"></i>
     請求マトリックスで利用実績を確認・確定してから、各{{ terms.beneficiary }}の請求書・領収書をダウンロードしてください。<br>
-    利用日数は請求マトリックスの「利用」のセル数をもとに計算されます。
+    利用日数は請求マトリックスの「利用」のセル数をもとに計算されます。<br>
+    個別支援計画が無いまま支援した月は「個別支援計画未作成減算」を選ぶと、基本報酬に掛けて請求書に反映します（事業所全体の減算は施設設定の「基本報酬（請求）」）。
   </div>
 
   <!-- 利用者一覧 -->
@@ -44,6 +45,7 @@
         <tr style="background-color: #f8f9fa;">
           <th class="px-3">{{ terms.beneficiary }}</th>
           <th class="text-center px-2">利用日数</th>
+          <th class="text-center px-2" style="width: 260px;">個別支援計画未作成減算</th>
           <th class="text-center px-2" style="width: 180px;">ダウンロード</th>
         </tr>
       </thead>
@@ -57,6 +59,17 @@
             {% else %}
               <span class="text-muted small">0日</span>
             {% endif %}
+          </td>
+          <td class="px-2">
+            <form method="post" action="{% url 'billing:reduction_update' row.beneficiary.pk year month %}" class="m-0">
+              {% csrf_token %}
+              <select name="no_plan" class="form-select form-select-sm{% if row.no_plan %} border-warning{% endif %}" style="font-size: 0.78rem;"
+                      onchange="this.form.submit()" aria-label="{{ row.beneficiary.full_name }}の個別支援計画未作成減算">
+                {% for value, label in no_plan_choices %}
+                <option value="{{ value }}"{% if value == row.no_plan %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </form>
           </td>
           <td class="text-center px-2">
             <div class="d-flex gap-1 justify-content-center">

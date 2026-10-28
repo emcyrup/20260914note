@@ -745,3 +745,82 @@ class CertificateInMonthTests(TestCase):
         self.assertFalse(any('支給量を超えて' in t for t in self._issues()))
         self._attend(8)
         self.assertTrue(any('支給量を超えて' in t and '3 日／支給量 2 日' in t for t in self._issues()))
+
+
+class ReductionTests(TestCase):
+    """減算：自己評価結果等未公表・支援プログラム未公表（85%）、開所時間（学校休業日だけ）、個別支援計画未作成（70%／50%）"""
+
+    def setUp(self):
+        self.facility = Facility.objects.create(name='はびりす', office_number='2650000001', use_billing=True, use_schedule=True,
+                                                region_category='3', capacity_class='10')
+        self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility,
+                                                     role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        self.ben = Beneficiary.objects.create(facility=self.facility, last_name='中村', first_name='みお', date_of_birth='2015-09-14')
+        RecipientCertificate.objects.create(beneficiary=self.ben, certificate_number='2600001234', granted_days=23,
+                                            monthly_cap=37200, valid_from='2026-04-01', valid_until='2027-03-31')
+        AddonMaster.objects.all().delete()
+        self.client.post(reverse('billing:cell_update', args=[self.ben.pk, 2026, 10, 6]), {'status': 'attended', 'time_kubun': '2'})
+        self.client.post(reverse('billing:cell_update', args=[self.ben.pk, 2026, 10, 10]), {'status': 'attended', 'time_kubun': '3'})
+
+    def _ctx(self):
+        from .views import _build_invoice_context
+        return _build_invoice_context(self.facility, self.ben, 2026, 10)
+
+    def test_rounding(self):
+        from . import codes
+        self.assertEqual(codes.reduced_units(609, ['85']), 518)            # 517.65 → 518
+        self.assertEqual(codes.reduced_units(666, ['85', '70']), 396)      # 396.27 → 396
+        self.assertEqual(codes.reduced_units(609, []), 609)
+
+    def test_no_reduction(self):
+        ctx = self._ctx()
+        self.assertEqual(ctx['base_units_total'], 609 + 666)
+        self.assertEqual(ctx['reductions'], [])
+
+    def test_facility_reductions(self):
+        from . import codes, readiness
+        self.facility.reduce_self_eval = True
+        self.facility.reduce_hours = '70'
+        self.facility.save()
+        ctx = self._ctx()
+        weekday = codes.reduced_units(609, ['85'])                         # 開所時間減算は平日には掛けない
+        holiday = codes.reduced_units(666, ['85', '70'])
+        self.assertEqual(ctx['base_units_total'], weekday + holiday)
+        self.assertEqual(ctx['total_cost'], int(Decimal(weekday + holiday) * Decimal('10.90')))
+        rows = {r['kubun']: r for r in ctx['base_rows']}
+        self.assertEqual((rows[3]['full_units'], rows[3]['units']), (666, holiday))
+        texts = [i['text'] for i in readiness.issues(self.facility, date(2026, 10, 1))]
+        self.assertTrue(any('減算が付いています' in t and '開所時間減算（70%）' in t for t in texts))
+        from django.template.loader import render_to_string
+        html = render_to_string('billing/invoice_pdf.html', {**ctx, 'doc_type': 'invoice'})
+        self.assertIn('自己評価結果等未公表減算 85%', html)
+        self.assertIn('開所時間減算 70%・学校休業日だけ', html)
+
+    def test_no_plan_per_month_from_invoice_list(self):
+        from . import codes
+        from .models import MonthlyReduction
+        res = self.client.get(reverse('billing:invoice_list_month', args=[2026, 10]))
+        self.assertContains(res, '個別支援計画未作成（3 か月目以降・50%）')
+        self.client.post(reverse('billing:reduction_update', args=[self.ben.pk, 2026, 10]), {'no_plan': '50'})
+        self.assertEqual(MonthlyReduction.objects.get(beneficiary=self.ben, year_month='2026-10').no_plan, '50')
+        self.assertEqual(self._ctx()['base_units_total'], codes.reduced_units(609, ['50']) + codes.reduced_units(666, ['50']))
+        from .views import _build_invoice_context
+        self.assertEqual(_build_invoice_context(self.facility, self.ben, 2026, 11)['reductions'], [])   # 別の月には効かない
+        self.client.post(reverse('billing:reduction_update', args=[self.ben.pk, 2026, 10]), {'no_plan': '99'})   # 選べない値は「なし」
+        self.assertEqual(MonthlyReduction.objects.get(beneficiary=self.ben, year_month='2026-10').no_plan, '')
+        line = [ln for ln in self.client.get(reverse('billing:billing_csv', args=[2026, 10])).content.decode('utf-8-sig').splitlines()
+                if ln.startswith('中村')][0]
+        self.assertIn(f',{609 + 666},', line)
+
+    def test_settings_save_reductions(self):
+        from facilities.forms import FacilityForm
+        form = FacilityForm(instance=self.facility)
+        self.assertIn('reduce_hours', form.fields)
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, '支援プログラム未公表減算（85%）')
+        data = {k: v for k, v in form.initial.items() if v not in (None, False) and k not in ('logo',)}
+        data.update({'reduce_program': 'on', 'reduce_hours': '85'})
+        self.client.post(reverse('facilities:facility_update'), data)
+        self.facility.refresh_from_db()
+        self.assertEqual((self.facility.reduce_program, self.facility.reduce_self_eval, self.facility.reduce_hours), (True, False, '85'))

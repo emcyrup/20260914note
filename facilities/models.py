@@ -97,6 +97,12 @@ class Facility(models.Model):
         default=False, verbose_name='令和8年6月以降新規指定事業所',
         help_text='令和8年6月1日以降に新規指定された事業所の場合はチェック'
     )
+    # 減算（事業所全体。基本報酬に掛ける。billing/codes.py の REDUCTIONS）。当てはまる月だけ印を付ける
+    reduce_self_eval = models.BooleanField(default=False, verbose_name='自己評価結果等未公表減算（85%）')
+    reduce_program = models.BooleanField(default=False, verbose_name='支援プログラム未公表減算（85%）')
+    HOURS_REDUCTION_CHOICES = [('', 'なし（学校休業日の営業時間が 6 時間以上）'), ('85', '4 時間以上 6 時間未満（85%）'), ('70', '4 時間未満（70%）')]
+    reduce_hours = models.CharField(max_length=2, blank=True, default='', choices=HOURS_REDUCTION_CHOICES,
+                                    verbose_name='開所時間減算（学校休業日の営業時間）')
     # 呼び方の置き換え（メニューと見出しに反映）
     term_staff = models.CharField(max_length=20, default='職員', verbose_name='職員の呼び方',
                                   help_text='例：支援員／先生／職員')
