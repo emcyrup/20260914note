@@ -352,6 +352,13 @@
           <span>請求書・領収書</span>
         </a>
       </li>
+      <li class="nav-secondary">
+        <a class="sidebar-nav-item {% block nav_billing_forecast %}{% endblock %}"
+           href="{% url 'billing:forecast' %}">
+          <i class="bi bi-graph-up"></i>
+          <span>月次の見込み</span>
+        </a>
+      </li>
       {% endif %}
       <li class="nav-secondary">
         <a class="sidebar-nav-item {% block nav_reports %}{% endblock %}"

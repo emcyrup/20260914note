@@ -1187,6 +1187,25 @@ class ReductionUpdateView(LoginRequiredMixin, BillingEnabledMixin, View):
         return redirect('billing:invoice_list_month', year=year, month=month)
 
 
+class ForecastView(LoginRequiredMixin, BillingEnabledMixin, View):
+    """月次の見込み：延べ利用人数・総費用（売上の概算）・給付費・利用者負担・処遇改善加算の額（実績と、予定を足した見込み）。billing/forecast.py"""
+
+    def get(self, request, year=None, month=None):
+        from . import forecast
+        today = date.today()
+        year, month = month_or_404(year or today.year, month or today.month)
+        facility = request.user.facility
+        prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
+        next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+        summary = forecast.month_summary(facility, year, month, today)
+        prev = forecast.month_summary(facility, prev_year, prev_month, today)['actual']
+        return render(request, 'billing/forecast.html', {
+            'year': year, 'month': month, 'prev_year': prev_year, 'prev_month': prev_month,
+            'next_year': next_year, 'next_month': next_month, 'summary': summary, 'prev': prev,
+            'is_current': (year, month) == (today.year, today.month), 'today': today,
+        })
+
+
 class InvoiceListView(LoginRequiredMixin, BillingEnabledMixin, View):
     """
     請求書・領収書 一覧（月次）。

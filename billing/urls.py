@@ -22,6 +22,10 @@ urlpatterns = [
     path('matrix/<int:year>/<int:month>/load-from-schedule/',
          views.LoadFromScheduleView.as_view(), name='load_from_schedule'),
 
+    # 月次の見込み
+    path('forecast/', views.ForecastView.as_view(), name='forecast'),
+    path('forecast/<int:year>/<int:month>/', views.ForecastView.as_view(), name='forecast_month'),
+
     # 利用者負担上限額管理
     path('copayment/',
          views.CopaymentListView.as_view(), name='copayment_list'),

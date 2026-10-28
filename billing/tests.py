@@ -824,3 +824,51 @@ class ReductionTests(TestCase):
         self.client.post(reverse('facilities:facility_update'), data)
         self.facility.refresh_from_db()
         self.assertEqual((self.facility.reduce_program, self.facility.reduce_self_eval, self.facility.reduce_hours), (True, False, '85'))
+
+
+class ForecastTests(TestCase):
+    """月次の見込み：実績（請求書と同じ計算）と、これからの来所予定を足した見込み"""
+
+    def setUp(self):
+        self.facility = Facility.objects.create(name='はびりす', office_number='2650000001', use_billing=True, use_schedule=True,
+                                                region_category='3', capacity_class='10')
+        self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility,
+                                                     role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        AddonMaster.objects.all().delete()
+        self.a = Beneficiary.objects.create(facility=self.facility, last_name='中村', first_name='みお', date_of_birth='2015-09-14')
+        self.b = Beneficiary.objects.create(facility=self.facility, last_name='山田', first_name='そら', date_of_birth='2016-01-20')
+        for ben, cap in ((self.a, 37200), (self.b, 4600)):
+            RecipientCertificate.objects.create(beneficiary=ben, certificate_number='26000', granted_days=23, monthly_cap=cap,
+                                                valid_from='2026-04-01', valid_until='2027-03-31')
+
+    def test_summary_actual_and_forecast(self):
+        from schedules.models import ScheduledVisit
+        from . import forecast
+        for d in (6, 7):
+            self.client.post(reverse('billing:cell_update', args=[self.a.pk, 2026, 10, d]), {'status': 'attended', 'time_kubun': '2'})
+        ScheduledVisit.objects.create(facility=self.facility, beneficiary=self.a, date=date(2026, 10, 27))
+        ScheduledVisit.objects.create(facility=self.facility, beneficiary=self.b, date=date(2026, 10, 28))     # 平日 → 区分2 の見積もり
+        ScheduledVisit.objects.create(facility=self.facility, beneficiary=self.b, date=date(2026, 10, 20))     # 過ぎた予定は数えない
+        s = forecast.month_summary(self.facility, 2026, 10, today=date(2026, 10, 25))
+        cost_a = int(Decimal(609 * 2) * Decimal('10.90'))
+        self.assertEqual((s['actual']['people'], s['actual']['days'], s['actual']['cost']), (1, 2, cost_a))
+        rows = {r['beneficiary'].pk: r for r in s['rows']}
+        self.assertEqual(rows[self.a.pk]['burden'], int(cost_a * Decimal('0.1')))
+        self.assertEqual(rows[self.a.pk]['benefit'], cost_a - int(cost_a * Decimal('0.1')))
+        self.assertEqual(rows[self.a.pk]['f_cost'], cost_a + cost_a // 2)                # 1 日あたりの実績 × 予定 1 日
+        est_b = int(Decimal(609) * Decimal('10.90'))
+        self.assertEqual((rows[self.b.pk]['f_days'], rows[self.b.pk]['f_cost']), (1, est_b))
+        self.assertEqual(rows[self.b.pk]['f_burden'], min(int(est_b * Decimal('0.1')), 4600))
+        self.assertEqual((s['forecast']['people'], s['forecast']['days'], s['remaining_days']), (2, 4, 2))
+
+    def test_page(self):
+        self.client.post(reverse('billing:cell_update', args=[self.a.pk, 2026, 10, 6]), {'status': 'attended', 'time_kubun': '2'})
+        res = self.client.get(reverse('billing:forecast_month', args=[2026, 10]))
+        self.assertContains(res, '総費用（売上の概算）')
+        self.assertContains(res, '中村 みお')
+        self.assertContains(res, '6,638 円')                                                # 609 × 10.90 ＝ 6,638.1 → 6,638
+        self.assertContains(self.client.get(reverse('billing:forecast')), '月次の見込み')
+        self.facility.use_billing = False
+        self.facility.save()
+        self.assertEqual(self.client.get(reverse('billing:forecast')).status_code, 302)
