@@ -6,6 +6,8 @@ from django.urls import reverse
 from beneficiaries.models import Beneficiary, RecipientCertificate
 from facilities.models import AddonMaster, FacilityAddonSetting
 
+from .copayment import month_range
+
 
 def issues(facility, month_start):
     """足りないものの一覧 [{'text', 'url'}]。空なら準備できている"""
@@ -33,12 +35,62 @@ def issues(facility, month_start):
 
     active = list(Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE))
     if active:
-        covered = set(RecipientCertificate.objects.filter(beneficiary__in=active, valid_from__lte=month_start, valid_until__gte=month_start)
+        first, last = month_range(month_start.year, month_start.month)
+        covered = set(RecipientCertificate.objects.filter(beneficiary__in=active, valid_from__lte=last, valid_until__gte=first)
                       .values_list('beneficiary_id', flat=True))
         missing = [b for b in active if b.pk not in covered]
         if missing:
-            names = '・'.join(b.full_name for b in missing[:5]) + ('…' if len(missing) > 5 else '')
-            add(f'{month_start.month}月 1 日に有効な受給者証が無い利用者 {len(missing)} 名（{names}）', reverse('beneficiaries:list'))
+            add(f'{month_start.month}月に有効な受給者証が無い利用者 {len(missing)} 名（{_names(missing)}）', reverse('beneficiaries:list'))
+    for text in certificate_issues(facility, month_start.year, month_start.month):
+        add(text, reverse('beneficiaries:list'))
+    return out
+
+
+def _names(people, n=5):
+    return '・'.join(b.full_name for b in people[:n]) + ('…' if len(people) > n else '')
+
+
+def certificate_issues(facility, year, month):
+    """
+    受給者証と利用日の突き合わせ（請求マトリックスの「来所」の日）：
+    - 受給者証の有効期間の外の日に来所がある（その日は請求できない）
+    - 来所の日数が受給者証の支給量（日／月）を超えている
+    - 月の途中で負担上限月額の違う受給者証に替わった（請求ではあとから有効になったほうを使う。確かめる）
+    戻り値は文の一覧
+    """
+    from .models import BillingMatrixEntry
+    days = {}
+    for bid, d in BillingMatrixEntry.objects.filter(facility=facility, date__year=year, date__month=month,
+                                                    status='attended').values_list('beneficiary_id', 'date'):
+        days.setdefault(bid, []).append(d)
+    if not days:
+        return []
+    first, last = month_range(year, month)
+    certs = {}
+    for c in RecipientCertificate.objects.filter(beneficiary_id__in=days, valid_from__lte=last, valid_until__gte=first).order_by('valid_from'):
+        certs.setdefault(c.beneficiary_id, []).append(c)
+    outside, over, cap_changed = [], [], []
+    for b in Beneficiary.objects.filter(pk__in=days).order_by('last_name_kana', 'first_name_kana'):
+        cs = certs.get(b.pk, [])
+        if not cs:
+            continue      # 受給者証が無い利用者は上の「有効な受給者証が無い」で知らせる
+        bad = sorted(d for d in days[b.pk] if not any(c.valid_from <= d <= c.valid_until for c in cs))
+        if bad:
+            outside.append(f'{b.full_name}（' + '・'.join(f'{d.day}日' for d in bad[:5]) + ('…' if len(bad) > 5 else '') + '）')
+        granted = cs[-1].granted_days
+        if granted and len(days[b.pk]) > granted:
+            over.append(f'{b.full_name}（{len(days[b.pk])} 日／支給量 {granted} 日）')
+        if len({c.monthly_cap for c in cs}) > 1:
+            cap_changed.append(f'{b.full_name}（' + ' → '.join(f'{c.monthly_cap:,} 円' for c in cs) + '）')
+    out = []
+    if outside:
+        out.append(f'受給者証の有効期間の外の日に来所がある利用者 {len(outside)} 名：' + '、'.join(outside[:5])
+                   + ('…' if len(outside) > 5 else '') + '。その日は請求できません。受給者証の期間か出欠を確かめてください')
+    if over:
+        out.append(f'来所の日数が支給量を超えている利用者 {len(over)} 名：' + '、'.join(over[:5]) + ('…' if len(over) > 5 else ''))
+    if cap_changed:
+        out.append(f'月の途中で負担上限月額が変わった利用者 {len(cap_changed)} 名：' + '、'.join(cap_changed[:5])
+                   + ('…' if len(cap_changed) > 5 else '') + '。請求ではあとから有効になった受給者証の額を使います（市町村の扱いを確かめてください）')
     return out
 
 

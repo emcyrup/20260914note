@@ -725,7 +725,8 @@ class CopaymentSheetView(LoginRequiredMixin, BillingEnabledMixin, View):
             o = offices.get(r.office_number) or offices_by_name.get(r.office_name)
             letters.append({'record': r, 'office': o})
 
-        cert = beneficiary.recipient_certificates.order_by('-valid_until').first()
+        from .copayment import cert_for_month
+        cert = cert_for_month(beneficiary, year, month) or beneficiary.recipient_certificates.order_by('-valid_until').first()
         ctx = {
             'facility':    facility,
             'beneficiary': beneficiary,
@@ -754,11 +755,9 @@ class CopaymentOfficeListView(LoginRequiredMixin, BillingEnabledMixin, View):
 
     def get(self, request, year, month):
         from config.pdf import pdf_or_html
-        from beneficiaries.models import RecipientCertificate
         from . import copayment as cp
         facility = request.user.facility
         year, month = month_or_404(year, month)
-        first = date(year, month, 1)
         mgmts = (CopaymentManagement.objects.filter(facility=facility, year_month=f'{year}-{month:02d}', is_upper_limit_manager=True)
                  .select_related('beneficiary').prefetch_related('office_records', 'beneficiary__offices'))
         ids = [to_int(x, -1) for x in request.GET.getlist('ids')]
@@ -769,8 +768,7 @@ class CopaymentOfficeListView(LoginRequiredMixin, BillingEnabledMixin, View):
         for m in mgmts:
             records = list(m.office_records.all())
             mine = next((r for r in records if r.is_this_office), None)
-            cert = (RecipientCertificate.objects.filter(beneficiary=m.beneficiary, valid_from__lte=first, valid_until__gte=first)
-                    .order_by('-valid_until').first())
+            cert = cp.cert_for_month(m.beneficiary, year, month)
             for r in records:
                 if r.is_this_office:
                     continue
@@ -850,12 +848,14 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
         used = {aid for ac in addon_count.values() for aid in ac}
         individual_addons = sorted((r for r in addon_rows_all if r.pk in enabled or r.pk in used), key=lambda r: r.pk)
 
-        # 当月有効な受給者証を利用者IDごとに取得: {beneficiary_id: RecipientCertificate}
+        # 当月の請求に使う受給者証を利用者IDごとに：月に 1 日でも有効なもののうち、あとから有効になったほう（billing/copayment.cert_for_month と同じ）
+        from .copayment import month_range
+        month_end = month_range(year, month)[1]
         certs = RecipientCertificate.objects.filter(
             beneficiary__facility=facility,
-            valid_from__lte=month_start,
+            valid_from__lte=month_end,
             valid_until__gte=month_start,
-        ).order_by('beneficiary_id', '-valid_until')
+        ).order_by('beneficiary_id', '-valid_from', '-valid_until')
         cert_map = {}
         for c in certs:
             if c.beneficiary_id not in cert_map:
@@ -1032,10 +1032,8 @@ def _build_invoice_context(facility, beneficiary, year, month):
     利用日数は BillingMatrixEntry（確定済み来所）から集計する。
     実費負担は ActivityTag の price フィールドを持つタグを DailyRecord から集計する。
     """
-    from beneficiaries.models import RecipientCertificate
     from records.models import ActivityTag, DailyRecord
 
-    month_start = date(year, month, 1)
 
     # 利用日（BillingMatrixEntry で status='attended' のもの）。基本報酬は日ごとの時間区分で数える（billing/codes.py）
     attended = list(BillingMatrixEntry.objects.filter(
@@ -1048,17 +1046,9 @@ def _build_invoice_context(facility, beneficiary, year, month):
     attended_days = len(attended)
     base_rows, base_units_total = base_rows_for(facility, beneficiary, attended)
 
-    # 当月有効な受給者証（最新）
-    cert = (
-        RecipientCertificate.objects
-        .filter(
-            beneficiary=beneficiary,
-            valid_from__lte=month_start,
-            valid_until__gte=month_start,
-        )
-        .order_by('-valid_until')
-        .first()
-    )
+    # 当月の請求に使う受給者証（月の途中から有効なものも。billing/copayment.py）
+    from .copayment import cert_for_month
+    cert = cert_for_month(beneficiary, year, month)
     monthly_cap  = cert.monthly_cap if cert else None
     cert_number  = cert.certificate_number if cert else ''
 

@@ -687,3 +687,61 @@ class AddonInTotalCostTests(TestCase):
         csv_body = self.client.get(reverse('billing:billing_csv', args=[2026, 10])).content.decode('utf-8-sig')
         self.assertIn('個別サポート加算Ⅲ（不登校）（件）', csv_body)        # その月に付いていれば CSV の列にも出す
         self.assertNotIn('福祉専門職員配置等加算Ⅰ', csv_body)
+
+
+class CertificateInMonthTests(TestCase):
+    """月の途中から有効になる受給者証・有効期間の外の来所・支給量の超過・月の途中の上限月額の変更"""
+
+    def setUp(self):
+        self.facility = Facility.objects.create(name='はびりす', office_number='2650000001', use_billing=True, use_schedule=True,
+                                                region_category='3', capacity_class='10')
+        self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility,
+                                                     role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        self.ben = Beneficiary.objects.create(facility=self.facility, last_name='中村', first_name='みお', date_of_birth='2015-09-14')
+
+    def _attend(self, *days):
+        for d in days:
+            self.client.post(reverse('billing:cell_update', args=[self.ben.pk, 2026, 10, d]), {'status': 'attended', 'time_kubun': '2'})
+
+    def _issues(self):
+        from . import readiness
+        return [i['text'] for i in readiness.issues(self.facility, date(2026, 10, 1))]
+
+    def test_new_certificate_from_the_middle_of_the_month(self):
+        from . import copayment as cp
+        from .views import _build_invoice_context
+        RecipientCertificate.objects.create(beneficiary=self.ben, certificate_number='2600009999', granted_days=23,
+                                            monthly_cap=4600, valid_from='2026-10-15', valid_until='2027-03-31')
+        self._attend(16, 20)
+        self.assertEqual(cp.cap_for(self.ben, 2026, 10), 4600)            # 1 日の時点では無いが、月の途中から有効
+        ctx = _build_invoice_context(self.facility, self.ben, 2026, 10)
+        self.assertEqual((ctx['cert_number'], ctx['monthly_cap']), ('2600009999', 4600))
+        self.assertFalse(any('有効な受給者証が無い' in t for t in self._issues()))
+        self._attend(6)                                                    # 受給者証の前の日に来所
+        self.assertTrue(any('有効期間の外の日に来所' in t and '中村 みお（6日）' in t for t in self._issues()))
+        line = [ln for ln in self.client.get(reverse('billing:billing_csv', args=[2026, 10])).content.decode('utf-8-sig').splitlines()
+                if ln.startswith('中村')][0]
+        self.assertIn('2600009999', line)
+
+    def test_renewed_certificate_uses_the_later_one(self):
+        from . import copayment as cp
+        RecipientCertificate.objects.create(beneficiary=self.ben, certificate_number='A', granted_days=23, monthly_cap=4600,
+                                            valid_from='2025-10-16', valid_until='2026-10-15')
+        RecipientCertificate.objects.create(beneficiary=self.ben, certificate_number='B', granted_days=23, monthly_cap=37200,
+                                            valid_from='2026-10-16', valid_until='2027-10-15')
+        self.assertEqual(cp.cert_for_month(self.ben, 2026, 10).certificate_number, 'B')
+        self.assertEqual(cp.cert_for_month(self.ben, 2026, 9).certificate_number, 'A')
+        self.assertIsNone(cp.cert_for_month(self.ben, 2027, 11))
+        self._attend(6, 20)
+        texts = self._issues()
+        self.assertFalse(any('有効期間の外' in t for t in texts))               # 2 枚で月の全日を覆う
+        self.assertTrue(any('月の途中で負担上限月額が変わった' in t and '4,600 円 → 37,200 円' in t for t in texts))
+
+    def test_days_over_granted(self):
+        RecipientCertificate.objects.create(beneficiary=self.ben, certificate_number='C', granted_days=2, monthly_cap=4600,
+                                            valid_from='2026-04-01', valid_until='2027-03-31')
+        self._attend(6, 7)
+        self.assertFalse(any('支給量を超えて' in t for t in self._issues()))
+        self._attend(8)
+        self.assertTrue(any('支給量を超えて' in t and '3 日／支給量 2 日' in t for t in self._issues()))
