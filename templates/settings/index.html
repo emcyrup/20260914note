@@ -199,6 +199,24 @@
             </div>
           </div>
         </div>
+        <div class="col-12">
+          <div class="fw-semibold small mb-1">減算（当てはまる月だけ印を付ける。基本報酬に掛けます）</div>
+          <div class="d-flex flex-wrap gap-3 align-items-center">
+            <div class="form-check">
+              {{ facility_form.reduce_self_eval }}
+              <label class="form-check-label small" for="{{ facility_form.reduce_self_eval.id_for_label }}">自己評価結果等未公表減算（85%）</label>
+            </div>
+            <div class="form-check">
+              {{ facility_form.reduce_program }}
+              <label class="form-check-label small" for="{{ facility_form.reduce_program.id_for_label }}">支援プログラム未公表減算（85%）</label>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <label class="small mb-0" for="{{ facility_form.reduce_hours.id_for_label }}">開所時間減算</label>
+              <div style="min-width: 260px;">{{ facility_form.reduce_hours }}</div>
+            </div>
+          </div>
+          <div class="form-text">開所時間減算は学校休業日（時間区分 3）の日だけに掛けます。個別支援計画未作成減算は利用者ごとに「請求書・領収書」の一覧で選びます。割合は令和6年度改定の解説によるもので、告示・通知の原本で確かめてください</div>
+        </div>
         </div>
       </details>
         {% if features.line %}

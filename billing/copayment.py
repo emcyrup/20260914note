@@ -1,7 +1,8 @@
 """
 利用者負担上限額管理の計算と一括の操作（billing/views.py の CopaymentListView・CopaymentEditView から使う）
 
-- cap_for            : その月に有効な受給者証の負担上限月額
+- cert_for_month     : その月の請求に使う受給者証（月の途中から有効なものも。重なれば月末に有効なほう）
+- cap_for            : その受給者証の負担上限月額
 - this_office_amounts: 当施設の総費用額と利用者負担額（請求書と同じ計算：基本報酬 × 単価 × 利用日数、負担は 1 割と上限の小さい方）
 - allocate           : 管理事業所（当施設）を先に上限まで充て、残りをほかの事業所に順に配分する。管理結果（1・2・3）も決める
 - judge              : 一覧の判定（対象外・当施設で上限に達する・配分が要る・ほかの事業所が管理）
@@ -25,11 +26,31 @@ RESULT_ADJUSTED = '3'     # 合算が上限を超えるため調整あり
 FAX_CHOICES = [('zero', '0 円（管理事業所で上限に達した）'), ('full', '全額（調整なし）'), ('amount', '金額を入れる')]
 
 
-def cap_for(beneficiary, year, month):
-    """その月に有効な受給者証の負担上限月額。受給者証が無ければ None"""
+def month_range(year, month):
+    """その月の (1 日, 末日)"""
     first = datetime.date(year, month, 1)
-    cert = (RecipientCertificate.objects.filter(beneficiary=beneficiary, valid_from__lte=first, valid_until__gte=first)
-            .order_by('-valid_until').first())
+    return first, (first.replace(day=28) + datetime.timedelta(days=4)).replace(day=1) - datetime.timedelta(days=1)
+
+
+def certs_in_month(beneficiary, year, month):
+    """その月に 1 日でも有効な受給者証（有効期間の始まりの早い順）"""
+    first, last = month_range(year, month)
+    return list(RecipientCertificate.objects.filter(beneficiary=beneficiary, valid_from__lte=last, valid_until__gte=first)
+                .order_by('valid_from', 'valid_until'))
+
+
+def cert_for_month(beneficiary, year, month):
+    """
+    その月の請求に使う受給者証。月の途中から有効になった受給者証（新規・更新）も拾う。
+    月の中で 2 枚が重なるときは、あとから有効になったほう（月末の時点で有効なもの）を使う。無ければ None
+    """
+    certs = certs_in_month(beneficiary, year, month)
+    return max(certs, key=lambda c: (c.valid_from, c.valid_until)) if certs else None
+
+
+def cap_for(beneficiary, year, month):
+    """その月の請求に使う受給者証の負担上限月額。受給者証が無ければ None"""
+    cert = cert_for_month(beneficiary, year, month)
     return cert.monthly_cap if cert else None
 
 

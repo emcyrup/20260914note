@@ -25,7 +25,7 @@ from . import codes, readiness
 from schedules.models import ScheduledVisit
 
 from .forms import CopaymentManagementForm, CopaymentOfficeRecordForm
-from .models import BillingMatrixAddon, BillingMatrixEntry, CopaymentManagement, CopaymentOfficeRecord
+from .models import BillingMatrixAddon, BillingMatrixEntry, CopaymentManagement, CopaymentOfficeRecord, MonthlyReduction
 from config.utils import date_or_404, month_or_404, to_int
 from django.urls import reverse
 from config.concurrency import check_conflict
@@ -725,7 +725,8 @@ class CopaymentSheetView(LoginRequiredMixin, BillingEnabledMixin, View):
             o = offices.get(r.office_number) or offices_by_name.get(r.office_name)
             letters.append({'record': r, 'office': o})
 
-        cert = beneficiary.recipient_certificates.order_by('-valid_until').first()
+        from .copayment import cert_for_month
+        cert = cert_for_month(beneficiary, year, month) or beneficiary.recipient_certificates.order_by('-valid_until').first()
         ctx = {
             'facility':    facility,
             'beneficiary': beneficiary,
@@ -754,11 +755,9 @@ class CopaymentOfficeListView(LoginRequiredMixin, BillingEnabledMixin, View):
 
     def get(self, request, year, month):
         from config.pdf import pdf_or_html
-        from beneficiaries.models import RecipientCertificate
         from . import copayment as cp
         facility = request.user.facility
         year, month = month_or_404(year, month)
-        first = date(year, month, 1)
         mgmts = (CopaymentManagement.objects.filter(facility=facility, year_month=f'{year}-{month:02d}', is_upper_limit_manager=True)
                  .select_related('beneficiary').prefetch_related('office_records', 'beneficiary__offices'))
         ids = [to_int(x, -1) for x in request.GET.getlist('ids')]
@@ -769,8 +768,7 @@ class CopaymentOfficeListView(LoginRequiredMixin, BillingEnabledMixin, View):
         for m in mgmts:
             records = list(m.office_records.all())
             mine = next((r for r in records if r.is_this_office), None)
-            cert = (RecipientCertificate.objects.filter(beneficiary=m.beneficiary, valid_from__lte=first, valid_until__gte=first)
-                    .order_by('-valid_until').first())
+            cert = cp.cert_for_month(m.beneficiary, year, month)
             for r in records:
                 if r.is_this_office:
                     continue
@@ -850,12 +848,14 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
         used = {aid for ac in addon_count.values() for aid in ac}
         individual_addons = sorted((r for r in addon_rows_all if r.pk in enabled or r.pk in used), key=lambda r: r.pk)
 
-        # 当月有効な受給者証を利用者IDごとに取得: {beneficiary_id: RecipientCertificate}
+        # 当月の請求に使う受給者証を利用者IDごとに：月に 1 日でも有効なもののうち、あとから有効になったほう（billing/copayment.cert_for_month と同じ）
+        from .copayment import month_range
+        month_end = month_range(year, month)[1]
         certs = RecipientCertificate.objects.filter(
             beneficiary__facility=facility,
-            valid_from__lte=month_start,
+            valid_from__lte=month_end,
             valid_until__gte=month_start,
-        ).order_by('beneficiary_id', '-valid_until')
+        ).order_by('beneficiary_id', '-valid_from', '-valid_until')
         cert_map = {}
         for c in certs:
             if c.beneficiary_id not in cert_map:
@@ -885,7 +885,7 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
             '利用日数', '欠席日数', '振替日数',
         ]
         # 基本報酬：時間区分ごとの日数と、サービスコード・単位数（billing/codes.py。施設設定の定員区分とコード）
-        base_header = [f'{codes.KUBUN_SHORT[k]} 日数' for k in (1, 2, 3)] + ['基本報酬単位数（参考）']
+        base_header = [f'{codes.KUBUN_SHORT[k]} 日数' for k in (1, 2, 3)] + ['基本報酬単位数（参考・減算後）']
         headers += base_header
         headers += [f'{a.name}（件）' for a in individual_addons]
         headers += ['加算合計単位数（参考）', '体制加算単位数（参考）', '処遇改善加算単位数（参考）', '合計単位数（参考）']
@@ -911,6 +911,9 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
             )
 
             base_rows, base_total = base_rows_for(facility, b, kubun_entries.get(b.pk, []))
+            reductions = reductions_for(facility, b, year, month)
+            if reductions:
+                base_total = apply_reductions(base_rows, reductions)
             base_days = {r['kubun']: r['days'] for r in base_rows}
             # 体制加算・処遇改善加算は請求書と同じ計算（billing/views.addon_rows_for）
             month_rows, month_total, treatment = addon_rows_for(facility, b, year, month, sc.get('attended', 0), base_total)
@@ -959,6 +962,38 @@ def base_rows_for(facility, beneficiary, entries):
                      'code': facility.base_code(k, beneficiary), 'total': (units or 0) * counts[k]})
         total += (units or 0) * counts[k]
     return rows, total
+
+
+def reductions_for(facility, beneficiary, year, month):
+    """その月に当てはまる減算 [(キー, 名前, 割合%, 学校休業日だけか)]。billing/codes.py の REDUCTIONS"""
+    out = []
+    if facility.reduce_self_eval:
+        out.append(('self_eval', codes.REDUCTIONS['self_eval'], '85', False))
+    if facility.reduce_program:
+        out.append(('program', codes.REDUCTIONS['program'], '85', False))
+    if facility.reduce_hours in ('85', '70'):
+        out.append(('hours', codes.REDUCTIONS['hours'], facility.reduce_hours, True))
+    m = MonthlyReduction.objects.filter(facility=facility, beneficiary=beneficiary, year_month=f'{year:04d}-{month:02d}').first()
+    if m and m.no_plan in ('70', '50'):
+        out.append(('no_plan', codes.REDUCTIONS['no_plan'], m.no_plan, False))
+    return out
+
+
+def apply_reductions(base_rows, reductions):
+    """
+    基本報酬の行（base_rows_for）に減算を掛け、各行に 'full_units'（減算前の 1 日）を残して 'units'・'total' を減算後にする。
+    開所時間減算は学校休業日の行（時間区分 3。重心型の学校休業日も 3）だけ。戻り値は減算後の単位数の合計
+    """
+    total = 0
+    for r in base_rows:
+        r['full_units'] = r['units']
+        rates = [rate for _, _, rate, holiday_only in reductions if not holiday_only or r['kubun'] == 3]
+        if r['units'] is not None and rates:
+            r['units'] = codes.reduced_units(r['units'], rates)
+            r['reduced'] = True
+        r['total'] = (r['units'] or 0) * r['days']
+        total += r['total']
+    return total
 
 
 def addon_rows_for(facility, beneficiary, year, month, attended_days, base_units):
@@ -1032,10 +1067,8 @@ def _build_invoice_context(facility, beneficiary, year, month):
     利用日数は BillingMatrixEntry（確定済み来所）から集計する。
     実費負担は ActivityTag の price フィールドを持つタグを DailyRecord から集計する。
     """
-    from beneficiaries.models import RecipientCertificate
     from records.models import ActivityTag, DailyRecord
 
-    month_start = date(year, month, 1)
 
     # 利用日（BillingMatrixEntry で status='attended' のもの）。基本報酬は日ごとの時間区分で数える（billing/codes.py）
     attended = list(BillingMatrixEntry.objects.filter(
@@ -1047,18 +1080,14 @@ def _build_invoice_context(facility, beneficiary, year, month):
     ).order_by('date'))
     attended_days = len(attended)
     base_rows, base_units_total = base_rows_for(facility, beneficiary, attended)
+    # 減算（自己評価結果等未公表・支援プログラム未公表・開所時間・個別支援計画未作成）は基本報酬に掛ける
+    reductions = reductions_for(facility, beneficiary, year, month)
+    if reductions:
+        base_units_total = apply_reductions(base_rows, reductions)
 
-    # 当月有効な受給者証（最新）
-    cert = (
-        RecipientCertificate.objects
-        .filter(
-            beneficiary=beneficiary,
-            valid_from__lte=month_start,
-            valid_until__gte=month_start,
-        )
-        .order_by('-valid_until')
-        .first()
-    )
+    # 当月の請求に使う受給者証（月の途中から有効なものも。billing/copayment.py）
+    from .copayment import cert_for_month
+    cert = cert_for_month(beneficiary, year, month)
     monthly_cap  = cert.monthly_cap if cert else None
     cert_number  = cert.certificate_number if cert else ''
 
@@ -1125,6 +1154,7 @@ def _build_invoice_context(facility, beneficiary, year, month):
         'attended_days':      attended_days,
         'base_rows':          base_rows,
         'base_units_total':   base_units_total,
+        'reductions':         reductions,
         'addon_rows':         addon_rows,
         'addon_units_total':  addon_units_total,
         'treatment':          treatment,
@@ -1138,6 +1168,42 @@ def _build_invoice_context(facility, beneficiary, year, month):
         'grand_total':        grand_total,
         'issued_date':        date.today(),
     }
+
+
+class ReductionUpdateView(LoginRequiredMixin, BillingEnabledMixin, View):
+    """利用者ごと・月ごとの個別支援計画未作成減算を保存する（請求書・領収書の一覧から）"""
+
+    def post(self, request, beneficiary_pk, year, month):
+        facility = request.user.facility
+        beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=facility)
+        year, month = month_or_404(year, month)
+        value = request.POST.get('no_plan', '')
+        if value not in dict(MonthlyReduction.NO_PLAN_CHOICES):
+            value = ''
+        MonthlyReduction.objects.update_or_create(facility=facility, beneficiary=beneficiary, year_month=f'{year:04d}-{month:02d}',
+                                                  defaults={'no_plan': value})
+        label = dict(MonthlyReduction.NO_PLAN_CHOICES)[value]
+        messages.success(request, f'{beneficiary.full_name}（{year}年{month}月）の個別支援計画未作成減算：{label}')
+        return redirect('billing:invoice_list_month', year=year, month=month)
+
+
+class ForecastView(LoginRequiredMixin, BillingEnabledMixin, View):
+    """月次の見込み：延べ利用人数・総費用（売上の概算）・給付費・利用者負担・処遇改善加算の額（実績と、予定を足した見込み）。billing/forecast.py"""
+
+    def get(self, request, year=None, month=None):
+        from . import forecast
+        today = date.today()
+        year, month = month_or_404(year or today.year, month or today.month)
+        facility = request.user.facility
+        prev_year, prev_month = (year - 1, 12) if month == 1 else (year, month - 1)
+        next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+        summary = forecast.month_summary(facility, year, month, today)
+        prev = forecast.month_summary(facility, prev_year, prev_month, today)['actual']
+        return render(request, 'billing/forecast.html', {
+            'year': year, 'month': month, 'prev_year': prev_year, 'prev_month': prev_month,
+            'next_year': next_year, 'next_month': next_month, 'summary': summary, 'prev': prev,
+            'is_current': (year, month) == (today.year, today.month), 'today': today,
+        })
 
 
 class InvoiceListView(LoginRequiredMixin, BillingEnabledMixin, View):
@@ -1182,11 +1248,14 @@ class InvoiceListView(LoginRequiredMixin, BillingEnabledMixin, View):
         for e in entries:
             attended_map[e['beneficiary_id']] = e['count']
 
+        no_plan = dict(MonthlyReduction.objects.filter(facility=facility, year_month=f'{year:04d}-{month:02d}')
+                       .values_list('beneficiary_id', 'no_plan'))
         rows = []
         for b in beneficiaries:
             rows.append({
                 'beneficiary':   b,
                 'attended_days': attended_map.get(b.pk, 0),
+                'no_plan':       no_plan.get(b.pk, ''),
             })
 
         return render(request, 'billing/invoice_list.html', {
@@ -1197,6 +1266,7 @@ class InvoiceListView(LoginRequiredMixin, BillingEnabledMixin, View):
             'next_year':  next_year,
             'next_month': next_month,
             'rows':       rows,
+            'no_plan_choices': MonthlyReduction.NO_PLAN_CHOICES,
             'today':      today,
         })
 

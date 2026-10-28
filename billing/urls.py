@@ -22,6 +22,10 @@ urlpatterns = [
     path('matrix/<int:year>/<int:month>/load-from-schedule/',
          views.LoadFromScheduleView.as_view(), name='load_from_schedule'),
 
+    # 月次の見込み
+    path('forecast/', views.ForecastView.as_view(), name='forecast'),
+    path('forecast/<int:year>/<int:month>/', views.ForecastView.as_view(), name='forecast_month'),
+
     # 利用者負担上限額管理
     path('copayment/',
          views.CopaymentListView.as_view(), name='copayment_list'),
@@ -45,6 +49,8 @@ urlpatterns = [
          views.InvoiceListView.as_view(), name='invoice_list'),
     path('invoice/<int:year>/<int:month>/',
          views.InvoiceListView.as_view(), name='invoice_list_month'),
+    path('invoice/<int:beneficiary_pk>/<int:year>/<int:month>/reduction/',
+         views.ReductionUpdateView.as_view(), name='reduction_update'),
     path('invoice/<int:beneficiary_pk>/<int:year>/<int:month>/pdf/',
          views.InvoicePdfView.as_view(), name='invoice_pdf'),
     path('receipt/<int:beneficiary_pk>/<int:year>/<int:month>/pdf/',
