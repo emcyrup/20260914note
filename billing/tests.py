@@ -872,3 +872,55 @@ class ForecastTests(TestCase):
         self.facility.use_billing = False
         self.facility.save()
         self.assertEqual(self.client.get(reverse('billing:forecast')).status_code, 302)
+
+
+class BillingDemoTests(TestCase):
+    """請求デモ（billing_demo）：40 人を入れて、請求まわりの画面と計算が通ること・消せること"""
+
+    def setUp(self):
+        from facilities.addon_defaults import load_default_addons
+        load_default_addons(AddonMaster)
+        self.facility = Facility.objects.create(name='はびりす', office_number='2650000001', use_billing=True, use_schedule=True,
+                                                region_category='3')
+        self.user = StaffAccount.objects.create_user(username='staff', password='pw12345678', facility=self.facility,
+                                                     role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        self.real = Beneficiary.objects.create(facility=self.facility, last_name='本物', first_name='太郎', date_of_birth='2015-01-01')
+
+    def test_seed_screens_and_remove(self):
+        from . import demo, forecast, readiness
+        out = demo.seed(self.facility, 2026, 10, today=date(2026, 10, 20))
+        self.assertEqual(out['people'], 40)
+        self.assertTrue(out['settings'])                                         # 空だった定員区分と加算を埋めた
+        self.facility.refresh_from_db()
+        self.assertEqual(self.facility.capacity_class, '20')
+        self.assertTrue(demo.seed(self.facility, 2026, 10)['skipped'])           # 二重に入らない
+        texts = ' '.join(i['text'] for i in readiness.issues(self.facility, date(2026, 10, 1)))
+        self.assertIn('来所の日数が支給量を超えている', texts)
+        self.assertIn('月の途中で負担上限月額が変わった', texts)
+        results = set(CopaymentManagement.objects.filter(facility=self.facility, year_month='2026-09', is_upper_limit_manager=True)
+                      .values_list('management_result', flat=True))
+        self.assertEqual(results, {'1', '2', '3'})                              # 前月に結果 1・2・3 がそろう
+        s = forecast.month_summary(self.facility, 2026, 10, today=date(2026, 10, 20))
+        self.assertEqual(s['forecast']['people'], 40)
+        self.assertGreater(s['forecast']['cost'], s['actual']['cost'] > 0)
+        self.assertFalse(s['unknown'])
+        for name, args in (('matrix_month', [2026, 10]), ('copayment_list_month', [2026, 9]), ('invoice_list_month', [2026, 10]),
+                           ('forecast_month', [2026, 10]), ('billing_csv', [2026, 9]), ('copayment_office_list', [2026, 9])):
+            self.assertEqual(self.client.get(reverse('billing:' + name, args=args)).status_code, 200, name)
+        b = Beneficiary.objects.filter(facility=self.facility, notes__startswith=demo.MARK).order_by('pk')[35]
+        from .views import _build_invoice_context
+        self.assertEqual([r[0] for r in _build_invoice_context(self.facility, b, 2026, 10)['reductions']], ['no_plan'])
+        self.assertEqual(demo.remove(self.facility), 40)
+        self.assertEqual(list(Beneficiary.objects.filter(facility=self.facility)), [self.real])   # ほかの利用者は残る
+        self.assertFalse(BillingMatrixEntry.objects.filter(facility=self.facility).exists())
+
+    def test_command(self):
+        from io import StringIO
+        from django.core.management import call_command
+        buf = StringIO()
+        call_command('billing_demo', '--facility', str(self.facility.pk), '--month', '2026-10', '--count', '5', stdout=buf)
+        self.assertIn('請求デモの利用者 5 人', buf.getvalue())
+        self.assertNotIn('青木', buf.getvalue())                                 # 名前はログに出さない
+        call_command('billing_demo', '--facility', str(self.facility.pk), '--remove', stdout=buf)
+        self.assertIn('5 人を関連の記録ごと消しました', buf.getvalue())
