@@ -100,14 +100,14 @@ def _audio(pcm):
     return np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
 
 
-def transcribe_pcm(pcm, language='ja', prompt=''):
-    """16kHz・モノラル・16bit の PCM を文字にする。聞き取れなければ空文字"""
+def transcribe_pcm(pcm, language='ja', prompt='', beam=0):
+    """16kHz・モノラル・16bit の PCM を文字にする。聞き取れなければ空文字。beam は計測用（既定は WHISPER_BEAM）"""
     audio = _audio(pcm)
     model = load()
     t = time.monotonic()
     with _one_at_a_time():
         segments, _info = model.transcribe(
-            audio, language=language, beam_size=int(getattr(settings, 'WHISPER_BEAM', 5) or 5),
+            audio, language=language, beam_size=beam or int(getattr(settings, 'WHISPER_BEAM', 5) or 5),
             initial_prompt=prompt or None,      # この分野の言葉・事業所の名前や活動名（固有名詞の聞き取りを助ける）
             vad_filter=True, condition_on_previous_text=False, without_timestamps=True,
         )
