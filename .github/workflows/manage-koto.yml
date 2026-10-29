@@ -8,6 +8,8 @@
 #   - demo_add        : 居宅介護支援の架空のサンプル（利用者 4 人と記録・取引先）を入れる（facility_id。空なら居宅介護の事業所）
 #   - demo_remove     : そのサンプルだけを消す（備考が【サンプル】の利用者と、サンプルの取引先。ほかのデータは触らない）
 #   - error_log       : サーバーのエラーログの末尾（技術的な行だけ。日本語と長い数字は伏せる）を表示する
+#   - speech_check    : 音声入力（文字起こし）の設定と、Whisper の読み込み・文字起こしにかかる時間を測る（音声や個人情報は出ない）
+#   - speech_log      : 音声入力の送信（/ai/transcribe/）が届いているか。access.log から日時・結果・端末の種類だけを出す（直近 14 日）
 #   - set_media_root  : .env の MEDIA_ROOT を ~/kaigonotekoto/media に直して Gunicorn を再起動する（写真・書類が 500 になるとき）
 #   - status            : アプリが動いているか・いまのコミット・最近の配備を表示する
 #   - autostart_check   : サーバーの再起動のあとに自動で上がる設定（crontab の @reboot と 5 分ごとの見回り）があるか確かめる
@@ -28,7 +30,7 @@ on:
         type: choice
         required: true
         default: list
-        options: [create_facility, set_password, list, delete_facility, demo_add, demo_remove, error_log, set_media_root, status, autostart_check, autostart_install, backup, backup_list, backup_check]
+        options: [create_facility, set_password, list, delete_facility, demo_add, demo_remove, error_log, speech_check, speech_log, set_media_root, status, autostart_check, autostart_install, backup, backup_list, backup_check]
       facility_name:
         description: "事業所名（create_facility）"
         type: string
@@ -149,6 +151,19 @@ jobs:
                     | LC_ALL=C sed -E 's/[^\x00-\x7F]/*/g; s/[0-9]{6,}/#/g; s/\*{4,}/***/g' || echo "(無し)"
                 done
                 echo "== 空き容量 =="; df -h "$APP_DIR" /tmp 2>/dev/null | tail -n 2; du -sh media 2>/dev/null ;;
+              speech_check)
+                # 出るのは CPU・メモリ・使う方式・モデル名・時間だけ（.env の値は出さない）
+                python manage.py speech_check --seconds 5 ;;
+              speech_log)
+                # 音声の送信が届いているか。日時・応答・大きさ・端末の種類（iPhone/Android/Windows/Mac とブラウザ）だけを出す
+                echo "== /ai/transcribe/ への送信（access.log、直近 14 日） =="
+                since=$(date -d '14 days ago' '+%Y-%m-%d' 2>/dev/null || echo 0000-00-00)
+                grep -F '/ai/transcribe/' logs/access.log 2>/dev/null \
+                  | awk -v s="$since" '{ if ($4 ~ /^\[/) { split($4, a, "[/:\\[]"); m["Jan"]="01";m["Feb"]="02";m["Mar"]="03";m["Apr"]="04";m["May"]="05";m["Jun"]="06";m["Jul"]="07";m["Aug"]="08";m["Sep"]="09";m["Oct"]="10";m["Nov"]="11";m["Dec"]="12"; d=a[4] "-" m[a[3]] "-" a[2]; if (d>=s) print d " " a[5] ":" a[6] " 応答=" $9 " " $10 "B " ($0 ~ /iPhone|iPad/ ? "iPhone/iPad" : $0 ~ /Android/ ? "Android" : $0 ~ /Windows/ ? "Windows" : $0 ~ /Macintosh/ ? "Mac" : "その他") "/" ($0 ~ /Edg/ ? "Edge" : $0 ~ /CriOS|Chrome/ ? "Chrome" : $0 ~ /Firefox/ ? "Firefox" : $0 ~ /Safari/ ? "Safari" : "不明") } }' \
+                  | tail -n 60
+                n=$(grep -cF '/ai/transcribe/' logs/access.log 2>/dev/null || echo 0); echo "（これまでの送信 $n 件）"
+                echo "== 画面を開いた端末の種類（直近 14 日・ログインしている画面。件数だけ） =="
+                awk -v s="$since" '{ if ($4 ~ /^\[/ && $7 !~ /^\/(static|healthz|media)/) { split($4, a, "[/:\\[]"); m["Jan"]="01";m["Feb"]="02";m["Mar"]="03";m["Apr"]="04";m["May"]="05";m["Jun"]="06";m["Jul"]="07";m["Aug"]="08";m["Sep"]="09";m["Oct"]="10";m["Nov"]="11";m["Dec"]="12"; d=a[4] "-" m[a[3]] "-" a[2]; if (d>=s) c[($0 ~ /iPhone|iPad/ ? "iPhone/iPad" : $0 ~ /Android/ ? "Android" : $0 ~ /Windows/ ? "Windows" : $0 ~ /Macintosh/ ? "Mac" : "その他") "/" ($0 ~ /Edg/ ? "Edge" : $0 ~ /CriOS|Chrome/ ? "Chrome" : $0 ~ /Firefox/ ? "Firefox" : $0 ~ /Safari/ ? "Safari" : "不明")]++ } } END { for (k in c) print "  " k ": " c[k] " 件" }' logs/access.log 2>/dev/null | sort || true ;;
               set_media_root)
                 target="$APP_DIR/media"
                 mkdir -p "$target"
