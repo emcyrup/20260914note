@@ -379,6 +379,40 @@ class SpeechTranscribeTests(TestCase):
             self.assertNotContains(res, 'id="mn-speakers"')                     # キーが無ければスイッチも出ない
 
 
+class VoiceReportTests(TestCase):
+    """音声入力がうまく動かなかった知らせ（voice-input.js → ログ）。出来事の名前と端末の種類だけを残す"""
+
+    def setUp(self):
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        self.f = Facility.objects.create(name='居宅介護支援事業所コト', layout=Facility.LAYOUT_KYOTAKU)
+        StaffAccount.objects.create_user('cm', password='pw12345678', facility=self.f)
+        self.url = reverse('ai_assist:voice_report')
+
+    def test_logs_event_without_words(self):
+        self.client.login(username='cm', password='pw12345678')
+        ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
+        with self.assertLogs('ai_assist.views', level='WARNING') as cm:
+            res = self.client.post(self.url, data='{"v": "v11", "event": "fallback", "reason": "network", "secure": true, "sr": true, "server": true, "page": "/kaigo/users/3/logs/", "words": "ひみつ"}',
+                                   content_type='application/json', HTTP_USER_AGENT=ua)
+        self.assertEqual(res.status_code, 200)
+        line = cm.output[0]
+        self.assertIn('VoiceInputWarning event=fallback reason=network v=v11 secure=True sr=True server=True device=Windows/Chrome page=/kaigo/users/3/logs/', line)
+        self.assertIn(f'facility={self.f.pk}', line)
+        self.assertNotIn('ひみつ', line)
+        # 壊れた JSON でも落ちない（出来事は「-」）
+        with self.assertLogs('ai_assist.views', level='WARNING') as cm:
+            self.assertEqual(self.client.post(self.url, data='{bad', content_type='application/json').status_code, 200)
+        self.assertIn('event=- reason=-', cm.output[0])
+
+    def test_requires_login_and_page_has_report_url(self):
+        self.assertEqual(self.client.post(self.url, data='{}', content_type='application/json').status_code, 302)
+        self.client.login(username='cm', password='pw12345678')
+        res = self.client.get(reverse('facilities:dashboard'), follow=True)     # 居宅介護支援の型はトップが別の画面
+        self.assertContains(res, "window.VOICE_INPUT_REPORT = '/ai/voice/report/'")
+        self.assertContains(res, 'js/voice-input.js')
+
+
 class WhisperLocalTests(TestCase):
     """サーバー内の文字起こし（faster-whisper）。モデルは偽物で、流れだけ確かめる"""
 
