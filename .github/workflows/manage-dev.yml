@@ -11,6 +11,8 @@
 #   - set_media_root  : .env の MEDIA_ROOT を ~/michinotedemo/media に直して Gunicorn を再起動する（写真・書類が 500 になるとき）
 #   - billing_demo    : 請求の動作確認用の架空の利用者 40 人と 2 か月ぶんの出欠・加算・上限額管理を入れる（facility_id。billing/demo.py）
 #   - billing_demo_remove : billing_demo で入れた利用者だけを関連の記録ごと消す（facility_id）
+#   - disable_logins  : その事業所の職員アカウントをすべて無効にして、ログインできなくする（facility_id。データは残る）
+#   - enable_logins   : disable_logins で無効にしたアカウントを有効に戻す（facility_id）
 #
 # パスワードは入力欄では受け取らない（入力欄の値は公開のログの「env:」にそのまま出るため）。
 # リポジトリの Secrets の DEV_ADMIN_PASSWORD に入れてから set_password／create_facility を実行する（Secrets はログで伏せられる）。
@@ -27,7 +29,7 @@ on:
         type: choice
         required: true
         default: list
-        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, error_log, set_media_root, billing_demo, billing_demo_remove]
+        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, error_log, set_media_root, billing_demo, billing_demo_remove, disable_logins, enable_logins]
       facility_name:
         description: "事業所名（create_facility）"
         type: string
@@ -41,7 +43,7 @@ on:
         type: boolean
         default: true
       facility_id:
-        description: "施設 ID（seed_demo・seed_demo_reset・billing_demo。空なら事業所が1つのときだけ自動。billing_demo は必須）"
+        description: "施設 ID（seed_demo・seed_demo_reset・billing_demo・disable_logins・enable_logins。空なら事業所が1つのときだけ自動。billing_demo と *_logins は必須）"
         type: string
         default: ""
       copy_from:
@@ -160,6 +162,10 @@ jobs:
               billing_demo_remove)
                 [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください"; exit 1; }
                 python manage.py billing_demo --facility "$FACILITY_ID" --remove ;;
+              disable_logins|enable_logins)
+                [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください（list で確認）"; exit 1; }
+                # 事業所の職員をまとめて無効／有効にする（ユーザー名は出さず、件数だけ）
+                FACILITY_ID="$FACILITY_ID" TASK="$TASK" python manage.py shell -c "import os; from facilities.models import Facility; from accounts.models import StaffAccount; f = Facility.objects.get(pk=os.environ['FACILITY_ID']); on = os.environ['TASK'] == 'enable_logins'; n = StaffAccount.objects.filter(facility=f, is_active=not on).update(is_active=on); print(f'施設 {f.pk}「{f.name}」の職員アカウント {n} 件を', '有効に戻しました' if on else '無効にしました（ログインできません）')" ;;
               *) echo "unknown task: $TASK"; exit 1 ;;
             esac
           REMOTE
