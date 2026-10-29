@@ -155,7 +155,11 @@ jobs:
                 # 出るのは CPU・メモリ・使う方式・モデル名・時間だけ（.env の値は出さない）
                 # 短い区切り（5 秒）と長い区切り（25 秒）の両方。Whisper は 30 秒の窓ごとに処理するので、短く送っても速くならない
                 python manage.py speech_check --seconds 5
-                python manage.py speech_check --seconds 25 ;;
+                # 同梱の合成音声（架空の文）で、区切りの長さ（5・12・33 秒）と探索の幅（beam 5・1）の違いを測る
+                python manage.py speech_check --sample --seconds 5
+                python manage.py speech_check --sample --seconds 12
+                python manage.py speech_check --sample
+                python manage.py speech_check --sample --beam 1 ;;
               speech_log)
                 # 音声の送信が届いているか。日時・応答・大きさ・端末の種類（iPhone/Android/Windows/Mac とブラウザ）だけを出す
                 echo "== /ai/transcribe/ への送信（access.log、直近 14 日） =="

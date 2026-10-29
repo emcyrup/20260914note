@@ -4,8 +4,11 @@
   python manage.py speech_check                 # いまの設定（.env）で
   WHISPER_MODEL=small python manage.py speech_check --seconds 15
   python manage.py speech_check --wav 録音.wav   # 16kHz・モノラル・16bit の WAV を文字にして時間を測る
+  python manage.py speech_check --sample [--seconds 12] [--beam 1]
+      # 同梱の合成音声（ai_assist/fixtures/speech_sample.wav。架空の支援経過を読み上げた 33 秒。個人の声ではない）の
+      # 先頭 N 秒を文字にして時間を測る。区切りの長さや探索の幅（beam）で速さがどう変わるかを見る
 
-出力は CPU の数・メモリ・モデル名・時間だけ（話した言葉は --wav のときだけ出す）。
+出力は CPU の数・メモリ・モデル名・時間だけ（話した言葉は --wav・--sample のときだけ出す）。
 """
 import os
 import time
@@ -45,6 +48,8 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--seconds', type=int, default=15, help='テスト用の音の長さ（秒）')
         parser.add_argument('--wav', default='', help='文字にする WAV（16kHz・モノラル・16bit）')
+        parser.add_argument('--sample', action='store_true', help='同梱の合成音声（架空の文）を使う。--seconds で先頭だけに切れる')
+        parser.add_argument('--beam', type=int, default=0, help='探索の幅（WHISPER_BEAM）を一時的に変えて測る')
 
     def handle(self, *args, **opts):
         out = self.stdout.write
@@ -54,20 +59,25 @@ class Command(BaseCommand):
             out('WHISPER_MODEL が無いので Whisper の計測はしません。')
             return
         from ai_assist import whisper_local
-        out(f'モデル: {whisper_local.model_name()}（compute={getattr(settings, "WHISPER_COMPUTE", "") or "int8"}, threads={whisper_local.threads()}）')
+        beam = opts['beam'] or int(getattr(settings, 'WHISPER_BEAM', 5) or 5)
+        out(f'モデル: {whisper_local.model_name()}（compute={getattr(settings, "WHISPER_COMPUTE", "") or "int8"}, threads={whisper_local.threads()}, beam={beam}）')
         t = time.monotonic()
         whisper_local.load()
         out(f'読み込み: {time.monotonic() - t:.1f} 秒（最初はダウンロードを含む）')
+        if opts['sample']:
+            opts['wav'] = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'fixtures', 'speech_sample.wav')
         if opts['wav']:
             with open(opts['wav'], 'rb') as f:
                 pcm = speech.read_wav(f.read())
-            label = f'WAV {len(pcm) / 32000:.1f} 秒'
+            if opts['sample'] and opts['seconds'] and opts['seconds'] * 32000 < len(pcm):
+                pcm = pcm[:opts['seconds'] * 32000]
+            label = f'{"合成音声" if opts["sample"] else "WAV"} {len(pcm) / 32000:.1f} 秒'
         else:
             pcm = _tone(opts['seconds'])
             label = f'テスト音 {opts["seconds"]} 秒'
         for n in (1, 2):
             t = time.monotonic()
-            text = whisper_local.transcribe_pcm(pcm)
+            text = whisper_local.transcribe_pcm(pcm, beam=beam)
             out(f'{label} → {time.monotonic() - t:.1f} 秒（{n} 回目、{len(text)} 字）')
         if opts['wav']:
             out(text)
