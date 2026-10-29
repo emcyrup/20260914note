@@ -80,6 +80,8 @@ class Facility(models.Model):
     base_code_3 = models.CharField(max_length=10, blank=True, verbose_name='基本報酬のサービスコード（区分3）')
     # 主として重症心身障害児を通わせる事業所（地域区分の単価が違う）
     is_severe_facility = models.BooleanField(default=False, verbose_name='主として重症心身障害児を通わせる事業所')
+    # 重心型の定員（1 人刻み）。基本報酬の帯（5〜7・8〜10・11 人以上）と看護職員加配加算の単位数が決まる（billing/codes.py）
+    severe_capacity = models.CharField(max_length=2, blank=True, verbose_name='重心型の定員')
     # 基本報酬単位数（定員区分が空のときの 1 日の単位数。請求書PDF生成に使用）
     base_unit_count = models.IntegerField(
         null=True, blank=True, verbose_name='1日あたり基本報酬単位数'
@@ -211,8 +213,18 @@ class Facility(models.Model):
         return table.get(self.region_category, Decimal('10.00'))
 
     def severe_units_apply(self, beneficiary):
-        """この利用者に重心型の基本報酬（授業終了後／学校休業日）を使うか"""
-        return bool(getattr(beneficiary, 'is_severe', False) and self.base_unit_count_severe)
+        """この利用者に重心型の基本報酬（授業終了後／学校休業日）を使うか（手で入れた単位数か、重心型の定員があるとき）"""
+        return bool(getattr(beneficiary, 'is_severe', False) and (self.base_unit_count_severe or (self.is_severe_facility and self.severe_capacity)))
+
+    def severe_base_units(self, kind):
+        """重心型の基本報酬（授業終了後／学校休業日）。施設設定の単位数があればそれ、無ければ重心型の定員の表"""
+        from billing.codes import SEVERE_HOLIDAY, severe_base_units
+        manual = (self.base_unit_count_severe_holiday or self.base_unit_count_severe) if kind == SEVERE_HOLIDAY else self.base_unit_count_severe
+        if manual:
+            return manual
+        if self.is_severe_facility and self.severe_capacity:
+            return severe_base_units(self.severe_capacity, kind) or 0
+        return 0
 
     def base_code(self, kubun, beneficiary=None):
         """
@@ -238,10 +250,8 @@ class Facility(models.Model):
         無ければ手入力の単位数
         """
         if self.severe_units_apply(beneficiary):
-            from billing.codes import SEVERE_HOLIDAY, severe_kind
-            if kubun and severe_kind(kubun) == SEVERE_HOLIDAY and self.base_unit_count_severe_holiday:
-                return self.base_unit_count_severe_holiday
-            return self.base_unit_count_severe
+            from billing.codes import SEVERE_SCHOOL, severe_kind
+            return self.severe_base_units(severe_kind(kubun) if kubun else SEVERE_SCHOOL)
         if self.capacity_class and kubun:
             from billing.codes import table_units
             units = table_units(self.capacity_class, kubun, getattr(beneficiary, 'medical_care_level', 0) or 0)
@@ -372,8 +382,8 @@ class AddonRow:
         self.setting = setting
         self.is_enabled = bool(setting and setting.is_enabled)
         # 定員区分で単位数が変わる体制加算は、事業所の上書きが無ければコード表（billing/codes.py）の値
-        from billing.codes import capacity_addon
-        by_cap = capacity_addon(addon.name, facility.capacity_class) if facility.capacity_class else None
+        from billing.codes import facility_capacity_addon
+        by_cap = facility_capacity_addon(facility, addon.name)
         self.code = (setting.code if setting and setting.code else (by_cap[0] if by_cap else addon.code)) or ''
         self.unit_count = (setting.unit_count if setting and setting.unit_count is not None
                            else (by_cap[1] if by_cap else addon.unit_count))

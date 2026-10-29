@@ -439,7 +439,7 @@ class AddonSettingView(AdminOnlyMixin, View):
         for addon in addons:
             code = (request.POST.get(f'code_{addon.pk}') or '').strip()[:10]
             units = to_int(request.POST.get(f'units_{addon.pk}'))
-            by_cap = codes.capacity_addon(addon.name, facility.capacity_class) if facility.capacity_class else None
+            by_cap = codes.facility_capacity_addon(facility, addon.name)
             if code == addon.code or (by_cap and code == by_cap[0]):
                 code = ''
             if units is not None and (units == addon.unit_count or (by_cap and units == by_cap[1])):

@@ -222,14 +222,18 @@ class CellPopupView(LoginRequiredMixin, BillingEnabledMixin, View):
             )
 
         # 個別加算の一覧：施設設定で「算定する」にしたもの（設定が無ければ全部）と、このセルにもう付いているもの
+        # 利用者の区分（重心・医療的ケア）に当てはまらない加算（一般の延長支援・ほかの区分の上乗せなど）は出さない
         enabled = {r.pk for r in facility_addon_rows(facility, addon_type='individual', enabled_only=True)}
-        shown = [r for r in facility_addon_rows(facility, addon_type='individual') if r.pk in enabled or r.pk in applied_addon_ids]
+        shown = [r for r in facility_addon_rows(facility, addon_type='individual')
+                 if r.pk in applied_addon_ids or (r.pk in enabled and codes.addon_applies(r.name, beneficiary))]
         individual_addons = [r.addon for r in shown]
 
         # 手動保存済みの加算がない場合のみ自動提案を実施
         is_auto_suggested = not bool(applied_addon_ids)
         if is_auto_suggested:
             applied_addon_ids = _suggest_addons(visit, facility, target_date, beneficiary, individual_addons)
+            # 重心・医療的ケア児の送迎には上乗せも一緒に付ける
+            applied_addon_ids |= codes.companion_addons(beneficiary, [r for r in shown if r.pk in applied_addon_ids], shown)
 
         addon_list = [{'addon': r.addon, 'is_applied': r.pk in applied_addon_ids, 'row': r} for r in shown]
 
@@ -380,6 +384,12 @@ class CellUpdateView(LoginRequiredMixin, BillingEnabledMixin, View):
         # 加算を更新（いったん全削除して選択されたものを再登録）
         BillingMatrixAddon.objects.filter(entry=entry).delete()
         selected_addon_ids = request.POST.getlist('addon_ids')
+        # 重心・医療的ケア児：送迎を付けたら上乗せも付ける（画面で外されていても、片道ごとの上乗せは算定もれになりやすい）
+        rows = {str(r.pk): r for r in facility_addon_rows(facility, addon_type='individual')}
+        chosen = [rows[i] for i in selected_addon_ids if i in rows]
+        for pk in codes.companion_addons(beneficiary, chosen, [r for r in rows.values() if r.is_enabled]):
+            if str(pk) not in selected_addon_ids:
+                selected_addon_ids.append(str(pk))
         for addon_id in selected_addon_ids:
             try:
                 addon = AddonMaster.objects.get(pk=addon_id, is_active=True, addon_type='individual')
@@ -820,6 +830,7 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
 
         # 個別加算（事業所の単位数の上書きを含む）。列は「算定する」にしたものと、この月に付いているもの
         addon_rows_all = facility_addon_rows(facility, addon_type='individual')
+        individual_rows = {r.pk: r for r in addon_rows_all}        # 送迎の上乗せを片道の数で数える（addon_counts）
 
         # 当月の BillingMatrixEntry から利用状態別カウントを集計
         # {beneficiary_id: {'attended': N, 'absent': N, 'transferred': N}}
@@ -840,9 +851,9 @@ class BillingCsvView(LoginRequiredMixin, BillingEnabledMixin, View):
 
             if bid not in addon_count:
                 addon_count[bid] = {}
-            for ba in entry.addons.filter(is_applied=True):
-                aid = ba.addon_id
-                addon_count[bid][aid] = addon_count[bid].get(aid, 0) + 1
+            applied = [ba.addon_id for ba in entry.addons.all() if ba.is_applied]
+            for aid, n in count_addon_uses(individual_rows, [(entry.pk, a) for a in applied]).items():
+                addon_count[bid][aid] = addon_count[bid].get(aid, 0) + n
 
         enabled = {r.pk for r in facility_addon_rows(facility, addon_type='individual', enabled_only=True)}
         used = {aid for ac in addon_count.values() for aid in ac}
@@ -1007,11 +1018,9 @@ def addon_rows_for(facility, beneficiary, year, month, attended_days, base_units
     """
     rows, total = [], 0
     individual = {r.pk: r for r in facility_addon_rows(facility, addon_type='individual')}
-    counts = {}
-    for aid in BillingMatrixAddon.objects.filter(
-            entry__facility=facility, entry__beneficiary=beneficiary,
-            entry__date__year=year, entry__date__month=month, is_applied=True).values_list('addon_id', flat=True):
-        counts[aid] = counts.get(aid, 0) + 1
+    counts = count_addon_uses(individual, BillingMatrixAddon.objects.filter(
+        entry__facility=facility, entry__beneficiary=beneficiary,
+        entry__date__year=year, entry__date__month=month, is_applied=True).values_list('entry_id', 'addon_id'))
     for aid, n in counts.items():
         r = individual.get(aid)
         if r is None or not r.unit_count:
@@ -1040,6 +1049,24 @@ def addon_rows_for(facility, beneficiary, year, month, attended_days, base_units
         treatment = ({'name': treatment.name, 'code': treatment.code, 'rate': rate,
                       'units': codes.treatment_units(base_units + total, rate)} if rate else None)
     return rows, total, treatment
+
+
+def count_addon_uses(individual, entry_addon_pairs):
+    """
+    加算 ID → その月の回数。送迎の上乗せ（重心・医療的ケア児）は 1 日 1 回ではなく、その日の送迎の片道の数（往・復で 2）。
+    individual は加算 ID → AddonRow、entry_addon_pairs は (セル ID, 加算 ID) の並び
+    """
+    per_entry = {}
+    for eid, aid in entry_addon_pairs:
+        per_entry.setdefault(eid, set()).add(aid)
+    counts = {}
+    for aids in per_entry.values():
+        legs = sum(1 for a in aids if a in individual and codes.is_leg_addon(individual[a].name))
+        for a in aids:
+            n = legs if (a in individual and codes.is_per_leg_addon(individual[a].name)) else 1
+            if n:
+                counts[a] = counts.get(a, 0) + n
+    return counts
 
 
 def base_for_entry(facility, beneficiary, entry):

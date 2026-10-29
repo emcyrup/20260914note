@@ -16,7 +16,7 @@ class FacilityForm(forms.ModelForm):
             'name', 'office_number', 'address', 'phone', 'representative_email',
             'region_category', 'standard_close_time',
             'capacity_class', 'time_kubun_weekday', 'time_kubun_holiday', 'base_code_1', 'base_code_2', 'base_code_3',
-            'is_severe_facility', 'base_unit_count', 'base_unit_count_severe', 'base_unit_count_severe_holiday',
+            'is_severe_facility', 'severe_capacity', 'base_unit_count', 'base_unit_count_severe', 'base_unit_count_severe_holiday',
             'base_code_severe', 'base_code_severe_holiday', 'is_new_facility_r8',
             'reduce_self_eval', 'reduce_program', 'reduce_hours',
             'line_channel_access_token', 'line_channel_secret',
@@ -43,6 +43,7 @@ class FacilityForm(forms.ModelForm):
             'base_code_2':              forms.TextInput(attrs={'class': 'form-control font-monospace', 'maxlength': '10', 'placeholder': '例：63xxxx'}),
             'base_code_3':              forms.TextInput(attrs={'class': 'form-control font-monospace', 'maxlength': '10', 'placeholder': '例：63xxxx'}),
             'is_severe_facility':       forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'severe_capacity':          forms.Select(attrs={'class': 'form-select'}),
             'is_new_facility_r8':       forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'reduce_self_eval':         forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'reduce_program':           forms.CheckboxInput(attrs={'class': 'form-check-input'}),
@@ -77,6 +78,9 @@ class FacilityForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        from billing.codes import SEVERE_CAPACITY_CHOICES
+        self.fields['severe_capacity'] = forms.ChoiceField(choices=SEVERE_CAPACITY_CHOICES, required=False, label='重心型の定員',
+                                                           widget=forms.Select(attrs={'class': 'form-select'}))
         from billing.codes import KUBUN_CHOICES
         self.fields['time_kubun_weekday'].widget.choices = [(k, v) for k, v in KUBUN_CHOICES if k != 3]
         self.fields['time_kubun_holiday'].widget.choices = list(KUBUN_CHOICES)
