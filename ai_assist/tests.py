@@ -385,7 +385,7 @@ class VoiceReportTests(TestCase):
     def setUp(self):
         from accounts.models import StaffAccount
         from facilities.models import Facility
-        self.f = Facility.objects.create(name='居宅介護支援事業所コト', layout=Facility.LAYOUT_KYOTAKU)
+        self.f = Facility.objects.create(name='テスト事業所')
         StaffAccount.objects.create_user('cm', password='pw12345678', facility=self.f)
         self.url = reverse('ai_assist:voice_report')
 
@@ -408,7 +408,7 @@ class VoiceReportTests(TestCase):
     def test_requires_login_and_page_has_report_url(self):
         self.assertEqual(self.client.post(self.url, data='{}', content_type='application/json').status_code, 302)
         self.client.login(username='cm', password='pw12345678')
-        res = self.client.get(reverse('facilities:dashboard'), follow=True)     # 居宅介護支援の型はトップが別の画面
+        res = self.client.get(reverse('facilities:dashboard'), follow=True)
         self.assertContains(res, "window.VOICE_INPUT_REPORT = '/ai/voice/report/'")
         self.assertContains(res, 'js/voice-input.js')
 
