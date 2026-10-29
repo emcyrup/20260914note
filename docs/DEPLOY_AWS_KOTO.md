@@ -54,3 +54,8 @@ Manage (koto) → `task=demo_add` で、居宅介護支援の架空のサンプ�
 - 動いているか・いまのコミット：`status`
 - 写真・書類が開けない：`set_media_root`
 - バックアップ：`backup`・`backup_list`・`backup_check`
+- 音声入力が文字にならない（2026-10-29 の件）
+  - パソコン（Windows・Mac の Chrome・Edge）はブラウザの音声認識（Google のサービスに通信する）で文字にし、iPhone・iPad と、ブラウザの音声認識が使えないとき（通信が止められている・マイクが見つからない・始まらない）はサーバーの Whisper で文字にする（voice-input.js v11〜。切り替えた端末は次からサーバー）
+  - `speech_log`：サーバーへの音声の送信（/ai/transcribe/）が届いているか・画面を開いた端末の種類。送信が 0 件なら、ブラウザ側で止まっている
+  - `error_log`：ブラウザ側で止まった理由は `VoiceInputWarning event=… reason=…`（network＝音声認識サービスにつながらない、not-allowed＝マイクの許可なし、audio-capture＝マイク無し、fallback＝サーバーに切り替えた）
+  - `speech_check`：サーバーの文字起こしの設定（方式・モデル）と、読み込み・文字起こしの時間
