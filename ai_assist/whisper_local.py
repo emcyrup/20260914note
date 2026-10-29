@@ -109,7 +109,8 @@ def transcribe_pcm(pcm, language='ja', prompt='', beam=0):
         segments, _info = model.transcribe(
             audio, language=language, beam_size=beam or int(getattr(settings, 'WHISPER_BEAM', 5) or 5),
             initial_prompt=prompt or None,      # この分野の言葉・事業所の名前や活動名（固有名詞の聞き取りを助ける）
-            vad_filter=True, condition_on_previous_text=False, without_timestamps=True,
+            vad_filter=True, vad_parameters={'threshold': 0.35},    # 小さな声（机に置いたスマートフォン）も声とみなす（既定 0.5）
+            condition_on_previous_text=False, without_timestamps=True,
         )
         text = ''.join((s.text or '').strip() for s in segments)
     logger.info('Whisper %.1fs audio → %d chars in %.1fs', len(audio) / 16000, len(text), time.monotonic() - t)

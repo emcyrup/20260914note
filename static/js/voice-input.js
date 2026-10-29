@@ -48,7 +48,7 @@
 
   // うまく動かないときに調べるための記録（話した言葉そのものは残さず、文字数だけ）
   // 保存・読み込み直しをしても消えないよう、このタブのあいだは sessionStorage にも残す
-  var VERSION = 'v11';
+  var VERSION = 'v12';
   var LOG_KEY = 'voice-input-log', LOG = [], T0 = Date.now(), seq = 0;
   try { LOG = JSON.parse(sessionStorage.getItem(LOG_KEY) || '[]') || []; } catch (e) { LOG = []; }
   function log(msg) {
@@ -409,7 +409,7 @@
     liveBox(a.target).textContent = '';
     if (!IOS) remember('server');           // この端末では次からサーバーで（iPhone はもともとサーバー）
     report('fallback', why);
-    note(a.btn, 'ブラウザの音声認識が使えないため、サーバーで文字にします（ひと息ごとに文字になります）。');
+    note(a.btn, 'ブラウザの音声認識が使えないため、サーバーで文字にします（' + (WHISPER ? SEG_MIN + '〜' + SEG_HARD + '秒ごと' : 'ひと息ごと') + 'に文字になります）。');
     paint(a);
     startServer(a);
     return true;
@@ -417,15 +417,20 @@
 
   // ===== サーバーで文字にする（iPhone・話者を分けるとき） =====
   // 画面で音声を録り（16kHz・モノラルの WAV）、話の切れ目ごとにサーバーへ送って文字にしてもらう。
-  // 話しながら文字が出るように、ひと息の間（0.5 秒ほど）があれば 3 秒以上で送り、続けて話していても 15 秒で送る。
+  // Google：話しながら文字が出るように、ひと息の間（0.5 秒ほど）があれば 3 秒以上で送り、続けて話していても 15 秒で送る。
+  // Whisper：30 秒の窓ごとに処理するため、5 秒でも 25 秒でも 1 回にかかる時間はほぼ同じ（コトのサーバーで約 13 秒）。
+  //   短く送るほど処理が追いつかず遅れが積み上がるので、12 秒以上のひと息の間で送り、続けて話していても
+  //   25 秒を過ぎたら短い間（0.2 秒）で、29 秒で必ず送る（言葉の途中で切れにくく、処理も追いつく）。
   // 話者を分けるときは、区切りの中でしか同じ人と分からないので長め（10〜40 秒）にする。
   // iPhone のブラウザの音声認識は、1ページで1回しか文字にならないことがあるため
   var SERVER = window.VOICE_INPUT_SERVER || null;
-  // サーバーが Whisper（声で話者を分けられない）のときは、前後の文脈が長いほど正しく聞き取れるので区切りを少し長めにする
   var WHISPER = !!(SERVER && !SERVER.diarization);
-  var SEG_MIN = (cfg.segMinSec || (WHISPER ? 5 : 3)), SEG_MAX = (cfg.segMaxSec || (WHISPER ? 20 : 15));
+  var SEG_MIN = (cfg.segMinSec || (WHISPER ? 12 : 3)), SEG_MAX = (cfg.segMaxSec || (WHISPER ? 25 : 15));
+  var SEG_HARD = (cfg.segHardSec || (WHISPER ? 29 : SEG_MAX));   // 間が無くても必ず送る長さ
   var SPK_MIN = (cfg.speakersMinSec || 10), SPK_MAX = (cfg.speakersMaxSec || 40);
-  var LOUD = 0.015, QUIET = 0.008, QUIET_RUN = 6;       // 音の大きさ（RMS）のめやす。QUIET_RUN は 4096 サンプルの塊の数（6 ≒ 0.5 秒）
+  // 音の大きさ（RMS）のめやす。小さな声（机に置いた iPhone など）も捨てないように低め。QUIET_RUN は 4096 サンプルの塊の数（6 ≒ 0.5 秒）
+  // 部屋の雑音が大きいときは、雑音の底（floor）を測って、その 2 倍までを「間」、4 倍からを「声」とみなす
+  var LOUD = 0.004, QUIET = 0.002, QUIET_RUN = 6, SHORT_RUN = 2;
   var uploads = 0, chain = Promise.resolve(), waitingSubmit = null;
 
   function useServer(a) {
@@ -490,9 +495,10 @@
 
   function showBusy(a) {
     var box = liveBox(a.target);
-    if (uploads > 0) box.textContent = '文字にしています…（' + uploads + '）';
+    var pace = WHISPER ? SEG_MIN + '〜' + SEG_HARD + '秒ごとに文字になります（サーバーで文字にするため、少し遅れて出ます）' : 'ひと息ごとに文字になります';
+    if (uploads > 0) box.textContent = '文字にしています…（' + uploads + '）' + (active === a ? ' 続けて話せます' : '');
     else if (active === a) box.textContent = manualSpeakers(a) ? '録音中：話す人が替わったら「話者」のボタンを押してください（話者' + a.speaker + '）'
-      : a.speakers ? '録音中：話の区切り（10〜40秒）ごとに、話者を分けて文字になります' : '録音中：ひと息ごとに文字になります';
+      : a.speakers ? '録音中：話の区切り（10〜40秒）ごとに、話者を分けて文字になります' : '録音中：' + pace;
     else box.textContent = '';
   }
 
@@ -501,9 +507,10 @@
     var chunks = a.chunks, secs = a.samples / a.rate, loud = a.loud;
     a.chunks = []; a.samples = 0; a.loud = false; a.quietRun = 0;
     if (!chunks.length) return;
-    if (!loud || secs < 0.5) { log('segment ' + secs.toFixed(1) + 's ' + (loud ? 'too short' : 'silent') + ' → skip'); return; }
+    if (!loud || secs < 0.5) { log('segment ' + secs.toFixed(1) + 's ' + (loud ? 'too short' : 'silent floor=' + (a.floor || 0).toFixed(4)) + ' → skip'); return; }
     var blob = toWav(chunks, a.rate), n = ++seq, spk = manualSpeakers(a) ? a.speaker : 0;   // 送った時点の話者
     log('segment #' + n + ' ' + secs.toFixed(1) + 's ' + Math.round(blob.size / 1024) + 'KB → upload' + (a.speakers ? ' speakers' + (spk ? '=' + spk : '') : ''));
+    var t0 = Date.now();
     uploads++;
     showBusy(a);
     chain = chain.then(function () {
@@ -521,7 +528,7 @@
             return;
           }
           a.errors = 0;
-          log('segment #' + n + ' text=' + (d.text || '').length);
+          log('segment #' + n + ' text=' + (d.text || '').length + ' in ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
           if (d.text) append(a, spk ? '話者' + spk + '：' + d.text : d.text);
         })
         .catch(function () { log('segment #' + n + ' network error'); note(a.btn, '通信できず、一部が文字になりませんでした。電波の良い所でお試しください。'); });
@@ -558,12 +565,15 @@
           var rms = Math.sqrt(sum / d.length);
           a.chunks.push(new Float32Array(d));
           a.samples += d.length;
-          if (rms > LOUD) { a.loud = true; a.lastHeard = Date.now(); }
-          a.quietRun = rms < QUIET ? a.quietRun + 1 : 0;
+          // 雑音の底：下がるときはすぐ、上がるときはゆっくり（話し始めが底にならないように）
+          a.floor = a.floor == null ? rms : Math.min(a.floor * 1.005 + 0.00001, rms);
+          var loud = Math.max(LOUD, a.floor * 4), quiet = Math.max(QUIET, a.floor * 2);
+          if (rms > loud) { a.loud = true; a.lastHeard = Date.now(); }
+          a.quietRun = rms < quiet ? a.quietRun + 1 : 0;
           var secs = a.samples / a.rate;
           var long = a.speakers && byVoice();        // 声で分けるときだけ長め（ボタンで切り替えるときはひと息ごと）
-          var segMin = long ? SPK_MIN : SEG_MIN, segMax = long ? SPK_MAX : SEG_MAX;
-          if (secs >= segMax || (secs >= segMin && a.quietRun >= QUIET_RUN)) cut(a);
+          var segMin = long ? SPK_MIN : SEG_MIN, segMax = long ? SPK_MAX : SEG_MAX, segHard = long ? SPK_MAX : SEG_HARD;
+          if (secs >= segHard || (secs >= segMax && a.quietRun >= SHORT_RUN) || (secs >= segMin && a.quietRun >= QUIET_RUN)) cut(a);
           if (Date.now() - a.lastHeard > SILENCE_MS) stop('しばらく声が聞こえなかったので止めました。続けるときはもう一度押してください。');
         };
         src.connect(proc);

@@ -46,7 +46,7 @@ class Command(BaseCommand):
     help = '音声の文字起こしの設定と速さを確かめる'
 
     def add_arguments(self, parser):
-        parser.add_argument('--seconds', type=int, default=15, help='テスト用の音の長さ（秒）')
+        parser.add_argument('--seconds', type=int, default=0, help='テスト用の音の長さ（秒。既定 15）。--sample のときは先頭だけに切る長さ（既定は全部）')
         parser.add_argument('--wav', default='', help='文字にする WAV（16kHz・モノラル・16bit）')
         parser.add_argument('--sample', action='store_true', help='同梱の合成音声（架空の文）を使う。--seconds で先頭だけに切れる')
         parser.add_argument('--beam', type=int, default=0, help='探索の幅（WHISPER_BEAM）を一時的に変えて測る')
@@ -73,8 +73,8 @@ class Command(BaseCommand):
                 pcm = pcm[:opts['seconds'] * 32000]
             label = f'{"合成音声" if opts["sample"] else "WAV"} {len(pcm) / 32000:.1f} 秒'
         else:
-            pcm = _tone(opts['seconds'])
-            label = f'テスト音 {opts["seconds"]} 秒'
+            pcm = _tone(opts['seconds'] or 15)
+            label = f'テスト音 {opts["seconds"] or 15} 秒'
         for n in (1, 2):
             t = time.monotonic()
             text = whisper_local.transcribe_pcm(pcm, beam=beam)
