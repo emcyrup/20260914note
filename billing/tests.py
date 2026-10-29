@@ -924,3 +924,116 @@ class BillingDemoTests(TestCase):
         self.assertNotIn('青木', buf.getvalue())                                 # 名前はログに出さない
         call_command('billing_demo', '--facility', str(self.facility.pk), '--remove', stdout=buf)
         self.assertIn('5 人を関連の記録ごと消しました', buf.getvalue())
+
+
+class SevereAddonMechanismTests(TestCase):
+    """重身（重心型）向けの加算の仕組み：定員の表・利用者の区分での出し分け・送迎の上乗せ"""
+
+    def setUp(self):
+        from billing import codes
+        self.codes = codes
+        self.f = Facility.objects.create(name='はびりす', region_category='3', use_billing=True, use_schedule=True,
+                                         is_severe_facility=True, severe_capacity='8')
+        self.admin = StaffAccount.objects.create_user(username='admin', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.admin)
+        self.sev = Beneficiary.objects.create(facility=self.f, last_name='重', first_name='子', date_of_birth='2015-01-01', is_severe=True)
+        self.gen = Beneficiary.objects.create(facility=self.f, last_name='一', first_name='般', date_of_birth='2015-01-01')
+        self.med = Beneficiary.objects.create(facility=self.f, last_name='医', first_name='ケ', date_of_birth='2015-01-01', medical_care_level=16)
+        for b in (self.sev, self.gen, self.med):
+            RecipientCertificate.objects.create(beneficiary=b, granted_days=23, monthly_cap=4600, valid_from='2026-04-01', valid_until='2027-03-31')
+        names = ['送迎加算（往・迎え）', '送迎加算（復・送り）', '送迎加算（重症心身障害児・片道の上乗せ）', '送迎加算（医療的ケア児 スコア16点以上・片道の上乗せ）',
+                 '延長支援加算（1時間以上2時間未満）', '延長支援加算（重症児・医療的ケア児 1時間以上2時間未満）', '入浴支援加算', '欠席時対応加算',
+                 '看護職員加配加算Ⅰ', '看護職員加配加算Ⅱ']
+        self.a = {}
+        for n in names:
+            self.a[n] = AddonMaster.objects.get(name=n)
+            FacilityAddonSetting.objects.update_or_create(facility=self.f, addon=self.a[n], defaults={'is_enabled': True})
+
+    def test_capacity_tables(self):
+        c = self.codes
+        self.assertEqual((c.severe_band('5'), c.severe_band('7'), c.severe_band('8'), c.severe_band('10'), c.severe_band('11'), c.severe_band('')), ('5-7', '5-7', '8-10', '8-10', '11', ''))
+        self.assertEqual((c.severe_base_units('8', c.SEVERE_SCHOOL), c.severe_base_units('8', c.SEVERE_HOLIDAY)), (1118, 1299))
+        self.assertEqual(c.severe_addon_units('看護職員加配加算Ⅰ', '8'), 250)
+        self.assertEqual(c.severe_addon_units('看護職員加配加算Ⅱ', '11'), 266)
+        self.assertIsNone(c.severe_addon_units('専門的支援体制加算', '8'))
+        # 施設：重心の利用者の基本報酬は定員の表から。手で入れた単位数があればそちら
+        self.assertTrue(self.f.severe_units_apply(self.sev))
+        self.assertFalse(self.f.severe_units_apply(self.gen))
+        self.assertEqual((self.f.base_units_for(self.sev, 2), self.f.base_units_for(self.sev, 3)), (1118, 1299))
+        self.f.base_unit_count_severe = 1771
+        self.assertEqual((self.f.base_units_for(self.sev, 2), self.f.base_units_for(self.sev, 3)), (1771, 1771))
+        # 看護職員加配加算の単位数は重心型の定員から（加算設定で上書きできる）
+        rows = {r.name: r for r in facility_addon_rows(self.f, addon_type='facility')}
+        self.assertEqual((rows['看護職員加配加算Ⅰ'].unit_count, rows['看護職員加配加算Ⅱ'].unit_count), (250, 500))
+        self.f.is_severe_facility = False
+        self.f.save()
+        rows = {r.name: r for r in facility_addon_rows(self.f, addon_type='facility')}
+        self.assertEqual(rows['看護職員加配加算Ⅰ'].unit_count, 0)
+
+    def test_addon_applies_by_beneficiary(self):
+        ap = self.codes.addon_applies
+        self.assertTrue(ap('延長支援加算（重症児・医療的ケア児 1時間以上2時間未満）', self.sev))
+        self.assertFalse(ap('延長支援加算（1時間以上2時間未満）', self.sev))
+        self.assertTrue(ap('延長支援加算（1時間以上2時間未満）', self.gen))
+        self.assertFalse(ap('延長支援加算（重症児・医療的ケア児 1時間以上2時間未満）', self.gen))
+        self.assertTrue(ap('送迎加算（重症心身障害児・片道の上乗せ）', self.sev))
+        self.assertFalse(ap('送迎加算（重症心身障害児・片道の上乗せ）', self.med))
+        self.assertTrue(ap('送迎加算（医療的ケア児 スコア16点以上・片道の上乗せ）', self.med))
+        self.assertFalse(ap('送迎加算（医療的ケア児 その他・片道の上乗せ）', self.med))
+        self.assertTrue(ap('入浴支援加算', self.med)); self.assertFalse(ap('入浴支援加算', self.gen))
+        self.assertTrue(ap('欠席時対応加算', self.gen))
+        # 請求セルの一覧
+        res = self.client.get(reverse('billing:cell_popup', args=[self.sev.pk, 2026, 10, 5]))
+        self.assertContains(res, '延長支援加算（重症児・医療的ケア児 1時間以上2時間未満）')
+        self.assertNotContains(res, '延長支援加算（1時間以上2時間未満）')
+        self.assertContains(res, '送迎加算（重症心身障害児・片道の上乗せ）')
+        self.assertNotContains(res, 'スコア16点以上')
+        res = self.client.get(reverse('billing:cell_popup', args=[self.gen.pk, 2026, 10, 5]))
+        self.assertContains(res, '延長支援加算（1時間以上2時間未満）')
+        self.assertNotContains(res, '上乗せ')
+        self.assertNotContains(res, '入浴支援加算')
+
+    def test_companion_and_per_leg_count(self):
+        from billing.views import addon_rows_for
+        from .models import BillingMatrixAddon
+        a = self.a
+        # 重心の利用者：往・復を付けて保存 → 上乗せが自動で付き、月の集計では片道の数（2）で数える
+        res = self.client.post(reverse('billing:cell_update', args=[self.sev.pk, 2026, 10, 5]),
+                               {'status': 'attended', 'time_kubun': '2', 'addon_ids': [str(a['送迎加算（往・迎え）'].pk), str(a['送迎加算（復・送り）'].pk)]})
+        self.assertIn(res.status_code, (200, 302))
+        e = BillingMatrixEntry.objects.get(beneficiary=self.sev, date=date(2026, 10, 5))
+        self.assertEqual(set(BillingMatrixAddon.objects.filter(entry=e, is_applied=True).values_list('addon__name', flat=True)),
+                         {'送迎加算（往・迎え）', '送迎加算（復・送り）', '送迎加算（重症心身障害児・片道の上乗せ）'})
+        # 往だけの日
+        self.client.post(reverse('billing:cell_update', args=[self.sev.pk, 2026, 10, 6]),
+                         {'status': 'attended', 'time_kubun': '2', 'addon_ids': [str(a['送迎加算（往・迎え）'].pk)]})
+        rows, total, _ = addon_rows_for(self.f, self.sev, 2026, 10, 2, 1118 * 2)
+        by = {r['name']: r for r in rows}
+        self.assertEqual(by['送迎加算（重症心身障害児・片道の上乗せ）']['count'], 3)     # 2 ＋ 1 片道
+        self.assertEqual(by['送迎加算（往・迎え）']['count'], 2)
+        self.assertEqual(by['送迎加算（復・送り）']['count'], 1)
+        self.assertEqual(by['送迎加算（重症心身障害児・片道の上乗せ）']['total'], 40 * 3)
+        # 一般の利用者には上乗せは付かない
+        self.client.post(reverse('billing:cell_update', args=[self.gen.pk, 2026, 10, 5]),
+                         {'status': 'attended', 'time_kubun': '2', 'addon_ids': [str(a['送迎加算（往・迎え）'].pk), str(a['送迎加算（復・送り）'].pk)]})
+        e2 = BillingMatrixEntry.objects.get(beneficiary=self.gen, date=date(2026, 10, 5))
+        self.assertEqual(BillingMatrixAddon.objects.filter(entry=e2).count(), 2)
+        # 体制加算（看護職員加配加算Ⅰ 250）は利用日数ぶん
+        rows, total, _ = addon_rows_for(self.f, self.sev, 2026, 10, 2, 1118 * 2)
+        by = {r['name']: r for r in rows}
+        self.assertEqual((by['看護職員加配加算Ⅰ']['units'], by['看護職員加配加算Ⅰ']['count']), (250, 2))
+        # CSV も同じ数え方
+        res = self.client.get(reverse('billing:billing_csv', args=[2026, 10]))
+        body = res.content.decode('utf-8-sig')
+        self.assertIn('送迎加算（重症心身障害児・片道の上乗せ）', body)
+
+    def test_readiness_warnings(self):
+        from billing.readiness import issues
+        texts = [i['text'] for i in issues(self.f, date(2026, 10, 1))]
+        self.assertFalse(any('看護職員加配加算の単位数が 0' in t for t in texts))
+        self.f.severe_capacity = ''
+        self.f.save()
+        texts = [i['text'] for i in issues(self.f, date(2026, 10, 1))]
+        self.assertTrue(any('重心型の定員' in t for t in texts))
+        self.assertTrue(any('看護職員加配加算の単位数が 0' in t for t in texts))
+        self.assertTrue(any('重症心身障害児の印がある利用者' in t for t in texts))

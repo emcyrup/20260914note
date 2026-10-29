@@ -31,7 +31,17 @@ def issues(facility, month_start):
                                     (facility.reduce_hours in ('85', '70'), f'開所時間減算（{facility.reduce_hours}%）')) if flag]
     if on:
         add('施設設定で減算が付いています：' + '・'.join(on) + '。当てはまらない月になったら外してください')
+    # 重心型：定員が無いと重身の基本報酬・看護職員加配加算の単位数が決まらない。重心の印がある利用者に重身の単位数が無い
+    if facility.is_severe_facility and not facility.severe_capacity and not facility.base_unit_count_severe:
+        add('重心型の事業所ですが、施設設定の「重心型の定員」も「重身の基本報酬単位数」も入っていません（重心の利用者の基本報酬が 0 になります）')
+    severe_people = [b for b in Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE, is_severe=True)]
+    if severe_people and not facility.severe_units_apply(severe_people[0]):
+        add(f'重症心身障害児の印がある利用者が {len(severe_people)} 名いますが、重身の基本報酬（重心型の定員か単位数）が入っていません')
     addons_url = reverse('facilities:settings') + '#tab-billing'
+    from facilities.models import facility_addon_rows
+    nurse = [r for r in facility_addon_rows(facility, addon_type='facility', enabled_only=True) if r.name.startswith('看護職員加配加算') and not r.unit_count]
+    if nurse:
+        add('「算定する」にした看護職員加配加算の単位数が 0 です（施設設定で「主として重症心身障害児」と「重心型の定員」を選ぶか、加算設定に単位数を入れてください）', addons_url)
     if not AddonMaster.objects.filter(is_active=True).exists():
         add('加算マスタが空です（開発向けユーザーが「標準加算マスタを読み込む」を実行）', addons_url)
     elif not FacilityAddonSetting.objects.filter(facility=facility, is_enabled=True).exists():
