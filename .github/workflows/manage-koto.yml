@@ -158,10 +158,10 @@ jobs:
                 # 音声の送信が届いているか。日時・応答・大きさ・端末の種類（iPhone/Android/Windows/Mac とブラウザ）だけを出す
                 echo "== /ai/transcribe/ への送信（access.log、直近 14 日） =="
                 since=$(date -d '14 days ago' '+%Y-%m-%d' 2>/dev/null || echo 0000-00-00)
-                grep -F '/ai/transcribe/' logs/access.log 2>/dev/null \
+                { grep -F '/ai/transcribe/' logs/access.log 2>/dev/null || true; } \
                   | awk -v s="$since" '{ if ($4 ~ /^\[/) { split($4, a, "[/:\\[]"); m["Jan"]="01";m["Feb"]="02";m["Mar"]="03";m["Apr"]="04";m["May"]="05";m["Jun"]="06";m["Jul"]="07";m["Aug"]="08";m["Sep"]="09";m["Oct"]="10";m["Nov"]="11";m["Dec"]="12"; d=a[4] "-" m[a[3]] "-" a[2]; if (d>=s) print d " " a[5] ":" a[6] " 応答=" $9 " " $10 "B " ($0 ~ /iPhone|iPad/ ? "iPhone/iPad" : $0 ~ /Android/ ? "Android" : $0 ~ /Windows/ ? "Windows" : $0 ~ /Macintosh/ ? "Mac" : "その他") "/" ($0 ~ /Edg/ ? "Edge" : $0 ~ /CriOS|Chrome/ ? "Chrome" : $0 ~ /Firefox/ ? "Firefox" : $0 ~ /Safari/ ? "Safari" : "不明") } }' \
                   | tail -n 60
-                n=$(grep -cF '/ai/transcribe/' logs/access.log 2>/dev/null || echo 0); echo "（これまでの送信 $n 件）"
+                n=$(grep -cF '/ai/transcribe/' logs/access.log 2>/dev/null || true); echo "（これまでの送信 ${n:-0} 件。access.log $( { wc -l < logs/access.log; } 2>/dev/null || echo 0) 行）"
                 echo "== 画面を開いた端末の種類（直近 14 日・ログインしている画面。件数だけ） =="
                 awk -v s="$since" '{ if ($4 ~ /^\[/ && $7 !~ /^\/(static|healthz|media)/) { split($4, a, "[/:\\[]"); m["Jan"]="01";m["Feb"]="02";m["Mar"]="03";m["Apr"]="04";m["May"]="05";m["Jun"]="06";m["Jul"]="07";m["Aug"]="08";m["Sep"]="09";m["Oct"]="10";m["Nov"]="11";m["Dec"]="12"; d=a[4] "-" m[a[3]] "-" a[2]; if (d>=s) c[($0 ~ /iPhone|iPad/ ? "iPhone/iPad" : $0 ~ /Android/ ? "Android" : $0 ~ /Windows/ ? "Windows" : $0 ~ /Macintosh/ ? "Mac" : "その他") "/" ($0 ~ /Edg/ ? "Edge" : $0 ~ /CriOS|Chrome/ ? "Chrome" : $0 ~ /Firefox/ ? "Firefox" : $0 ~ /Safari/ ? "Safari" : "不明")]++ } } END { for (k in c) print "  " k ": " c[k] " 件" }' logs/access.log 2>/dev/null | sort || true ;;
               set_media_root)
