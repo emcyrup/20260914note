@@ -17,6 +17,9 @@
  * - 聞き取りを始め直せない（InvalidStateError）：少し待ってやり直す
  * - 押して始めるときは、前の聞き取りが終わってから少し間をあける。始めてもマイクが動き出さないときはやり直す
  * - VoiceInput.log() で、うまく動かないときの記録（出来事と文字数。話した言葉は残さない）を取り出せる
+ * - ブラウザの音声認識が使えないとき（network・service-not-allowed・始まらない・すぐ止まる・音声認識の無いブラウザ）は、
+ *   サーバーの文字起こし（VOICE_INPUT_SERVER）があればそちらに切り替え、その端末では次からもサーバーを使う（localStorage）。
+ *   切り替えたこと・止めた理由はサーバーに知らせる（VOICE_INPUT_REPORT。出来事の名前と端末の種類だけ。話した言葉は送らない）
  * マイクは https のページ（または localhost）でしか使えないので、http のときは理由を出す。
  */
 (function () {
@@ -45,7 +48,7 @@
 
   // うまく動かないときに調べるための記録（話した言葉そのものは残さず、文字数だけ）
   // 保存・読み込み直しをしても消えないよう、このタブのあいだは sessionStorage にも残す
-  var VERSION = 'v10';
+  var VERSION = 'v11';
   var LOG_KEY = 'voice-input-log', LOG = [], T0 = Date.now(), seq = 0;
   try { LOG = JSON.parse(sessionStorage.getItem(LOG_KEY) || '[]') || []; } catch (e) { LOG = []; }
   function log(msg) {
@@ -56,6 +59,26 @@
   log('ready ' + VERSION + ' page=' + location.pathname + ' ' +
       (SR ? (window.SpeechRecognition ? 'SpeechRecognition' : 'webkitSpeechRecognition') : 'no-SR') +
       ' oneShot=' + ONE_SHOT + ' server=' + !!window.VOICE_INPUT_SERVER + ' secure=' + window.isSecureContext + ' ua=' + UA);
+
+  // ブラウザの音声認識が使えなかった端末では、次からサーバーで文字にする（この端末のブラウザに覚えておく）
+  var ENGINE_KEY = 'voice-input-engine';
+  function remembered() { try { return localStorage.getItem(ENGINE_KEY) || ''; } catch (e) { return ''; } }
+  function remember(engine) { try { if (engine) localStorage.setItem(ENGINE_KEY, engine); else localStorage.removeItem(ENGINE_KEY); } catch (e) { /* 使えない */ } }
+  function hasMic() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia); }
+
+  // うまく動かなかったことをサーバーに知らせる（管理者がログで原因を見るため）。出来事の名前だけで、話した言葉は送らない
+  var reports = 0;
+  function report(event, reason) {
+    var url = window.VOICE_INPUT_REPORT;
+    if (!url || reports >= 5) return;
+    reports++;
+    var body = JSON.stringify({v: VERSION, event: event, reason: String(reason || '').slice(0, 40), secure: !!window.isSecureContext,
+                               sr: !!SR, server: !!window.VOICE_INPUT_SERVER, page: location.pathname.slice(0, 80)});
+    try {
+      fetch(url, {method: 'POST', body: body, credentials: 'same-origin', keepalive: true,
+                  headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf()}}).catch(function () { /* 知らせは任意 */ });
+    } catch (e) { /* 知らせは任意 */ }
+  }
 
   function note(btn, text) {
     var id = btn.getAttribute('data-voice-note');
@@ -243,17 +266,23 @@
       log('#' + id + ' error ' + e.error + (active !== a ? ' (stopped)' : ''));
       if (active !== a) return;
       a.lastError = e.error;
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-        stop(a.restarts
+      if (e.error === 'not-allowed') {
+        fail(a, e.error, a.restarts
           ? 'この端末では、自動で聞き取りをつなぎ直せないため止まりました。続けるときは、もう一度ボタンを押してください。'
           : 'マイクの使用が許可されていません。ブラウザのアドレス欄の鍵マークから、マイクを「許可」にしてください。');
+      } else if (e.error === 'service-not-allowed') {
+        // ブラウザの音声認識サービスが使えない（会社のネットワークや設定で止められている）→ サーバーで文字にする
+        switchToServer(a, e.error) || fail(a, e.error, 'このブラウザでは音声認識サービスが使えない設定になっています。管理者に確認してください。');
       } else if (e.error === 'audio-capture') {
-        stop('マイクが見つかりません。マイクがつながっているか、ほかのアプリがマイクを使っていないか確かめてください。');
+        // ブラウザの音声認識がマイクを見つけられない端末でも、録音（getUserMedia）はできることがある → サーバーで試す
+        switchToServer(a, e.error) || fail(a, e.error, 'マイクが見つかりません。マイクがつながっているか、ほかのアプリがマイクを使っていないか確かめてください。');
       } else if (e.error === 'language-not-supported') {
-        stop('この端末では日本語の音声入力が使えません。');
+        switchToServer(a, e.error) || fail(a, e.error, 'この端末では日本語の音声入力が使えません。');
       } else if (e.error === 'network') {
+        // Chrome の音声認識は Google のサービスに通信する。つながらない（会社のネットワークなど）ときは、サーバーで文字にする
+        if (switchToServer(a, e.error)) return;
         a.netFails = (a.netFails || 0) + 1;
-        if (a.netFails > MAX_NET_RETRY) stop('音声の聞き取りに通信が必要です。電波の良い所でもう一度押してください。');
+        if (a.netFails > MAX_NET_RETRY) fail(a, e.error, '音声の聞き取りに通信が必要です。電波の良い所でもう一度押してください。');
       }
       // no-speech・aborted などは onend でつなぎ直す
     };
@@ -275,13 +304,13 @@
       a.lastError = '';
       a.quickEnds = (Date.now() - a.sessionStart < 1000 && !err) ? (a.quickEnds || 0) + 1 : 0;
       if (a.quickEnds > MAX_QUICK_END) {
-        stop('音声の聞き取りがすぐに止まってしまいます。ほかのタブやアプリでマイクを使っていないか確かめて、もう一度押してください。');
+        switchToServer(a, 'quick-end') || fail(a, 'quick-end', '音声の聞き取りがすぐに止まってしまいます。ほかのタブやアプリでマイクを使っていないか確かめて、もう一度押してください。');
         return;
       }
       // aborted・network などで終わったときは、少し間をあけてつなぎ直す（すぐだと同じ理由でまた終わる）
       a.errRun = (err && err !== 'no-speech') ? (a.errRun || 0) + 1 : 0;
       if (a.errRun > MAX_ERR_RUN) {
-        stop('音声の聞き取りを始められませんでした。ページを読み込み直してから、もう一度押してください。');
+        switchToServer(a, err || 'error-run') || fail(a, err || 'error-run', '音声の聞き取りを始められませんでした。ページを読み込み直してから、もう一度押してください。');
         return;
       }
       if (Date.now() - a.lastHeard > SILENCE_MS) {
@@ -352,9 +381,38 @@
       if (tries < 4) {
         a.retryTimer = setTimeout(function () { begin(a, tries + 1); }, 300);
       } else {
-        stop('音声入力を始められませんでした。少し待ってから、もう一度押してください。');
+        switchToServer(a, 'start-failed') || fail(a, 'start-failed', '音声入力を始められませんでした。少し待ってから、もう一度押してください。');
       }
     }
+  }
+
+  // 使えなくて止める（理由をサーバーに知らせてから止める）
+  function fail(a, reason, message) {
+    report('stop', reason);
+    stop(message);
+  }
+
+  // ブラウザの音声認識をやめて、同じ録音をサーバーの文字起こしに切り替える。切り替えられないときは false
+  function switchToServer(a, why) {
+    if (!SERVER || !hasMic() || a.server || cfg.engine === 'browser' || active !== a) return false;
+    log('switch to server (' + why + ')');
+    clearTimeout(a.retryTimer);
+    var r = a.rec;
+    if (r) {
+      clearTimeout(r._viWatch); clearTimeout(r._viHint);
+      r._viEnded = true;                    // onend でつなぎ直さない
+      forget(r);
+      try { r.abort(); } catch (e) { /* もう止まっている */ }
+    }
+    a.rec = null; a.pending = ''; a.lastError = ''; a.errRun = 0; a.netFails = 0; a.quickEnds = 0;
+    a.waiting = false;
+    liveBox(a.target).textContent = '';
+    if (!IOS) remember('server');           // この端末では次からサーバーで（iPhone はもともとサーバー）
+    report('fallback', why);
+    note(a.btn, 'ブラウザの音声認識が使えないため、サーバーで文字にします（ひと息ごとに文字になります）。');
+    paint(a);
+    startServer(a);
+    return true;
   }
 
   // ===== サーバーで文字にする（iPhone・話者を分けるとき） =====
@@ -373,9 +431,11 @@
   function useServer(a) {
     if (cfg.engine === 'server') return !!SERVER;
     if (cfg.engine === 'browser') return false;
-    var mic = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    var mic = hasMic();
     // 話者を分けるときは、どの端末でもサーバー（Google）で文字にする（ブラウザの音声認識は話者を分けられない）
     if (a && a.speakers) return !!SERVER && mic;
+    if (!SR) return !!SERVER && mic;                      // 音声認識の無いブラウザ（Firefox など）
+    if (remembered() === 'server') return !!SERVER && mic; // 前にブラウザの音声認識が使えなかった端末
     return IOS && !!SERVER && mic;
   }
 
@@ -457,7 +517,7 @@
             log('segment #' + n + ' error');
             a.errors = (a.errors || 0) + 1;
             note(a.btn, d.error);
-            if (a.errors >= 2 && active === a) stop('');
+            if (a.errors >= 2 && active === a) { remember(''); fail(a, 'server-error', ''); }
             return;
           }
           a.errors = 0;
@@ -479,7 +539,7 @@
     a.server = true;
     var AC = window.AudioContext || window.webkitAudioContext;
     var ctx;
-    try { ctx = new AC(); } catch (e) { stop('この端末では録音を始められませんでした。'); return; }
+    try { ctx = new AC(); } catch (e) { fail(a, 'no-audiocontext', 'この端末では録音を始められませんでした。'); return; }
     a.ctx = ctx;
     if (ctx.resume) ctx.resume();                     // 押したときに動かしておく（iPhone は押した時でないと鳴らない）
     log('server engine start rate=' + ctx.sampleRate);
@@ -514,7 +574,8 @@
       .catch(function (err) {
         log('getUserMedia ' + (err && err.name));
         if (active !== a) return;
-        stop(err && err.name === 'NotAllowedError'
+        remember('');                           // マイクが使えないのはサーバーのせいではない。次はブラウザの音声認識から試す
+        fail(a, 'getUserMedia:' + (err && err.name), err && err.name === 'NotAllowedError'
           ? 'マイクの使用が許可されていません。ブラウザの設定で、このサイトのマイクを「許可」にしてください。'
           : 'マイクを使えませんでした（' + (err && err.name) + '）。ほかのアプリがマイクを使っていないか確かめてください。');
       });
@@ -542,6 +603,7 @@
       pending: '', committed: '', lastText: '', speakers: speakersOn(btn), speaker: 1,
     };
     if (!SR && !useServer(a)) {
+      report('stop', 'no-sr');
       note(btn, 'このブラウザは音声入力に対応していません。Chrome・Edge・Safari をお使いください。');
       return;
     }
@@ -568,6 +630,8 @@
     toggle: toggle, stop: function () { stop(); }, isActive: function () { return !!active; },
     log: function () { return LOG.join('\n'); },
     busy: function () { return uploads; },
+    engine: function () { return active ? (active.server ? 'server' : 'browser') : (remembered() || ''); },
+    forget: function () { remember(''); },      // サーバーに切り替えた覚えを消す（またブラウザの音声認識を試す）
   };
 
   document.addEventListener('click', function (e) {
