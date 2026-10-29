@@ -153,7 +153,9 @@ jobs:
                 echo "== 空き容量 =="; df -h "$APP_DIR" /tmp 2>/dev/null | tail -n 2; du -sh media 2>/dev/null ;;
               speech_check)
                 # 出るのは CPU・メモリ・使う方式・モデル名・時間だけ（.env の値は出さない）
-                python manage.py speech_check --seconds 5 ;;
+                # 短い区切り（5 秒）と長い区切り（25 秒）の両方。Whisper は 30 秒の窓ごとに処理するので、短く送っても速くならない
+                python manage.py speech_check --seconds 5
+                python manage.py speech_check --seconds 25 ;;
               speech_log)
                 # 音声の送信が届いているか。日時・応答・大きさ・端末の種類（iPhone/Android/Windows/Mac とブラウザ）だけを出す
                 echo "== /ai/transcribe/ への送信（access.log、直近 14 日） =="
