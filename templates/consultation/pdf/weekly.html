@@ -1,0 +1,37 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% load form_extras %}
+{% block title %}週間計画表 {{ b.full_name }}{% endblock %}
+{% block page_orientation %}landscape{% endblock %}
+{% block page_margin %}9mm{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'consultation:edit' cp.pk %}">入力に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .cs th { background: #eee; font-weight: 700; }
+  .cs td, .cs th { padding: 2px 4px; font-size: 9.5px; vertical-align: top; }
+  .pre { white-space: pre-wrap; }
+  .ttl { font-size: 17px; font-weight: 700; text-align: center; margin: 0 0 4px; letter-spacing: .1em; }
+  .form-no { position: absolute; right: 0; top: 0; font-size: 9px; }
+  .wk td.day { height: 230px; }
+  .wk .ev { margin-bottom: 3px; }
+  .wk .ev b { font-weight: 700; margin-right: 3px; }
+</style>
+<div style="position:relative;"><span class="form-no">様式2-2</span><div class="ttl">サービス等利用計画・障害児支援利用計画【週間計画表】</div></div>
+<table class="cs">
+  <colgroup><col style="width:14%"><col style="width:20%"><col style="width:12%"><col style="width:14%"><col style="width:13%"><col style="width:27%"></colgroup>
+  <tr><th>利用者氏名（児童氏名）</th><td>{{ b.full_name }}</td><th>障害支援区分</th><td>{{ cp.support_class }}</td><th>相談支援事業者名</th><td>{{ cp.office_name }}</td></tr>
+  <tr><th>障害福祉サービス受給者証番号</th><td>{{ cp.cert_number }}</td><th>利用者負担上限額</th><td>{{ cp.copay_cap }}</td><th>計画作成担当者</th><td>{{ cp.planner }}</td></tr>
+  <tr><th>通所受給者証番号</th><td>{{ cp.child_cert_number }}</td><th>計画開始年月</th><td>{{ cp.plan_date|date:'Y年m月'|default:'' }}</td><th></th><td></td></tr>
+</table>
+<table class="cs wk" style="margin-top:6px;">
+  <colgroup>{% for k, l in weekdays %}<col style="width:{% if forloop.last %}12.4{% else %}12.4{% endif %}%">{% endfor %}<col></colgroup>
+  <tr>{% for k, l in weekdays %}<th>{{ l }}</th>{% endfor %}<th>主な日常生活上の活動・週単位以外のサービス</th></tr>
+  <tr>
+    {% for k, l in weekdays %}<td class="day">{% for e in weekly|dictkey:k %}<div class="ev"><b>{{ e.time }}</b>{{ e.text }}</div>{% endfor %}</td>{% endfor %}
+    <td class="pre">{{ cp.weekly_other }}</td>
+  </tr>
+</table>
+<table class="cs" style="margin-top:6px;">
+  <colgroup><col style="width:22%"><col></colgroup>
+  <tr><th style="height:40px;">サービス提供によって<br>実現する生活の全体像</th><td class="pre">{{ cp.life_summary }}</td></tr>
+</table>
+{% endblock %}

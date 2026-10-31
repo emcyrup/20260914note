@@ -20,4 +20,8 @@ urlpatterns = [
     path('plans/<int:pk>/extra/', views.PlanExtraView.as_view(), name='plan_extra'),
     path('plans/<int:pk>/sheet1/', views.PlanSheet1View.as_view(), name='plan_sheet1'),
     path('plans/<int:pk>/detail/', views.PlanDetailFormView.as_view(), name='plan_detail'),
+    # オウル様式：個別支援計画・個別支援計画別表
+    path('plans/<int:pk>/owl/', views.PlanOwlView.as_view(), name='plan_owl'),
+    path('plans/<int:pk>/owl/table/', views.PlanOwlTableView.as_view(), name='plan_owl_table'),
+    path('plans/<int:pk>/owl/table/edit/', views.PlanOwlTableEditView.as_view(), name='plan_owl_table_edit'),
 ]

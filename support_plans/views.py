@@ -181,6 +181,10 @@ class PlanStepView(PlanMixin, View):
                 initial={'date': date.today(), 'conducted_by': self.request.user, 'next_due': self._suggest_next_due()},
             )
             ctx['goals'] = plan.goals.all()
+            from datetime import timedelta
+            last = plan.monitoring_records.order_by('-date').first()
+            ctx['mon_start'] = (last.date if last else None) or plan.service_start_date or (date.today() - timedelta(days=91))
+            ctx['mon_end'] = date.today()
             ctx['successor'] = getattr(plan, 'successor', None)
             ctx['next_due'] = plan.next_monitoring_due
             ctx['overdue'] = plan.monitoring_overdue
@@ -462,9 +466,9 @@ class AssessmentDraftView(PlanMixin, View):
             logging.getLogger(__name__).exception('アセスメント下書きでエラー')
             return JsonResponse({'error': f'AIでの処理中にエラーが発生しました: {type(e).__name__}: {e}'}, status=500)
         if not data:
-            return JsonResponse({'error': f'直近 {months} か月の日誌がありません。'}, status=404)
+            return JsonResponse({'error': f'直近 {months} か月の記録も、アセスメント・書類もありません。'}, status=404)
         trial.use(request.user.facility)
-        return JsonResponse({'draft': data, 'records': n, 'months': months})
+        return JsonResponse({'draft': data, 'records': n, 'months': months, 'sources': data.get('sources', [])})
 
 
 class AssessmentFillView(PlanMixin, View):
@@ -521,11 +525,44 @@ class PlanDraftView(PlanMixin, View):
             messages.error(request, f'AIでの処理中にエラーが発生しました: {type(e).__name__}: {e}')
             return redirect('support_plans:step', pk=pk, n=2)
         trial.use(request.user.facility)
-        if n == 0:
-            messages.warning(request, f'{start} 〜 {end} の日誌がないため下書きを作れませんでした。期間を広げてください。')
+        if n == 0 and created == 0:
+            messages.warning(request, f'{start} 〜 {end} の記録も、取り込んだ書類もないため下書きを作れませんでした。期間を広げるか、書類を読み取ってください。')
         else:
-            messages.success(request, f'{start} 〜 {end} の日誌 {n} 件から、方針と目標 {created} 件の下書きを作りました。根拠の記録をひもづけています。内容を確認・修正してください（下書きのままでは計画になりません）。')
+            messages.success(request, f'{start} 〜 {end} の記録 {n} 件と書類から、方針と目標 {created} 件の下書きを作りました。根拠の記録をひもづけています。内容を確認・修正してください（下書きのままでは計画になりません）。')
         return redirect('support_plans:step', pk=pk, n=2)
+
+
+class MonitoringDraftView(PlanMixin, View):
+    """計画を作ってからの記録と目標から、モニタリング記録の下書き（JSON。画面側で入力欄に入れる）"""
+
+    def post(self, request, pk):
+        from django.conf import settings
+        from django.http import JsonResponse
+
+        from . import ai
+
+        plan = self.get_plan(pk)
+        if plan.facility.plan_no_ai:
+            return JsonResponse({'error': 'この事業所では、支援計画の文を AI で作りません。'}, status=403)
+        if plan.current_step != SupportPlan.STEP_MONITORING or plan.status == SupportPlan.STATUS_CLOSED:
+            return JsonResponse({'error': 'モニタリングはステップ5に進んでから記録できます。'}, status=400)
+        if not settings.ANTHROPIC_API_KEY:
+            return JsonResponse({'error': 'ANTHROPIC_API_KEY が設定されていません。'}, status=500)
+        from ai_assist import trial
+        over = trial.check(request.user.facility)
+        if over:
+            return JsonResponse({'error': over}, status=403)
+        start, end = _period_from_request(request)
+        try:
+            data, n = ai.monitoring_draft(plan, start, end)
+        except Exception as e:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).exception('モニタリング下書きでエラー')
+            return JsonResponse({'error': f'AIでの処理中にエラーが発生しました: {type(e).__name__}: {e}'}, status=500)
+        if not data:
+            return JsonResponse({'error': f'{start} 〜 {end} の記録がありません。期間を広げてください。'}, status=404)
+        trial.use(request.user.facility)
+        return JsonResponse({'draft': data, 'records': n, 'start': start.isoformat(), 'end': end.isoformat()})
 
 
 class PlanSheetView(PlanMixin, View):
@@ -550,10 +587,11 @@ class PlanSheetView(PlanMixin, View):
         return render(request, self.template_name, {
             'plan': plan, 'draft': draft, 'b': plan.beneficiary, 'facility': plan.facility,
             'happiness': plan.facility.form_set == plan.facility.FORM_SET_HAPPINESS,
+            'owl': sheet.is_owl(plan.facility),
             'editable': self._editable(plan),
-            'plan_cells': [(k, label, sheet.hint_of(k)) for k, label, _w, _h in sheet.PLAN_CELLS],
-            'extra_cells': [(k, extra_labels.get(k, k)) for k in sheet.EXTRA_IN_SHEET],
-            'values': sheet.plan_values(plan, draft), 'goal_cells': [(k, label) for k, label, _w, _h in sheet.GOAL_CELLS],
+            'plan_cells': [(k, label, sheet.hint_of(k, plan.facility)) for k, label, _w, _h in sheet.plan_cells(plan.facility)],
+            'extra_cells': [(k, extra_labels.get(k, k)) for k in sheet.extra_in_sheet(plan.facility)],
+            'values': sheet.plan_values(plan, draft), 'goal_cells': [(k, label) for k, label, _w, _h in sheet.goal_cells(plan.facility)],
             'rows': sheet.goal_rows(plan), 'type_choices': PlanGoal.TYPE_CHOICES,
             'assessment': plan.get_step(SupportPlan.STEP_ASSESSMENT),
             'ai_enabled': bool(settings.ANTHROPIC_API_KEY) and not plan.facility.plan_no_ai, 'today': date.today(),
@@ -611,7 +649,7 @@ class PlanSheetAiView(PlanMixin, View):
         if not items:
             return JsonResponse({'error': 'メモが空です。欄に入れたいことを短く書いてから押してください。'}, status=400)
         for i in items:
-            i['label'], i['hint'] = sheet.label_of(i['field']), sheet.hint_of(i['field'])
+            i['label'], i['hint'] = sheet.label_of(i['field'], plan.facility), sheet.hint_of(i['field'], plan.facility)
         draft = plan.get_step(SupportPlan.STEP_DRAFT)
         results = ai.compose_cells(plan, items, sheet.context_text(plan, draft))
         if any(r['result'] for r in results):

@@ -1,0 +1,195 @@
+{% extends 'base.html' %}
+{% load concurrency form_extras %}
+
+{% block title %}相談支援の計画 — {{ b.full_name|default:'新規' }}{% endblock %}
+{% block page_title %}{% if cp %}{{ b.full_name }} さんの相談支援の計画{% else %}相談支援の計画を新しく作る{% endif %}{% endblock %}
+
+{% block extra_css %}
+<style>
+  .cf { font-size: .9rem; }
+  .cf .form-label { font-weight: 600; font-size: .82rem; margin-bottom: 2px; }
+  .cf textarea { font-size: .9rem; }
+  .cf table input, .cf table textarea { font-size: .84rem; padding: 2px 4px; }
+  .cf th { background: #f1f1ee; font-weight: 600; font-size: .8rem; white-space: nowrap; }
+  .cf .nav-tabs .nav-link { font-size: .9rem; }
+  .cf-ai { background: var(--color-primary-bg, #eef6f3); border: 1px solid var(--color-primary-light, #cfe3dc); border-radius: 8px; padding: 10px 12px; }
+  .just-set { background: #e6f4ea !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2 cf" style="max-width: 1150px;">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+    <a href="{% url 'consultation:index' %}" class="text-muted small"><i class="bi bi-arrow-left me-1"></i>相談支援の計画の一覧</a>
+    {% if cp %}
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="{% url 'consultation:pdf_basic' cp.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>申請者の現状</a>
+      <a href="{% url 'consultation:pdf_plan' cp.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>計画（様式2-1）</a>
+      <a href="{% url 'consultation:pdf_weekly' cp.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>週間計画表（2-2）</a>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if cp and ai_enabled %}
+  <div class="cf-ai mb-3" id="cfAi">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div><div class="fw-bold"><i class="bi bi-stars me-1"></i>材料から下書きを作る</div>
+        <div class="small text-muted">台帳のアセスメント・取り込んだ書類（フェイスシート・アセスメントシートなど）・療育記録・児童発達支援の個別支援計画をもとに、概要・本児の様子・主訴・意向・方針・目標・課題の表を下書きします。空の欄だけ埋めます（「空でない欄も置き換える」に印を付けると全部）。</div></div>
+      <div class="d-flex gap-2 align-items-center flex-wrap">
+        <select id="cfMonths" class="form-select form-select-sm" style="width:auto;"><option value="3">直近3か月</option><option value="6" selected>直近6か月</option><option value="12">直近12か月</option></select>
+        <label class="small"><input type="checkbox" id="cfOverwrite" class="form-check-input me-1">空でない欄も置き換える</label>
+        <button type="button" class="btn btn-sm btn-primary" id="cfAiBtn"><i class="bi bi-stars me-1"></i>下書きを作る</button>
+      </div>
+      <div id="cfAiMsg" class="small w-100"></div>
+    </div>
+  </div>
+  {% endif %}
+
+  <form method="post" id="cfForm" {% if cp %}data-concurrency="consultation:{{ cp.pk }}"{% endif %}>
+    {% csrf_token %}{% if cp %}{% version_field cp %}{% endif %}
+    {% if not cp %}
+    <div class="card mb-3"><div class="card-body">
+      <label class="form-label">利用者</label>
+      <select name="beneficiary" class="form-select form-select-sm" required style="max-width:320px;">
+        {% for x in beneficiaries %}<option value="{{ x.pk }}" {% if b and x.pk == b.pk %}selected{% endif %}>{{ x.full_name }}（{{ x.date_of_birth|date:'Y/n/j' }} 生）</option>{% endfor %}
+      </select>
+    </div></div>
+    {% endif %}
+
+    <div class="card mb-3"><div class="card-body">
+      <div class="row g-2">
+        <div class="col-md-3"><label class="form-label">相談支援事業者名</label><input type="text" name="office_name" class="form-control form-control-sm" value="{% if cp %}{{ cp.office_name }}{% else %}{{ new_office }}{% endif %}"></div>
+        <div class="col-md-3"><label class="form-label">計画作成担当者</label><input type="text" name="planner" class="form-control form-control-sm" value="{{ cp.planner|default:'' }}"></div>
+        <div class="col-md-2"><label class="form-label">計画作成日</label><input type="date" name="plan_date" class="form-control form-control-sm" value="{{ cp.plan_date|date:'Y-m-d'|default:today|date:'Y-m-d' }}"></div>
+        <div class="col-md-2"><label class="form-label">利用者同意日</label><input type="date" name="consent_date" class="form-control form-control-sm" value="{{ cp.consent_date|date:'Y-m-d' }}"></div>
+        <div class="col-md-2"><label class="form-label">状態</label><select name="status" class="form-select form-select-sm">{% for v, l in status_choices %}<option value="{{ v }}" {% if cp and cp.status == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+        <div class="col-md-3"><label class="form-label">モニタリング期間（開始年月）</label><input type="text" name="monitoring_period" class="form-control form-control-sm" placeholder="例：6ヶ月ごと（01月、07月）" value="{{ cp.monitoring_period|default:'' }}"></div>
+        <div class="col-md-2"><label class="form-label">障害支援区分</label><input type="text" name="support_class" class="form-control form-control-sm" value="{{ cp.support_class|default:'' }}"></div>
+        <div class="col-md-2"><label class="form-label">利用者負担上限額</label><input type="text" name="copay_cap" class="form-control form-control-sm" placeholder="0円" value="{{ cp.copay_cap|default:'' }}"></div>
+        <div class="col-md-2"><label class="form-label">障害福祉サービス受給者証番号</label><input type="text" name="cert_number" class="form-control form-control-sm" value="{{ cp.cert_number|default:'' }}"></div>
+        <div class="col-md-3"><label class="form-label">通所受給者証番号</label><input type="text" name="child_cert_number" class="form-control form-control-sm" value="{{ cp.child_cert_number|default:'' }}"></div>
+      </div>
+    </div></div>
+
+    <ul class="nav nav-tabs mb-2" role="tablist">
+      <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabBasic" type="button">① 申請者の現状（基本情報）</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabPlan" type="button">② サービス等利用計画（様式2-1）</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabWeekly" type="button">③ 週間計画表（様式2-2）</button></li>
+    </ul>
+    <div class="tab-content">
+      <div class="tab-pane fade show active" id="tabBasic">
+        <div class="card mb-3"><div class="card-body">
+          <label class="form-label">1. 概要（支援経過・現状と課題など）</label>
+          <textarea name="overview" id="f_overview" class="form-control" rows="6">{{ cp.overview|default:'' }}</textarea>
+          <label class="form-label mt-3">本児の様子</label>
+          <div class="row g-2">
+            {% for key, label in child_state_keys %}
+            <div class="col-md-6"><div class="input-group input-group-sm"><span class="input-group-text" style="width:7.5em;">{{ label }}</span><textarea name="cs_{{ key }}" id="f_cs_{{ key }}" class="form-control" rows="2">{{ child_state|dictkey:key }}</textarea></div></div>
+            {% endfor %}
+          </div>
+          <label class="form-label mt-3">家族構成</label>
+          <div class="table-responsive"><table class="table table-sm table-bordered mb-2">
+            <thead><tr>{% for k, l in family_keys %}<th>{{ l }}</th>{% endfor %}</tr></thead>
+            <tbody>{% for f in family %}<tr>{% for k, l in family_keys %}<td><input type="text" name="fam_{{ forloop.parentloop.counter0 }}_{{ k }}" class="form-control form-control-sm" value="{{ f|dictkey:k }}"></td>{% endfor %}</tr>{% endfor %}</tbody>
+          </table></div>
+          <div class="row g-2">
+            <div class="col-md-6"><label class="form-label">生活歴</label><textarea name="history" id="f_history" class="form-control" rows="4">{{ cp.history|default:'' }}</textarea></div>
+            <div class="col-md-6"><label class="form-label">医療の状況</label><textarea name="medical" id="f_medical" class="form-control" rows="4">{{ cp.medical|default:'' }}</textarea></div>
+            <div class="col-md-6"><label class="form-label">本人の主訴</label><textarea name="complaint_child" id="f_complaint_child" class="form-control" rows="3">{{ cp.complaint_child|default:'' }}</textarea></div>
+            <div class="col-md-6"><label class="form-label">家族の主訴</label><textarea name="complaint_family" id="f_complaint_family" class="form-control" rows="3">{{ cp.complaint_family|default:'' }}</textarea></div>
+          </div>
+          <label class="form-label mt-3">3. 支援の状況（利用しているサービス）</label>
+          <div class="table-responsive"><table class="table table-sm table-bordered mb-0">
+            <thead><tr>{% for k, l in service_keys %}<th>{{ l }}</th>{% endfor %}</tr></thead>
+            <tbody>{% for s in services %}<tr>{% for k, l in service_keys %}<td><input type="text" name="sv_{{ forloop.parentloop.counter0 }}_{{ k }}" class="form-control form-control-sm" value="{{ s|dictkey:k }}"></td>{% endfor %}</tr>{% endfor %}</tbody>
+          </table></div>
+        </div></div>
+      </div>
+
+      <div class="tab-pane fade" id="tabPlan">
+        <div class="card mb-3"><div class="card-body">
+          <label class="form-label">利用者及びその家族の生活に対する意向（希望する生活）</label>
+          <textarea name="wishes" id="f_wishes" class="form-control" rows="4">{{ cp.wishes|default:'' }}</textarea>
+          <label class="form-label mt-2">総合的な支援の方針</label>
+          <textarea name="policy" id="f_policy" class="form-control" rows="3">{{ cp.policy|default:'' }}</textarea>
+          <div class="row g-2 mt-1">
+            <div class="col-md-6"><label class="form-label">長期目標</label><textarea name="long_goal" id="f_long_goal" class="form-control" rows="2">{{ cp.long_goal|default:'' }}</textarea></div>
+            <div class="col-md-6"><label class="form-label">短期目標</label><textarea name="short_goal" id="f_short_goal" class="form-control" rows="2">{{ cp.short_goal|default:'' }}</textarea></div>
+          </div>
+          <label class="form-label mt-3">解決すべき課題と支援目標（優先順位の順）</label>
+          <div class="table-responsive"><table class="table table-sm table-bordered mb-0" id="rowsTable">
+            <thead><tr>{% for k, l in row_keys %}<th {% if k == 'priority' %}style="width:3.5rem;"{% endif %}>{{ l }}</th>{% endfor %}</tr></thead>
+            <tbody>
+              {% for r in rows %}
+              <tr>{% for k, l in row_keys %}<td>{% if k == 'priority' or k == 'timing' or k == 'eval_timing' %}<input type="text" name="row_{{ forloop.parentloop.counter0 }}_{{ k }}" class="form-control form-control-sm" value="{{ r|dictkey:k }}">{% else %}<textarea name="row_{{ forloop.parentloop.counter0 }}_{{ k }}" class="form-control form-control-sm" rows="3">{{ r|dictkey:k }}</textarea>{% endif %}</td>{% endfor %}</tr>
+              {% endfor %}
+            </tbody>
+          </table></div>
+          <div class="small text-muted mt-1">全部空の行は保存しません。</div>
+        </div></div>
+      </div>
+
+      <div class="tab-pane fade" id="tabWeekly">
+        <div class="card mb-3"><div class="card-body">
+          <div class="small text-muted mb-2">曜日ごとに「時刻」と「していること・使うサービス」を書きます（例：10:00 児童発達支援センター 送迎・延長あり）。</div>
+          <div class="row g-2">
+            {% for key, label in weekdays %}
+            <div class="col-md-6 col-lg-4">
+              <div class="fw-semibold small mb-1">{{ label }}</div>
+              {% for w in weekly|dictkey:key %}
+              <div class="d-flex gap-1 mb-1"><input type="text" name="wk_{{ key }}_{{ forloop.counter0 }}_time" class="form-control form-control-sm" style="max-width:5.5em;" placeholder="10:00" value="{{ w.time }}"><input type="text" name="wk_{{ key }}_{{ forloop.counter0 }}_text" class="form-control form-control-sm" value="{{ w.text }}"></div>
+              {% endfor %}
+            </div>
+            {% endfor %}
+          </div>
+          <div class="row g-2 mt-2">
+            <div class="col-md-6"><label class="form-label">週単位以外のサービス</label><textarea name="weekly_other" class="form-control" rows="3">{{ cp.weekly_other|default:'' }}</textarea></div>
+            <div class="col-md-6"><label class="form-label">サービス提供によって実現する生活の全体像</label><textarea name="life_summary" id="f_life_summary" class="form-control" rows="3">{{ cp.life_summary|default:'' }}</textarea></div>
+          </div>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-end gap-2 mb-4 flex-wrap">
+      <button class="btn btn-outline-primary" name="next" value="plan"><i class="bi bi-printer me-1"></i>保存して計画（2-1）を見る</button>
+      <button class="btn btn-primary px-4"><i class="bi bi-check2 me-1"></i>保存する</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if cp and ai_enabled %}
+<script>
+(function () {
+  const btn = document.getElementById('cfAiBtn'), msg = document.getElementById('cfAiMsg');
+  const simple = ['overview', 'complaint_child', 'complaint_family', 'wishes', 'policy', 'long_goal', 'short_goal', 'life_summary'];
+  function setVal(el, v, force) { if (!el || v === undefined || v === null) return; if (!force && el.value.trim()) return; el.value = v; el.classList.add('just-set'); }
+  btn.addEventListener('click', async function () {
+    const force = document.getElementById('cfOverwrite').checked;
+    btn.disabled = true; msg.textContent = '材料を読んでいます…（30〜60秒）'; msg.className = 'small w-100 text-muted';
+    try {
+      const fd = new FormData(); fd.append('months', document.getElementById('cfMonths').value);
+      fd.append('csrfmiddlewaretoken', document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '');
+      const res = await fetch('{% url "consultation:ai_draft" cp.pk %}', { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) { msg.textContent = data.error || `サーバーエラー (${res.status})`; msg.className = 'small w-100 text-danger'; return; }
+      const d = data.draft;
+      simple.forEach(k => setVal(document.getElementById('f_' + k), d[k], force));
+      Object.entries(d.child_state || {}).forEach(([k, v]) => setVal(document.getElementById('f_cs_' + k), v, force));
+      const rowsEl = document.querySelectorAll('#rowsTable tbody tr');
+      (d.rows || []).forEach((r, i) => {
+        const tr = rowsEl[i]; if (!tr) return;
+        const filled = Array.from(tr.querySelectorAll('input,textarea')).some(x => x.value.trim());
+        if (filled && !force) return;
+        ['priority','issue','goal','timing','service','provider','role','eval_timing','notes'].forEach(k => { const el = tr.querySelector(`[name$="_${k}"]`); if (el) { el.value = r[k] || ''; el.classList.add('just-set'); } });
+      });
+      msg.textContent = `${(d.sources || []).join('・') || `記録 ${data.records} 件`}（直近${data.months}か月）から下書きを入れました（緑）。相談支援専門員が確かめて直してから保存してください。`;
+      msg.className = 'small w-100 text-success';
+    } catch (e) { msg.textContent = '通信エラー: ' + e.message; msg.className = 'small w-100 text-danger'; }
+    finally { btn.disabled = false; }
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

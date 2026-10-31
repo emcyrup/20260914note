@@ -17,6 +17,11 @@
       <a href="{% url 'support_plans:sheet' plan.pk %}" class="btn btn-sm btn-outline-primary" title="計画書の様式のまま、欄を直接編集します（メモから文を作って欄に入れられます）"><i class="bi bi-table me-1"></i>様式のまま編集</a>
       <a href="{% url 'support_plans:print' plan.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>計画書</a>
       <a href="{% url 'support_plans:pdf' plan.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-pdf me-1"></i>計画書PDF</a>
+      {% if features.form_set == 'owl' %}
+      <a href="{% url 'custom_forms:plan_owl_table_edit' plan.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square me-1"></i>別表の入力</a>
+      <a href="{% url 'custom_forms:plan_owl' plan.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-ruled me-1"></i>計画（オウル様式）</a>
+      <a href="{% url 'custom_forms:plan_owl_table' plan.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-ruled me-1"></i>別表</a>
+      {% endif %}
       {% if features.form_set == 'happiness' %}
       <a href="{% url 'custom_forms:plan_extra' plan.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil-square me-1"></i>様式の追加項目</a>
       <a href="{% url 'custom_forms:plan_sheet1' plan.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-ruled me-1"></i>計画書（別紙1）</a>

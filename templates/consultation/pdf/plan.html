@@ -1,0 +1,40 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% load form_extras %}
+{% block title %}サービス等利用計画・障害児支援利用計画 {{ b.full_name }}{% endblock %}
+{% block page_orientation %}landscape{% endblock %}
+{% block page_margin %}9mm{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'consultation:edit' cp.pk %}">入力に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .cs th { background: #eee; font-weight: 700; }
+  .cs td, .cs th { padding: 3px 5px; font-size: 9.5px; }
+  .pre { white-space: pre-wrap; }
+  .ttl { font-size: 17px; font-weight: 700; text-align: center; margin: 0 0 4px; letter-spacing: .1em; }
+  .form-no { position: absolute; right: 0; top: 0; font-size: 9px; }
+</style>
+<div style="position:relative;"><span class="form-no">様式2-1</span><div class="ttl">サービス等利用計画・障害児支援利用計画</div></div>
+<table class="cs">
+  <colgroup><col style="width:14%"><col style="width:20%"><col style="width:12%"><col style="width:14%"><col style="width:13%"><col style="width:27%"></colgroup>
+  <tr><th>利用者氏名（児童氏名）</th><td>{{ b.full_name }}</td><th>障害支援区分</th><td>{{ cp.support_class }}</td><th>相談支援事業者名</th><td>{{ cp.office_name }}</td></tr>
+  <tr><th>障害福祉サービス受給者証番号</th><td>{{ cp.cert_number }}</td><th>利用者負担上限額</th><td>{{ cp.copay_cap }}</td><th>計画作成担当者</th><td>{{ cp.planner }}</td></tr>
+  <tr><th>地域相談支援受給者証番号</th><td></td><th>通所受給者証番号</th><td>{{ cp.child_cert_number }}</td><th></th><td></td></tr>
+  <tr><th>計画作成日</th><td>{{ cp.plan_date|date:'Y年m月d日'|default:'' }}</td><th>モニタリング期間（開始年月）</th><td>{{ cp.monitoring_period }}</td><th>利用者同意署名欄</th><td>{% if cp.consent_date %}{{ cp.consent_date|date:'Y年m月d日' }}　{% endif %}</td></tr>
+</table>
+<table class="cs" style="margin-top:4px;">
+  <colgroup><col style="width:14%"><col></colgroup>
+  <tr><th style="height:34px;">利用者及びその家族の<br>生活に対する意向<br>（希望する生活）</th><td class="pre">{{ cp.wishes }}</td></tr>
+  <tr><th style="height:26px;">総合的な支援の方針</th><td class="pre">{{ cp.policy }}</td></tr>
+  <tr><th>長期目標</th><td class="pre">{{ cp.long_goal }}</td></tr>
+  <tr><th>短期目標</th><td class="pre">{{ cp.short_goal }}</td></tr>
+</table>
+<table class="cs" style="margin-top:6px;">
+  <colgroup><col style="width:4%"><col style="width:15%"><col style="width:15%"><col style="width:5%"><col style="width:18%"><col style="width:13%"><col style="width:14%"><col style="width:5%"><col style="width:11%"></colgroup>
+  <tr><th>優先<br>順位</th><th>解決すべき課題<br>（本人のニーズ）</th><th>支援目標</th><th>達成<br>時期</th><th>福祉サービス等<br>種類・内容・量（頻度・時間）</th><th>提供事業者名<br>（担当者名・電話）</th><th>課題解決のための<br>本人の役割</th><th>評価<br>時期</th><th>その他留意事項</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td class="c" style="height:52px;">{{ r|dictkey:'priority' }}</td><td class="pre">{{ r|dictkey:'issue' }}</td><td class="pre">{{ r|dictkey:'goal' }}</td><td class="c">{{ r|dictkey:'timing' }}</td>
+    <td class="pre">{{ r|dictkey:'service' }}</td><td class="pre">{{ r|dictkey:'provider' }}</td><td class="pre">{{ r|dictkey:'role' }}</td><td class="c">{{ r|dictkey:'eval_timing' }}</td><td class="pre">{{ r|dictkey:'notes' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

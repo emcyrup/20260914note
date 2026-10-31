@@ -1,0 +1,48 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% load form_extras %}
+{% block title %}申請者の現状（基本情報） {{ b.full_name }}{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'consultation:edit' cp.pk %}">入力に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .cs th { background: #eee; font-weight: 700; }
+  .cs td, .cs th { padding: 3px 5px; font-size: 10px; }
+  .pre { white-space: pre-wrap; }
+  .ttl { font-size: 16px; font-weight: 700; text-align: center; margin: 0 0 4px; }
+</style>
+<div class="ttl">申請者の現状（基本情報）</div>
+<table class="cs">
+  <colgroup><col style="width:12%"><col style="width:20%"><col style="width:14%"><col style="width:22%"><col style="width:14%"><col style="width:18%"></colgroup>
+  <tr><th>作成日</th><td>{{ cp.plan_date|date:'Y-m-d'|default:'' }}</td><th>相談支援事業者名</th><td>{{ cp.office_name }}</td><th>計画作成担当者</th><td>{{ cp.planner }}</td></tr>
+</table>
+<div style="margin-top:6px;font-weight:700;">1. 概要（支援経過・現状と課題など）</div>
+<div class="box pre" style="min-height:90px;">{{ cp.overview }}</div>
+<div style="margin-top:4px;font-weight:700;">【本児の様子】</div>
+<table class="cs">
+  <colgroup><col style="width:14%"><col></colgroup>
+  {% for label, value in child_state_rows %}<tr><th>{{ label }}</th><td class="pre">{{ value }}</td></tr>{% endfor %}
+</table>
+<div style="margin-top:6px;font-weight:700;">2. 利用者の状況</div>
+<table class="cs">
+  <colgroup><col style="width:12%"><col style="width:30%"><col style="width:12%"><col style="width:22%"><col style="width:8%"><col style="width:16%"></colgroup>
+  <tr><th>氏名</th><td>{{ b.full_name }}</td><th>生年月日</th><td>{{ b.date_of_birth|date:'Y年m月d日' }}</td><th>年齢</th><td>{{ age }}歳</td></tr>
+  <tr><th>住所</th><td colspan="3">{{ b.address }}</td><th>電話</th><td>{{ b.mobile_phone|default:b.home_phone }}</td></tr>
+  <tr><th>所属</th><td colspan="5">{{ b.school_name }}</td></tr>
+</table>
+<div style="margin-top:6px;font-weight:700;">家族構成</div>
+<table class="cs">
+  <tr><th style="width:9%">続柄</th><th style="width:18%">氏名</th><th style="width:7%">年齢</th><th style="width:10%">同居・別居</th><th style="width:20%">職業・学校</th><th>特記事項</th></tr>
+  {% for f in family %}<tr><td>{{ f|dictkey:'relation' }}</td><td>{{ f|dictkey:'name' }}</td><td class="c">{{ f|dictkey:'age' }}</td><td class="c">{{ f|dictkey:'together' }}</td><td>{{ f|dictkey:'job' }}</td><td class="pre">{{ f|dictkey:'notes' }}</td></tr>{% endfor %}
+</table>
+<table class="cs" style="margin-top:6px;">
+  <colgroup><col style="width:14%"><col></colgroup>
+  <tr><th>生活歴</th><td class="pre" style="min-height:40px;">{{ cp.history }}</td></tr>
+  <tr><th>医療の状況</th><td class="pre">{{ cp.medical }}</td></tr>
+  <tr><th>本人の主訴</th><td class="pre">{{ cp.complaint_child }}</td></tr>
+  <tr><th>家族の主訴</th><td class="pre">{{ cp.complaint_family }}</td></tr>
+</table>
+<div style="margin-top:6px;font-weight:700;">3. 支援の状況</div>
+<table class="cs">
+  <tr><th style="width:20%">名称</th><th style="width:22%">提供機関・提供者</th><th>支援内容</th><th style="width:12%">頻度</th><th style="width:14%">備考</th></tr>
+  {% for s in services %}<tr><td>{{ s|dictkey:'name' }}</td><td>{{ s|dictkey:'provider' }}</td><td class="pre">{{ s|dictkey:'content' }}</td><td>{{ s|dictkey:'frequency' }}</td><td>{{ s|dictkey:'notes' }}</td></tr>{% endfor %}
+</table>
+{% endblock %}

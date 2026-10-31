@@ -309,6 +309,130 @@ def import_entries(k, indexes, user=None):
     return n
 
 
+def make_plan_from_knowledge(k, user=None):
+    """
+    読み取った「個別支援計画」から、個別支援計画（ステップ 2・原案）を作る。
+    ステップ 1 のアセスメントには要約と意向、原案には方針（項目「総合的な支援の方針」）と意向、目標は goals（長期／短期の語があれば区分）。
+    既存の計画は触らない。戻り値は作った SupportPlan
+    """
+    from django.utils import timezone
+    from support_plans.models import PlanGoal, SupportPlan
+    b = k.beneficiary
+    items = {i['label']: i['value'] for i in k.items}
+
+    def pick(*words):
+        for label, value in items.items():
+            if any(w in label for w in words):
+                return value
+        return ''
+    title = (k.title or '取り込んだ個別支援計画')[:100]
+    plan = SupportPlan.objects.create(facility=b.facility, beneficiary=b, title=title, created_by=user,
+                                      current_step=SupportPlan.STEP_DRAFT, form_extra={'imported_from_knowledge': k.pk})
+    a = plan.get_step(SupportPlan.STEP_ASSESSMENT)
+    a.interview_date = k.doc_date
+    a.interviewed_with = '（取り込んだ計画書から）'
+    a.condition = k.summary.strip()
+    a.environment = pick('環境', '利用状況', '所属')
+    a.wishes = '\n'.join(k.wishes_list)
+    a.notes = f'取り込んだ書類「{k.label}」' + (f'（{_ymd(k.doc_date)}）' if k.doc_date else '') + 'から作成'
+    a.completed_at = timezone.now()
+    a.completed_by = user
+    a.save()
+    d = plan.get_step(SupportPlan.STEP_DRAFT)
+    d.policy = pick('方針')
+    d.family_wishes = pick('意向', '願い') or '\n'.join(k.wishes_list)
+    d.notes = pick('備考', '留意')
+    start = _date(pick('開始日', '開始'))
+    end = _date(pick('有効期限', '終了'))
+    if start:
+        d.period_start = start
+    if end:
+        d.period_end = end
+    d.save()
+    x = dict(plan.form_extra)
+    for key, words in (('long_goal_text', ('長期目標',)), ('short_goal_text', ('短期目標',)), ('service_hours', ('提供時間',)),
+                       ('transport', ('送迎',)), ('cert_number', ('受給者証番号',))):
+        v = pick(*words)
+        if v:
+            x[key] = v[:300]
+    plan.form_extra = x
+    plan.save(update_fields=['form_extra', 'updated_at'])
+    n_long = n_short = 0
+    for g in k.goals_list:
+        is_long = g.startswith('長期') or '長期目標' in g[:6]
+        text = re.sub(r'^(長期目標|短期目標|長期|短期|優先\s*\d+|\d+)[：:．.、\s]*', '', g).strip()[:200]
+        if not text:
+            continue
+        gtype = PlanGoal.TYPE_LONG if is_long else PlanGoal.TYPE_SHORT
+        PlanGoal.objects.create(plan=plan, goal_type=gtype, content=text, target_date=end,
+                                order=(n_long if is_long else n_short), form_extra={})
+        if is_long:
+            n_long += 1
+        else:
+            n_short += 1
+    return plan
+
+
+def make_consultation_from_knowledge(k, user=None):
+    """
+    読み取った「相談支援の基本情報」「サービス等利用計画」から相談支援の計画（consultation.ConsultationPlan）を作る。
+    同じ利用者の作成中の計画があれば、その空の欄に入れる（上書きはしない）。戻り値は ConsultationPlan
+    """
+    from consultation.models import CHILD_STATE_KEYS, ConsultationPlan
+    b = k.beneficiary
+    items = {i['label']: i['value'] for i in k.items}
+
+    def pick(*words):
+        for label, value in items.items():
+            if any(w in label for w in words):
+                return value
+        return ''
+    cp = ConsultationPlan.objects.filter(beneficiary=b, status=ConsultationPlan.STATUS_DRAFT).order_by('-pk').first()
+    if cp is None:
+        cp = ConsultationPlan(facility=b.facility, beneficiary=b, created_by=user, source_knowledge=k)
+
+    def fill(field, value):
+        if value and not (getattr(cp, field) or '').strip():
+            setattr(cp, field, value)
+    fill('office_name', k.issuer or pick('相談支援事業'))
+    fill('planner', pick('計画作成担当', '担当者'))
+    fill('monitoring_period', pick('モニタリング'))
+    fill('support_class', pick('支援区分'))
+    fill('copay_cap', pick('負担上限'))
+    fill('cert_number', pick('障害福祉サービス受給者証'))
+    fill('child_cert_number', pick('通所受給者証'))
+    if not cp.plan_date:
+        cp.plan_date = k.doc_date or _date(pick('作成日'))
+    if k.kind == '相談支援の基本情報':
+        fill('overview', pick('概要', '支援経過') or k.summary)
+        fill('history', pick('生活歴'))
+        fill('medical', pick('医療'))
+        fill('complaint_child', pick('本人の主訴'))
+        fill('complaint_family', pick('家族の主訴'))
+        cs = dict(cp.child_state or {})
+        for key, label in CHILD_STATE_KEYS:
+            v = pick(label)
+            if v and not cs.get(key):
+                cs[key] = v
+        cp.child_state = cs
+        if not cp.complaint_family and k.wishes_list:
+            cp.complaint_family = '\n'.join(k.wishes_list)
+    else:
+        fill('wishes', pick('意向', '希望する生活') or '\n'.join(k.wishes_list))
+        fill('policy', pick('方針'))
+        fill('long_goal', pick('長期目標'))
+        fill('short_goal', pick('短期目標'))
+        if not cp.rows and k.goals_list:
+            rows = []
+            for i, g in enumerate(k.goals_list, 1):
+                m = re.match(r'^(?:優先\s*)?(\d+)[：:．.、\s]*(.*)$', g)
+                rows.append({'priority': m.group(1) if m else str(i), 'issue': '', 'goal': (m.group(2) if m else g)[:300],
+                             'timing': '', 'service': '', 'provider': '', 'role': '', 'eval_timing': '', 'notes': ''})
+            cp.rows = rows
+    cp.save()
+    return cp
+
+
 def reindex(knowledge):
     """検索用の小片を作り直す（要約・支援で気をつけること・書類の文字）"""
     knowledge.chunks.all().delete()
@@ -389,6 +513,12 @@ def save_reviewed(knowledge, post, user=None):
             n = import_entries(k, post.getlist('entry'), user)
             if n:
                 applied.append(f'療育記録 {n} 件')
+        if post.get('apply_plan') and k.kind == '個別支援計画':
+            plan = make_plan_from_knowledge(k, user)
+            applied.append(f'個別支援計画「{plan.title}」（原案）')
+        if post.get('apply_consultation') and k.kind in ('相談支援の基本情報', 'サービス等利用計画') and getattr(b.facility, 'use_consultation', False):
+            cp = make_consultation_from_knowledge(k, user)
+            applied.append(f'相談支援の計画「{cp.title}」')
         k.applied = applied
         k.status = BeneficiaryKnowledge.STATUS_SAVED
         old = BeneficiaryKnowledge.objects.filter(beneficiary=b).exclude(pk=k.pk)

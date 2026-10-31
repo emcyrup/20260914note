@@ -72,9 +72,34 @@ def knowledge_items(beneficiary, limit=KNOWLEDGE_MAX):
                 .order_by('-doc_date', '-created_at')[:limit])
 
 
-def documents_text(beneficiary):
+def consultation_text(beneficiary, exclude_pk=None):
+    """このシステムで作った相談支援の計画（終了以外の最新。内容のあるもの）：意向・方針・長期／短期目標・課題と支援目標"""
+    try:
+        from consultation.models import ConsultationPlan
+    except ImportError:          # アプリを入れていない構成
+        return ''
+    qs = ConsultationPlan.objects.filter(beneficiary=beneficiary).exclude(status=ConsultationPlan.STATUS_CLOSED)
+    if exclude_pk:
+        qs = qs.exclude(pk=exclude_pk)
+    cp = qs.order_by('-plan_date', '-pk').first()
+    if not cp or not (cp.wishes.strip() or cp.policy.strip() or cp.long_goal.strip() or cp.short_goal.strip() or cp.goals_text()):
+        return ''
+    body = [f'■ サービス等利用計画（{cp.office_name or "相談支援事業所"}{f" {_ymd(cp.plan_date)}" if cp.plan_date else ""}）']
+    for label, value in (('意向', cp.wishes), ('方針', cp.policy), ('長期目標', cp.long_goal), ('短期目標', cp.short_goal)):
+        if value.strip():
+            body.append(f'{label}：' + value.strip().replace('\n', ' ')[:300])
+    goals = cp.goals_text()
+    if goals:
+        body.append('課題と支援目標：' + '／'.join(goals[:6]))
+    return '\n'.join(body)
+
+
+def documents_text(beneficiary, exclude_consultation=None):
     """書類から分かっていること（要約・気をつけること・意向・目標）。相談支援のサービス等利用計画は見出しを分ける"""
     service_plan, others = [], []
+    own = consultation_text(beneficiary, exclude_consultation)
+    if own:
+        service_plan.append(own)
     for k in knowledge_items(beneficiary):
         head = f'■ {k.kind}「{k.label}」' + (f'（{k.issuer}）' if k.issuer else '') + (f' {_ymd(k.doc_date)}' if k.doc_date else '')
         body = [head]
@@ -114,7 +139,7 @@ def ledger_text(beneficiary):
     return '\n\n'.join(parts)
 
 
-def collect(beneficiary, start, end, limit=RECORDS_MAX):
+def collect(beneficiary, start, end, limit=RECORDS_MAX, exclude_consultation=None):
     """
     材料をまとめる。戻り値 dict：
       head（利用者の 1 行）、ledger（アセスメント・5領域・留意点）、service_plan（相談支援のサービス等利用計画）、
@@ -122,7 +147,7 @@ def collect(beneficiary, start, end, limit=RECORDS_MAX):
     """
     b = beneficiary
     lines, kind = record_lines(b, start, end, limit)
-    service_plan, documents = documents_text(b)
+    service_plan, documents = documents_text(b, exclude_consultation)
     ledger = ledger_text(b)
     sources = []
     if ledger:
