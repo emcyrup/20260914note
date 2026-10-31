@@ -17,7 +17,7 @@ from beneficiaries.models import Beneficiary
 from facilities.context_processors import get_terms
 
 from . import services
-from .services import REPORT_KINDS
+from .services import report_kinds
 from config.pdf import media_url_fetcher
 from config.utils import to_int
 
@@ -29,7 +29,7 @@ class ReportIndexView(LoginRequiredMixin, View):
         terms = get_terms(request.user)
         kinds = [dict(key=k, title=v['title'].format(beneficiary=terms['beneficiary']),
                       desc=v['desc'].format(beneficiary=terms['beneficiary']), icon=v['icon'], filters=v['filters'])
-                 for k, v in REPORT_KINDS.items()]
+                 for k, v in report_kinds(facility).items()]
         return render(request, 'reports/index.html', {
             'kinds': kinds,
             'beneficiaries': Beneficiary.objects.filter(facility=facility).order_by('status', 'last_name_kana', 'first_name_kana'),
@@ -52,7 +52,8 @@ class ReportExportView(LoginRequiredMixin, View):
         p = request.GET
         kind = p.get('kind', '')
         fmt = p.get('fmt', 'pdf')
-        if kind not in REPORT_KINDS:
+        kinds = report_kinds(facility)
+        if kind not in kinds:
             messages.error(request, '帳票の種類が正しくありません。')
             return redirect('reports:index')
 
@@ -66,7 +67,7 @@ class ReportExportView(LoginRequiredMixin, View):
             return redirect('reports:index')
 
         beneficiary = None
-        if 'beneficiary' in REPORT_KINDS[kind]['filters']:
+        if 'beneficiary' in kinds[kind]['filters']:
             beneficiary = get_object_or_404(Beneficiary, pk=to_int(p.get('beneficiary'), -1), facility=facility)
 
         if kind == 'service_record':

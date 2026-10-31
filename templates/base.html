@@ -249,6 +249,23 @@
         </a>
       </li>
 
+      {% if features.reports or features.form_set != 'standard' %}
+      <li class="sidebar-nav-label nav-secondary">帳票</li>
+      {% if features.reports %}
+      <li class="nav-secondary">
+        <a class="sidebar-nav-item {% if rm.app_name == 'reports' %}active{% endif %}" href="{% url 'reports:index' %}" title="利用者ごとの実績記録票・療育記録一覧、出欠一覧・業務日誌・名簿・計画一覧を PDF・CSV で">
+          <i class="bi bi-printer"></i><span>帳票出力</span>
+        </a>
+      </li>
+      {% endif %}
+      {% if features.form_set and features.form_set != 'standard' %}
+      <li class="nav-secondary">
+        <a class="sidebar-nav-item {% if rm.app_name == 'custom_forms' %}active{% endif %}" href="{% url 'custom_forms:index' %}">
+          <i class="bi bi-file-earmark-ruled"></i><span>事業所様式</span>
+        </a>
+      </li>
+      {% endif %}
+      {% endif %}
       <li class="sidebar-nav-label nav-secondary">設定</li>
       {% if user.is_admin or user.is_superuser %}
       <li class="nav-secondary">
