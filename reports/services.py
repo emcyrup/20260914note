@@ -59,6 +59,43 @@ def month_range(year, month):
     return date(year, month, 1), date(year, month, last)
 
 
+def uses_reservations(facility):
+    """来所の実績を予約管理（Reservation の実績）から取る事業所（療育：ゆあーず・オウル）"""
+    return bool(facility.use_reservation and not facility.use_schedule)
+
+
+def uses_therapy(facility):
+    """記録が日誌（DailyRecord）ではなく療育記録（TherapyRecord）の事業所"""
+    return bool(facility.use_therapy_record)
+
+
+RESERVATION_STATUS = {'attended': '利用', 'absent': '欠席', 'cancelled': '取消', '': '予定'}
+
+
+def _reservations(facility, start, end, beneficiary=None):
+    from reservations.models import Reservation
+    qs = Reservation.objects.filter(facility=facility, date__range=(start, end), status=Reservation.STATUS_CONFIRMED, beneficiary__isnull=False)
+    if beneficiary is not None:
+        qs = qs.filter(beneficiary=beneficiary)
+    return qs
+
+
+def _slot_end(facility, start_time):
+    """時間枠の予約なら 開始＋1 枠の長さ を終了時刻にする"""
+    if start_time is None:
+        return None
+    from reservations.services import get_setting
+    setting = get_setting(facility)
+    if not setting.slot_mode:
+        return None
+    from datetime import datetime
+    return (datetime.combine(date.today(), start_time) + timedelta(minutes=setting.slot_minutes)).time()
+
+
+def _activities_text(activities):
+    return '・'.join(str(a) for a in (activities or []) if a)
+
+
 def _cert_for(beneficiary, on_date):
     """その日に有効な受給者証。無ければ最新のもの"""
     certs = list(beneficiary.recipient_certificates.order_by('-valid_from'))
@@ -83,6 +120,8 @@ def _questions_text(rows):
 # 1. サービス提供実績記録票（利用者別・月次）
 # =============================================
 def service_record(facility, beneficiary, year, month):
+    if uses_reservations(facility) or uses_therapy(facility):
+        return _service_record_ryoiku(facility, beneficiary, year, month)
     terms = _terms(facility)
     start, end = month_range(year, month)
     visits = {v.date: v for v in ScheduledVisit.objects.filter(facility=facility, beneficiary=beneficiary, date__range=(start, end))}
@@ -132,10 +171,70 @@ def service_record(facility, beneficiary, year, month):
     )
 
 
+def _service_record_ryoiku(facility, beneficiary, year, month):
+    """療育の事業所：提供状況は予約の実績、時間は予約の開始時刻（＋1 枠の長さ）、やったこと・担当は療育記録から"""
+    from therapy.models import TherapyRecord
+    terms = _terms(facility)
+    start, end = month_range(year, month)
+    res = {}
+    if uses_reservations(facility):
+        for r in _reservations(facility, start, end, beneficiary).order_by('date', 'start_time', 'pk'):
+            res.setdefault(r.date, r)
+    recs = {}
+    if uses_therapy(facility):
+        for t in TherapyRecord.objects.filter(facility=facility, beneficiary=beneficiary, date__range=(start, end)).select_related('staff').order_by('date', 'time', 'pk'):
+            recs.setdefault(t.date, t)
+    else:
+        for r in DailyRecord.objects.filter(facility=facility, beneficiary=beneficiary, date__range=(start, end)).order_by('date', 'pk'):
+            recs.setdefault(r.date, r)
+    rows, counts = [], {}
+    d = start
+    while d <= end:
+        r, t = res.get(d), recs.get(d)
+        if r or t:
+            status = RESERVATION_STATUS.get(r.attendance, '予定') if r else '利用'
+            counts[status] = counts.get(status, 0) + 1
+            if uses_therapy(facility):
+                start_t = r.start_time if r else (t.time if t else None)
+                end_t = _slot_end(facility, r.start_time) if r else None
+                did = _activities_text(t.activities) if t else ''
+                staff = t.staff_label if t else ''
+                note = (r.note if r else '') or ''
+            else:
+                start_t = t.entry_time if t else (r.start_time if r else None)
+                end_t = t.exit_time if t else None
+                did = (t.activity_name if t else '') or ''
+                staff = str(t.author) if t and t.author else ''
+                note = (r.note if r else '') or ''
+            rows.append([str(d.day), WEEKDAYS[d.weekday()], status, fmt_time(start_t), fmt_time(end_t), staff, did, note, ''])
+        d += timedelta(days=1)
+    cert = _cert_for(beneficiary, start)
+    meta = [
+        ('事業所名', facility.name), ('事業所番号', facility.office_number or ''),
+        (f'{terms["beneficiary"]}氏名', f'{beneficiary.full_name}（{beneficiary.full_name_kana}）'),
+        ('受給者証番号', cert.certificate_number if cert else ''),
+        ('支給量', f'{cert.granted_days} 日/月' if cert else ''),
+        ('対象月', f'{year}年{month}月'),
+        ('利用日数', f'{counts.get("利用", 0)} 日'), ('欠席', f'{counts.get("欠席", 0)} 回'),
+        ('取消', f'{counts.get("取消", 0)} 回'), ('予定（実績未入力）', f'{counts.get("予定", 0)} 日'),
+    ]
+    source = '提供状況は予約の実績（来た・欠席・キャンセル）から、開始時刻は予約の時間枠から' if uses_reservations(facility) else '提供状況は記録のある日'
+    source += '、担当・やったことは療育記録から転記しています。' if uses_therapy(facility) else '、時間・活動は日誌から転記しています。'
+    return Report(
+        key='service_record', title='サービス提供実績記録票',
+        subtitle=f'{year}年{month}月　{beneficiary.full_name}', meta=meta,
+        columns=['日', '曜日', '提供状況', '開始時間', '終了時間', '担当', 'やったこと・活動', '備考', '保護者確認'],
+        rows=rows, landscape=True, filename=f'実績記録票_{beneficiary.full_name}_{year}{month:02d}',
+        widths=[5, 5, 8, 8, 8, 10, 30, 16, 10], footnote=source,
+    )
+
+
 # =============================================
 # 2. 出欠・利用実績一覧（施設・月次）
 # =============================================
 def attendance_summary(facility, year, month):
+    if uses_reservations(facility):
+        return _attendance_summary_ryoiku(facility, year, month)
     terms = _terms(facility)
     start, end = month_range(year, month)
     beneficiaries = list(Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE)
@@ -185,10 +284,47 @@ def attendance_summary(facility, year, month):
     )
 
 
+def _attendance_summary_ryoiku(facility, year, month):
+    from therapy.models import TherapyRecord
+    terms = _terms(facility)
+    start, end = month_range(year, month)
+    beneficiaries = list(Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE).prefetch_related('recipient_certificates'))
+    stats = {}
+    for row in (_reservations(facility, start, end).values('beneficiary_id').annotate(
+            total=Count('pk'), attended=Count('pk', filter=Q(attendance='attended')), absent=Count('pk', filter=Q(attendance='absent')),
+            cancelled=Count('pk', filter=Q(attendance='cancelled')), pending=Count('pk', filter=Q(attendance='')))):
+        stats[row['beneficiary_id']] = row
+    if uses_therapy(facility):
+        record_counts = dict(TherapyRecord.objects.filter(facility=facility, date__range=(start, end))
+                             .values_list('beneficiary_id').annotate(n=Count('pk')).values_list('beneficiary_id', 'n'))
+        rec_label = '療育記録'
+    else:
+        record_counts = dict(DailyRecord.objects.filter(facility=facility, date__range=(start, end))
+                             .values_list('beneficiary_id').annotate(n=Count('pk')).values_list('beneficiary_id', 'n'))
+        rec_label = '日誌作成'
+    rows, total_attended = [], 0
+    for b in beneficiaries:
+        st = stats.get(b.pk, {})
+        cert = _cert_for(b, start)
+        total_attended += st.get('attended', 0)
+        rows.append([b.full_name, b.full_name_kana, str(cert.granted_days) if cert else '', str(st.get('total', 0)), str(st.get('attended', 0)),
+                     str(st.get('absent', 0)), str(st.get('cancelled', 0)), str(st.get('pending', 0)), str(record_counts.get(b.pk, 0))])
+    return Report(
+        key='attendance_summary', title='出欠・利用実績一覧', subtitle=f'{year}年{month}月',
+        meta=[('事業所名', facility.name), ('対象月', f'{year}年{month}月'),
+              (f'在籍{terms["beneficiary"]}数', f'{len(beneficiaries)} 名'), ('来所延べ人数', f'{total_attended} 人日')],
+        columns=['氏名', 'ふりがな', '支給量', '予約', '来た', '欠席', '取消', '実績未入力', rec_label],
+        rows=rows, landscape=True, filename=f'出欠利用実績_{year}{month:02d}',
+        footnote='予約・来た・欠席・取消は予約管理の実績から集計しています。実績未入力は、予約はあるが実績を付けていない日の数です。',
+    )
+
+
 # =============================================
 # 3. 業務日誌（施設・日別）
 # =============================================
 def daily_journal(facility, day):
+    if uses_therapy(facility):
+        return _daily_journal_ryoiku(facility, day)
     terms = _terms(facility)
     records = list(DailyRecord.objects.filter(facility=facility, date=day)
                    .select_related('beneficiary', 'author').prefetch_related('activity_tags')
@@ -211,10 +347,28 @@ def daily_journal(facility, day):
     )
 
 
+def _daily_journal_ryoiku(facility, day):
+    from therapy.models import TherapyRecord
+    terms = _terms(facility)
+    records = list(TherapyRecord.objects.filter(facility=facility, date=day).select_related('beneficiary', 'staff')
+                   .order_by('time', 'beneficiary__last_name_kana', 'beneficiary__first_name_kana', 'pk'))
+    attended = _reservations(facility, day, day).filter(attendance='attended').count() if uses_reservations(facility) else len(records)
+    rows = [[r.beneficiary.full_name, fmt_time(r.time), r.staff_label, _activities_text(r.activities), r.body, r.situation] for r in records]
+    return Report(
+        key='daily_journal', title='業務日誌（療育記録）', subtitle=f'{day.year}年{day.month}月{day.day}日（{WEEKDAYS[day.weekday()]}）',
+        meta=[('事業所名', facility.name), ('日付', f'{fmt_date(day)}（{WEEKDAYS[day.weekday()]}）'),
+              ('来所人数', f'{attended} 名'), ('記録件数', f'{len(records)} 件')],
+        columns=[terms['beneficiary'], '時刻', '担当', 'やったこと', '記録（したこと）', '様子'],
+        rows=rows, landscape=True, filename=f'業務日誌_{day.strftime("%Y%m%d")}', widths=[11, 6, 9, 20, 30, 24],
+    )
+
+
 # =============================================
 # 4. 日誌一覧（利用者別・期間）
 # =============================================
 def beneficiary_records(facility, beneficiary, start, end):
+    if uses_therapy(facility):
+        return _beneficiary_records_ryoiku(facility, beneficiary, start, end)
     terms = _terms(facility)
     records = list(DailyRecord.objects.filter(facility=facility, beneficiary=beneficiary, date__range=(start, end))
                    .select_related('author').prefetch_related('activity_tags').order_by('date', 'pk'))
@@ -233,6 +387,25 @@ def beneficiary_records(facility, beneficiary, start, end):
         rows=rows, landscape=True,
         filename=f'支援記録_{beneficiary.full_name}_{start.strftime("%Y%m%d")}-{end.strftime("%Y%m%d")}',
         widths=[8, 4, 9, 14, 16, 16, 12, 16, 5],
+    )
+
+
+def _beneficiary_records_ryoiku(facility, beneficiary, start, end):
+    from therapy.models import TherapyRecord
+    terms = _terms(facility)
+    records = list(TherapyRecord.objects.filter(facility=facility, beneficiary=beneficiary, date__range=(start, end))
+                   .select_related('staff').order_by('date', 'time', 'pk'))
+    rows = [[fmt_date(r.date), WEEKDAYS[r.date.weekday()], fmt_time(r.time), r.staff_label, _activities_text(r.activities), r.body, r.situation]
+            for r in records]
+    return Report(
+        key='beneficiary_records', title='療育記録一覧',
+        subtitle=f'{beneficiary.full_name}　{fmt_date(start)} 〜 {fmt_date(end)}',
+        meta=[('事業所名', facility.name), (f'{terms["beneficiary"]}氏名', f'{beneficiary.full_name}（{beneficiary.full_name_kana}）'),
+              ('期間', f'{fmt_date(start)} 〜 {fmt_date(end)}'), ('件数', f'{len(records)} 件')],
+        columns=['日付', '曜日', '時刻', '担当', 'やったこと', '記録（したこと）', '様子'],
+        rows=rows, landscape=True,
+        filename=f'療育記録_{beneficiary.full_name}_{start.strftime("%Y%m%d")}-{end.strftime("%Y%m%d")}',
+        widths=[9, 4, 6, 9, 20, 28, 24],
     )
 
 
@@ -293,6 +466,18 @@ def plan_list(facility, status='all'):
         columns=[terms['beneficiary'], '計画名', '状態', '現在のステップ', '計画期間', '次回モニタリング', '児童発達支援管理責任者', '作成日'],
         rows=rows, landscape=False, filename=f'支援計画一覧_{date.today().strftime("%Y%m%d")}',
     )
+
+
+def report_kinds(facility):
+    """帳票の一覧（療育の事業所は、日誌 → 療育記録、予定表 → 予約 の言い方に）"""
+    kinds = {k: dict(v) for k, v in REPORT_KINDS.items()}
+    if uses_therapy(facility):
+        kinds['beneficiary_records'].update(title='療育記録一覧', desc='{beneficiary}ごとに、期間内の療育記録（時刻・担当・やったこと・記録・様子）を時系列で並べます。モニタリングや相談支援事業所への提出に。')
+        kinds['daily_journal'].update(title='業務日誌（日別）', desc='その日の療育記録（時刻・担当・やったこと・記録・様子）を{beneficiary}ごとに 1 枚にまとめます。')
+        kinds['service_record'].update(desc='{beneficiary}ごとに、その月の提供状況（予約の実績）・時間・担当・やったことを日付順に並べます。保護者確認欄つき。')
+    if uses_reservations(facility):
+        kinds['attendance_summary'].update(desc='在籍中の{beneficiary}全員の、その月の予約・来た・欠席・取消と記録の数を一覧にします。')
+    return kinds
 
 
 def _terms(facility):
