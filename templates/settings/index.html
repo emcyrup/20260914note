@@ -410,6 +410,12 @@
             <input type="checkbox" class="form-check-input" name="use_consultation" id="use_consultation" {% if facility.use_consultation %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_consultation">相談支援の計画（申請者の現状・サービス等利用計画／障害児支援利用計画・週間計画表。書類の読み取りからの取り込みと AI の下書き、A4 で印刷）</label>
           </div>
+          {% if facility.is_ryoiku %}
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="use_reports" id="use_reports" {% if facility.use_reports %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="use_reports">帳票出力（利用者ごとのサービス提供実績記録票・療育記録一覧、出欠・利用実績一覧、業務日誌、名簿、個別支援計画一覧を PDF・CSV で）</label>
+          </div>
+          {% endif %}
           <div class="form-text">使わない機能はメニューやボタンから消えます。記録は消えないので、あとから戻せます。</div>
           {% if trial_ai.limit and not is_developer %}
           <div class="alert alert-info small py-1 px-2 mt-2 mb-0">「お試し」の機能の AI は <b>{{ trial_ai.limit }} 回</b>まで使えます（使った回数 {{ trial_ai.used }}・あと {{ trial_ai.remaining }} 回）。</div>
