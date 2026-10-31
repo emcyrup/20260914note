@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block title %}確認待ちの介護記録 — {{ app_label }}{% endblock %}
+{% block page_title %}確認待ちの介護記録{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <div class="small text-muted mb-2">{{ terms.staff }}が「確認へ出す」にした介護記録です。{% if can_approve %}読んでよければ「承認」、直してほしいときはひとことを添えて「戻す」。{% else %}承認はリーダー・管理者が行います。{% endif %}　<a href="{% url 'nursing:records' %}">きょうの一覧へ</a></div>
+  {% for r in records %}
+  <div class="nr-card">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+      <div><a href="{% url 'nursing:record_edit' r.beneficiary.pk %}?d={{ r.date|date:'Y-m-d' }}" class="fw-bold text-decoration-none fs-6">{{ r.beneficiary.full_name }}</a>　{{ r.date|date:'n月j日（D）' }}<span class="small text-muted ms-2">記録：{{ r.author|default:'—' }}{% if r.lang != 'ja' %}・{{ r.get_lang_display }}で入力{% endif %}{% if r.ai_drafted %}・AI の下書き{% endif %}</span>
+        {% for f in r.flags %}<span class="badge text-bg-danger ms-1">{{ f }}</span>{% endfor %}</div>
+      {% if can_approve %}
+      <form method="post" action="{% url 'nursing:record_approve' r.pk %}" class="d-flex gap-1 align-items-center flex-wrap">{% csrf_token %}<input type="hidden" name="back" value="{% url 'nursing:review' %}">
+        <input type="text" name="review_note" class="form-control form-control-sm" style="width:220px;" placeholder="戻すときのひとこと（任意）" maxlength="300">
+        <button name="action" value="send_back" class="btn btn-sm btn-outline-secondary">戻す</button>
+        <button name="action" value="approve" class="btn btn-sm btn-success"><i class="bi bi-check2 me-1"></i>承認</button></form>
+      {% endif %}
+    </div>
+    <div class="row g-2 mt-1">
+      <div class="col-md-7"><div class="nr-lbl">介護記録</div><div class="nr-entry-body">{{ r.body|default:'（本文なし）' }}</div></div>
+      <div class="col-md-5"><div class="nr-lbl">家族向け（連絡帳）</div><div class="nr-entry-body small">{{ r.family_message|default:'—' }}</div>
+        {% if r.internal_note %}<div class="nr-lbl mt-2">内部の記録</div><div class="nr-entry-body small text-muted">{{ r.internal_note }}</div>{% endif %}</div>
+    </div>
+  </div>
+  {% empty %}<div class="nr-card text-muted">確認待ちの記録はありません。</div>{% endfor %}
+</div>
+{% endblock %}

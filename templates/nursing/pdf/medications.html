@@ -1,0 +1,14 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}服薬一覧 {{ b.full_name }}{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<h1>服薬一覧</h1>
+<table><tr><th style="width:14%;">氏名</th><td style="width:36%;font-size:13px;font-weight:700;">{{ b.full_name }}</td><th style="width:14%;">要介護度</th><td>{{ insurance.care_level|default:'' }}</td></tr>
+  <tr><th>作成日</th><td>{{ today|date:'Y年n月j日' }}</td><th>事業所</th><td>{{ facility.name }}</td></tr></table>
+<table style="margin-top:8px;">
+  <thead><tr><th>薬の名前</th><th>量・用法</th><th>のむ時間</th><th>目的</th><th>処方した医師・医療機関／薬局</th><th>期間</th><th>注意</th></tr></thead>
+  <tbody>{% for m in meds %}<tr><td>{{ m.name }}</td><td>{{ m.dose }}</td><td>{{ m.timing_text }}</td><td>{{ m.purpose }}</td><td>{{ m.prescriber }}{% if m.pharmacy %}<br>{{ m.pharmacy }}{% endif %}</td><td>{% if m.start_on %}{{ m.start_on|date:'Y/n/j' }}〜{% endif %}{% if m.end_on %}{{ m.end_on|date:'Y/n/j' }}{% endif %}{% if m.review_due %}<br><span class="small">更新 {{ m.review_due|date:'Y/n/j' }}</span>{% endif %}</td><td>{{ m.notes }}</td></tr>
+  {% empty %}<tr><td colspan="7">服用中の薬はありません。</td></tr>{% endfor %}</tbody>
+</table>
+<p class="small muted">＊薬の内容は処方箋・お薬手帳で確かめてください。この一覧は施設での服薬の確認用です。</p>
+{% endblock %}

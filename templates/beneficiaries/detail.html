@@ -7,7 +7,7 @@
 {% block nav_beneficiaries %}active{% endblock %}
 
 {% block extra_css %}
-{% if user.facility.is_kyotaku %}{% include 'kaigo/_style.html' %}{% endif %}
+{% if user.facility.is_kaigo %}{% include 'kaigo/_style.html' %}{% endif %}{% if user.facility.is_care %}{% include 'nursing/_style.html' %}{% endif %}
 <style>
   .bd-grad { background: #7a5ea8; color: #fff; }
   .bd-grad-btn { background: #7a5ea8; color: #fff; border-color: #7a5ea8; }
@@ -97,7 +97,7 @@
 {% endblock %}
 
 {% block content %}
-<div style="max-width: {% if user.facility.is_kyotaku %}1100px{% else %}900px{% endif %}; margin: 0 auto;" class="px-2">
+<div style="max-width: {% if user.facility.is_kaigo %}1100px{% else %}900px{% endif %}; margin: 0 auto;" class="px-2">
 
   <!-- パンくず -->
   <div class="mb-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -118,7 +118,7 @@
     </nav>
     {% endif %}
   </div>
-  {% if user.facility.is_kyotaku %}{% include 'kaigo/_tabs.html' with b=beneficiary tab='info' %}{% endif %}
+  {% if user.facility.is_care %}{% include 'nursing/_tabs.html' with b=beneficiary tab='info' %}{% elif user.facility.is_kaigo %}{% include 'kaigo/_tabs.html' with b=beneficiary tab='info' %}{% endif %}
 
   <!-- ヘッダーカード -->
   <div class="info-card mb-3 d-flex justify-content-between align-items-start flex-wrap gap-3">
@@ -168,16 +168,16 @@
       <a href="{% url 'therapy:child' beneficiary.pk %}?date={% if add_today %}{{ add_today.day|date:'Y-m-d' }}{% else %}{% now 'Y-m-d' %}{% endif %}{% if add_today.existing.start_time %}&time={{ add_today.existing.start_time|time:'H:i' }}{% endif %}#add" class="btn btn-primary btn-sm"><i class="bi bi-journal-medical me-1"></i>療育記録を書く（きょう）</a>
       {% endif %}
       </div>
-      {% if not user.facility.is_kyotaku %}<a href="{% url 'beneficiaries:digest' beneficiary.pk %}" class="btn btn-outline-primary btn-sm" title="期間の記録から、面談・モニタリング・計画の見直しに使うまとめを作る"><i class="bi bi-file-earmark-text me-1"></i>面談資料（記録のまとめ）</a>{% endif %}
+      {% if not user.facility.is_kaigo %}<a href="{% url 'beneficiaries:digest' beneficiary.pk %}" class="btn btn-outline-primary btn-sm" title="期間の記録から、面談・モニタリング・計画の見直しに使うまとめを作る"><i class="bi bi-file-earmark-text me-1"></i>面談資料（記録のまとめ）</a>{% endif %}
       <form method="post" action="{% url 'beneficiaries:status' beneficiary.pk %}" class="d-flex align-items-center gap-1 flex-wrap justify-content-end">
         {% csrf_token %}
         <span class="small text-muted me-1">在籍状況</span>
-        {% for value, label in status_choices %}{% if not user.facility.is_kyotaku or value != 'graduated' %}
+        {% for value, label in status_choices %}{% if not user.facility.is_kaigo or value != 'graduated' %}
         <button name="status" value="{{ value }}" class="btn btn-sm {% if beneficiary.status == value %}{% if value == 'active' %}btn-success{% elif value == 'graduated' %}bd-grad-btn active{% else %}btn-secondary{% endif %}{% else %}btn-outline-secondary{% endif %}"
                 {% if beneficiary.status == value %}disabled aria-pressed="true"{% else %}onclick="return confirm('{{ beneficiary.full_name|escapejs }} さんを「{{ label }}」にします。よろしいですか？');"{% endif %}>{% if value == 'graduated' %}<i class="bi bi-mortarboard me-1"></i>{% endif %}{{ label }}</button>
         {% endif %}{% endfor %}
       </form>
-      {% if user.is_admin or user.is_superuser %}{% if not user.facility.is_kyotaku %}
+      {% if user.is_admin or user.is_superuser %}{% if not user.facility.is_kaigo %}
       <a href="{% url 'beneficiaries:delete' beneficiary.pk %}" class="small text-danger text-decoration-none"><i class="bi bi-trash me-1"></i>この{{ terms.beneficiary }}を削除する</a>
       {% endif %}{% endif %}
     </div>
@@ -215,8 +215,8 @@
   </div>
   {% endif %}
 
-  {% if user.facility.is_kyotaku %}{% include 'kaigo/_insurance_card.html' %}{% endif %}
-  {% if not user.facility.is_ryoiku and not user.facility.is_kyotaku %}{% include "beneficiaries/_support_flow.html" %}{% endif %}
+  {% if user.facility.is_kaigo %}{% include 'kaigo/_insurance_card.html' %}{% endif %}
+  {% if not user.facility.is_ryoiku and not user.facility.is_kaigo %}{% include "beneficiaries/_support_flow.html" %}{% endif %}
 
   <div class="row g-3">
 
@@ -239,7 +239,7 @@
             <div class="detail-label">性別</div>
             <div class="detail-value">{{ beneficiary.get_gender_display }}</div>
           </div>
-          {% if user.facility.is_kyotaku %}
+          {% if user.facility.is_kaigo %}
           <div class="col-12">
             <div class="detail-label">住所</div>
             <div class="detail-value">{% if beneficiary.postal_code %}〒{{ beneficiary.postal_code }} {% endif %}{{ beneficiary.address|default:'—' }}</div>
@@ -343,7 +343,7 @@
     <div class="col-md-6">
       <div class="info-card h-100">
         <div class="d-flex justify-content-between align-items-center mb-3">
-          <div class="section-title mb-0">{% if user.facility.is_kyotaku %}家族・緊急連絡先{% else %}保護者{% endif %}</div>
+          <div class="section-title mb-0">{% if user.facility.is_kaigo %}家族・緊急連絡先{% else %}保護者{% endif %}</div>
           <button class="btn btn-sm btn-outline-primary"
                   data-bs-toggle="modal" data-bs-target="#guardianModal">
             <i class="bi bi-plus me-1"></i>追加
@@ -509,7 +509,7 @@
     </div>
     {% endif %}
 
-    {% if not user.facility.is_kyotaku %}
+    {% if not user.facility.is_kaigo %}
     <!-- アセスメント・資料（居宅介護支援ではアセスメントのタブを使う） -->
     <div class="col-12" id="assessments">
       <div class="info-card">
@@ -569,7 +569,7 @@
     </div>
 
     {% endif %}
-    {% if not user.facility.is_kyotaku %}
+    {% if not user.facility.is_kaigo %}
     <!-- 利用事業所（上限額管理）・受給者証（障害福祉。居宅介護支援では介護保険証を使う） -->
     <div class="col-12">
       <div class="info-card">
@@ -715,7 +715,7 @@
 {% if user.is_admin or user.is_superuser %}
 <div class="text-end mt-4">
   <a href="{% url 'beneficiaries:delete' beneficiary.pk %}" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>この{{ terms.beneficiary }}を削除する</a>
-  <div class="small text-muted mt-1">{% if user.facility.is_kyotaku %}まちがえて登録した{{ terms.beneficiary }}を、支援経過・ケアプランなどの記録ごと消します（ごみ箱に 30 日置き、そのあいだは戻せます）。次の画面で確かめてから消します。契約が終わった方は、上の「在籍状況」で「退所」にすると一覧で分けて見られます。{% else %}辞めた子・まちがえて登録した子を、療育記録・予約・書類ごと消します（ごみ箱に 30 日置き、そのあいだは戻せます）。次の画面で確かめてから消します。残しておきたいときは、上の「在籍状況」で「退所」「卒業」にすると一覧で分けて見られます。{% endif %}</div>
+  <div class="small text-muted mt-1">{% if user.facility.is_kaigo %}まちがえて登録した{{ terms.beneficiary }}を、支援経過・ケアプランなどの記録ごと消します（ごみ箱に 30 日置き、そのあいだは戻せます）。次の画面で確かめてから消します。契約が終わった方は、上の「在籍状況」で「退所」にすると一覧で分けて見られます。{% else %}辞めた子・まちがえて登録した子を、療育記録・予約・書類ごと消します（ごみ箱に 30 日置き、そのあいだは戻せます）。次の画面で確かめてから消します。残しておきたいときは、上の「在籍状況」で「退所」「卒業」にすると一覧で分けて見られます。{% endif %}</div>
 </div>
 {% endif %}
 
@@ -774,7 +774,7 @@
                 {% endfor %}
               </select>
             </div>
-            {% if user.facility.is_kyotaku %}
+            {% if user.facility.is_kaigo %}
             <div class="col-sm-4">
               <label class="form-label small fw-semibold">郵便番号</label>
               <input type="text" name="postal_code" class="form-control" inputmode="numeric" value="{{ edit_form.postal_code.value|default:'' }}" maxlength="8">
@@ -829,13 +829,13 @@
             <div class="col-sm-6">
               <label class="form-label small fw-semibold">在籍状況</label>
               <select name="status" class="form-select">
-                {% for value, label in edit_form.fields.status.choices %}{% if not user.facility.is_kyotaku or value != 'graduated' or edit_form.status.value == value %}
+                {% for value, label in edit_form.fields.status.choices %}{% if not user.facility.is_kaigo or value != 'graduated' or edit_form.status.value == value %}
                 <option value="{{ value }}" {% if edit_form.status.value == value %}selected{% endif %}>{{ label }}</option>{% endif %}{% endfor %}
               </select>
             </div>
           </div>
 
-          {% if not user.facility.is_kyotaku %}
+          {% if not user.facility.is_kaigo %}
           <!-- 利用予定曜日 -->
           <div class="mb-3">
             <label class="form-label small fw-semibold d-block">利用予定曜日</label>
@@ -854,7 +854,7 @@
           {% endif %}
 
           <!-- 同じ時間にできない利用者（共演NG） -->
-          {% if edit_form.fields.cannot_pair.queryset and not user.facility.is_kyotaku %}
+          {% if edit_form.fields.cannot_pair.queryset and not user.facility.is_kaigo %}
           <div class="mb-3" data-check-group>
             <label class="form-label small fw-semibold d-block">同じ時間にできない{{ terms.beneficiary }}（共演NG） <span class="text-muted fw-normal">（印を付けた人とは、予約も月間予定表も同じ時間枠に入れません。時間がずれていれば同じ日でも入れられます。相手の側にも同じ印が付きます）</span></label>
             {% include 'beneficiaries/_pair_tools.html' %}
@@ -866,7 +866,7 @@
           </div>
           {% endif %}
 
-          {% if edit_form.fields.siblings.queryset and not user.facility.is_kyotaku %}
+          {% if edit_form.fields.siblings.queryset and not user.facility.is_kaigo %}
           <div class="mb-3">
             <label class="form-label small fw-semibold d-block">きょうだい <span class="text-muted fw-normal">（同じ時間枠に入った日に「きょうだいで1枠にまとめる」を選べます。まとめない日はそれぞれ1枠ずつ。相手の側にも同じ印が付きます）</span></label>
             <div class="border rounded p-2" style="max-height:160px;overflow:auto;">

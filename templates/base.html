@@ -67,7 +67,7 @@
       </div>
       <div>
         <div class="sidebar-brand-name">{{ user.facility.name|default:"放デイ業務支援" }}</div>
-        <div class="sidebar-brand-sub">{% if reservation_only %}予約の受付{% elif features.kyotaku %}居宅介護支援{% else %}放課後等デイサービス{% endif %}</div>
+        <div class="sidebar-brand-sub">{% if reservation_only %}予約の受付{% elif features.kyotaku %}居宅介護支援{% elif features.care %}介護施設{% else %}放課後等デイサービス{% endif %}</div>
       </div>
     </a>
 
@@ -160,6 +160,87 @@
       <li>
         <a class="sidebar-nav-item {% if rm.app_name == 'minutes' %}active{% endif %}" href="{% url 'minutes:index' %}">
           <i class="bi bi-mic"></i><span>議事録</span>
+        </a>
+      </li>
+      {% endwith %}
+      {% elif features.care %}
+      {% with rm=request.resolver_match %}
+      <!-- 介護施設（やすらぎの森）：ホーム・利用者情報・検温板・介護記録・連絡帳・ヒヤリハット／事故報告・薬・送迎・人員配置・資料検索・議事録／設定（2026-10-20 の打ち合わせ） -->
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name == 'home' %}active{% endif %}" href="{% url 'nursing:home' %}">
+          <i class="bi bi-house"></i><span>ホーム</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'beneficiaries' or rm.app_name == 'kaigo' or rm.url_name == 'person' or rm.url_name == 'plans' or rm.url_name == 'plan_edit' or rm.url_name == 'plan_print' %}active{% endif %}" href="{% url 'beneficiaries:list' %}">
+          <i class="bi bi-people"></i><span>{{ terms.beneficiary }}情報</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':6' == 'vitals' %}active{% endif %}" href="{% url 'nursing:vitals_day' %}" title="体温・血圧・脈拍・SpO2・食事量・水分・排泄を 1 週間 1 枚で（紙の検温板と同じ形で印刷）">
+          <i class="bi bi-thermometer-half"></i><span>検温板</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':6' == 'record' %}active{% endif %}" href="{% url 'nursing:records' %}" title="はい／いいえ・キーワード・音声から AI が介護記録の下書きを作る。リーダー・管理者が確認して承認">
+          <i class="bi bi-journal-text"></i><span>介護記録</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':7' == 'renraku' %}active{% endif %}" href="{% url 'nursing:renraku' %}" title="家族向けのメッセージ（連絡帳）。LINE で送る・印刷する">
+          <i class="bi bi-envelope-paper"></i><span>連絡帳</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':8' == 'incident' %}active{% endif %}" href="{% url 'nursing:incidents' %}">
+          <i class="bi bi-exclamation-triangle"></i><span>ヒヤリハット・事故報告</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':3' == 'med' %}active{% endif %}" href="{% url 'nursing:medications' %}" title="薬の一覧・更新の期限のお知らせ・服薬一覧の印刷">
+          <i class="bi bi-capsule"></i><span>薬の管理</span>
+        </a>
+      </li>
+      {% if features.transport %}
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':9' == 'transport' or rm.app_name == 'transport' %}active{% endif %}" href="{% url 'nursing:transport_day' %}" title="その日の迎え・送りの一覧（送迎表の下書き）。車両・運転手の登録もここから">
+          <i class="bi bi-bus-front"></i><span>送迎表</span>
+        </a>
+      </li>
+      {% endif %}
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':8' == 'staffing' %}active{% endif %}" href="{% url 'nursing:staffing' %}" title="その日の利用者数と職員数から、人員配置基準に合っているかを見る">
+          <i class="bi bi-person-check"></i><span>人員配置</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name == 'docs' %}active{% endif %}" href="{% url 'nursing:docs' %}" title="加算の手引き・業務規定などの PDF を入れておき、根拠のページ付きで AI に聞く">
+          <i class="bi bi-search"></i><span>資料・加算の検索</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'minutes' %}active{% endif %}" href="{% url 'minutes:index' %}">
+          <i class="bi bi-mic"></i><span>議事録</span>
+        </a>
+      </li>
+      {% if features.line %}
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'line_integration' %}active{% endif %}" href="{% url 'line_integration:delivery_log' %}">
+          <i class="bi bi-chat-dots"></i><span>LINE連携</span>
+        </a>
+      </li>
+      {% endif %}
+      <li class="sidebar-nav-label">設定</li>
+      {% if user.is_admin or user.is_superuser %}
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'accounts' and rm.url_name == 'staff' %}active{% endif %}" href="{% url 'accounts:staff' %}">
+          <i class="bi bi-person-badge"></i><span>{{ terms.staff }}・運用管理</span>
+        </a>
+      </li>
+      {% endif %}
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'facilities' and rm.url_name == 'settings' %}active{% endif %}" href="{% url 'facilities:settings' %}">
+          <i class="bi bi-gear"></i><span>施設設定</span>
         </a>
       </li>
       {% endwith %}
@@ -412,7 +493,7 @@
         <div class="sidebar-user-name">
           {{ user.display_name|default:user.username }}
         </div>
-        <div class="sidebar-user-role">{{ user.get_role_display }}</div>
+        <div class="sidebar-user-role">{{ user.role_display }}</div>
         <a href="{% url 'accounts:theme' %}" class="sidebar-theme-link"><i class="bi bi-palette me-1"></i>画面の見た目</a>
       </div>
       <form method="post" action="{% url 'accounts:logout' %}" style="display:inline;" data-draft-clear>

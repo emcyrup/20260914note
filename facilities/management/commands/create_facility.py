@@ -11,6 +11,8 @@
 - --demo を付けると架空のサンプルデータ（seed_demo）も投入する
 - --preset ryoiku で、療育の事業所向けの設定にする（予約管理＋療育記録を使う。予約は時間枠：1枠45分・1枠3人・
   平日 10〜18 時・土日祝 9〜17 時・12 時は枠なし・月曜日と木曜日はお休み）
+- --preset care で、介護施設（やすらぎの森）にする（検温板・介護記録・連絡帳・ヒヤリハット／事故報告・薬・送迎・人員配置・
+  通所介護計画書。--demo は介護施設の架空データ（nursing_demo））
 - --preset kyotaku で、居宅介護（ホームヘルプ）の事業所にする（訪問予定・サービス提供記録・居宅介護計画・実績記録票。
   職員 1 人向けで職員・運用管理の画面は出さない。請求・来所予定・予約・LINE は使わない）。--demo は居宅介護支援（ケアマネ）の架空データ（kaigo_demo）
 記録（利用者・日誌・計画・請求）は施設ごとに完全に分かれる。職員は1つの施設にだけ所属する。
@@ -96,6 +98,25 @@ def apply_kyotaku_preset(facility):
     return facility
 
 
+def apply_care_preset(facility):
+    """介護施設（やすらぎの森）：検温板・介護記録・連絡帳・ヒヤリハット／事故報告・薬・送迎・人員配置・計画書（nursing アプリ）"""
+    facility.layout = Facility.LAYOUT_CARE
+    facility.use_billing = False           # 請求は現行ソフト（LIFE・国保連は後の段階）
+    facility.use_schedule = False
+    facility.use_reservation = False
+    facility.use_line = True               # 連絡帳を家族の LINE へ
+    facility.use_therapy_record = False
+    facility.use_transport = True          # 送迎表（車両・運転手・利用者ごとの送迎の設定）
+    facility.plan_no_ai = True
+    facility.knowledge_reflect = True
+    if facility.term_beneficiary in ('', '利用者'):
+        facility.term_beneficiary = 'ご利用者'
+    if not facility.brand_color:
+        facility.brand_color = '#4f7a4a'   # 介護施設の画面は森の緑
+    facility.save()
+    return facility
+
+
 class Command(BaseCommand):
     help = '別の事業所（施設）を作成し、標準タグと管理者アカウントを用意する'
 
@@ -110,8 +131,9 @@ class Command(BaseCommand):
         parser.add_argument('--demo', action='store_true', help='架空のサンプルデータ（seed_demo）も投入する')
         parser.add_argument('--layout', choices=['standard', 'planbook'], default=None,
                             help='画面の型（planbook＝計画書中心・シンプル：利用者・完了期日一覧・スタッフ・保護者・連絡帳・施設の6メニュー）')
-        parser.add_argument('--preset', choices=['ryoiku', 'kyotaku'], default=None,
-                            help='ryoiku＝療育の事業所：予約管理（時間枠・月予約利用希望・月間予定表）と療育記録を使う')
+        parser.add_argument('--preset', choices=['ryoiku', 'kyotaku', 'care'], default=None,
+                            help='ryoiku＝療育の事業所：予約管理（時間枠・月予約利用希望・月間予定表）と療育記録を使う。'
+                                 'kyotaku＝居宅介護支援（ケアマネ）。care＝介護施設（やすらぎの森：検温板・介護記録・連絡帳・事故報告・薬・送迎・計画書）')
 
     def handle(self, *args, **o):
         name = o['name'].strip()
@@ -154,6 +176,10 @@ class Command(BaseCommand):
                 apply_kyotaku_preset(facility)
                 self.stdout.write('居宅介護の事業所の設定にしました：訪問予定・サービス提供記録・居宅介護計画・実績記録票を使います'
                                   '（職員 1 人向け。請求・来所予定・予約・LINE は使いません）')
+            if o.get('preset') == 'care':
+                apply_care_preset(facility)
+                self.stdout.write('介護施設の設定にしました：検温板・介護記録・連絡帳（LINE）・ヒヤリハット／事故報告・薬の管理・送迎表・人員配置・'
+                                  '通所介護計画書を使います（請求・予約は使いません）')
             if src is not None and getattr(src, 'use_reservation', False) and copy_reservation_setting(src, facility):
                 self.stdout.write(f'予約の設定（枠・時間・休業曜日・受付の決まり）も「{src.name}」から写しました')
             self.stdout.write(self.style.SUCCESS(f'施設「{facility.name}」を作成しました（ID {facility.pk}）'))
@@ -170,10 +196,12 @@ class Command(BaseCommand):
         if o.get('demo') and o.get('preset') == 'kyotaku':
             # 居宅介護支援（ケアマネ）の架空データ（2026-10-21 から。前の訪問・記録のサンプルは homecare/demo.py に残してある）
             call_command('kaigo_demo', '--facility', str(facility.pk), stdout=self.stdout)
+        elif o.get('demo') and o.get('preset') == 'care':
+            call_command('nursing_demo', '--facility', str(facility.pk), stdout=self.stdout)
         elif o.get('demo'):
             call_command('seed_demo', '--facility', str(facility.pk), stdout=self.stdout)
 
-        if o.get('preset') == 'kyotaku':
+        if o.get('preset') in ('kyotaku', 'care'):
             self.stdout.write('次の手順: この管理者でログイン → 施設設定で事業所名・事業所番号・住所・電話を入れる → 利用者情報で利用者を登録')
         else:
             self.stdout.write('次の手順: この管理者でログイン → 施設設定で事業所番号・呼び方・使う機能を確認 → 職員・運用管理で職員を追加')

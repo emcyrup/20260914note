@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}資料・加算の検索 — {{ app_label }}{% endblock %}
+{% block page_title %}資料・加算の検索{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <div class="nr-card">
+    <div class="nr-h mb-1"><i class="bi bi-search me-1"></i>資料に根拠を置いて AI に聞く</div>
+    <div class="small text-muted">加算の手引き・運営規程・マニュアルの PDF を入れておくと、画面右下の <i class="bi bi-chat-dots-fill"></i>（AI アシスタント）がその資料を読んで、根拠のページ付きで答えます。例：「入浴介助加算Ⅱの要件は？」「個別機能訓練加算の計画書に要る項目は？」{% if not ai_enabled %}<br><span class="text-danger">AI の設定（ANTHROPIC_API_KEY）がサーバーにないため、いまは質問できません。</span>{% endif %}</div>
+  </div>
+  <div class="nr-card">
+    <div class="d-flex justify-content-between align-items-center mb-2"><div class="nr-h">入れてある資料（{{ docs|length }}）</div>
+      {% if can_manage %}<a href="{% url 'facilities:settings' %}#uploadDocModal" class="btn btn-sm btn-outline-primary"><i class="bi bi-upload me-1"></i>資料を入れる（施設設定）</a>{% endif %}</div>
+    <table class="table table-sm mb-0 small"><thead><tr><th>資料名</th><th>ページ</th><th>状態</th><th>入れた日</th></tr></thead>
+      <tbody>{% for d in docs %}<tr><td>{{ d.title }}</td><td>{{ d.page_count }}</td><td>{% if d.is_indexed %}<span class="badge text-bg-success">検索できる</span>{% elif d.error %}<span class="badge text-bg-danger" title="{{ d.error }}">エラー</span>{% else %}<span class="badge text-bg-secondary">準備中</span>{% endif %}</td><td>{{ d.uploaded_at|date:'Y/n/j' }}</td></tr>
+      {% empty %}<tr><td colspan="4" class="text-muted">まだ資料がありません。施設設定の「算定要件資料」から PDF を入れてください（事業所の加算マニュアル・業務規定など）。</td></tr>{% endfor %}</tbody></table>
+  </div>
+</div>
+{% endblock %}

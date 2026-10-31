@@ -1,0 +1,26 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}連絡帳 {{ day|date:'Y/n/j' }}{% endblock %}
+{% block page_margin %}10mm{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .card { border: 1.5px solid #333; border-radius: 6px; padding: 10px 14px; height: 122mm; box-sizing: border-box; margin-bottom: 8mm; page-break-inside: avoid; }
+  .card .ttl { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #333; padding-bottom: 4px; margin-bottom: 6px; }
+  .card .ttl .name { font-size: 15px; font-weight: 700; }
+  .card .msg { white-space: pre-wrap; line-height: 1.8; font-size: 11.5px; min-height: 60mm; }
+  .card .vit { font-size: 10px; color: #333; border-top: 1px dashed #999; padding-top: 4px; margin-top: 6px; }
+  .card .sign { text-align: right; font-size: 10px; margin-top: 6px; }
+  .pair { page-break-after: always; }
+  .pair:last-child { page-break-after: auto; }
+</style>
+{% for row in rows %}
+{% if forloop.counter0|divisibleby:2 %}<div class="pair">{% endif %}
+<div class="card">
+  <div class="ttl"><span class="name">{{ row.r.beneficiary.full_name }} 様</span><span>{{ day|date:'Y年n月j日' }}（{{ day|date:'D' }}）　連絡帳</span></div>
+  <div class="msg">{{ row.r.family_message }}</div>
+  {% if row.v %}<div class="vit">本日の様子：{% if row.v.temp %}体温 {{ row.v.temp }}℃　{% endif %}{% if row.v.bp_text %}血圧 {{ row.v.bp_text }}　{% endif %}{% if row.v.pulse %}脈拍 {{ row.v.pulse }}　{% endif %}{% if row.v.meal_text %}食事（主食/副食）{{ row.v.meal_text }} 割　{% endif %}{% if row.v.water_ml %}水分 {{ row.v.water_ml }}ml　{% endif %}{% if row.v.bath %}入浴あり{% endif %}</div>{% endif %}
+  <div class="sign">{{ facility.name }}{% if facility.phone %}　TEL {{ facility.phone }}{% endif %}　担当：{{ row.r.author|default:'' }}</div>
+</div>
+{% if forloop.counter|divisibleby:2 or forloop.last %}</div>{% endif %}
+{% empty %}<p>この日の家族向けメッセージはありません。</p>{% endfor %}
+{% endblock %}

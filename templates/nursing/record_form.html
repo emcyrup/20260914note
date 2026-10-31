@@ -1,0 +1,99 @@
+{% extends 'nursing/_person_base.html' %}
+{% load concurrency form_extras %}
+{% block title %}{{ b.full_name }} 介護記録 {{ day|date:'n/j' }} — {{ app_label }}{% endblock %}
+{% block person_actions %}
+<div class="btn-group"><a href="?d={{ prev|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-left"></i></a><a href="?" class="btn btn-sm btn-outline-secondary">きょう</a><a href="?d={{ next|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-right"></i></a></div>
+{% endblock %}
+{% block tab_content %}
+<form method="post" id="rec-form" class="nr-card" data-ai-url="{% url 'nursing:ai_record' b.pk %}">
+  {% csrf_token %}{% if r.pk %}{% version_field r %}{% endif %}
+  <input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}"><input type="hidden" name="ai_drafted" id="ai-drafted" value="{% if r.ai_drafted %}1{% else %}0{% endif %}">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+    <div class="nr-h">{{ day_jp }} の介護記録 {% if r.pk and not r.is_empty %}<span class="nr-status {{ r.status }}">{{ r.get_status_display }}</span>{% endif %}
+      {% if r.author %}<span class="small text-muted fw-normal ms-1">記録：{{ r.author }}</span>{% endif %}{% if r.approved_by %}<span class="small text-muted fw-normal ms-1">承認：{{ r.approved_by }}（{{ r.approved_at|date:'n/j H:i' }}）</span>{% endif %}</div>
+    <input type="date" class="form-control form-control-sm" style="width:auto;" value="{{ day|date:'Y-m-d' }}" onchange="location.href='?d='+this.value" aria-label="日付">
+  </div>
+  {% if r.review_note and r.status == 'draft' %}<div class="alert alert-warning py-2 small"><i class="bi bi-arrow-return-left me-1"></i>確認した人から：{{ r.review_note }}</div>{% endif %}
+  {% if vitals %}<div class="small mb-2"><i class="bi bi-thermometer-half me-1"></i>検温板：{% for v in vitals %}<span class="me-2">{{ v.get_slot_display }} {% if v.temp %}{{ v.temp }}℃{% endif %}{% if v.bp_text %} 血圧 {{ v.bp_text }}{% endif %}{% if v.pulse %} 脈 {{ v.pulse }}{% endif %}{% if v.spo2 %} SpO2 {{ v.spo2 }}{% endif %}{% if v.meal_text %} 食事 {{ v.meal_text }}{% endif %}{% if v.water_ml %} 水分 {{ v.water_ml }}{% endif %}{% for a in v.alerts %}<span class="badge text-bg-danger ms-1">{{ a }}</span>{% endfor %}</span>{% endfor %}<span class="text-muted">（AI の下書きに使います）</span></div>
+  {% else %}<div class="small text-muted mb-2">この日の検温板はまだありません。<a href="{% url 'nursing:vitals_day' %}?d={{ day|date:'Y-m-d' }}">検温板</a>に入れると下書きに反映されます。</div>{% endif %}
+
+  <div class="nr-lbl mb-1">1. はい／いいえ（当てはまるものに印）</div>
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    {% for k, label in check_items %}
+    <div class="nr-chk"><span>{{ label }}</span>
+      <div class="btn-group btn-group-sm" role="group">
+        {% for a, al in answers %}<input type="radio" class="btn-check" name="chk_{{ k }}" id="chk_{{ k }}_{{ a }}" value="{{ a }}" {% if checks|dictkey:k == a %}checked{% endif %} data-check="{{ k }}"><label class="btn btn-outline-{% if a == 'yes' %}success{% else %}secondary{% endif %}" for="chk_{{ k }}_{{ a }}">{{ al }}</label>{% endfor %}
+      </div></div>
+    {% endfor %}
+  </div>
+
+  <div class="row g-2 mb-2">
+    <div class="col-md-8"><label class="nr-lbl" for="keywords">2. キーワード（2〜3 個でよい。例：レク参加・体操・笑顔・昼食残し・トイレ誘導）</label>
+      <input type="text" name="keywords" id="keywords" class="form-control" value="{{ r.keywords }}" maxlength="500"></div>
+    <div class="col-md-4"><label class="nr-lbl" for="lang">入力の言葉（外国人スタッフ向け）</label>
+      <select name="lang" id="lang" class="form-select">{% for k, l in langs %}<option value="{{ k }}" {% if r.lang == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+    <div class="col-12"><label class="nr-lbl" for="memo">3. メモ・話した言葉（音声入力でよい。母国語や単語の並びでもよい）</label>
+      <textarea name="memo" id="memo" class="form-control" rows="3" placeholder="例：午前は体操に参加。昼はご飯を半分残した。午後はぬり絵、ご機嫌。帰りに娘さんへ次回の受診日を伝えてほしい">{{ r.memo }}</textarea>
+      <div class="nr-ai-bar mt-1">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-voice-target="memo" data-voice-note="memo-note"><i class="bi bi-mic"></i> 音声入力</button>
+        <button type="button" class="btn btn-sm btn-primary" id="ai-draft" {% if not ai_enabled %}disabled title="AI の設定（ANTHROPIC_API_KEY）がサーバーにありません"{% endif %}><i class="bi bi-magic"></i> AI で下書き（記録と家族向けの文）</button>
+        <span class="small text-muted" id="ai-status"></span>
+      </div>
+      <div id="memo-note" class="alert alert-warning small py-1 px-2 mt-1 mb-0 d-none"></div>
+      <div id="ai-back" class="nr-back mt-2 d-none"></div>
+    </div>
+  </div>
+
+  <div class="row g-2">
+    <div class="col-md-7">
+      <label class="nr-lbl" for="body">4. 介護記録（{{ setting.record_chars }} 字くらい。下書きを直して保存）</label>
+      <textarea name="body" id="body" class="form-control" rows="9">{{ r.body }}</textarea>
+      <div class="nr-ai-bar mt-1">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-voice-target="body" data-voice-note="body-note"><i class="bi bi-mic"></i> 音声入力</button>
+        <button type="button" class="btn btn-sm btn-outline-primary nr-rewrite" data-target="body" data-kind="record" {% if not ai_enabled %}disabled{% endif %} title="くだけた文・単語の並び・母国語の文を、記録に使える日本語に整えます"><i class="bi bi-pencil"></i> 日本語に整える</button>
+        <button type="button" class="btn btn-sm btn-link nr-undo d-none" data-target="body">元に戻す</button>
+      </div>
+      <div id="body-note" class="alert alert-warning small py-1 px-2 mt-1 mb-0 d-none"></div>
+    </div>
+    <div class="col-md-5">
+      <label class="nr-lbl" for="family_message">5. 家族向けのメッセージ（連絡帳。LINE・印刷に使う）</label>
+      <textarea name="family_message" id="family_message" class="form-control" rows="5">{{ r.family_message }}</textarea>
+      <div class="nr-ai-bar mt-1">
+        <button type="button" class="btn btn-sm btn-outline-primary nr-rewrite" data-target="family_message" data-kind="family" {% if not ai_enabled %}disabled{% endif %}><i class="bi bi-pencil"></i> 日本語に整える</button>
+        <button type="button" class="btn btn-sm btn-link nr-undo d-none" data-target="family_message">元に戻す</button>
+        {% if guardian %}<span class="small text-muted">宛先：{{ guardian.last_name }} {{ guardian.first_name }}{% if guardian.line_linked %}（LINE 連携ずみ）{% else %}（LINE 未連携）{% endif %}</span>{% else %}<span class="small text-muted">家族の登録なし</span>{% endif %}
+      </div>
+      <label class="nr-lbl mt-2" for="internal_note">6. 内部の記録（家族には出さない。注意の履歴・申し送り）</label>
+      <textarea name="internal_note" id="internal_note" class="form-control" rows="3">{{ r.internal_note }}</textarea>
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+    <div class="d-flex gap-2">
+      {% if r.pk %}<button name="action" value="delete" class="btn btn-sm btn-outline-danger" onclick="return confirm('この日の介護記録を消します。よろしいですか？');"><i class="bi bi-trash"></i></button>{% endif %}
+      {% if r.pk and can_approve and r.status != 'approved' %}
+      <button name="action" value="approve" class="btn btn-sm btn-success" onclick="return confirm('画面の内容は保存されず、保存ずみの記録を承認します。先に保存してから承認してください。承認しますか？');"><i class="bi bi-check2 me-1"></i>承認</button>
+      {% endif %}
+      {% if r.pk and can_approve and r.status == 'review' %}
+      <span class="d-inline-flex gap-1"><input type="text" name="review_note" class="form-control form-control-sm" style="width:200px;" placeholder="戻すときのひとこと" maxlength="300"><button name="action" value="send_back" class="btn btn-sm btn-outline-secondary">戻す</button></span>
+      {% endif %}
+    </div>
+    <div class="d-flex gap-2">
+      <button name="action" value="save" class="btn btn-outline-primary">下書きで保存</button>
+      {% if r.status == 'approved' %}<button name="action" value="save" class="btn btn-primary">保存する</button>
+      {% else %}<button name="action" value="review" class="btn btn-primary"><i class="bi bi-send me-1"></i>保存して確認へ出す</button>{% endif %}
+      <button name="action" value="{% if r.status == 'approved' %}save{% else %}review{% endif %}" class="btn btn-outline-secondary" onclick="this.form.querySelector('[name=next]').value='list';" title="保存して一覧へ戻る">→ 一覧</button>
+      <input type="hidden" name="next" value="">
+    </div>
+  </div>
+</form>
+
+{% if recent %}
+<div class="nr-card">
+  <div class="nr-h mb-1">前の記録</div>
+  {% for p in recent %}<div class="py-1 border-top small"><b>{{ p.date|date:'n/j（D）' }}</b> <span class="nr-status {{ p.status }}">{{ p.get_status_display }}</span><div class="nr-entry-body">{{ p.body }}</div></div>{% endfor %}
+  <a href="{% url 'nursing:person_records' b.pk %}" class="small">すべて見る</a>
+</div>
+{% endif %}
+{% endblock %}
+{% block extra_js %}{% include 'nursing/_ai_js.html' %}{% endblock %}

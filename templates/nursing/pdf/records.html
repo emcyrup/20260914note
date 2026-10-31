@@ -1,0 +1,25 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}介護記録 {{ b.full_name }}{% endblock %}
+{% block page_margin %}12mm{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .hd th { width: 14%; } .hd td { width: 36%; }
+  .rc th { width: 15%; }
+  .rc td.body { white-space: pre-wrap; line-height: 1.6; }
+  .rc td.meta { font-size: 9px; color: #555; }
+</style>
+<h1>介護記録</h1>
+<table class="hd"><tr><th>氏名</th><td style="font-size:13px;font-weight:700;">{{ b.full_name }}</td><th>要介護度</th><td>{{ insurance.care_level|default:'' }}</td></tr>
+  <tr><th>期間</th><td>{% if start %}{{ start|date:'Y年n月j日' }}{% endif %} 〜 {% if end %}{{ end|date:'Y年n月j日' }}{% endif %}</td><th>事業所</th><td>{{ facility.name }}</td></tr></table>
+<table class="rc" style="margin-top:8px;">
+  <thead><tr><th>日付</th><th>記録</th><th style="width:18%;">記録者／承認</th></tr></thead>
+  <tbody>
+  {% for r in records %}
+  <tr><td class="c">{{ r.date|date:'n/j' }}<br><span class="small">（{{ r.date|date:'D' }}）</span></td>
+      <td class="body">{{ r.body }}{% if r.checks_text %}<div class="small muted" style="margin-top:3px;">{{ r.checks_text }}</div>{% endif %}</td>
+      <td class="meta">{{ r.author|default:'' }}{% if r.approved_by %}<br>承認：{{ r.approved_by }}<br>{{ r.approved_at|date:'n/j H:i' }}{% else %}<br>（{{ r.get_status_display }}）{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="3">記録がありません。</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,14 @@
+{# 1 人 1 週間の検温板（印刷）。b・sheet・chart・insurance・start・end・facility・week_jp を渡す #}
+<table class="vt-head">
+  <tr><th>氏名</th><td class="name">{{ b.full_name }}{% if b.full_name_kana %}<span class="small muted">（{{ b.full_name_kana }}）</span>{% endif %}</td>
+      <th>要介護度</th><td>{{ insurance.care_level|default:'' }}</td><th>期間</th><td>{{ start|date:'Y年n月j日' }} 〜 {{ end|date:'n月j日' }}</td><th>事業所</th><td>{{ facility.name }}</td></tr>
+</table>
+<table class="vt">
+  <thead><tr><th class="lbl">項目</th>{% for c in sheet.col_info %}<th class="{% if c.wd == '日' %}sun{% elif c.wd == '土' %}sat{% endif %}">{{ c.d|date:'n/j' }}（{{ c.wd }}）{% if c.slot %}<br>{{ c.slot }}{% endif %}</th>{% endfor %}</tr></thead>
+  <tbody>
+    {% for row in sheet.rows %}<tr class="{% if row.key == 'note' %}note{% endif %}"><td class="lbl">{{ row.label }}</td>{% for c in row.vals %}<td class="{% if c.alert %}alert{% endif %}">{{ c.v }}</td>{% endfor %}</tr>{% endfor %}
+    <tr><td class="lbl">記録者</td>{% for l in sheet.logs %}<td class="small">{{ l.recorded_by|default:'' }}</td>{% endfor %}</tr>
+  </tbody>
+</table>
+<div class="chart">{{ chart|safe }}</div>
+<div class="small muted">＊赤い値は注意（発熱・血圧・脈拍・SpO2）。医師への報告は主治医の指示の値で判断してください。</div>

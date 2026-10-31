@@ -1,0 +1,44 @@
+{% extends 'nursing/_person_base.html' %}
+{% load form_extras %}
+{% block title %}{{ b.full_name }} 薬 — {{ app_label }}{% endblock %}
+{% block person_actions %}<a href="{% url 'nursing:person_meds_print' b.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>服薬一覧を印刷</a>{% endblock %}
+{% block tab_content %}
+<details class="nr-card" {% if edit or not meds %}open{% endif %}>
+  <summary class="fw-bold" style="cursor:pointer;"><i class="bi bi-plus-lg me-1"></i>{% if edit %}薬を直す（{{ edit.name }}）{% else %}薬を足す{% endif %}</summary>
+  <form method="post" class="mt-2">
+    {% csrf_token %}{% if edit %}<input type="hidden" name="med" value="{{ edit.pk }}">{% endif %}
+    <div class="row g-2">
+      <div class="col-md-4"><label class="nr-lbl" for="name">薬の名前</label><input type="text" name="name" id="name" class="form-control form-control-sm" value="{{ edit.name|default:'' }}" maxlength="100" required></div>
+      <div class="col-md-4"><label class="nr-lbl" for="dose">量・用法</label><input type="text" name="dose" id="dose" class="form-control form-control-sm" value="{{ edit.dose|default:'' }}" maxlength="100" placeholder="例：1 錠　食後"></div>
+      <div class="col-md-4"><label class="nr-lbl" for="purpose">目的・効能</label><input type="text" name="purpose" id="purpose" class="form-control form-control-sm" value="{{ edit.purpose|default:'' }}" maxlength="100" placeholder="例：血圧"></div>
+      <div class="col-12"><div class="nr-lbl">のむ時間</div><div class="d-flex flex-wrap gap-3 align-items-center">{% for k, l in timings %}<label class="d-inline-flex align-items-center gap-1"><input type="checkbox" class="form-check-input mt-0" name="timings" value="{{ k }}" {% if edit.timings|has:k %}checked{% endif %}>{{ l }}</label>{% endfor %}<input type="text" name="timing_note" class="form-control form-control-sm" style="width:200px;" value="{{ edit.timing_note|default:'' }}" maxlength="100" placeholder="補足（例：昼のみ施設で）"></div></div>
+      <div class="col-6 col-md-3"><label class="nr-lbl" for="start_on">開始日</label><input type="date" name="start_on" id="start_on" class="form-control form-control-sm" value="{{ edit.start_on|date:'Y-m-d' }}"></div>
+      <div class="col-6 col-md-3"><label class="nr-lbl" for="end_on">終了日</label><input type="date" name="end_on" id="end_on" class="form-control form-control-sm" value="{{ edit.end_on|date:'Y-m-d' }}"></div>
+      <div class="col-6 col-md-3"><label class="nr-lbl" for="review_due">更新の期限（次の受診・処方の切れる日）</label><input type="date" name="review_due" id="review_due" class="form-control form-control-sm" value="{{ edit.review_due|date:'Y-m-d' }}"></div>
+      <div class="col-6 col-md-3"><label class="nr-lbl" for="is_active">状態</label><select name="is_active" id="is_active" class="form-select form-select-sm"><option value="1" {% if not edit or edit.is_active %}selected{% endif %}>服用中</option><option value="0" {% if edit and not edit.is_active %}selected{% endif %}>終了</option></select></div>
+      <div class="col-md-6"><label class="nr-lbl" for="prescriber">処方した医師・医療機関</label><input type="text" name="prescriber" id="prescriber" class="form-control form-control-sm" value="{{ edit.prescriber|default:'' }}" maxlength="100"></div>
+      <div class="col-md-6"><label class="nr-lbl" for="pharmacy">薬局</label><input type="text" name="pharmacy" id="pharmacy" class="form-control form-control-sm" value="{{ edit.pharmacy|default:'' }}" maxlength="100"></div>
+      <div class="col-12"><label class="nr-lbl" for="notes">注意（副作用・のみ方・中止の条件など）</label><input type="text" name="notes" id="notes" class="form-control form-control-sm" value="{{ edit.notes|default:'' }}" maxlength="300"></div>
+    </div>
+    <div class="d-flex justify-content-between mt-2">{% if edit %}<a href="{% url 'nursing:person_meds' b.pk %}" class="btn btn-sm btn-outline-secondary">やめる</a>{% else %}<span></span>{% endif %}<button class="btn btn-primary btn-sm"><i class="bi bi-check2 me-1"></i>保存する</button></div>
+  </form>
+</details>
+<div class="nr-card">
+  <table class="table table-sm mb-0 align-middle">
+    <thead><tr><th>薬</th><th>量・用法</th><th>のむ時間</th><th class="d-none d-md-table-cell">処方</th><th>更新の期限</th><th></th></tr></thead>
+    <tbody>
+      {% for m in meds %}
+      <tr class="{% if not m.is_active %}text-muted{% endif %}">
+        <td><b>{{ m.name }}</b>{% if m.purpose %}<div class="small text-muted">{{ m.purpose }}</div>{% endif %}{% if not m.is_active %} <span class="badge text-bg-secondary">終了</span>{% endif %}</td>
+        <td>{{ m.dose }}{% if m.notes %}<div class="small text-danger">{{ m.notes }}</div>{% endif %}</td>
+        <td>{{ m.timing_text }}</td>
+        <td class="d-none d-md-table-cell small">{{ m.prescriber }}{% if m.pharmacy %}<br>{{ m.pharmacy }}{% endif %}</td>
+        <td class="{% if m.due == 'over' %}text-danger fw-bold{% elif m.due == 'soon' %}text-warning-emphasis fw-bold{% endif %}">{{ m.review_due|date:'Y/n/j'|default:'' }}</td>
+        <td class="text-end text-nowrap"><a href="?edit={{ m.pk }}" class="btn btn-sm btn-outline-secondary py-0">直す</a>
+          <form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="med" value="{{ m.pk }}">{% if m.is_active %}<button name="action" value="stop" class="btn btn-sm btn-outline-secondary py-0" title="服用中から外す">終了</button>{% endif %}<button name="action" value="delete" class="btn btn-sm btn-outline-danger py-0" onclick="return confirm('この薬を消します。よろしいですか？');"><i class="bi bi-trash"></i></button></form></td>
+      </tr>
+      {% empty %}<tr><td colspan="6" class="text-muted small">まだ薬が登録されていません。</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -99,7 +99,7 @@
                    class="form-control" placeholder="例：自閉スペクトラム症">
           </div>
           <div class="col-12">
-{% if not features.kyotaku %}
+{% if not features.kaigo %}
             <div class="form-check">
               <input type="checkbox" name="is_severe" id="is_severe" class="form-check-input" {% if form.is_severe.value %}checked{% endif %}>
               <label for="is_severe" class="form-check-label">重症心身障害児（重身）
@@ -130,7 +130,7 @@
     </div>
 
     <!-- 利用予定曜日 -->
-    <div class="card mb-3"{% if features.kyotaku %} hidden{% endif %}>
+    <div class="card mb-3"{% if features.kaigo %} hidden{% endif %}>
       <div class="card-body">
         <h6 class="card-title fw-bold mb-3">利用予定曜日</h6>
         <p class="small text-muted mb-2">予定管理で月間スケジュールを一括生成する際に使います</p>

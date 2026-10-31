@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% load concurrency form_extras %}
+{% block title %}{% if rep %}{{ rep.get_kind_display }}の報告{% else %}報告を書く{% endif %} — {{ app_label }}{% endblock %}
+{% block page_title %}ヒヤリハット・事故報告{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <div class="mb-2 small"><a href="{% url 'nursing:incidents' %}" class="text-muted text-decoration-none"><i class="bi bi-list me-1"></i>報告の一覧</a></div>
+  <form method="post" class="nr-card">
+    {% csrf_token %}{% if rep %}{% version_field rep %}{% endif %}
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+      <div class="nr-h">{% if rep %}{{ rep.get_kind_display }}の報告 <span class="nr-status {{ rep.status }}">{{ rep.get_status_display }}</span>{% if rep.reporter %}<span class="small fw-normal text-muted ms-1">報告：{{ rep.reporter }}</span>{% endif %}{% if rep.approved_by %}<span class="small fw-normal text-muted ms-1">承認：{{ rep.approved_by }}（{{ rep.approved_at|date:'n/j H:i' }}）</span>{% endif %}{% else %}新しい報告{% endif %}</div>
+      {% if rep %}<a href="{% url 'nursing:incident_print' rep.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>報告書を印刷</a>{% endif %}
+    </div>
+    {% if rep.review_note and rep.status == 'draft' %}<div class="alert alert-warning py-2 small"><i class="bi bi-arrow-return-left me-1"></i>確認した人から：{{ rep.review_note }}</div>{% endif %}
+    <div class="row g-2 mb-2">
+      <div class="col-6 col-md-2"><label class="nr-lbl" for="kind">区分</label><select name="kind" id="kind" class="form-select form-select-sm">{% for k, l in kinds %}<option value="{{ k }}" {% if rep.kind == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-md-3"><label class="nr-lbl" for="category">種類</label><select name="category" id="category" class="form-select form-select-sm">{% for k, l in categories %}<option value="{{ k }}" {% if rep.category == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-md-2"><label class="nr-lbl" for="date">発生日</label><input type="date" name="date" id="date" class="form-control form-control-sm" value="{% if rep %}{{ rep.occurred_at|date:'Y-m-d' }}{% else %}{{ now_date|date:'Y-m-d' }}{% endif %}" required></div>
+      <div class="col-6 col-md-2"><label class="nr-lbl" for="time">時刻</label><input type="time" name="time" id="time" class="form-control form-control-sm" value="{% if rep %}{{ rep.occurred_at|date:'H:i' }}{% else %}{{ now_time }}{% endif %}"></div>
+      <div class="col-md-3"><label class="nr-lbl" for="beneficiary">{{ terms.beneficiary }}</label><select name="beneficiary" id="beneficiary" class="form-select form-select-sm"><option value="">—（特定の人なし）</option>{% for p in people %}<option value="{{ p.pk }}" {% if rep.beneficiary_id == p.pk or not rep and b_default == p.pk %}selected{% endif %}>{{ p.full_name }}</option>{% endfor %}</select></div>
+      <div class="col-md-4"><label class="nr-lbl" for="place">場所</label><input type="text" name="place" id="place" class="form-control form-control-sm" value="{{ rep.place|default:'' }}" maxlength="100" placeholder="例：食堂・トイレ・送迎車内"></div>
+      <div class="col-md-4"><label class="nr-lbl" for="injury">けがの程度</label><select name="injury" id="injury" class="form-select form-select-sm">{% for k, l in injuries %}<option value="{{ k }}" {% if rep.injury == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-md-4"><label class="nr-lbl" for="lang">入力の言葉</label><select name="lang" id="lang" class="form-select form-select-sm">{% for k, l in langs %}<option value="{{ k }}" {% if rep.lang == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+    </div>
+    <label class="nr-lbl" for="memo">メモ・話した言葉（何が起きたかを、順に。母国語でもよい）</label>
+    <textarea name="memo" id="memo" class="form-control" rows="4" placeholder="例：14時ごろ食堂でAさんが椅子から立ち上がるときにふらつき、床に膝をついた。すぐ声をかけ、痛みなし、外傷なし。看護師が確認、家族に電話で連絡">{{ rep.memo|default:'' }}</textarea>
+    <div class="nr-ai-bar mt-1 mb-3">
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-voice-target="memo" data-voice-note="memo-note"><i class="bi bi-mic"></i> 音声入力</button>
+      <button type="button" class="btn btn-sm btn-primary" id="inc-draft" {% if not ai_enabled %}disabled title="AI の設定がサーバーにありません"{% endif %}><i class="bi bi-magic"></i> AI で下書き（状況・原因・対応・再発防止）</button>
+      <span class="small text-muted" id="inc-status"></span>
+    </div>
+    <div id="memo-note" class="alert alert-warning small py-1 px-2 mb-2 d-none"></div>
+    <div id="ai-back" class="nr-back mb-2 d-none"></div>
+    <div class="row g-2">
+      <div class="col-md-6"><label class="nr-lbl" for="situation">発生の状況</label><textarea name="situation" id="situation" class="form-control" rows="4">{{ rep.situation|default:'' }}</textarea>
+        <div class="nr-ai-bar mt-1"><button type="button" class="btn btn-sm btn-outline-primary nr-rewrite" data-target="situation" data-kind="incident" {% if not ai_enabled %}disabled{% endif %}><i class="bi bi-pencil"></i> 日本語に整える</button><button type="button" class="btn btn-sm btn-link nr-undo d-none" data-target="situation">元に戻す</button></div></div>
+      <div class="col-md-6"><label class="nr-lbl" for="cause">原因・背景</label><textarea name="cause" id="cause" class="form-control" rows="4">{{ rep.cause|default:'' }}</textarea>
+        <div class="nr-ai-bar mt-1"><button type="button" class="btn btn-sm btn-outline-primary nr-rewrite" data-target="cause" data-kind="incident" {% if not ai_enabled %}disabled{% endif %}><i class="bi bi-pencil"></i> 日本語に整える</button><button type="button" class="btn btn-sm btn-link nr-undo d-none" data-target="cause">元に戻す</button></div></div>
+      <div class="col-md-6"><label class="nr-lbl" for="response">対応（処置・連絡）</label><textarea name="response" id="response" class="form-control" rows="4">{{ rep.response|default:'' }}</textarea>
+        <div class="nr-ai-bar mt-1"><button type="button" class="btn btn-sm btn-outline-primary nr-rewrite" data-target="response" data-kind="incident" {% if not ai_enabled %}disabled{% endif %}><i class="bi bi-pencil"></i> 日本語に整える</button><button type="button" class="btn btn-sm btn-link nr-undo d-none" data-target="response">元に戻す</button></div></div>
+      <div class="col-md-6"><label class="nr-lbl" for="prevention">再発防止策</label><textarea name="prevention" id="prevention" class="form-control" rows="4">{{ rep.prevention|default:'' }}</textarea>
+        <div class="nr-ai-bar mt-1"><button type="button" class="btn btn-sm btn-outline-primary nr-rewrite" data-target="prevention" data-kind="incident" {% if not ai_enabled %}disabled{% endif %}><i class="bi bi-pencil"></i> 日本語に整える</button><button type="button" class="btn btn-sm btn-link nr-undo d-none" data-target="prevention">元に戻す</button></div></div>
+      <div class="col-12"><div class="nr-lbl">報告した相手</div><div class="d-flex flex-wrap gap-3">{% for k, l in report_to %}<label class="form-check-label d-inline-flex align-items-center gap-1"><input type="checkbox" class="form-check-input mt-0" name="reported_to" value="{{ k }}" {% if rep.reported_to|has:k %}checked{% endif %}>{{ l }}</label>{% endfor %}</div></div>
+    </div>
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+      <div class="d-flex gap-2 align-items-center">
+        {% if rep %}<button name="action" value="delete" class="btn btn-sm btn-outline-danger" onclick="return confirm('この報告を消します。よろしいですか？');"><i class="bi bi-trash"></i></button>{% endif %}
+        {% if rep and can_approve and rep.status != 'approved' %}<button name="action" value="approve" class="btn btn-sm btn-success" onclick="return confirm('保存ずみの内容を承認します（画面の変更は保存されません。先に保存してください）。承認しますか？');"><i class="bi bi-check2 me-1"></i>承認</button>{% endif %}
+        {% if rep and can_approve and rep.status == 'review' %}<span class="d-inline-flex gap-1"><input type="text" name="review_note" class="form-control form-control-sm" style="width:200px;" placeholder="戻すときのひとこと" maxlength="300"><button name="action" value="send_back" class="btn btn-sm btn-outline-secondary">戻す</button></span>{% endif %}
+      </div>
+      <div class="d-flex gap-2">
+        <button name="action" value="save" class="btn btn-outline-primary">下書きで保存</button>
+        {% if rep.status != 'approved' %}<button name="action" value="review" class="btn btn-primary"><i class="bi bi-send me-1"></i>保存して確認へ出す</button>{% else %}<button name="action" value="save" class="btn btn-primary">保存する</button>{% endif %}
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}
+{% block extra_js %}{% include 'nursing/_ai_js.html' %}{% endblock %}

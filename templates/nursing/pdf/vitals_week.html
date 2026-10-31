@@ -1,0 +1,20 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}検温板 {{ b.full_name }} {{ start|date:'Y/n/j' }}{% endblock %}
+{% block page_orientation %}landscape{% endblock %}
+{% block page_margin %}10mm{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .vt-head th { width: 9%; } .vt-head td { width: 16%; } .vt-head td.name { font-size: 13px; font-weight: 700; }
+  .vt th, .vt td { text-align: center; padding: 5px 3px; font-size: 10.5px; }
+  .vt th.sun { background: #fde2e2; } .vt th.sat { background: #dde8f7; }
+  .vt td.lbl { text-align: left; background: #f3f0ea; font-weight: 700; width: 13%; white-space: nowrap; }
+  .vt td.alert { color: #b3261e; font-weight: 700; }
+  .vt tr.note td { height: 34px; font-size: 9px; text-align: left; vertical-align: top; }
+  .vt { margin-top: 6px; }
+  .chart { margin-top: 8px; }
+  .chart svg { width: 100%; height: 190px; }
+</style>
+<h1>検温板（1 週間）</h1>
+{% include 'nursing/pdf/_sheet.html' %}
+{% endblock %}

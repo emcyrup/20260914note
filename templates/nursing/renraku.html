@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block title %}連絡帳 {{ day|date:'n/j' }} — {{ app_label }}{% endblock %}
+{% block page_title %}連絡帳（家族向け）{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <div class="btn-group"><a href="?d={{ prev|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-left"></i></a><a href="?" class="btn btn-sm btn-outline-secondary">きょう</a><a href="?d={{ next|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-right"></i></a></div>
+      <form method="get"><input type="date" name="d" class="form-control form-control-sm" value="{{ day|date:'Y-m-d' }}" onchange="this.form.submit()" aria-label="日付"></form>
+      <div class="fw-bold">{{ day_jp }}</div>
+    </div>
+    <a href="{% url 'nursing:renraku_print' %}?d={{ day|date:'Y-m-d' }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>連絡帳を印刷（A4 に 2 人分）</a>
+  </div>
+  <div class="small text-muted mb-2">介護記録の「家族向けのメッセージ」を、その日の分だけ並べています。LINE 連携ずみの家族には LINE で送れます（承認ずみの記録だけ送るのがおすすめ）。紙で渡す家族には印刷。</div>
+  {% if not line_ready %}<div class="alert alert-light border small py-2">LINE で送るには、施設設定で LINE 連携（チャネルアクセストークン）を入れ、家族の欄で LINE を連携してください。</div>{% endif %}
+  <form method="post">
+    {% csrf_token %}<input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}">
+    <div class="nr-card">
+      {% for row in rows %}
+      <div class="py-2 {% if not forloop.first %}border-top{% endif %}">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+          <div><label class="d-inline-flex align-items-center gap-2"><input type="checkbox" name="record" value="{{ row.r.pk }}" class="form-check-input mt-0" {% if not row.can_line %}disabled{% endif %}><b>{{ row.r.beneficiary.full_name }}</b></label>
+            <span class="nr-status {{ row.r.status }} ms-1">{{ row.r.get_status_display }}</span>
+            {% if row.r.line_sent_at %}<span class="badge text-bg-success ms-1">LINE 送信ずみ {{ row.r.line_sent_at|date:'H:i' }}</span>{% endif %}
+            <div class="small text-muted">宛先：{% if row.g %}{{ row.g.last_name }} {{ row.g.first_name }}{% if row.can_line %}（LINE 連携ずみ）{% else %}（LINE 未連携・紙で渡す）{% endif %}{% else %}家族の登録なし{% endif %}</div></div>
+          <div class="d-flex gap-1">
+            <a href="{% url 'nursing:renraku_print' %}?d={{ day|date:'Y-m-d' }}&b={{ row.r.beneficiary.pk }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary py-0"><i class="bi bi-printer"></i> この人だけ印刷</a>
+            <a href="{% url 'nursing:record_edit' row.r.beneficiary.pk %}?d={{ day|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary py-0">直す</a>
+          </div>
+        </div>
+        <div class="nr-entry-body">{{ row.r.family_message }}</div>
+      </div>
+      {% empty %}<div class="text-muted small">この日の家族向けメッセージはまだありません。介護記録で「AI で下書き」を押すと一緒にできます。</div>{% endfor %}
+    </div>
+    {% if rows %}<div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.querySelectorAll('input[name=record]:not(:disabled)').forEach(function(c){c.checked=true;})">LINE で送れる人を全部選ぶ</button><button class="btn btn-primary" {% if not line_ready %}disabled{% endif %} onclick="return confirm('選んだ人の家族に LINE で送ります。よろしいですか？');"><i class="bi bi-send me-1"></i>選んだ人に LINE で送る</button></div>{% endif %}
+  </form>
+  {% if missing %}<div class="small text-muted mt-3">まだ家族向けの文がない人：{% for b in missing %}<a href="{% url 'nursing:record_edit' b.pk %}?d={{ day|date:'Y-m-d' }}">{{ b.full_name }}</a>{% if not forloop.last %}・{% endif %}{% endfor %}</div>{% endif %}
+</div>
+{% endblock %}

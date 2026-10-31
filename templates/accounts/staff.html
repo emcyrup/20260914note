@@ -20,7 +20,7 @@
           <tr class="{% if not s.is_active %}text-muted{% endif %}">
             <td class="fw-bold">{{ s.display_name|default:'—' }}{% if s.pk == user.pk %}<span class="badge text-bg-secondary ms-1">自分</span>{% endif %}</td>
             <td>{{ s.username }}</td>
-            <td>{{ s.get_role_display }}</td>
+            <td>{{ s.role_display }}</td>
             <td class="small">{{ s.get_ui_theme_display }}</td>
             <td>{% if s.is_active %}<span class="badge text-bg-success">有効</span>{% else %}<span class="badge text-bg-secondary">無効</span>{% endif %}</td>
             <td class="small">{{ s.last_login|date:'Y/n/j H:i'|default:'—' }}</td>

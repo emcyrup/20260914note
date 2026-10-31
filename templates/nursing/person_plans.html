@@ -1,0 +1,15 @@
+{% extends 'nursing/_person_base.html' %}
+{% block title %}{{ b.full_name }} 通所介護計画書 — {{ app_label }}{% endblock %}
+{% block person_actions %}<a href="{% url 'nursing:plan_new' b.pk %}{% if plans %}?copy=1{% endif %}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>{% if plans %}前の計画をもとに新しく作る{% else %}計画書を作る{% endif %}</a>{% endblock %}
+{% block tab_content %}
+<div class="nr-card">
+  {% for p in plans %}
+  <div class="d-flex justify-content-between align-items-center py-2 {% if not forloop.first %}border-top{% endif %} flex-wrap gap-2">
+    <div><a href="{% url 'nursing:plan_edit' b.pk p.pk %}" class="fw-bold text-decoration-none">{{ p.created_on|date:'Y年n月j日' }} 作成</a>{% if p.period_from %}<span class="small text-muted ms-2">期間 {{ p.period_from|date:'Y/n/j' }}〜{{ p.period_to|date:'Y/n/j' }}</span>{% endif %}
+      {% if p.review_due %}<span class="small ms-2 {% if p.review == 'over' %}text-danger fw-bold{% elif p.review == 'soon' %}text-warning-emphasis fw-bold{% else %}text-muted{% endif %}">見直し {{ p.review_due|date:'Y/n/j' }}</span>{% endif %}
+      {% if p.explained_on %}<span class="badge text-bg-success ms-2">同意 {{ p.explained_on|date:'n/j' }}</span>{% endif %}</div>
+    <div class="d-flex gap-1"><a href="{% url 'nursing:plan_print' b.pk p.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary py-0"><i class="bi bi-printer"></i> 印刷</a><a href="{% url 'nursing:plan_edit' b.pk p.pk %}" class="btn btn-sm btn-outline-secondary py-0">開く</a></div>
+  </div>
+  {% empty %}<div class="text-muted small">まだ計画書がありません。右上の「計画書を作る」から。</div>{% endfor %}
+</div>
+{% endblock %}

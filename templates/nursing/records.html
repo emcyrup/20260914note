@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}介護記録 {{ day|date:'n/j' }} — {{ app_label }}{% endblock %}
+{% block page_title %}介護記録{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <div class="btn-group"><a href="?d={{ prev|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-left"></i></a><a href="?" class="btn btn-sm btn-outline-secondary">きょう</a><a href="?d={{ next|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-right"></i></a></div>
+      <form method="get"><input type="date" name="d" class="form-control form-control-sm" value="{{ day|date:'Y-m-d' }}" onchange="this.form.submit()" aria-label="日付"></form>
+      <div class="fw-bold">{{ day_jp }}</div>
+    </div>
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+      <span class="nr-status">未記入 {{ counts.none }}</span><span class="nr-status draft">下書き {{ counts.draft }}</span><span class="nr-status review">確認待ち {{ counts.review }}</span><span class="nr-status approved">承認ずみ {{ counts.approved }}</span>
+      {% if review_all %}<a href="{% url 'nursing:review' %}" class="btn btn-sm btn-outline-danger"><i class="bi bi-check2-square me-1"></i>確認待ち（全部で {{ review_all }} 件）</a>{% endif %}
+      <a href="{% url 'nursing:renraku' %}?d={{ day|date:'Y-m-d' }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-envelope-paper me-1"></i>連絡帳</a>
+    </div>
+  </div>
+  <div class="small text-muted mb-2">名前を押して記録を書きます。「はい／いいえ」とキーワード（または音声のメモ）を入れて「AI で下書き」を押すと、{{ terms.staff }}が書いたような介護記録と家族向けの文ができます。書いた人は「確認へ出す」、リーダー・管理者は「承認」。</div>
+  <div class="nr-card p-0">
+    <table class="table mb-0 align-middle">
+      <thead><tr><th>{{ terms.beneficiary }}</th><th>状態</th><th class="d-none d-md-table-cell">記録（はじめ）</th><th class="d-none d-md-table-cell">記録した人</th><th></th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td><a href="{% url 'nursing:record_edit' row.b.pk %}?d={{ day|date:'Y-m-d' }}" class="fw-semibold text-decoration-none">{{ row.b.full_name }}</a>
+            {% if row.r %}{% for f in row.r.flags %}<span class="badge text-bg-danger ms-1">{{ f }}</span>{% endfor %}{% endif %}</td>
+          <td>{% if row.r and not row.r.is_empty %}<span class="nr-status {{ row.r.status }}">{{ row.r.get_status_display }}</span>{% else %}<span class="nr-status">未記入</span>{% endif %}</td>
+          <td class="d-none d-md-table-cell small text-muted" style="max-width:420px;">{% if row.r %}{{ row.r.body|truncatechars:60 }}{% endif %}</td>
+          <td class="d-none d-md-table-cell small">{% if row.r %}{{ row.r.author|default:'' }}{% endif %}</td>
+          <td class="text-end">
+            {% if row.r and row.r.status == 'review' and can_approve %}<form method="post" action="{% url 'nursing:record_approve' row.r.pk %}" class="d-inline">{% csrf_token %}<input type="hidden" name="back" value="{{ request.get_full_path }}"><button class="btn btn-sm btn-success py-0">承認</button></form>{% endif %}
+            <a href="{% url 'nursing:record_edit' row.b.pk %}?d={{ day|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary py-0">{% if row.r and not row.r.is_empty %}開く{% else %}書く{% endif %}</a>
+          </td>
+        </tr>
+        {% empty %}<tr><td colspan="5" class="text-muted">在籍中の{{ terms.beneficiary }}がいません。</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% load form_extras %}
+{% block title %}通所介護計画書 {{ b.full_name }}{% endblock %}
+{% block page_orientation %}landscape{% endblock %}
+{% block page_margin %}10mm{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .pl th { background: #e9e9e9; }
+  .pl td.long { height: 34px; white-space: pre-wrap; }
+</style>
+<h1>通所介護計画書</h1>
+<table class="pl">
+  <colgroup><col style="width:12%"><col style="width:22%"><col style="width:12%"><col style="width:20%"><col style="width:12%"><col></colgroup>
+  <tr><th>利用者氏名</th><td style="font-size:12px;font-weight:700;">{{ b.full_name }}</td><th>生年月日</th><td>{{ b.date_of_birth|date:'Y年n月j日' }}</td><th>要介護度</th><td>{{ plan.care_level }}</td></tr>
+  <tr><th>作成日</th><td>{{ plan.created_on|date:'Y年n月j日' }}</td><th>計画の期間</th><td>{% if plan.period_from %}{{ plan.period_from|date:'Y年n月j日' }} 〜 {{ plan.period_to|date:'Y年n月j日' }}{% endif %}</td><th>計画作成者</th><td>{{ plan.planner }}</td></tr>
+</table>
+<table class="pl" style="margin-top:4px;">
+  <colgroup><col style="width:16%"><col></colgroup>
+  <tr><th>本人の希望</th><td class="long">{{ plan.wishes_person }}</td></tr>
+  <tr><th>家族の希望</th><td class="long">{{ plan.wishes_family }}</td></tr>
+  <tr><th>援助の方針</th><td class="long">{{ plan.policy }}</td></tr>
+  <tr><th>長期目標</th><td class="long">{{ plan.long_goal }}</td></tr>
+  <tr><th>短期目標</th><td class="long">{{ plan.short_goal }}</td></tr>
+  <tr><th>健康状態・留意事項</th><td class="long">{{ plan.health_note }}</td></tr>
+</table>
+<table class="pl" style="margin-top:6px;">
+  <colgroup><col style="width:22%"><col style="width:22%"><col style="width:30%"><col style="width:14%"><col style="width:12%"></colgroup>
+  <tr><th>目標</th><th>サービス内容</th><th>具体的な方法・留意点</th><th>頻度・時間</th><th>担当</th></tr>
+  {% for r in rows %}<tr><td class="long">{{ r|dictkey:'goal' }}</td><td class="long">{{ r|dictkey:'service' }}</td><td class="long">{{ r|dictkey:'detail' }}</td><td class="long c">{{ r|dictkey:'frequency' }}</td><td class="long c">{{ r|dictkey:'staff' }}</td></tr>{% endfor %}
+</table>
+<table class="pl" style="margin-top:6px;">
+  <colgroup><col style="width:16%"><col style="width:24%"><col style="width:60%"></colgroup>
+  <tr><th>見直しの時期</th><td>{{ plan.review_due|date:'Y年n月j日'|default:'' }}</td><td rowspan="2" style="vertical-align:bottom;">上記の計画について説明を受け、同意しました。　{% if plan.explained_on %}{{ plan.explained_on|date:'Y年n月j日' }}{% else %}　　年　　月　　日{% endif %}<br><br>氏名　<span style="display:inline-block;min-width:220px;border-bottom:1px solid #333;">{{ plan.agreed_by }}</span>　印</td></tr>
+  <tr><th>事業所</th><td>{{ facility.name }}</td></tr>
+</table>
+{% endblock %}

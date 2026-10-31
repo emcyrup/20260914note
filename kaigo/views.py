@@ -9,7 +9,7 @@ from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.db import models as db_models
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.views import View
 
 from beneficiaries.models import Beneficiary
@@ -37,7 +37,17 @@ def _shift(year, month, n):
     return m // 12, m % 12 + 1
 
 
-class PersonMixin(KyotakuMixin):
+class KaigoMixin(KyotakuMixin):
+    """介護保険の事業所（居宅介護支援・介護施設）で使える画面（介護保険証・書類・取引先・記録の AI）"""
+
+    def dispatch(self, request, *args, **kwargs):
+        facility = getattr(request.user, 'facility', None)
+        if request.user.is_authenticated and not (facility is not None and facility.is_kaigo):
+            raise Http404
+        return super(KyotakuMixin, self).dispatch(request, *args, **kwargs)
+
+
+class PersonMixin(KaigoMixin):
     """利用者ごとのタブの画面"""
     tab = ''
 
@@ -557,7 +567,7 @@ class AssessmentPrintView(PersonMixin, View):
 
 
 # ---------------------------------------------------------------- 取引先
-class ProviderListView(KyotakuMixin, View):
+class ProviderListView(KaigoMixin, View):
     FIELDS = ('name', 'service_kind', 'office_number', 'phone', 'fax', 'email', 'address', 'contact', 'notes')
 
     def get(self, request):
@@ -667,7 +677,7 @@ def _json_body(request):
         return {}
 
 
-class AiSummarizeView(KyotakuMixin, View):
+class AiSummarizeView(KaigoMixin, View):
     """話した言葉・メモ → 支援経過に残す文（指定の文字数）。{'text', 'chars', 'category'} → {'text', 'added'?}"""
 
     def post(self, request):
@@ -691,7 +701,7 @@ class AiSummarizeView(KyotakuMixin, View):
         return JsonResponse({'text': out, 'length': len(out), **asis.check(text, out)})
 
 
-class AiReadImageView(KyotakuMixin, View):
+class AiReadImageView(KaigoMixin, View):
     """紙・メモの写真（PDF も）→ 書いてある文字。{'text'}"""
 
     def post(self, request):
@@ -710,7 +720,7 @@ class AiReadImageView(KyotakuMixin, View):
         return JsonResponse({'text': out})
 
 
-class AiMeetingView(KyotakuMixin, View):
+class AiMeetingView(KaigoMixin, View):
     """会議のメモ → 担当者会議の要点の下書き。{'text'} → {'topics', 'discussion', 'conclusion', 'remaining'}"""
 
     def post(self, request):
@@ -724,7 +734,7 @@ class AiMeetingView(KyotakuMixin, View):
         return JsonResponse(out)
 
 
-class SettingView(KyotakuMixin, View):
+class SettingView(KaigoMixin, View):
     """記録の設定：AI でまとめる文字数・文体の希望・記録の種別の名前"""
 
     def get(self, request):

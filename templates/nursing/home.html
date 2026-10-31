@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% block title %}ホーム — {{ app_label }}{% endblock %}
+{% block page_title %}ホーム{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="fw-bold">{{ today_jp }}</div>
+    <div class="small text-muted">在籍 {{ n }} 人</div>
+  </div>
+
+  <div class="nr-kpi mb-3">
+    <a href="{% url 'nursing:vitals_day' %}" class="{% if vitals_done < n %}warn{% else %}ok{% endif %}"><div class="n">{{ vitals_done }}<span class="fs-6 text-muted">／{{ n }}</span></div><div class="t">検温板（朝）を記録した人</div></a>
+    <a href="{% url 'nursing:records' %}" class="{% if unwritten %}warn{% else %}ok{% endif %}"><div class="n">{{ unwritten|length }}</div><div class="t">介護記録が未記入</div></a>
+    <a href="{% url 'nursing:review' %}" class="{% if review_count %}bad{% else %}ok{% endif %}"><div class="n">{{ review_count }}</div><div class="t">確認待ち（承認してください）</div></a>
+    <a href="{% url 'nursing:records' %}" class="ok"><div class="n">{{ approved_today }}</div><div class="t">きょう承認ずみ</div></a>
+    <a href="{% url 'nursing:incidents' %}" class="{% if incidents_open %}bad{% else %}ok{% endif %}"><div class="n">{{ incidents_open|length }}</div><div class="t">ヒヤリ・事故報告の未承認</div></a>
+    <a href="{% url 'nursing:staffing' %}" class="{% if staffing_judge %}{{ staffing_judge.level }}{% else %}warn{% endif %}"><div class="n">{% if staffing_judge %}{{ staffing_judge.label }}{% else %}未入力{% endif %}</div><div class="t">きょうの人員配置</div></a>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-6">
+      {% if fevers %}
+      <div class="nr-card border-danger">
+        <div class="nr-h text-danger mb-2"><i class="bi bi-thermometer-high me-1"></i>きょうの検温板で注意のある人</div>
+        {% for v in fevers %}<div class="d-flex justify-content-between py-1 border-top"><a href="{% url 'nursing:vitals_week' v.beneficiary.pk %}" class="text-decoration-none fw-semibold">{{ v.beneficiary.full_name }}</a><span class="nr-alert">{{ v.get_slot_display }}：{{ v.alerts|join:'・' }}</span></div>{% endfor %}
+      </div>
+      {% endif %}
+      <div class="nr-card">
+        <div class="d-flex justify-content-between align-items-center mb-2"><div class="nr-h"><i class="bi bi-journal-text me-1"></i>きょうの介護記録</div><a href="{% url 'nursing:records' %}" class="small">一覧へ</a></div>
+        {% if unwritten %}
+        <div class="small text-muted mb-1">未記入（{{ unwritten|length }} 人）</div>
+        <div class="d-flex flex-wrap gap-1 mb-2">{% for b in unwritten %}<a href="{% url 'nursing:record_edit' b.pk %}" class="btn btn-sm btn-outline-secondary py-0">{{ b.full_name }}</a>{% endfor %}</div>
+        {% else %}<div class="small text-success mb-2"><i class="bi bi-check2-circle me-1"></i>全員の記録が入っています。</div>{% endif %}
+        {% if family_flags %}<div class="small text-muted">家族への連絡事項あり：{% for r in family_flags %}<a href="{% url 'nursing:record_edit' r.beneficiary.pk %}">{{ r.beneficiary.full_name }}</a>{% if not forloop.last %}・{% endif %}{% endfor %}　→ <a href="{% url 'nursing:renraku' %}">連絡帳</a></div>{% endif %}
+      </div>
+      <div class="nr-card">
+        <div class="d-flex justify-content-between align-items-center mb-2"><div class="nr-h"><i class="bi bi-check2-square me-1"></i>確認待ちの記録{% if can_approve %}<span class="small fw-normal text-muted ms-1">（開いて承認）</span>{% endif %}</div><a href="{% url 'nursing:review' %}" class="small">まとめて見る</a></div>
+        {% for r in review %}
+        <div class="d-flex justify-content-between align-items-center py-1 border-top gap-2">
+          <a href="{% url 'nursing:record_edit' r.beneficiary.pk %}?d={{ r.date|date:'Y-m-d' }}" class="text-decoration-none">{{ r.date|date:'n/j' }}　<b>{{ r.beneficiary.full_name }}</b><span class="small text-muted ms-1">{{ r.author|default:'' }}</span></a>
+          {% if can_approve %}<form method="post" action="{% url 'nursing:record_approve' r.pk %}">{% csrf_token %}<input type="hidden" name="back" value="{% url 'nursing:home' %}"><button class="btn btn-sm btn-success py-0">承認</button></form>{% endif %}
+        </div>
+        {% empty %}<div class="small text-muted">確認待ちはありません。</div>{% endfor %}
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="nr-card">
+        <div class="d-flex justify-content-between align-items-center mb-2"><div class="nr-h"><i class="bi bi-capsule me-1"></i>薬の更新の期限</div><a href="{% url 'nursing:medications' %}" class="small">薬の管理へ</a></div>
+        {% for m in meds %}<div class="d-flex justify-content-between py-1 border-top gap-2"><a href="{% url 'nursing:person_meds' m.beneficiary.pk %}" class="text-decoration-none">{{ m.beneficiary.full_name }}　{{ m.name }}</a><span class="small {% if m.due_state == 'over' %}text-danger fw-bold{% else %}text-warning-emphasis{% endif %}">{{ m.review_due|date:'n/j' }}{% if m.due_state == 'over' %} 過ぎています{% else %} まで{% endif %}</span></div>
+        {% empty %}<div class="small text-muted">2 週間以内に期限の来る薬はありません。</div>{% endfor %}
+      </div>
+      <div class="nr-card">
+        <div class="nr-h mb-2"><i class="bi bi-clipboard2-check me-1"></i>計画書の見直し</div>
+        {% for p in plan_alerts %}<div class="d-flex justify-content-between py-1 border-top gap-2"><a href="{% url 'nursing:plan_edit' p.beneficiary.pk p.pk %}" class="text-decoration-none">{{ p.beneficiary.full_name }}</a><span class="small {% if p.review_state == 'over' %}text-danger fw-bold{% else %}text-warning-emphasis{% endif %}">見直し {{ p.review_due|date:'Y/n/j' }}</span></div>{% endfor %}
+        {% if no_plan %}<div class="small text-muted mt-2">計画書がまだない人：{% for b in no_plan %}<a href="{% url 'nursing:plan_new' b.pk %}">{{ b.full_name }}</a>{% if not forloop.last %}・{% endif %}{% endfor %}</div>{% endif %}
+        {% if not plan_alerts and not no_plan %}<div class="small text-muted">見直しの時期が近い計画書はありません。</div>{% endif %}
+      </div>
+      <div class="nr-card">
+        <div class="d-flex justify-content-between align-items-center mb-2"><div class="nr-h"><i class="bi bi-exclamation-triangle me-1"></i>ヒヤリハット・事故報告（未承認）</div><a href="{% url 'nursing:incident_new' %}" class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-plus-lg"></i> 報告を書く</a></div>
+        {% for rep in incidents_open %}<div class="py-1 border-top"><a href="{% url 'nursing:incident_edit' rep.pk %}" class="text-decoration-none">{{ rep.occurred_at|date:'n/j H:i' }}　<span class="badge {% if rep.kind == 'accident' %}text-bg-danger{% else %}text-bg-warning{% endif %}">{{ rep.get_kind_display }}</span> {{ rep.get_category_display }}{% if rep.beneficiary %}　{{ rep.beneficiary.full_name }}{% endif %}</a> <span class="nr-status {{ rep.status }}">{{ rep.get_status_display }}</span></div>
+        {% empty %}<div class="small text-muted">未承認の報告はありません。</div>{% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

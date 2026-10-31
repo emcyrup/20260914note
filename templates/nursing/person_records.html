@@ -1,0 +1,27 @@
+{% extends 'nursing/_person_base.html' %}
+{% block title %}{{ b.full_name }} 介護記録 — {{ app_label }}{% endblock %}
+{% block person_actions %}<a href="{% url 'nursing:record_edit' b.pk %}" class="btn btn-sm btn-primary"><i class="bi bi-pencil-square me-1"></i>きょうの記録を書く</a>{% endblock %}
+{% block tab_content %}
+<div class="nr-card">
+  <form method="get" class="row g-2 align-items-end mb-2">
+    <div class="col-6 col-sm-auto"><label class="form-label small mb-0" for="f-from">いつから</label><input type="date" name="from" id="f-from" class="form-control form-control-sm" value="{{ start|date:'Y-m-d' }}"></div>
+    <div class="col-6 col-sm-auto"><label class="form-label small mb-0" for="f-to">いつまで</label><input type="date" name="to" id="f-to" class="form-control form-control-sm" value="{{ end|date:'Y-m-d' }}"></div>
+    <div class="col-auto d-flex gap-1"><button class="btn btn-sm btn-outline-secondary">絞る</button>{% if start or end %}<a href="{% url 'nursing:person_records' b.pk %}" class="btn btn-sm btn-link px-1">すべて</a>{% endif %}</div>
+    <div class="col-auto ms-auto"><a href="{% url 'nursing:person_records_print' b.pk %}?fmt=html{% if start %}&from={{ start|date:'Y-m-d' }}{% endif %}{% if end %}&to={{ end|date:'Y-m-d' }}{% endif %}" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>介護記録を印刷</a></div>
+  </form>
+  <div class="nr-feed">
+    {% for r in records %}
+    <article class="nr-entry">
+      <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2">
+        <div><a href="{% url 'nursing:record_edit' b.pk %}?d={{ r.date|date:'Y-m-d' }}" class="fw-bold text-decoration-none">{{ r.date|date:'Y年n月j日（D）' }}</a> <span class="nr-status {{ r.status }}">{{ r.get_status_display }}</span>{% for f in r.flags %}<span class="badge text-bg-danger ms-1">{{ f }}</span>{% endfor %}</div>
+        <div class="small text-muted">記録：{{ r.author|default:'—' }}{% if r.approved_by %}／承認：{{ r.approved_by }}{% endif %}</div>
+      </div>
+      <div class="nr-entry-body">{{ r.body|default:'（本文なし）' }}</div>
+      {% if r.checks_text %}<div class="small text-muted mt-1">{{ r.checks_text }}</div>{% endif %}
+      {% if r.family_message %}<div class="small mt-1"><span class="text-muted">家族向け：</span>{{ r.family_message }}</div>{% endif %}
+      {% if r.internal_note %}<div class="small mt-1 text-muted"><i class="bi bi-lock me-1"></i>{{ r.internal_note }}</div>{% endif %}
+    </article>
+    {% empty %}<div class="text-muted small py-3">まだ介護記録がありません。</div>{% endfor %}
+  </div>
+</div>
+{% endblock %}

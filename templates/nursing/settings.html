@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}介護記録の設定 — {{ app_label }}{% endblock %}
+{% block page_title %}介護記録の設定{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 800px;">
+  <form method="post" class="nr-card">
+    {% csrf_token %}<input type="hidden" name="back" value="{{ back }}">
+    <div class="row g-3">
+      <div class="col-6"><label class="nr-lbl" for="record_chars">介護記録の文字数のめやす</label><select name="record_chars" id="record_chars" class="form-select form-select-sm">{% for n in chars_choices %}<option value="{{ n }}" {% if setting.record_chars == n %}selected{% endif %}>{{ n }} 字くらい</option>{% endfor %}</select><div class="small text-muted">打ち合わせでは 200〜300 字が実務にちょうどよいとのこと</div></div>
+      <div class="col-6"><label class="nr-lbl" for="family_chars">家族向けの文の文字数のめやす</label><input type="number" name="family_chars" id="family_chars" class="form-control form-control-sm" min="50" max="600" value="{{ setting.family_chars }}"></div>
+      <div class="col-12"><label class="nr-lbl" for="style_note">文体の希望（AI の下書き・整えるときに毎回そえる）</label><textarea name="style_note" id="style_note" class="form-control" rows="3" maxlength="1000" placeholder="例：敬語は最小限。「〜されました」は使わない。医療用語は看護師が使う言い方で">{{ setting.style_note }}</textarea></div>
+      <div class="col-6"><label class="nr-lbl" for="fever_temp">発熱とみなす体温（℃）</label><input type="text" inputmode="decimal" name="fever_temp" id="fever_temp" class="form-control form-control-sm" value="{{ setting.fever_temp }}"></div>
+      <div class="col-6"><label class="nr-lbl" for="capacity">定員（人）</label><input type="number" name="capacity" id="capacity" class="form-control form-control-sm" min="0" max="500" value="{{ setting.capacity }}"></div>
+    </div>
+    <div class="d-flex justify-content-end mt-3"><button class="btn btn-primary btn-sm"><i class="bi bi-check2 me-1"></i>保存する</button></div>
+  </form>
+</div>
+{% endblock %}

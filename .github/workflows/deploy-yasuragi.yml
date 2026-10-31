@@ -1,0 +1,177 @@
+# =============================================
+# 介護施設「やすらぎの森」の本番環境へデプロイ（ゆあーず・オウルと同じ AWS 共用サーバー）
+#   https://kaigonote.yasuragi.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 0.0.0.0:8047
+#   置き場所 ~/kaigonoteyasuragi、DB kaigonoteyasuragi（ユーザー ai_labo_dbuser。ゆあーず・オウルと同じユーザー）。venv（~/env）はゆあーずと共用
+#   本番なので push では動かさない。Actions の画面（または API）から手動で実行し、ブランチは yasuragi を選ぶ
+#   （やすらぎの森の機能（nursing）は yasuragi ブランチにある（kyotaku ブランチから分けた））
+#   サーバー側は deploy/venv-deploy.sh が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行う
+#   手順は docs/DEPLOY_AWS_YASURAGI.md
+#
+# GitHub Secrets：同じサーバーなので YOURS_*（Deploy (yours) のもの）をそのまま使う。別にしたいときだけ YASURAGI_* を登録する
+#   YASURAGI_DEPLOY_HOST / YASURAGI_DEPLOY_USER / YASURAGI_DEPLOY_SSH_KEY / YASURAGI_DEPLOY_SSH_PORT（無ければ YOURS_*）
+#   YASURAGI_APP_DIR（既定 ~/kaigonoteyasuragi）、YASURAGI_VENV（無ければ YOURS_VENV、既定 ~/env）
+#   YASURAGI_DOMAIN（既定 kaigonote.yasuragi.ai-labo.cloud）・YASURAGI_PORT（既定 8047。初回に .env を作るときだけ使う）
+#   YASURAGI_HEALTH_URL（既定 https://<YASURAGI_DOMAIN>/healthz/）
+#
+# 初回：サーバーに ~/kaigonoteyasuragi/.env が無ければ deploy/.env.yasuragi-aws.example から作る。
+#   SECRET_KEY はサーバー上で生成し、DB_PASSWORD・ANTHROPIC_API_KEY・音声の設定はゆあーずの ~/michinoteyours/.env から写す
+#   （同じ DB ユーザー・同じサーバー。値はログに出ない）。以後の配備では .env を上書きしない
+# venv はゆあーず・オウルと共用：requirements.txt がゆあーず（ryoiku）と違うと、pip がゆあーずの部品まで変えるので止める
+#
+# ※ 2026-10-31 時点：サーバー（nginx・ポート・DB）はプロバイダで準備中。アドレス kaigonote.yasuragi.ai-labo.cloud・ポート 8047・DB kaigonoteyasuragi は仮の値。
+#   決まったら YASURAGI_DOMAIN・YASURAGI_PORT の Secrets（または既定値）を直す
+# =============================================
+name: Deploy (yasuragi)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "配備するコミット（切り戻しのときに前のコミットの番号を入れる。空なら選んだブランチの最新）"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: ${{ secrets.YASURAGI_APP_DIR || '~/kaigonoteyasuragi' }}
+  VENV: ${{ secrets.YASURAGI_VENV || secrets.YOURS_VENV || '~/env' }}
+  SSH_PORT: ${{ secrets.YASURAGI_DEPLOY_SSH_PORT || secrets.YOURS_DEPLOY_SSH_PORT || '22' }}
+  DOMAIN: ${{ secrets.YASURAGI_DOMAIN || 'kaigonote.yasuragi.ai-labo.cloud' }}
+  HEALTH_URL: ${{ secrets.YASURAGI_HEALTH_URL || format('https://{0}/healthz/', secrets.YASURAGI_DOMAIN || 'kaigonote.yasuragi.ai-labo.cloud') }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
+      - run: pip install -r requirements.txt
+      - name: Django check & tests
+        env:
+          SECRET_KEY: ci-only-secret-key
+          DEBUG: "True"
+          DJANGO_ALLOWED_HOSTS: localhost
+        run: |
+          python manage.py check
+          python manage.py test --noinput
+      - name: Check deploy secrets
+        id: check
+        env:
+          HOST: ${{ secrets.YASURAGI_DEPLOY_HOST || secrets.YOURS_DEPLOY_HOST }}
+          USER: ${{ secrets.YASURAGI_DEPLOY_USER || secrets.YOURS_DEPLOY_USER }}
+          KEY: ${{ secrets.YASURAGI_DEPLOY_SSH_KEY || secrets.YOURS_DEPLOY_SSH_KEY }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ]; then
+            echo "SSH の Secrets（YASURAGI_DEPLOY_* または YOURS_DEPLOY_*）が未登録のため、配備はスキップします（docs/DEPLOY_AWS_YASURAGI.md 参照）"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    needs: test
+    if: needs.test.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    concurrency:
+      # ゆあーず・オウルと venv（~/env）を共用するので、Deploy (yours)・Deploy (owl)・Manage と同じ列に並べて同時に pip を動かさない
+      group: deploy-yours
+      cancel-in-progress: false
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.YASURAGI_DEPLOY_SSH_KEY || secrets.YOURS_DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ env.SSH_PORT }}" -H "${{ secrets.YASURAGI_DEPLOY_HOST || secrets.YOURS_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Checkout, prepare .env (first time only), migrate, restart gunicorn
+        env:
+          SHA: ${{ inputs.ref || github.sha }}
+          REPO_URL: https://github.com/${{ github.repository }}.git
+          REMOTE_APP_DIR: ${{ env.APP_DIR }}
+          REMOTE_VENV: ${{ env.VENV }}
+          SRC_APP_DIR: ${{ secrets.YOURS_APP_DIR || '~/michinoteyours' }}
+          DOMAIN: ${{ env.DOMAIN }}
+          PORT_NUM: ${{ secrets.YASURAGI_PORT || '8047' }}
+        run: |
+          # 切り戻しで入れるのはコミットの番号だけ（英数字 7〜40 字）。ほかの文字はサーバーのコマンドに渡さない
+          [[ "$SHA" =~ ^[0-9a-fA-F]{7,40}$ ]] || { echo "ref はコミットの番号（7〜40 桁の英数字）で入れてください: $SHA"; exit 1; }
+          [[ "$DOMAIN" =~ ^[a-z0-9.-]+$ ]] || { echo "YASURAGI_DOMAIN はアドレス（英小文字・数字・. と - だけ）で入れてください"; exit 1; }
+          [[ "$PORT_NUM" =~ ^[0-9]{4,5}$ ]] || { echo "YASURAGI_PORT は 4〜5 桁の数字で入れてください"; exit 1; }
+          ssh -i ~/.ssh/deploy_key -p "${{ env.SSH_PORT }}" "${{ secrets.YASURAGI_DEPLOY_USER || secrets.YOURS_DEPLOY_USER }}@${{ secrets.YASURAGI_DEPLOY_HOST || secrets.YOURS_DEPLOY_HOST }}" \
+            "SHA='$SHA' REPO_URL='$REPO_URL' APP_DIR_IN='$REMOTE_APP_DIR' VENV_IN='$REMOTE_VENV' SRC_DIR_IN='$SRC_APP_DIR' DOMAIN_IN='$DOMAIN' PORT_IN='$PORT_NUM' bash -s" <<'REMOTE'
+            set -euo pipefail
+            APP_DIR=$(eval echo "$APP_DIR_IN")
+            VENV=$(eval echo "$VENV_IN")
+            SRC_DIR=$(eval echo "$SRC_DIR_IN")
+            if [ ! -d "$APP_DIR/.git" ]; then
+              git clone --quiet "$REPO_URL" "$APP_DIR"
+            fi
+            cd "$APP_DIR"
+            git fetch --quiet origin
+            # 介護施設の機能（nursing アプリ）が入っていないコミット（ゆあーず・コトのブランチなど）は出さない
+            git cat-file -e "$SHA:nursing/apps.py" 2>/dev/null || { echo "ERROR: このコミットには介護施設の機能（nursing）がありません。ブランチ yasuragi を選んで実行してください"; exit 1; }
+            # 配備先コミットのスクリプトと .env の雛形を先に取り出してから実行する
+            git checkout --quiet "$SHA" -- deploy/venv-deploy.sh deploy/.env.yasuragi-aws.example
+            if [ ! -f .env ]; then
+              echo ".env が無いので雛形から作ります（SECRET_KEY は生成。秘密の値はゆあーずの .env から写す。値は表示しない）"
+              cp deploy/.env.yasuragi-aws.example .env
+              chmod 600 .env
+              key=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))")
+              sed -i "s#^SECRET_KEY=.*#SECRET_KEY=$key#" .env
+              sed -i "s#^MEDIA_ROOT=.*#MEDIA_ROOT=$APP_DIR/media#" .env
+              sed -i "s#kaigonote.yasuragi.ai-labo.cloud#$DOMAIN_IN#g" .env
+              sed -i "s#^PORT=.*#PORT=$PORT_IN#" .env
+              if [ -f "$SRC_DIR/.env" ]; then
+                for k in DB_PASSWORD ANTHROPIC_API_KEY AI_TEXT_MODEL AI_PLAN_MODEL GOOGLE_SPEECH_API_KEY SPEECH_BACKEND WHISPER_MODEL WHISPER_THREADS WHISPER_BEAM WHISPER_COMPUTE; do
+                  line=$(grep -E "^$k=." "$SRC_DIR/.env" | head -n 1 || true)
+                  [ -n "$line" ] || continue
+                  if grep -qE "^#?$k=" .env; then
+                    # 雛形の同じ行（コメントアウト含む）を置き換える。値に # や & があっても壊れないように区切りを使わない方法で書く
+                    python3 - "$k" "$line" <<'PY'
+          import re, sys
+          k, line = sys.argv[1], sys.argv[2]
+          p = '.env'
+          s = open(p, encoding='utf-8').read()
+          s, n = re.subn(r'(?m)^#?' + re.escape(k) + r'=.*$', lambda m: line, s, count=1)
+          open(p, 'w', encoding='utf-8').write(s)
+          PY
+                  else
+                    printf '%s\n' "$line" >> .env
+                  fi
+                  echo "  $k: ゆあーずの .env から写しました"
+                done
+              else
+                echo "  注意: $SRC_DIR/.env が無いため DB_PASSWORD などは空です。サーバーで .env を直してください"
+              fi
+            fi
+            # venv はゆあーずと共用。部品の一覧が違うと pip がゆあーずの部品を変えてしまうので、そのときは止める
+            YOURS_DIR=$(eval echo "$SRC_DIR_IN")
+            if [ -f "$YOURS_DIR/requirements.txt" ] && ! git show "$SHA:requirements.txt" | cmp -s - "$YOURS_DIR/requirements.txt"; then
+              echo "ERROR: requirements.txt がゆあーず（$YOURS_DIR）と違います。共用の venv を変えないよう配備を止めました（先にゆあーずへ同じ部品を入れてください）"
+              exit 1
+            fi
+            APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh "$SHA"
+          REMOTE
+
+      - name: Health check (public URL)
+        run: |
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${{ env.HEALTH_URL }}" || true)
+            case "$code" in 200) echo "healthy ($code)"; exit 0;; esac
+            echo "waiting... ($code)"; sleep 5
+          done
+          echo "health check failed"; exit 1

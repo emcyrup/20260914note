@@ -1,0 +1,41 @@
+{% extends 'nursing/_person_base.html' %}
+{% load concurrency form_extras %}
+{% block title %}{{ b.full_name }} 通所介護計画書 — {{ app_label }}{% endblock %}
+{% block person_actions %}{% if plan %}<a href="{% url 'nursing:plan_print' b.pk plan.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>印刷</a>{% endif %}{% endblock %}
+{% block tab_content %}
+<form method="post" class="nr-card">
+  {% csrf_token %}{% if plan %}{% version_field plan %}{% endif %}
+  <div class="nr-h mb-2">{% if plan %}通所介護計画書（{{ plan.created_on|date:'Y/n/j' }} 作成）{% else %}新しい通所介護計画書{% if prev %}<span class="small fw-normal text-muted ms-1">（{{ prev.created_on|date:'Y/n/j' }} の計画の内容を写しています）</span>{% endif %}{% endif %}</div>
+  <div class="row g-2 mb-2">
+    <div class="col-6 col-md-2"><label class="nr-lbl" for="created_on">作成日</label><input type="date" name="created_on" id="created_on" class="form-control form-control-sm" value="{% if plan %}{{ plan.created_on|date:'Y-m-d' }}{% else %}{{ today|date:'Y-m-d' }}{% endif %}" required></div>
+    <div class="col-6 col-md-2"><label class="nr-lbl" for="period_from">期間（開始）</label><input type="date" name="period_from" id="period_from" class="form-control form-control-sm" value="{{ plan.period_from|date:'Y-m-d' }}"></div>
+    <div class="col-6 col-md-2"><label class="nr-lbl" for="period_to">期間（終了）</label><input type="date" name="period_to" id="period_to" class="form-control form-control-sm" value="{{ plan.period_to|date:'Y-m-d' }}"></div>
+    <div class="col-6 col-md-2"><label class="nr-lbl" for="care_level">要介護度</label><input type="text" name="care_level" id="care_level" class="form-control form-control-sm" value="{{ care_level_default }}" maxlength="10"></div>
+    <div class="col-md-4"><label class="nr-lbl" for="planner">計画作成者</label><input type="text" name="planner" id="planner" class="form-control form-control-sm" value="{% if plan %}{{ plan.planner }}{% elif prev %}{{ prev.planner }}{% else %}{{ user.display_name }}{% endif %}" maxlength="50"></div>
+  </div>
+  <div class="row g-2">
+    <div class="col-md-6"><label class="nr-lbl" for="wishes_person">本人の希望</label><textarea name="wishes_person" id="wishes_person" class="form-control" rows="3">{% if plan %}{{ plan.wishes_person }}{% elif prev %}{{ prev.wishes_person }}{% endif %}</textarea></div>
+    <div class="col-md-6"><label class="nr-lbl" for="wishes_family">家族の希望</label><textarea name="wishes_family" id="wishes_family" class="form-control" rows="3">{% if plan %}{{ plan.wishes_family }}{% elif prev %}{{ prev.wishes_family }}{% endif %}</textarea></div>
+    <div class="col-12"><label class="nr-lbl" for="policy">援助の方針</label><textarea name="policy" id="policy" class="form-control" rows="3">{% if plan %}{{ plan.policy }}{% elif prev %}{{ prev.policy }}{% endif %}</textarea></div>
+    <div class="col-md-6"><label class="nr-lbl" for="long_goal">長期目標</label><textarea name="long_goal" id="long_goal" class="form-control" rows="2">{% if plan %}{{ plan.long_goal }}{% elif prev %}{{ prev.long_goal }}{% endif %}</textarea></div>
+    <div class="col-md-6"><label class="nr-lbl" for="short_goal">短期目標</label><textarea name="short_goal" id="short_goal" class="form-control" rows="2">{% if plan %}{{ plan.short_goal }}{% elif prev %}{{ prev.short_goal }}{% endif %}</textarea></div>
+  </div>
+  <div class="nr-lbl mt-3 mb-1">サービス内容（空の行は保存しません）</div>
+  <div class="table-responsive">
+    <table class="table table-sm table-bordered mb-0 small">
+      <thead><tr>{% for k, l in row_keys %}<th>{{ l }}</th>{% endfor %}</tr></thead>
+      <tbody>{% for r in rows %}<tr>{% for k, l in row_keys %}<td><textarea name="row_{{ forloop.parentloop.counter0 }}_{{ k }}" class="form-control form-control-sm" rows="2" maxlength="500">{{ r|dictkey:k }}</textarea></td>{% endfor %}</tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  <div class="row g-2 mt-2">
+    <div class="col-12"><label class="nr-lbl" for="health_note">健康状態・留意事項（既往・服薬・禁忌・医師の指示など）</label><textarea name="health_note" id="health_note" class="form-control" rows="2">{% if plan %}{{ plan.health_note }}{% elif prev %}{{ prev.health_note }}{% endif %}</textarea></div>
+    <div class="col-6 col-md-3"><label class="nr-lbl" for="review_due">見直しの時期</label><input type="date" name="review_due" id="review_due" class="form-control form-control-sm" value="{{ plan.review_due|date:'Y-m-d' }}"></div>
+    <div class="col-6 col-md-3"><label class="nr-lbl" for="explained_on">説明・同意日</label><input type="date" name="explained_on" id="explained_on" class="form-control form-control-sm" value="{{ plan.explained_on|date:'Y-m-d' }}"></div>
+    <div class="col-md-6"><label class="nr-lbl" for="agreed_by">同意した人（本人・家族の名前）</label><input type="text" name="agreed_by" id="agreed_by" class="form-control form-control-sm" value="{{ plan.agreed_by|default:'' }}" maxlength="100"></div>
+  </div>
+  <div class="d-flex justify-content-between mt-3">
+    <div>{% if plan %}<button name="action" value="delete" class="btn btn-sm btn-outline-danger" onclick="return confirm('この計画書を消します。よろしいですか？');"><i class="bi bi-trash"></i></button>{% endif %}</div>
+    <div class="d-flex gap-2"><button name="next" value="print" class="btn btn-outline-primary">保存して印刷</button><button class="btn btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button></div>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block page_title %}{{ b.full_name }}{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}{% block person_css %}{% endblock %}{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1100px; margin: 0 auto;">
+  <div class="mb-2 small"><a href="{% url 'beneficiaries:list' %}" class="text-muted text-decoration-none"><i class="bi bi-people me-1"></i>{{ terms.beneficiary }}一覧</a></div>
+  <div class="nr-head">
+    <div><span class="nr-name">{{ b.full_name }}</span> <span class="text-muted small">{{ b.full_name_kana }}</span>
+      {% if insurance.care_level %}<span class="nr-level">{{ insurance.care_level }}</span>{% endif %}
+      {% if insurance.valid_until %}<span class="small text-muted ms-1">認定 〜{{ insurance.valid_until|date:'Y/n/j' }}</span>{% endif %}</div>
+    <div>{% block person_actions %}{% endblock %}</div>
+  </div>
+  {% include 'nursing/_tabs.html' %}
+  {% block tab_content %}{% endblock %}
+</div>
+{% endblock %}

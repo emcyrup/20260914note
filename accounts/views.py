@@ -167,7 +167,7 @@ class StaffListView(AdminOnlyMixin, View):
                  .order_by('-is_active', 'role', 'username'))
         invitations = StaffInvitation.objects.filter(facility=request.user.facility).select_related('created_by')[:30]
         return render(request, self.template_name, {
-            'staff': staff, 'form': StaffCreateForm(), 'roles': StaffAccount.ROLE_CHOICES,
+            'staff': staff, 'form': StaffCreateForm(), 'roles': StaffAccount.role_choices_for(request.user.facility),
             'themes': StaffAccount.THEME_CHOICES,
             'invitations': invitations, 'invitation_form': InvitationForm(),
             'pending': StaffAccount.objects.filter(facility=request.user.facility, signup_pending=True).order_by('date_joined'),
@@ -181,7 +181,7 @@ class StaffListView(AdminOnlyMixin, View):
             staff = StaffAccount.objects.filter(facility=request.user.facility).order_by('-is_active', 'role', 'username')
             messages.error(request, '入力内容を確認してください。')
             return render(request, self.template_name, {
-                'staff': staff, 'form': form, 'roles': StaffAccount.ROLE_CHOICES, 'themes': StaffAccount.THEME_CHOICES,
+                'staff': staff, 'form': form, 'roles': StaffAccount.role_choices_for(request.user.facility), 'themes': StaffAccount.THEME_CHOICES,
                 'show_add': True,
             })
         u = form.save(commit=False)

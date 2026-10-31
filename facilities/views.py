@@ -37,6 +37,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         # 居宅介護（コト）では、利用者管理がホーム（メニューは利用者管理と議事録だけ。2026-10-20）
         if facility is not None and facility.is_kyotaku:
             return redirect('beneficiaries:list')
+        # 介護施設（やすらぎの森）：きょうの記録の進み・確認待ち・発熱・お知らせをまとめたホーム（nursing）
+        if facility is not None and facility.is_care:
+            return redirect('nursing:home')
         return super().get(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):

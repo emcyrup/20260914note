@@ -1,0 +1,26 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}{{ rep.get_kind_display }}報告書{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .ir th { width: 18%; text-align: left; }
+  .ir td.long { height: 70px; white-space: pre-wrap; line-height: 1.6; }
+  .sg td { height: 46px; text-align: center; vertical-align: bottom; }
+</style>
+<h1>{% if rep.kind == 'accident' %}事故報告書{% else %}ヒヤリハット報告書{% endif %}</h1>
+<table class="ir">
+  <tr><th>事業所名</th><td>{{ facility.name }}</td><th>報告日</th><td>{{ rep.created_at|date:'Y年n月j日' }}</td></tr>
+  <tr><th>{{ terms.beneficiary|default:'利用者' }}</th><td>{{ rep.beneficiary.full_name|default:'—' }}{% if insurance.care_level %}（{{ insurance.care_level }}）{% endif %}</td><th>報告者</th><td>{{ rep.reporter|default:'' }}</td></tr>
+  <tr><th>発生日時</th><td>{{ rep.occurred_at|date:'Y年n月j日 H:i' }}</td><th>場所</th><td>{{ rep.place }}</td></tr>
+  <tr><th>種類</th><td>{{ rep.get_category_display }}</td><th>けがの程度</th><td>{{ rep.get_injury_display }}</td></tr>
+  <tr><th>発生の状況</th><td colspan="3" class="long">{{ rep.situation }}</td></tr>
+  <tr><th>原因・背景</th><td colspan="3" class="long">{{ rep.cause }}</td></tr>
+  <tr><th>対応（処置・連絡）</th><td colspan="3" class="long">{{ rep.response }}</td></tr>
+  <tr><th>再発防止策</th><td colspan="3" class="long">{{ rep.prevention }}</td></tr>
+  <tr><th>報告した相手</th><td colspan="3">{{ rep.reported_to_labels|join:'・'|default:'—' }}</td></tr>
+</table>
+<table class="sg" style="margin-top:10px;width:60%;margin-left:auto;">
+  <tr><th>管理者</th><th>リーダー</th><th>報告者</th></tr>
+  <tr><td>{% if rep.is_approved %}{{ rep.approved_by }}<br><span class="small">{{ rep.approved_at|date:'n/j' }} 承認</span>{% endif %}</td><td></td><td>{{ rep.reporter|default:'' }}</td></tr>
+</table>
+{% endblock %}

@@ -10,7 +10,7 @@
       {% if insurance.care_level %}<span class="kg-level {% if insurance.is_support %}support{% endif %}">{{ insurance.care_level }}</span>{% endif %}
       {% if insurance.valid_until %}<span class="small text-muted ms-1">認定 〜{{ insurance.valid_until|date:'Y/n/j' }}</span>{% endif %}</div>
   </div>
-  {% include 'kaigo/_tabs.html' %}
+  {% if user.facility.is_care %}{% include 'nursing/_tabs.html' %}{% else %}{% include 'kaigo/_tabs.html' %}{% endif %}
   {% block tab_content %}{% endblock %}
 </div>
 {% endblock %}

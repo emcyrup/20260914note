@@ -142,7 +142,7 @@ class BeneficiaryListView(LoginRequiredMixin, ListView):
                       .annotate(n=db_models.Count('pk')).values_list('status', 'n'))
         ctx['status_tabs'] = [(value, label, counts.get(value, 0)) for value, label in Beneficiary.STATUS_CHOICES] \
             + [('', '全員', sum(counts.values()))]
-        if self.request.user.facility.is_kyotaku:      # 居宅介護：卒業は使わない（いるときだけ出す）
+        if self.request.user.facility.is_kaigo:      # 介護の事業所：卒業は使わない（いるときだけ出す）
             ctx['status_tabs'] = [t for t in ctx['status_tabs'] if t[0] != Beneficiary.STATUS_GRADUATED or t[2]]
         ctx['can_delete'] = self.request.user.is_admin or self.request.user.is_superuser
         if ctx['can_delete']:      # 同じ名前の組の数（重複のまとめへ）
@@ -150,7 +150,7 @@ class BeneficiaryListView(LoginRequiredMixin, ListView):
             ctx['duplicate_groups'] = len(find_groups(self.request.user.facility))
             ctx['trash_count'] = DeletedBeneficiary.objects.filter(facility=self.request.user.facility).count()
         ctx['status_choices'] = Beneficiary.STATUS_CHOICES
-        if self.request.user.facility.is_kyotaku:      # 居宅介護支援：要介護度と認定の終わり（いちばん新しい介護保険証）
+        if self.request.user.facility.is_kaigo:      # 介護の事業所：要介護度と認定の終わり（いちばん新しい介護保険証）
             from kaigo.models import CareInsurance
             latest = {}
             for ins in CareInsurance.objects.filter(beneficiary__in=ctx['beneficiaries']).order_by('beneficiary_id', '-valid_from', '-pk'):
@@ -499,7 +499,7 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
         facility = self.request.user.facility
         if facility.beneficiary_tools:
             ctx['prev_b'], ctx['next_b'], ctx['nav_pos'], ctx['nav_total'] = neighbors(b)
-        if facility.is_kyotaku:      # 居宅介護支援：介護保険証（新しい順）
+        if facility.is_kaigo:      # 介護の事業所：介護保険証（新しい順）
             ctx['care_insurances'] = list(b.care_insurances.all())
             from kaigo.models import SCAN_EXTENSIONS, ScanDocument
             ctx.update(scan_kind='insurance', scan_kind_label='介護保険証・負担割合証', scan_kinds=ScanDocument.KINDS,
@@ -635,7 +635,7 @@ class BeneficiaryUpdateView(LoginRequiredMixin, UpdateView):
         | {'postal_code', 'address', 'home_phone', 'mobile_phone'}
 
     def modal_fields(self):
-        return self.KYOTAKU_MODAL_FIELDS if self.request.user.facility.is_kyotaku else self.MODAL_FIELDS
+        return self.KYOTAKU_MODAL_FIELDS if self.request.user.facility.is_kaigo else self.MODAL_FIELDS
 
     def get_form_kwargs(self):
         kwargs = {**super().get_form_kwargs(), 'facility': self.request.user.facility}
@@ -1101,7 +1101,7 @@ class ImportMixin(LoginRequiredMixin):
     """利用者の取り込み：ゆあーず（雛形・前のシステム）と、居宅介護の事業所（カイポケの利用者一覧 CSV）"""
     def dispatch(self, request, *args, **kwargs):
         facility = getattr(request.user, 'facility', None)
-        if request.user.is_authenticated and (facility is None or not (facility.is_ryoiku or facility.is_kyotaku)):
+        if request.user.is_authenticated and (facility is None or not (facility.is_ryoiku or facility.is_kaigo)):
             raise Http404
         return super().dispatch(request, *args, **kwargs)
 

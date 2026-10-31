@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block title %}人員配置 {{ y }}年{{ m }}月 — {{ app_label }}{% endblock %}
+{% block page_title %}人員配置{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}
+<style>.st-grid input { width: 56px; text-align: center; padding: 2px 4px; font-size: .86rem; } .st-grid td { vertical-align: middle; } .st-grid tr.today td { background: #fffbe6; }</style>
+{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="d-flex align-items-center gap-2">
+      <div class="btn-group"><a href="?y={{ prev.0 }}&m={{ prev.1 }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-left"></i></a><a href="?" class="btn btn-sm btn-outline-secondary">今月</a><a href="?y={{ next.0 }}&m={{ next.1 }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-right"></i></a></div>
+      <div class="fw-bold">{{ y }}年{{ m }}月</div>
+    </div>
+    <div class="small">{% if ng %}<span class="nr-judge ng">要調整の日 {{ ng }}</span>{% else %}<span class="nr-judge ok">要調整の日なし</span>{% endif %}</div>
+  </div>
+  <div class="small text-muted mb-2">日ごとに利用者数と職員数を入れると、配置基準の目安で「安全／確認／要調整」を出します。利用者数の初期値はその日の検温板・介護記録の人数です（保存するまでは自動の値）。目安：介護・看護職員は利用者 {{ base }} 人まで 1 人、超えた分は {{ step }} 人ごとに 1 人。生活相談員・機能訓練指導員は 1 人。細かい決まり（常勤換算・配置時間・事業所の指定）は 11 月のパイロット導入で事業所と決めます。</div>
+  <div class="nr-card p-0 table-responsive">
+    <table class="table table-sm mb-0 st-grid align-middle">
+      <thead><tr><th>日</th><th>利用者</th><th>介護職員</th><th>看護職員</th><th>生活相談員</th><th>機能訓練</th><th>判定</th><th class="d-none d-md-table-cell">メモ</th><th></th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+        <tr class="{% if row.is_today %}today{% endif %} {% if row.wd == '日' %}table-danger{% elif row.wd == '土' %}table-info{% endif %}">
+          <td class="text-nowrap"><form method="post" id="sf{{ forloop.counter }}">{% csrf_token %}<input type="hidden" name="date" value="{{ row.d|date:'Y-m-d' }}"></form>{{ row.d|date:'n/j' }}（{{ row.wd }}）</td>
+          <td><input form="sf{{ forloop.counter }}" type="number" min="0" max="500" name="users" class="form-control" value="{{ row.s.users }}" {% if row.auto %}style="color:#888;" title="自動の値（検温板・介護記録の人数）"{% endif %}></td>
+          <td><input form="sf{{ forloop.counter }}" type="number" min="0" max="200" name="care_staff" class="form-control" value="{{ row.s.care_staff }}"></td>
+          <td><input form="sf{{ forloop.counter }}" type="number" min="0" max="50" name="nurses" class="form-control" value="{{ row.s.nurses }}"></td>
+          <td><input form="sf{{ forloop.counter }}" type="number" min="0" max="50" name="counselors" class="form-control" value="{{ row.s.counselors }}"></td>
+          <td><input form="sf{{ forloop.counter }}" type="number" min="0" max="50" name="trainers" class="form-control" value="{{ row.s.trainers }}"></td>
+          <td>{% if row.judge %}<span class="nr-judge {{ row.judge.level }}" title="{{ row.judge.problems|join:'／' }}">{{ row.judge.label }}</span>{% if row.judge.problems %}<div class="small text-muted d-none d-lg-block">{{ row.judge.problems|join:'／' }}</div>{% endif %}{% else %}<span class="text-muted small">未入力</span>{% endif %}</td>
+          <td class="d-none d-md-table-cell"><input form="sf{{ forloop.counter }}" type="text" name="note" class="form-control form-control-sm" style="width:auto;min-width:140px;" value="{{ row.s.note }}" maxlength="200"></td>
+          <td><button form="sf{{ forloop.counter }}" class="btn btn-sm btn-outline-primary py-0">保存</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

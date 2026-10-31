@@ -157,6 +157,19 @@ class StaffAccount(AbstractUser):
     def is_child_dev_manager(self):
         return self.role == self.ROLE_CHILD_DEV_MANAGER
 
+    # 介護の事業所では「児発管」の権限区分を「リーダー」と呼ぶ（介護記録・事故報告を承認できる人）
+    KAIGO_ROLE_LABELS = {ROLE_CHILD_DEV_MANAGER: 'リーダー（記録を承認できる）'}
+
+    @classmethod
+    def role_choices_for(cls, facility):
+        if facility is not None and getattr(facility, 'is_kaigo', False):
+            return [(k, cls.KAIGO_ROLE_LABELS.get(k, label)) for k, label in cls.ROLE_CHOICES]
+        return cls.ROLE_CHOICES
+
+    @property
+    def role_display(self):
+        return dict(self.role_choices_for(getattr(self, 'facility', None))).get(self.role, self.get_role_display())
+
 
 def _new_token():
     return secrets.token_urlsafe(24)

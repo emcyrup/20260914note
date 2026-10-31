@@ -1,0 +1,30 @@
+{% extends 'nursing/_person_base.html' %}
+{% block title %}{{ b.full_name }} 検温板 — {{ app_label }}{% endblock %}
+{% block person_actions %}<a href="{% url 'nursing:vitals_week_print' b.pk %}?w={{ start|date:'Y-m-d' }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>この週を印刷</a>{% endblock %}
+{% block tab_content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+  <div class="d-flex align-items-center gap-2">
+    <div class="btn-group"><a href="?w={{ prev|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-left"></i></a><a href="?" class="btn btn-sm btn-outline-secondary">今週</a><a href="?w={{ next|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-right"></i></a></div>
+    <div class="fw-bold">{{ start|date:'Y年n月j日' }} 〜 {{ end|date:'n月j日' }}</div>
+  </div>
+  <a href="{% url 'nursing:vitals_day' %}?d={{ today|date:'Y-m-d' }}" class="small">きょうの検温板（全員）へ</a>
+</div>
+<div class="nr-card">
+  <div class="table-responsive">
+    <table class="nr-grid">
+      <thead><tr><th class="lbl"></th>{% for c in sheet.col_info %}<th class="{% if c.wd == '日' %}sun{% elif c.wd == '土' %}sat{% endif %}">{{ c.d|date:'n/j' }}<br><span class="small fw-normal">{{ c.wd }} {{ c.slot }}</span></th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for row in sheet.rows %}
+        <tr><td class="lbl">{{ row.label }}</td>{% for c in row.vals %}<td class="{% if c.alert %}alert{% endif %}{% if row.key == 'note' %} small text-start{% endif %}">{{ c.v }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="small text-muted mt-2">数値は検温板の画面で入れます（この表は見るだけ）。発熱 {{ fever }}℃以上、血圧 上 160 以上・下 100 以上・上 90 未満、脈拍 50 未満・100 超、SpO2 95% 未満は赤。</div>
+</div>
+<div class="nr-card">
+  <div class="nr-h mb-1">1 週間の推移</div>
+  {{ chart|safe }}
+  <div class="small text-muted">左の目盛：体温（℃）。右の目盛：血圧・脈拍。点線は発熱の線。</div>
+</div>
+{% endblock %}

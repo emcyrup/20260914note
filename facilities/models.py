@@ -44,10 +44,12 @@ class Facility(models.Model):
     LAYOUT_PLANBOOK = 'planbook'
     LAYOUT_RYOIKU = 'ryoiku'
     LAYOUT_KYOTAKU = 'kyotaku'
+    LAYOUT_CARE = 'care'
     LAYOUT_CHOICES = [(LAYOUT_STANDARD, '標準（記録・予定・請求まで全部）'),
                       (LAYOUT_PLANBOOK, '計画書中心（シンプル：利用者・完了期日一覧・スタッフ・保護者・連絡帳・施設）'),
                       (LAYOUT_RYOIKU, '療育（ゆあーず：基本機能＝ホーム・利用者情報・予約・療育記録・議事録・LINE連携／お試し＝記録・支援計画）'),
-                      (LAYOUT_KYOTAKU, '居宅介護（ホームヘルプ：訪問予定・サービス提供記録・居宅介護計画・実績記録票。職員 1 人向け）')]
+                      (LAYOUT_KYOTAKU, '居宅介護（ホームヘルプ：訪問予定・サービス提供記録・居宅介護計画・実績記録票。職員 1 人向け）'),
+                      (LAYOUT_CARE, '介護施設（やすらぎの森：検温板・介護記録・連絡帳・ヒヤリハット／事故報告・薬・送迎・計画書。通所・入所の介護事業所向け）')]
     layout = models.CharField(max_length=20, choices=LAYOUT_CHOICES, default=LAYOUT_STANDARD, verbose_name='画面の型')
     # 地域区分（請求単価計算に使用）
     region_category = models.CharField(
@@ -167,6 +169,16 @@ class Facility(models.Model):
     @property
     def is_kyotaku(self):
         return self.layout == self.LAYOUT_KYOTAKU
+
+    @property
+    def is_care(self):
+        """介護施設（やすらぎの森）：検温板・介護記録・連絡帳・ヒヤリハット・薬・送迎・計画書（nursing アプリ）"""
+        return self.layout == self.LAYOUT_CARE
+
+    @property
+    def is_kaigo(self):
+        """介護保険の事業所（居宅介護支援・介護施設）。利用者情報は介護保険証・要介護度・家族の形で出す"""
+        return self.layout in (self.LAYOUT_KYOTAKU, self.LAYOUT_CARE)
 
     @property
     def unit_price(self):

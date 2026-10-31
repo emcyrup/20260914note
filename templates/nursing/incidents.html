@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block title %}ヒヤリハット・事故報告 — {{ app_label }}{% endblock %}
+{% block page_title %}ヒヤリハット・事故報告{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <form method="get" class="d-flex gap-2 align-items-center flex-wrap">
+      <div class="btn-group"><a href="?{% if b %}b={{ b }}{% endif %}" class="btn btn-sm {% if not kind %}btn-primary{% else %}btn-outline-primary{% endif %}">すべて</a>{% for k, l in kinds %}<a href="?kind={{ k }}{% if b %}&b={{ b }}{% endif %}" class="btn btn-sm {% if kind == k %}btn-primary{% else %}btn-outline-primary{% endif %}">{{ l }} {% if k == 'near' %}{{ counts.near }}{% else %}{{ counts.accident }}{% endif %}</a>{% endfor %}</div>
+      <select name="b" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()"><option value="">{{ terms.beneficiary }}：すべて</option>{% for p in people %}<option value="{{ p.pk }}" {% if b == p.pk %}selected{% endif %}>{{ p.full_name }}</option>{% endfor %}</select>
+      <select name="status" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()"><option value="">状態：すべて</option>{% for k, l in status_choices %}<option value="{{ k }}" {% if status == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+      {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
+    </form>
+    <a href="{% url 'nursing:incident_new' %}{% if b %}?b={{ b }}{% endif %}" class="btn btn-sm btn-danger"><i class="bi bi-plus-lg me-1"></i>報告を書く</a>
+  </div>
+  <div class="small text-muted mb-2">気づいたらすぐ、メモか音声で残します。「AI で下書き」で状況・原因・対応・再発防止の欄ができ、外国人スタッフの文も正式な日本語に整います。リーダー・管理者が確認して承認し、報告書として印刷できます。</div>
+  <div class="nr-card p-0">
+    <table class="table mb-0 align-middle">
+      <thead><tr><th>発生</th><th>区分</th><th>{{ terms.beneficiary }}</th><th class="d-none d-md-table-cell">状況</th><th>けが</th><th>状態</th><th></th></tr></thead>
+      <tbody>
+        {% for rep in reports %}
+        <tr>
+          <td class="text-nowrap"><a href="{% url 'nursing:incident_edit' rep.pk %}" class="text-decoration-none">{{ rep.occurred_at|date:'Y/n/j H:i' }}</a></td>
+          <td><span class="badge {% if rep.kind == 'accident' %}text-bg-danger{% else %}text-bg-warning{% endif %}">{{ rep.get_kind_display }}</span> <span class="small text-muted">{{ rep.get_category_display }}</span></td>
+          <td>{{ rep.beneficiary.full_name|default:'—' }}</td>
+          <td class="d-none d-md-table-cell small text-muted" style="max-width:360px;">{{ rep.situation|default:rep.memo|truncatechars:70 }}</td>
+          <td class="small">{{ rep.get_injury_display }}</td>
+          <td><span class="nr-status {{ rep.status }}">{{ rep.get_status_display }}</span></td>
+          <td class="text-end text-nowrap"><a href="{% url 'nursing:incident_print' rep.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary py-0" title="報告書を印刷"><i class="bi bi-printer"></i></a> <a href="{% url 'nursing:incident_edit' rep.pk %}" class="btn btn-sm btn-outline-secondary py-0">開く</a></td>
+        </tr>
+        {% empty %}<tr><td colspan="7" class="text-muted small">報告はまだありません。</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

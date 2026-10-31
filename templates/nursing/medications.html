@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block title %}薬の管理 — {{ app_label }}{% endblock %}
+{% block page_title %}薬の管理{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="small text-muted">{{ terms.beneficiary }}ごとの薬の一覧です。更新の期限（次の受診・処方の切れる日）が {{ 14 }} 日以内のものを上に出します。追加・編集は名前を押して「薬」のタブから。</div>
+    <div class="d-flex gap-2"><a href="?{% if not show_inactive %}all=1{% endif %}" class="btn btn-sm btn-outline-secondary">{% if show_inactive %}服用中だけ{% else %}やめた薬も見る{% endif %}</a></div>
+  </div>
+  {% if alerts %}
+  <div class="nr-card border-warning">
+    <div class="nr-h mb-1"><i class="bi bi-bell me-1"></i>更新の期限が近い・過ぎた薬</div>
+    {% for m in alerts %}<div class="d-flex justify-content-between py-1 border-top gap-2"><a href="{% url 'nursing:person_meds' m.beneficiary.pk %}?edit={{ m.pk }}" class="text-decoration-none"><b>{{ m.beneficiary.full_name }}</b>　{{ m.name }} <span class="small text-muted">{{ m.dose }}</span></a><span class="small {% if m.due == 'over' %}text-danger fw-bold{% else %}text-warning-emphasis{% endif %}">{{ m.review_due|date:'Y/n/j' }}{% if m.due == 'over' %} 過ぎています{% endif %}{% if m.prescriber %}・{{ m.prescriber }}{% endif %}</span></div>{% endfor %}
+  </div>
+  {% endif %}
+  {% for person, meds in by_person %}
+  <div class="nr-card">
+    <div class="d-flex justify-content-between align-items-center mb-1"><a href="{% url 'nursing:person_meds' person.pk %}" class="nr-h text-decoration-none">{{ person.full_name }}</a><a href="{% url 'nursing:person_meds_print' person.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary py-0"><i class="bi bi-printer"></i> 服薬一覧</a></div>
+    <table class="table table-sm mb-0 small">
+      <thead><tr><th>薬</th><th>量・用法</th><th>のむ時間</th><th class="d-none d-md-table-cell">処方</th><th>更新の期限</th><th class="d-none d-md-table-cell">注意</th></tr></thead>
+      <tbody>{% for m in meds %}<tr class="{% if not m.is_active %}text-muted{% endif %}"><td><a href="{% url 'nursing:person_meds' person.pk %}?edit={{ m.pk }}" class="text-decoration-none">{{ m.name }}</a>{% if not m.is_active %} <span class="badge text-bg-secondary">終了</span>{% endif %}</td><td>{{ m.dose }}</td><td>{{ m.timing_text }}</td><td class="d-none d-md-table-cell">{{ m.prescriber }}</td><td class="{% if m.due == 'over' %}text-danger fw-bold{% elif m.due == 'soon' %}text-warning-emphasis fw-bold{% endif %}">{{ m.review_due|date:'Y/n/j'|default:'' }}</td><td class="d-none d-md-table-cell">{{ m.notes }}</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  {% empty %}<div class="nr-card text-muted small">薬はまだ登録されていません。{{ terms.beneficiary }}の画面の「薬」のタブから登録します。{% if people %}　{% for p in people %}<a href="{% url 'nursing:person_meds' p.pk %}">{{ p.full_name }}</a>{% if not forloop.last %}・{% endif %}{% endfor %}{% endif %}</div>{% endfor %}
+</div>
+{% endblock %}

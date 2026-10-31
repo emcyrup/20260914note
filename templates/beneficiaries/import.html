@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
-{% block title %}{{ terms.beneficiary }}を{% if user.facility.is_kyotaku %}カイポケの CSV{% else %} Excel・CSV{% endif %} から取り込む — {{ app_label|default:"放課後等デイサービス業務支援" }}{% endblock %}
-{% block page_title %}{{ terms.beneficiary }}を{% if user.facility.is_kyotaku %}カイポケの CSV{% else %} Excel・CSV{% endif %} から取り込む{% endblock %}
+{% block title %}{{ terms.beneficiary }}を{% if user.facility.is_kaigo %}カイポケの CSV{% else %} Excel・CSV{% endif %} から取り込む — {{ app_label|default:"放課後等デイサービス業務支援" }}{% endblock %}
+{% block page_title %}{{ terms.beneficiary }}を{% if user.facility.is_kaigo %}カイポケの CSV{% else %} Excel・CSV{% endif %} から取り込む{% endblock %}
 {% block nav_beneficiaries %}active{% endblock %}
 
 {% block extra_css %}
@@ -75,7 +75,7 @@
   </div>
   {% endif %}
 
-  {% if user.facility.is_kyotaku %}
+  {% if user.facility.is_kaigo %}
   <div class="card mb-3">
     <div class="card-header fw-bold"><i class="bi bi-1-circle me-1"></i>カイポケから利用者一覧（CSV）を書き出す</div>
     <div class="card-body small">
@@ -129,7 +129,7 @@
           <div class="small mt-1" id="impFileName"></div>
           <input type="file" id="impFile" name="file" accept=".xlsx,.csv,.tsv,.txt,text/csv,text/tab-separated-values,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
         </label>
-        {% if not user.facility.is_kyotaku %}        <label class="form-check-label d-flex align-items-center gap-2 mt-2 small"><input type="checkbox" class="form-check-input mt-0" name="create_children" value="1">保護者一覧のとき、台帳にいない児童は仮の生年月日（2000-01-01）で作る（あとで直す）</label>{% endif %}
+        {% if not user.facility.is_kaigo %}        <label class="form-check-label d-flex align-items-center gap-2 mt-2 small"><input type="checkbox" class="form-check-input mt-0" name="create_children" value="1">保護者一覧のとき、台帳にいない児童は仮の生年月日（2000-01-01）で作る（あとで直す）</label>{% endif %}
         <div class="d-flex gap-2 mt-2 align-items-center">
           <button class="btn btn-primary" id="impBtn" disabled><i class="bi bi-search me-1"></i>確かめる（まだ登録しません）</button>
           <span class="small text-muted">次の画面で行ごとの結果を見てから登録します。</span>

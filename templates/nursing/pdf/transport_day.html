@@ -1,0 +1,17 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}送迎表 {{ day|date:'Y/n/j' }}{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<h1>送迎表　{{ day_jp }}</h1>
+<p class="small muted">{{ facility.name }}　迎え {{ board.pickup|length }} 人・送り {{ board.dropoff|length }} 人</p>
+<table style="width:49%;float:left;">
+  <thead><tr><th colspan="4">迎え{% for c in board.pickup_counts %}　{{ c.vehicle.name }} {{ c.count }}{% if c.vehicle.capacity %}/{{ c.vehicle.capacity }}{% endif %}{% endfor %}</th></tr><tr><th style="width:14%;">時刻</th><th style="width:26%;">氏名</th><th>場所</th><th style="width:24%;">車両／運転手</th></tr></thead>
+  <tbody>{% for r in board.pickup %}<tr><td class="c">{{ r.time|time:'H:i'|default:'' }}</td><td>{{ r.b.full_name }}</td><td>{{ r.place }}{% if r.note %}<br><span class="small">{{ r.note }}</span>{% endif %}</td><td class="small">{{ r.vehicle|default:'' }}{% if r.driver %}／{{ r.driver }}{% endif %}</td></tr>{% empty %}<tr><td colspan="4">なし</td></tr>{% endfor %}</tbody>
+</table>
+<table style="width:49%;float:right;">
+  <thead><tr><th colspan="4">送り{% for c in board.dropoff_counts %}　{{ c.vehicle.name }} {{ c.count }}{% if c.vehicle.capacity %}/{{ c.vehicle.capacity }}{% endif %}{% endfor %}</th></tr><tr><th style="width:14%;">時刻</th><th style="width:26%;">氏名</th><th>場所</th><th style="width:24%;">車両／運転手</th></tr></thead>
+  <tbody>{% for r in board.dropoff %}<tr><td class="c">{{ r.time|time:'H:i'|default:'' }}</td><td>{{ r.b.full_name }}</td><td>{{ r.place }}{% if r.note %}<br><span class="small">{{ r.note }}</span>{% endif %}</td><td class="small">{{ r.vehicle|default:'' }}{% if r.driver %}／{{ r.driver }}{% endif %}</td></tr>{% empty %}<tr><td colspan="4">なし</td></tr>{% endfor %}</tbody>
+</table>
+<div style="clear:both;"></div>
+{% if board.walk %}<p class="small" style="margin-top:8px;">送迎なし：{% for b in board.walk %}{{ b.full_name }}{% if not forloop.last %}・{% endif %}{% endfor %}</p>{% endif %}
+{% endblock %}
