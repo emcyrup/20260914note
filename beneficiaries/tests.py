@@ -1941,3 +1941,54 @@ class KnowledgeDocumentKindsTests(TestCase):
         self.assertIn('紙コップタワー', r.situation)
         self.assertEqual(r.created_by, self.user)
         self.assertEqual(TherapyRecord.objects.filter(date=datetime.date(2026, 8, 5)).count(), 1)    # 印を外した日は作らない
+
+
+class KnowledgePlanImportTests(TestCase):
+    """読み取った「個別支援計画」を、個別支援計画（原案の段階）として登録する"""
+
+    @mock.patch('beneficiaries.knowledge.anthropic.Anthropic')
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    def test_make_plan_from_document(self, client_cls):
+        from types import SimpleNamespace
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        from support_plans.models import SupportPlan
+        from .models import BeneficiaryDocument, BeneficiaryKnowledge
+        f = Facility.objects.create(name='児童発達支援センター　オウル', layout=Facility.LAYOUT_RYOIKU, form_set=Facility.FORM_SET_OWL)
+        user = StaffAccount.objects.create_user('owl', password='pw12345678', facility=f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='owl', password='pw12345678')
+        kid = Beneficiary.objects.create(facility=f, last_name='試験', first_name='太郎', date_of_birth=datetime.date(2022, 7, 1))
+        doc = BeneficiaryDocument.objects.create(beneficiary=kid, file_name='計画.pdf', file=SimpleUploadedFile('plan.pdf', b'%PDF-1.4 test'))
+        data = {'kind': '個別支援計画', 'title': '個別支援計画（第2回）', 'doc_date': '2026-04-23', 'issuer': '児童発達支援センター オウル',
+                'name_on_doc': '試験 太郎', 'birth_on_doc': '2022-07-01', 'diagnosis': '', 'severe': 'unknown',
+                'summary': '生き物が好き。保育園でカニつりをすることが好き。', 'support_points': [], 'medical_notes': [], 'full_text': '',
+                'wishes': ['自分の気持ちを言葉で伝えられるようになってほしい（家族）'],
+                'goals': ['長期目標：安心して過ごしながら興味や経験を広げる', '優先1：安心した環境の中で活動や興味の幅を広げる', '優先2：気持ちや要求の表現方法を広げる'],
+                'items': [{'label': '総合的な支援の方針', 'value': '性格や特性を理解し、心身の発達を促す'}, {'label': '開始日', 'value': '2026-04-23'},
+                          {'label': '有効期限', 'value': '2026-10-22'}, {'label': '送迎', 'value': '迎え：あり 園　送り：あり 園'}, {'label': '受給者証番号', 'value': '1234567890'}],
+                'entries': [], 'unreadable': ''}
+        client_cls.return_value.messages.create.return_value = SimpleNamespace(stop_reason='end_turn', content=[SimpleNamespace(type='text', text=json.dumps(data, ensure_ascii=False))])
+        self.client.post(reverse('beneficiaries:knowledge_read', args=[kid.pk]), {'source': 'document', 'source_pk': doc.pk})
+        k = BeneficiaryKnowledge.objects.get()
+        page = self.client.get(reverse('beneficiaries:knowledge_review', args=[kid.pk, k.pk]))
+        self.assertContains(page, '個別支援計画（原案の段階）として登録する')
+        res = self.client.post(reverse('beneficiaries:knowledge_review', args=[kid.pk, k.pk]),
+                               {'action': 'save', 'kind': k.kind, 'title': k.title, 'doc_date': '2026-04-23', 'summary': k.summary, 'points': '', 'text': '',
+                                'use_in_ai': '1', 'wishes': '\n'.join(k.wishes_list), 'goals': '\n'.join(k.goals_list), 'apply_plan': '1'}, follow=True)
+        self.assertContains(res, '個別支援計画「個別支援計画（第2回）」（原案）')
+        plan = SupportPlan.objects.get(beneficiary=kid)
+        self.assertEqual((plan.current_step, plan.created_by), (2, user))
+        a, d = plan.get_step(1), plan.get_step(2)
+        self.assertEqual((a.interview_date, a.wishes), (datetime.date(2026, 4, 23), '自分の気持ちを言葉で伝えられるようになってほしい（家族）'))
+        self.assertTrue(a.is_completed)
+        self.assertEqual((d.policy, d.period_start, d.period_end), ('性格や特性を理解し、心身の発達を促す', datetime.date(2026, 4, 23), datetime.date(2026, 10, 22)))
+        self.assertEqual((plan.form_extra['transport'], plan.form_extra['cert_number']), ('迎え：あり 園　送り：あり 園', '1234567890'))
+        goals = list(plan.goals.order_by('goal_type', 'order'))
+        self.assertEqual([(g.goal_type, g.content) for g in goals],
+                         [('long', '安心して過ごしながら興味や経験を広げる'), ('short', '安心した環境の中で活動や興味の幅を広げる'), ('short', '気持ちや要求の表現方法を広げる')])
+        self.assertEqual(goals[1].target_date, datetime.date(2026, 10, 22))
+        # オウル様式の計画書に出る
+        res = self.client.get(reverse('custom_forms:plan_owl', args=[plan.pk]) + '?fmt=html')
+        self.assertContains(res, '性格や特性を理解し')
+        self.assertContains(res, '気持ちや要求の表現方法を広げる')

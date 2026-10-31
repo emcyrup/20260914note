@@ -159,6 +159,8 @@ class Facility(models.Model):
                                              help_text='健康・生活／運動・感覚／認知・行動／言語・コミュニケーション／人間関係・社会性の5領域を5段階で評価する用紙。利用者情報から作り、A4で印刷できます。')
     use_survey = models.BooleanField(default=False, verbose_name='アンケート・自己評価を使う',
                                      help_text='保護者評価アンケート（ログインなしの回答ページ・LINE や QR で配る・集計）と事業所の自己評価、公表用の PDF。ガイドラインで年 1 回の実施と公表が求められているもの。')
+    use_consultation = models.BooleanField(default=False, verbose_name='相談支援の計画を使う',
+                                           help_text='計画相談支援・障害児相談支援の書類（申請者の現状・サービス等利用計画・週間計画表）を作り、A4 で印刷します。児童発達支援の個別支援計画はこの計画の方針・目標に沿わせます。')
     use_daily_ops = models.BooleanField(default=False, verbose_name='毎日の運営を使う',
                                         help_text='クラス（小集団）の週間の活動計画と当日の記録（各児の療育記録に写す）、健康・生活の記録（体温・食事・排せつ・午睡・服薬と引き渡しカード）、発達検査の結果の推移。')
     # ログイン画面の「職員として新しく登録」で使うコード（空なら受け付けない）。登録した人は管理者が承認するまでログインできない
@@ -177,7 +179,9 @@ class Facility(models.Model):
     # 事業所固有の帳票様式（標準以外を選ぶと「事業所様式」メニューが出る）
     FORM_SET_STANDARD = 'standard'
     FORM_SET_HAPPINESS = 'happiness'
-    FORM_SET_CHOICES = [(FORM_SET_STANDARD, '標準'), (FORM_SET_HAPPINESS, 'はびりす様式（関係機関連携報告書・個別支援計画書 別紙1／詳細版・専門的支援実施計画書）')]
+    FORM_SET_OWL = 'owl'
+    FORM_SET_CHOICES = [(FORM_SET_STANDARD, '標準'), (FORM_SET_HAPPINESS, 'はびりす様式（関係機関連携報告書・個別支援計画書 別紙1／詳細版・専門的支援実施計画書）'),
+                        (FORM_SET_OWL, 'オウル様式（個別支援計画・個別支援計画別表）')]
     form_set = models.CharField(max_length=20, choices=FORM_SET_CHOICES, default=FORM_SET_STANDARD, verbose_name='帳票様式')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

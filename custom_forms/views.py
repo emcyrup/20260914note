@@ -1,6 +1,7 @@
 """
-事業所様式（はびりす様式）の作成・編集・PDF 出力
-施設設定の「帳票様式」が「はびりす様式」の施設だけが使える。
+事業所様式の作成・編集・PDF 出力。施設設定の「帳票様式」で選んだ様式の画面だけが使える。
+- はびりす様式：関係機関連携加算Ⅱ 報告書・専門的支援実施計画書・個別支援計画書（別紙1／詳細版）
+- オウル様式：個別支援計画（オウルの様式）・個別支援計画別表（提供時間・加算・延長支援）
 """
 import urllib.parse
 from datetime import date, datetime
@@ -9,6 +10,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views import View
 
 from beneficiaries.models import Beneficiary
@@ -55,18 +57,30 @@ GOAL_EXTRA_FIELDS = [
     ('staff', '担当者・提供機関／担当職種'),
     ('notes', '留意事項（本人の役割を含む）'),
     ('criteria', '達成基準・評価区分'),
+    ('priority', '優先順位'),
 ]
 
 
 class FormSetMixin(LoginRequiredMixin):
-    """はびりす様式の施設だけが使える"""
+    """事業所様式（標準以外）を使う施設だけが使える。様式ごとの画面は HappinessMixin / OwlMixin"""
+    FORM_SETS = (Facility.FORM_SET_HAPPINESS, Facility.FORM_SET_OWL)
 
     def dispatch(self, request, *args, **kwargs):
         facility = getattr(request.user, 'facility', None)
-        if request.user.is_authenticated and (facility is None or facility.form_set != Facility.FORM_SET_HAPPINESS):
+        if request.user.is_authenticated and (facility is None or facility.form_set not in self.FORM_SETS):
             messages.info(request, 'この事業所では事業所様式を使わない設定です（施設設定 → 帳票様式 で変更できます）。')
             return redirect('reports:index')
         return super().dispatch(request, *args, **kwargs)
+
+
+class HappinessMixin(FormSetMixin):
+    """はびりす様式の施設だけ"""
+    FORM_SETS = (Facility.FORM_SET_HAPPINESS,)
+
+
+class OwlMixin(FormSetMixin):
+    """オウル様式の施設だけ"""
+    FORM_SETS = (Facility.FORM_SET_OWL,)
 
 
 def _pdf_or_html(request, template, ctx, filename):
@@ -106,9 +120,11 @@ def _time(s):
 class IndexView(FormSetMixin, View):
     def get(self, request):
         facility = request.user.facility
+        owl = facility.form_set == Facility.FORM_SET_OWL
         return render(request, 'custom_forms/index.html', {
-            'meetings': AgencyMeetingReport.objects.filter(facility=facility).select_related('beneficiary')[:30],
-            'specialized': SpecializedSupportPlan.objects.filter(facility=facility).select_related('beneficiary')[:30],
+            'owl': owl,
+            'meetings': [] if owl else AgencyMeetingReport.objects.filter(facility=facility).select_related('beneficiary')[:30],
+            'specialized': [] if owl else SpecializedSupportPlan.objects.filter(facility=facility).select_related('beneficiary')[:30],
             'plans': SupportPlan.objects.filter(facility=facility).exclude(status=SupportPlan.STATUS_CLOSED).select_related('beneficiary'),
         })
 
@@ -116,7 +132,7 @@ class IndexView(FormSetMixin, View):
 # =============================================
 # 関係機関連携加算Ⅱ 報告書
 # =============================================
-class MeetingEditView(FormSetMixin, View):
+class MeetingEditView(HappinessMixin, View):
     def _ctx(self, request, obj):
         facility = request.user.facility
         return {
@@ -162,7 +178,7 @@ class MeetingEditView(FormSetMixin, View):
         return redirect('custom_forms:index')
 
 
-class MeetingDeleteView(FormSetMixin, View):
+class MeetingDeleteView(HappinessMixin, View):
     def post(self, request, pk):
         obj = get_object_or_404(AgencyMeetingReport, pk=pk, facility=request.user.facility)
         obj.delete()
@@ -170,7 +186,7 @@ class MeetingDeleteView(FormSetMixin, View):
         return redirect('custom_forms:index')
 
 
-class MeetingPdfView(FormSetMixin, View):
+class MeetingPdfView(HappinessMixin, View):
     def get(self, request, pk):
         obj = get_object_or_404(AgencyMeetingReport.objects.select_related('beneficiary', 'recorder'), pk=pk, facility=request.user.facility)
         return _pdf_or_html(request, 'custom_forms/pdf/meeting.html', {'obj': obj, 'facility': request.user.facility},
@@ -180,7 +196,7 @@ class MeetingPdfView(FormSetMixin, View):
 # =============================================
 # 専門的支援実施計画書
 # =============================================
-class SpecializedEditView(FormSetMixin, View):
+class SpecializedEditView(HappinessMixin, View):
     def _ctx(self, request, obj):
         facility = request.user.facility
         return {
@@ -229,7 +245,7 @@ class SpecializedEditView(FormSetMixin, View):
         return redirect('custom_forms:index')
 
 
-class SpecializedDeleteView(FormSetMixin, View):
+class SpecializedDeleteView(HappinessMixin, View):
     def post(self, request, pk):
         obj = get_object_or_404(SpecializedSupportPlan, pk=pk, facility=request.user.facility)
         obj.delete()
@@ -237,7 +253,7 @@ class SpecializedDeleteView(FormSetMixin, View):
         return redirect('custom_forms:index')
 
 
-class SpecializedPdfView(FormSetMixin, View):
+class SpecializedPdfView(HappinessMixin, View):
     def get(self, request, pk):
         obj = get_object_or_404(SpecializedSupportPlan.objects.select_related('beneficiary', 'explained_by'), pk=pk, facility=request.user.facility)
         ctx = {
@@ -279,7 +295,7 @@ def _age(dob, today=None):
     return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day)) if dob else ''
 
 
-class PlanExtraView(FormSetMixin, View):
+class PlanExtraView(HappinessMixin, View):
     """様式の追加項目（計画・目標ごと）を編集する"""
 
     def get(self, request, pk):
@@ -309,7 +325,7 @@ class PlanExtraView(FormSetMixin, View):
         return redirect('support_plans:detail', pk=plan.pk)
 
 
-class PlanSheet1View(FormSetMixin, View):
+class PlanSheet1View(HappinessMixin, View):
     """個別支援計画書（別紙1）"""
 
     def get(self, request, pk):
@@ -334,7 +350,7 @@ class PlanSheet1View(FormSetMixin, View):
         return _pdf_or_html(request, 'custom_forms/pdf/plan_sheet1.html', ctx, f'個別支援計画書_別紙1_{b.full_name}')
 
 
-class PlanDetailFormView(FormSetMixin, View):
+class PlanDetailFormView(HappinessMixin, View):
     """放課後等デイサービス 個別支援計画書（詳細版）"""
 
     def get(self, request, pk):
@@ -360,3 +376,116 @@ class PlanDetailFormView(FormSetMixin, View):
         ctx['review_cycle'] = ctx['x'].get('review_cycle') or (f'原則{m.interval_months}ヶ月毎（必要時随時）' if m else '')
         ctx['next_monitoring'] = plan.next_monitoring_due if plan.status == SupportPlan.STATUS_ACTIVE else None
         return _pdf_or_html(request, 'custom_forms/pdf/plan_detail.html', ctx, f'個別支援計画書_詳細版_{plan.beneficiary.full_name}')
+
+
+# =============================================
+# オウル様式：個別支援計画・個別支援計画別表
+# =============================================
+def _owl_context(request, plan):
+    """オウルの計画書・別表に共通の値（受給者証番号・開始日・有効期限・作成回数・提供時間など）"""
+    from beneficiaries.models import RecipientCertificate
+    from support_plans import sheet as sh
+    ctx = _plan_context(request, plan)
+    x = ctx['x']
+    b = plan.beneficiary
+    d = ctx['draft']
+    cert = RecipientCertificate.objects.filter(beneficiary=b).order_by('-valid_until', '-pk').first()
+    # 作成回数：前の計画をたどった数＋1（様式の追加項目 revision があればそれ）
+    n, p = 1, plan
+    while getattr(p, 'predecessor_id', None) and n < 50:
+        p = p.predecessor
+        n += 1
+    ctx.update({
+        'cert_number': x.get('cert_number') or (cert.certificate_number if cert else ''),
+        'start_date': d.period_start if d else None,
+        'valid_until': d.period_end if d else None,
+        'created_on': (d.completed_at.date() if d and d.completed_at else None) or plan.created_at.date(),
+        'revision': x.get('revision') or str(n),
+        'service_hours': x.get('service_hours') or (f'{b.scheduled_weekdays_display}曜日' if b.scheduled_weekdays_display else ''),
+        'transport': x.get('transport', ''),
+        'long_goal_text': x.get('long_goal_text') or '\n'.join(f'・{g.content}' + (f'（{g.target_date:%Y年%-m月}まで）' if g.target_date else '') for g in ctx['long_goals']),
+        'short_goal_text': x.get('short_goal_text') or '\n'.join(f'・{g.content}' + (f'（{g.target_date:%Y年%-m月}まで）' if g.target_date else '') for g in ctx['short_goals']),
+        'weekdays': sh.OWL_WEEKDAYS, 'addons_all': sh.OWL_ADDONS,
+        'weekly': x.get('weekly') or {}, 'addons': x.get('addons') or [], 'ext': x.get('ext') or {},
+        'ext_reason': x.get('ext_reason', ''), 'slots_note': x.get('slots_note') or sh.OWL_SLOTS_NOTE,
+        'service_name': x.get('service_name') or ('児童発達支援' if '児童発達' in request.user.facility.name else '放課後等デイサービス'),
+    })
+    return ctx
+
+
+def _owl_rows(ctx, min_rows=5):
+    """計画書の表の行：短期目標（無ければ全部）を優先順位の順に"""
+    goals = ctx['short_goals'] or ctx['goals']
+
+    def prio(g):
+        try:
+            return (0, int((g.form_extra or {}).get('priority') or 999))
+        except ValueError:
+            return (1, 999)
+    rows = []
+    for i, g in enumerate(sorted(goals, key=prio), 1):
+        e = g.form_extra or {}
+        rows.append({'item': e.get('item', ''), 'goal': g.content, 'content': g.support_content,
+                     'timing': e.get('timing') or (f'{g.target_date:%Y年%-m月}' if g.target_date else ''),
+                     'staff': e.get('staff', ''), 'notes': e.get('notes', ''), 'priority': e.get('priority') or str(i)})
+    rows += [{'item': '', 'goal': '', 'content': '', 'timing': '', 'staff': '', 'notes': '', 'priority': ''}] * max(0, min_rows - len(rows))
+    return rows
+
+
+class PlanOwlView(OwlMixin, View):
+    """個別支援計画（オウルの様式。A4 横 1 枚）"""
+
+    def get(self, request, pk):
+        plan = _plan_or_404(request, pk)
+        ctx = _owl_context(request, plan)
+        ctx['rows'] = _owl_rows(ctx)
+        return _pdf_or_html(request, 'custom_forms/pdf/plan_owl.html', ctx, f'個別支援計画_{plan.beneficiary.full_name}')
+
+
+class PlanOwlTableView(OwlMixin, View):
+    """個別支援計画別表（提供時間・特記事項＝加算・延長支援時間）"""
+
+    def get(self, request, pk):
+        plan = _plan_or_404(request, pk)
+        ctx = _owl_context(request, plan)
+        return _pdf_or_html(request, 'custom_forms/pdf/plan_owl_table.html', ctx, f'個別支援計画別表_{plan.beneficiary.full_name}')
+
+
+class PlanOwlTableEditView(OwlMixin, View):
+    """別表の入力：曜日ごとの提供時間（開始・終了・時間数）、加算の印、延長支援時間（支援前・支援後）、延長の理由。計画の form_extra に保存"""
+
+    def get(self, request, pk):
+        plan = _plan_or_404(request, pk)
+        return render(request, 'custom_forms/plan_owl_table_form.html', _owl_context(request, plan))
+
+    def post(self, request, pk):
+        from support_plans import sheet as sh
+        plan = _plan_or_404(request, pk)
+        conflict = check_conflict(request, plan)
+        if conflict:
+            messages.error(request, conflict)
+            return redirect(request.path)
+        p = request.POST
+        x = dict(plan.form_extra or {})
+        weekly, ext = {}, {}
+        for key, _label in sh.OWL_WEEKDAYS:
+            row = {k: p.get(f'w_{key}_{k}', '').strip()[:20] for k in ('start', 'end', 'hours')}
+            if any(row.values()):
+                weekly[key] = row
+            e = {k: p.get(f'e_{key}_{k}', '').strip()[:40] for k in ('before', 'after')}
+            if any(e.values()):
+                ext[key] = e
+        x['weekly'] = weekly
+        x['ext'] = ext
+        x['addons'] = [a for a in p.getlist('addons') if a in sh.OWL_ADDONS]
+        x['ext_reason'] = p.get('ext_reason', '').strip()[:1000]
+        x['slots_note'] = p.get('slots_note', '').strip()[:600]
+        x['service_name'] = p.get('service_name', '').strip()[:40]
+        x['cert_number'] = p.get('cert_number', '').strip()[:20]
+        x['revision'] = p.get('revision', '').strip()[:5]
+        plan.form_extra = x
+        plan.save(update_fields=['form_extra', 'updated_at'])
+        messages.success(request, '別表を保存しました。')
+        if p.get('next') == 'pdf':
+            return redirect(f"{reverse('custom_forms:plan_owl_table', args=[plan.pk])}?fmt=html")
+        return redirect('custom_forms:plan_owl_table_edit', pk=plan.pk)

@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load concurrency %}
+{% load concurrency form_extras %}
 
 {% block title %}計画書を様式のまま編集 — {{ b.full_name }}{% endblock %}
 {% block page_title %}{{ b.full_name }} さんの{{ plan.title }}（様式のまま編集）{% endblock %}
@@ -46,6 +46,9 @@
     <div class="d-flex gap-2">
       {% if happiness %}
       <a href="{% url 'custom_forms:plan_sheet1' plan.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>別紙1を印刷</a>
+      {% elif owl %}
+      <a href="{% url 'custom_forms:plan_owl' plan.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>計画書を印刷</a>
+      <a href="{% url 'custom_forms:plan_owl_table_edit' plan.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-table me-1"></i>別表（提供時間・加算）</a>
       {% else %}
       <a href="{% url 'support_plans:print' plan.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>計画書を印刷</a>
       {% endif %}
@@ -88,7 +91,7 @@
     <div class="sh-sheet {% if not editable %}sh-ro{% endif %}">
       <div class="d-flex justify-content-between align-items-end flex-wrap gap-2 mb-2">
         <div class="sh-small">{% if happiness %}<span style="border:1px solid #333;padding:1px 6px;">別紙１</span>　{% endif %}利用児氏名：<b>{{ b.full_name }}</b>（{{ b.date_of_birth|date:'Y年n月j日' }} 生）</div>
-        <h1 class="mb-0">個別支援計画書</h1>
+        <h1 class="mb-0">{% if owl %}{{ b.full_name }}さんの個別支援計画{% else %}個別支援計画書{% endif %}</h1>
         <div class="sh-small">{{ facility.name }}　作成：{{ draft.completed_at|date:'Y年n月j日'|default:today|date:'Y年n月j日' }}</div>
       </div>
 
@@ -99,10 +102,10 @@
         <tr>
           <th>{{ label }}</th>
           <td class="sh-cell" data-field="f_{{ key }}" data-label="{{ label }}">
-            {% if key == 'service_hours' %}
-            <input type="text" name="f_{{ key }}" value="{{ values.service_hours }}" placeholder="例：月・水・金 15:00〜17:30" {% if not editable %}readonly{% endif %}>
+            {% if key == 'service_hours' or key == 'transport' %}
+            <input type="text" name="f_{{ key }}" value="{{ values|dictkey:key }}" placeholder="{% if key == 'transport' %}例：迎え：あり 園　送り：あり 自宅{% else %}例：月・水・金 15:00〜17:30{% endif %}" {% if not editable %}readonly{% endif %}>
             {% else %}
-            <textarea name="f_{{ key }}" rows="{% if key == 'policy' or key == 'family_wishes' %}4{% else %}2{% endif %}" {% if not editable %}readonly{% endif %}>{% if key == 'family_wishes' %}{{ values.family_wishes }}{% elif key == 'policy' %}{{ values.policy }}{% elif key == 'notes' %}{{ values.notes }}{% endif %}</textarea>
+            <textarea name="f_{{ key }}" rows="{% if key == 'policy' or key == 'family_wishes' %}4{% else %}2{% endif %}" {% if not editable %}readonly{% endif %}>{{ values|dictkey:key }}</textarea>
             {% endif %}
             {% if editable and ai_enabled %}{% include 'support_plans/_sheet_tools.html' with hint=hint %}{% endif %}
           </td>
@@ -113,7 +116,7 @@
         <tr>
           <th>{{ label }}</th>
           <td class="sh-cell" data-field="f_{{ key }}" data-label="{{ label }}">
-            <textarea name="f_{{ key }}" rows="1" {% if not editable %}readonly{% endif %}>{% if key == 'usage_form' %}{{ values.usage_form }}{% elif key == 'specialists' %}{{ values.specialists }}{% elif key == 'medical_care' %}{{ values.medical_care }}{% elif key == 'review_cycle' %}{{ values.review_cycle }}{% endif %}</textarea>
+            <textarea name="f_{{ key }}" rows="1" {% if not editable %}readonly{% endif %}>{{ values|dictkey:key }}</textarea>
             {% if editable and ai_enabled %}{% include 'support_plans/_sheet_tools.html' with hint='' %}{% endif %}
           </td>
         </tr>
@@ -124,12 +127,21 @@
       {# ---- 目標の表 ---- #}
       <div class="sh-small mb-1">○支援目標及び具体的な支援内容等（行の「内容」が空の行は保存しません。消すときは「消す」に印）</div>
       <table>
+        {% if owl %}
+        <colgroup>
+          <col style="width:8%"><col style="width:10%"><col style="width:18%"><col style="width:26%"><col style="width:7%"><col style="width:8%"><col style="width:8%"><col style="width:10%"><col style="width:5%">
+        </colgroup>
+        <tr>
+          <th>区分</th><th>項目<br>（本人のニーズ等）</th><th>具体的な達成目標</th><th>支援内容<br>（内容・ポイント・5領域）</th><th>頻度・時間</th><th>達成時期</th><th>担当者<br>提供機関</th><th>留意事項<br>（本人の役割）</th><th>優先<br>順位</th>
+        </tr>
+        {% else %}
         <colgroup>
           <col style="width:9%"><col style="width:9%"><col style="width:19%"><col style="width:27%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:9%">
         </colgroup>
         <tr>
           <th>区分</th><th>項目</th><th>支援目標<br>（具体的な到達目標）</th><th>支援内容<br>（内容・ポイント）</th><th>頻度・時間</th><th>達成時期</th><th>担当者<br>提供機関</th><th>留意事項<br>（本人の役割）</th>
         </tr>
+        {% endif %}
         {% for r in rows %}
         <tr class="{% if not r.goal %}sh-row-new{% endif %}">
           <td>
@@ -147,8 +159,12 @@
           </td>
           {% else %}
           <td class="sh-cell" data-field="{{ r.prefix }}_{{ key }}" data-label="{{ label }}">
-            <textarea name="{{ r.prefix }}_{{ key }}" rows="{% if key == 'support_content' %}4{% elif key == 'content' %}3{% else %}2{% endif %}" {% if not editable %}readonly{% endif %}>{% if key == 'item' %}{{ r.values.item }}{% elif key == 'content' %}{{ r.values.content }}{% elif key == 'support_content' %}{{ r.values.support_content }}{% elif key == 'frequency' %}{{ r.values.frequency }}{% elif key == 'staff' %}{{ r.values.staff }}{% elif key == 'notes' %}{{ r.values.notes }}{% endif %}</textarea>
+            {% if key == 'priority' %}
+            <input type="text" name="{{ r.prefix }}_{{ key }}" value="{{ r.values|dictkey:key }}" inputmode="numeric" style="text-align:center;" {% if not editable %}readonly{% endif %}>
+            {% else %}
+            <textarea name="{{ r.prefix }}_{{ key }}" rows="{% if key == 'support_content' %}4{% elif key == 'content' %}3{% else %}2{% endif %}" {% if not editable %}readonly{% endif %}>{{ r.values|dictkey:key }}</textarea>
             {% if editable and ai_enabled and key != 'frequency' and key != 'staff' %}{% include 'support_plans/_sheet_tools.html' with hint='' %}{% endif %}
+            {% endif %}
           </td>
           {% endif %}
           {% endfor %}

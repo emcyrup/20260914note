@@ -89,7 +89,7 @@
       {% if p.cautions_add and therapy and user.facility.knowledge_reflect %}{# ゆあーず：留意点へは画面に出さずに足す（印あり） #}
       <input type="hidden" name="apply_cautions" value="1"><input type="hidden" name="cautions_add" value="{{ p.cautions_add.text }}">
       {% endif %}
-      {% if p.disability_type or p.is_severe or p.notes_add or p.cautions_add and therapy and not user.facility.knowledge_reflect or k.entries and therapy %}
+      {% if p.disability_type or p.is_severe or p.notes_add or p.cautions_add and therapy and not user.facility.knowledge_reflect or k.entries and therapy or k.is_plan_document or k.kind == '相談支援の基本情報' %}
       <div class="small text-muted mb-2">印を付けたものだけ、保存するときに台帳へ入れます。文は直せます。</div>
       {% if p.disability_type %}
       <div class="kr-apply">
@@ -139,6 +139,18 @@
             </tbody>
           </table>
         </div>
+      </div>
+      {% endif %}
+      {% if user.facility.use_consultation and k.kind == '相談支援の基本情報' or user.facility.use_consultation and k.kind == 'サービス等利用計画' %}
+      <div class="kr-apply">
+        <label class="form-check fw-semibold mb-1"><input type="checkbox" class="form-check-input" name="apply_consultation" value="1">相談支援の計画として登録する</label>
+        <div class="cur">{% if k.kind == '相談支援の基本情報' %}概要・本児の様子・生活歴・医療・主訴が「申請者の現状」に入ります。{% else %}意向・方針・長期／短期目標・課題の表（目標 {{ k.goals_list|length }} 件）が「サービス等利用計画」に入ります。{% endif %}同じ利用者の作成中の計画があれば、その空の欄に足します。</div>
+      </div>
+      {% endif %}
+      {% if k.kind == '個別支援計画' %}
+      <div class="kr-apply">
+        <label class="form-check fw-semibold mb-1"><input type="checkbox" class="form-check-input" name="apply_plan" value="1">個別支援計画（原案の段階）として登録する</label>
+        <div class="cur">上の要約と意向がステップ1（アセスメント）に、方針・意向・目標（{{ k.goals_list|length }} 件）がステップ2（原案）に入ります。登録後に「様式のまま編集」で直し、担当者会議・同意へ進められます。いまある計画はそのままです。</div>
       </div>
       {% endif %}
       {% if k.document %}

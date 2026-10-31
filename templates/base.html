@@ -210,6 +210,13 @@
         </a>
       </li>
       {% endif %}
+      {% if features.consultation %}
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'consultation' %}active{% endif %}" href="{% url 'consultation:index' %}" title="相談支援の書類：申請者の現状・サービス等利用計画／障害児支援利用計画・週間計画表">
+          <i class="bi bi-diagram-3"></i><span>相談支援の計画</span>
+        </a>
+      </li>
+      {% endif %}
       {% if features.survey %}
       <li>
         <a class="sidebar-nav-item {% if rm.app_name == 'surveys' %}active{% endif %}" href="{% url 'surveys:index' %}" title="保護者評価アンケートの回収・集計と事業所の自己評価、公表用の PDF">
@@ -330,6 +337,14 @@
       </li>
 
       <li class="sidebar-nav-label nav-secondary">{% if features.billing %}請求・帳票{% else %}帳票{% endif %}</li>
+      {% if features.consultation %}
+      <li class="nav-secondary">
+        <a class="sidebar-nav-item {% if rm.app_name == 'consultation' %}active{% endif %}" href="{% url 'consultation:index' %}">
+          <i class="bi bi-diagram-3"></i>
+          <span>相談支援の計画</span>
+        </a>
+      </li>
+      {% endif %}
       {% if features.billing %}
       <li class="nav-secondary">
         <a class="sidebar-nav-item {% block nav_billing_matrix %}{% endblock %}"

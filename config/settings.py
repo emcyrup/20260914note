@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'transport',
     'surveys',
     'daily',
+    'consultation',
 ]
 
 MIDDLEWARE = [
