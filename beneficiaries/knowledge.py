@@ -34,14 +34,21 @@ CONTEXT_MAX = 2400        # 療育記録の AI に渡す参考の長さ（文字
 CONTEXT_ITEMS = 5         # 参考にする書類の数（新しい順）
 CONTEXT_PASSAGES = 3      # 検索で足す関係しそうな記載の数
 
-KINDS = ['診断書', '意見書', '発達検査・評価', '紹介状・情報提供書', '医療的ケアの指示書', '個別支援計画', 'その他']
+KINDS = ['診断書', '意見書', '発達検査・評価', '紹介状・情報提供書', '医療的ケアの指示書',
+         'フェイスシート', 'アセスメントシート', '個別支援計画', '相談支援の基本情報', 'サービス等利用計画', '支援の実施記録', 'その他']
+ENTRY_MAX = 60        # 実施記録から取り出す日ごとの項目の数
 
-SYSTEM_PROMPT = """あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
-職員が取り込んだ、お子さまについての書類（診断書・意見書・発達検査の結果・医療機関からの紹介状や情報提供書・医療的ケアの指示書など）を読み、
-療育で支援するときに役立つ情報を、決まった形で取り出します。
+SYSTEM_PROMPT = """あなたは放課後等デイサービス・児童発達支援（療育）の職員を手伝うAIです。
+職員が取り込んだ、お子さまについての書類を読み、療育で支援するときと個別支援計画を作るときに役立つ情報を、決まった形で取り出します。
+書類は、診断書・意見書・発達検査の結果・医療機関からの紹介状や情報提供書・医療的ケアの指示書のほか、
+事業所のフェイスシート（基本情報・家族・医療・睡眠や食事などの生活の様子・本人と家族の願い）、
+アセスメントシート（項目ごとの 3 段階の状況と本人の状態）、個別支援計画（事業所が作る計画書と別表）、
+相談支援事業所の基本情報（申請者の現状：支援経過・現状と課題・本児の様子・家族構成・生活歴・主訴・支援の状況）、
+サービス等利用計画・障害児支援利用計画（意向・総合的な支援の方針・長期目標・短期目標・解決すべき課題と支援目標・福祉サービス等・週間計画表）、
+支援の実施記録（日ごとの「支援内容」「ねらい」「本日の様子」と記録者）のこともあります。
 
 【取り出すもの】
-- kind：書類の種類（診断書／意見書／発達検査・評価／紹介状・情報提供書／医療的ケアの指示書／個別支援計画／その他 のどれか）
+- kind：書類の種類（診断書／意見書／発達検査・評価／紹介状・情報提供書／医療的ケアの指示書／フェイスシート／アセスメントシート／個別支援計画／相談支援の基本情報／サービス等利用計画／支援の実施記録／その他 のどれか）
 - title：書類の表題（無ければ種類と発行元から短く）。doc_date：書類の日付（YYYY-MM-DD。無ければ空）。issuer：発行した病院・機関・医師（無ければ空）
 - name_on_doc・birth_on_doc：書類に書かれたお子さまの氏名と生年月日（YYYY-MM-DD）。無ければ空
 - diagnosis：診断名・障害名（書類の表記のまま。複数なら「、」で区切る。無ければ空）
@@ -50,6 +57,10 @@ SYSTEM_PROMPT = """あなたは放課後等デイサービス（療育）の職�
 - support_points：療育の場で職員が気をつけること・配慮・支援の方法として書類に書いてあること（1項目40字程度、0〜8項目）
 - medical_notes：服薬・アレルギー・てんかん発作・医療的ケア・運動の制限・禁忌など、安全にかかわること（0〜8項目）
 - full_text：書類に書いてある文章を、読みやすく書き写したもの（表は「項目：値」の行に。長い書類は大事なところを中心に8000字まで）
+- wishes：本人・家族の意向・願い・主訴として書いてあること（フェイスシート・計画・相談支援の書類。1項目60字程度、0〜8項目。無ければ空の配列）
+- goals：計画の目標・支援目標・解決すべき課題として書いてあること（個別支援計画・サービス等利用計画。長期／短期や優先順位が分かれば頭に付ける。1項目80字程度、0〜12項目）
+- items：フェイスシート・アセスメントシート・基本情報の「項目：値」（label に項目名、value に書いてある値。空欄の項目は入れない。0〜60項目）
+- entries：支援の実施記録の、日ごとの項目（date は YYYY-MM-DD、title は支援内容や活動名を「、」で区切って 1 行に、body は「ねらい」と「本日の様子」の文をそのまま、staff は記録者名）。実施記録でなければ空の配列。1 回の利用が 1 項目
 - unreadable：読めなかったところ・判断に迷ったところ（無ければ空）
 
 【守ること】
@@ -73,10 +84,17 @@ SCHEMA = {
         'support_points': {'type': 'array', 'items': {'type': 'string'}},
         'medical_notes': {'type': 'array', 'items': {'type': 'string'}},
         'full_text': {'type': 'string'},
+        'wishes': {'type': 'array', 'items': {'type': 'string'}},
+        'goals': {'type': 'array', 'items': {'type': 'string'}},
+        'items': {'type': 'array', 'items': {'type': 'object', 'properties': {'label': {'type': 'string'}, 'value': {'type': 'string'}},
+                                              'required': ['label', 'value'], 'additionalProperties': False}},
+        'entries': {'type': 'array', 'items': {'type': 'object', 'properties': {
+            'date': {'type': 'string'}, 'title': {'type': 'string'}, 'body': {'type': 'string'}, 'staff': {'type': 'string'}},
+            'required': ['date', 'title', 'body', 'staff'], 'additionalProperties': False}},
         'unreadable': {'type': 'string'},
     },
     'required': ['kind', 'title', 'doc_date', 'issuer', 'name_on_doc', 'birth_on_doc', 'diagnosis', 'severe',
-                 'summary', 'support_points', 'medical_notes', 'full_text', 'unreadable'],
+                 'summary', 'support_points', 'medical_notes', 'full_text', 'wishes', 'goals', 'items', 'entries', 'unreadable'],
     'additionalProperties': False,
 }
 
@@ -221,8 +239,18 @@ def make_draft(beneficiary, data, user=None, document=None, assessment=None):
         cautions_new = _new_lines(points + [m for m in medical if m not in points], profile.cautions if profile else '')
         if cautions_new:
             proposals['cautions_add'] = {'text': '\n'.join(f'・{x}' for x in cautions_new), 'checked': True}
+    extra = {
+        'wishes': _lines(data.get('wishes'), limit=8),
+        'goals': _lines(data.get('goals'), limit=12),
+        'items': [{'label': clean_ai_text(str(i.get('label', '')), keep_newlines=False)[:40],
+                   'value': clean_ai_text(str(i.get('value', '')), keep_newlines=False)[:300]}
+                  for i in (data.get('items') or []) if isinstance(i, dict) and str(i.get('value', '')).strip()][:60],
+        'entries': _entries(data.get('entries'), b),
+    }
+    if extra['entries']:
+        proposals['entries'] = {'count': len(extra['entries']), 'checked': getattr(b.facility, 'use_therapy_record', False)}
     return BeneficiaryKnowledge.objects.create(
-        beneficiary=b, document=document, assessment=assessment, kind=kind, title=title, doc_date=doc_date,
+        beneficiary=b, document=document, assessment=assessment, kind=kind, title=title, doc_date=doc_date, extra=extra,
         issuer=clean_ai_text(data.get('issuer', ''), keep_newlines=False)[:100],
         summary=clean_ai_text(data.get('summary', ''))[:2000],
         points='\n'.join(f'・{x}' for x in points),
@@ -233,12 +261,63 @@ def make_draft(beneficiary, data, user=None, document=None, assessment=None):
     )
 
 
+def _entries(raw, beneficiary):
+    """実施記録の日ごとの項目を整える（日付が読めないものは捨てる）。すでに同じ日の療育記録があれば印を付ける"""
+    out = []
+    for e in (raw or [])[:ENTRY_MAX]:
+        if not isinstance(e, dict):
+            continue
+        d = _date(e.get('date'))
+        body = clean_ai_text(str(e.get('body', '')))[:4000]
+        title = clean_ai_text(str(e.get('title', '')), keep_newlines=False)[:300]
+        if not d or not (body or title):
+            continue
+        out.append({'date': d.isoformat(), 'title': title, 'body': body,
+                    'staff': clean_ai_text(str(e.get('staff', '')), keep_newlines=False)[:50]})
+    if out and getattr(beneficiary.facility, 'use_therapy_record', False):
+        from therapy.models import TherapyRecord
+        have = set(TherapyRecord.objects.filter(beneficiary=beneficiary, date__in=[e['date'] for e in out]).values_list('date', flat=True))
+        for e in out:
+            e['exists'] = datetime.date.fromisoformat(e['date']) in have
+    return out
+
+
+def import_entries(k, indexes, user=None):
+    """
+    実施記録の項目を療育記録（TherapyRecord）に取り込む。indexes は取り込む項目の番号。
+    やったこと（①〜⑤）は title を「、」で分けたもの、記録（事実）は title、様子は body。担当は名前で残す。戻り値は作った件数
+    """
+    from therapy.models import TherapyRecord
+    b = k.beneficiary
+    if not getattr(b.facility, 'use_therapy_record', False):
+        return 0
+    n = 0
+    for i in indexes:
+        try:
+            e = k.entries[int(i)]
+        except (ValueError, IndexError):
+            continue
+        d = _date(e.get('date'))
+        if not d:
+            continue
+        acts = [a.strip() for a in re.split(r'[、,，／/・]', e.get('title', '')) if a.strip()][:5]
+        TherapyRecord.objects.create(
+            facility=b.facility, beneficiary=b, date=d, staff_name=(e.get('staff') or '')[:50], activities=acts,
+            body=(e.get('title') or '')[:2000], situation=(e.get('body') or '')[:8000], created_by=user,
+        )
+        n += 1
+    return n
+
+
 def reindex(knowledge):
     """検索用の小片を作り直す（要約・支援で気をつけること・書類の文字）"""
     knowledge.chunks.all().delete()
     rows, idx = [], 0
     head = f'{knowledge.kind} {knowledge.title} {knowledge.issuer}'.strip()
-    for part, body in ((KnowledgeChunk.PART_SUMMARY, knowledge.summary), (KnowledgeChunk.PART_POINTS, knowledge.points)):
+    structured = '\n'.join([f'意向・願い：{x}' for x in knowledge.wishes_list] + [f'目標：{x}' for x in knowledge.goals_list]
+                           + [f'{i["label"]}：{i["value"]}' for i in knowledge.items])
+    for part, body in ((KnowledgeChunk.PART_SUMMARY, knowledge.summary), (KnowledgeChunk.PART_POINTS, knowledge.points),
+                       (KnowledgeChunk.PART_POINTS, structured)):
         if body.strip():
             text = f'{head}\n{body.strip()}'
             rows.append(KnowledgeChunk(knowledge=knowledge, part=part, index=idx, text=text,
@@ -275,6 +354,12 @@ def save_reviewed(knowledge, post, user=None):
     k.points = '\n'.join(f'・{x}' for x in _lines((post.get('points') or '').splitlines(), limit=20))
     k.text = (post.get('text') or '').strip()[:TEXT_MAX]
     k.use_in_ai = post.get('use_in_ai') == '1'
+    extra = dict(k.extra or {})
+    if 'wishes' in post:
+        extra['wishes'] = _lines((post.get('wishes') or '').splitlines(), limit=8)
+    if 'goals' in post:
+        extra['goals'] = _lines((post.get('goals') or '').splitlines(), limit=12)
+    k.extra = extra
     applied = []
     if k.status == BeneficiaryKnowledge.STATUS_DRAFT:
         fields = []
@@ -300,6 +385,10 @@ def save_reviewed(knowledge, post, user=None):
         if post.get('apply_assessment') and k.document_id:
             add_assessment(k, user)
             applied.append('アセスメント・資料')
+        if post.get('apply_entries') and k.entries:
+            n = import_entries(k, post.getlist('entry'), user)
+            if n:
+                applied.append(f'療育記録 {n} 件')
         k.applied = applied
         k.status = BeneficiaryKnowledge.STATUS_SAVED
         old = BeneficiaryKnowledge.objects.filter(beneficiary=b).exclude(pk=k.pk)
@@ -312,7 +401,8 @@ def save_reviewed(knowledge, post, user=None):
     return applied
 
 
-ASSESSMENT_KIND = {'発達検査・評価': 'test', '個別支援計画': 'assessment', 'その他': 'other'}   # それ以外（診断書など）は medical
+ASSESSMENT_KIND = {'発達検査・評価': 'test', '個別支援計画': 'assessment', 'フェイスシート': 'interview', 'アセスメントシート': 'assessment',
+                   '相談支援の基本情報': 'assessment', 'サービス等利用計画': 'assessment', '支援の実施記録': 'other', 'その他': 'other'}   # それ以外（診断書など）は medical
 
 
 def add_assessment(k, user=None):
@@ -387,6 +477,8 @@ def context_for(beneficiary, query, max_chars=CONTEXT_MAX):
             body.append('要約：' + k.summary.replace('\n', '')[:300])
         if k.points_list:
             body.append('支援で気をつけること：\n' + '\n'.join(f'・{p}' for p in k.points_list[:8]))
+        if k.goals_list:
+            body.append('計画の目標：\n' + '\n'.join(f'・{g}' for g in k.goals_list[:6]))
         piece = '\n'.join(body)
         if used + len(piece) > max_chars * 0.7 and parts:
             break

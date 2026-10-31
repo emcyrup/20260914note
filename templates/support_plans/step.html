@@ -176,8 +176,8 @@
             {% csrf_token %}
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
               <div>
-                <div class="fw-bold"><i class="bi bi-stars me-1"></i>期間の日誌から AI で原案の下書き</div>
-                <div class="small text-muted">アセスメントと期間内の日誌をもとに、方針と目標（長期1〜2・短期2〜3）を下書きし、根拠になった日誌をひもづけます。方針が空のときだけ埋め、目標は追加されます。</div>
+                <div class="fw-bold"><i class="bi bi-stars me-1"></i>期間の記録と書類から AI で原案の下書き</div>
+                <div class="small text-muted">アセスメント、取り込んだ書類（相談支援のサービス等利用計画があればその方針・目標に沿わせます）、期間内の記録（療育記録または日誌）をもとに、方針と目標（長期1〜2・短期2〜4。項目・担当者つき）を下書きし、根拠になった記録をひもづけます。方針が空のときだけ埋め、目標は追加されます。</div>
               </div>
               <div class="d-flex gap-2 align-items-center flex-wrap">
                 <input type="date" name="start" value="{{ draft_start|date:'Y-m-d' }}" class="form-control form-control-sm" style="width:auto;">
@@ -369,6 +369,18 @@
           <form method="post" action="{% url 'support_plans:monitoring_add' plan.pk %}" class="p-3 rounded-3 mt-3" style="background: var(--paper);">
             {% csrf_token %}
             <div class="fw-bold mb-2">モニタリングを記録する</div>
+            {% if not plan_no_ai %}
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2 p-2 rounded" style="background:var(--color-primary-bg);">
+              <div class="small"><i class="bi bi-stars me-1"></i>期間の記録と目標から、実施状況・達成状況・見直しの要否の下書きを入れます（目標ごとの根拠つき）。面談で確かめて直してから記録してください。</div>
+              <div class="d-flex gap-2 align-items-center flex-wrap">
+                <input type="date" id="monStart" value="{{ mon_start|date:'Y-m-d' }}" class="form-control form-control-sm" style="width:auto;">
+                <span class="small">〜</span>
+                <input type="date" id="monEnd" value="{{ mon_end|date:'Y-m-d' }}" class="form-control form-control-sm" style="width:auto;">
+                <button type="button" class="btn btn-sm btn-primary" id="aiMonBtn" {% if not ai_enabled %}disabled title="ANTHROPIC_API_KEY が未設定です"{% endif %}><i class="bi bi-stars me-1"></i>下書きを作る</button>
+              </div>
+              <div id="aiMonMsg" class="small w-100"></div>
+            </div>
+            {% endif %}
             <div class="row g-2">
               <div class="col-sm-4">{% include 'support_plans/_field.html' with field=record_form.date required=True %}</div>
               <div class="col-sm-4">{% include 'support_plans/_field.html' with field=record_form.interviewed_with %}</div>
@@ -458,7 +470,39 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) { msg.textContent = data.error || `サーバーエラー (${res.status})`; msg.className = 'small w-100 text-danger'; return; }
       for (const [k, id] of Object.entries(fields)) { const el = document.getElementById(id); if (el) el.value = data.draft[k] || ''; }
-      msg.textContent = `日誌 ${data.records} 件（直近${data.months}か月）から下書きを入れました。面談で確認し、修正してから保存してください。`;
+      const src = (data.sources || []).join('・');
+      msg.textContent = `${src || `記録 ${data.records} 件`}（直近${data.months}か月）から下書きを入れました。面談で確認し、修正してから保存してください。`;
+      msg.className = 'small w-100 text-success';
+    } catch (e) { msg.textContent = '通信エラー: ' + e.message; msg.className = 'small w-100 text-danger'; }
+    finally { btn.disabled = false; }
+  });
+})();
+</script>
+{% endif %}
+{% if n == 5 and not readonly and not plan_no_ai %}
+<script>
+(function () {
+  const btn = document.getElementById('aiMonBtn'); if (!btn) return;
+  const msg = document.getElementById('aiMonMsg');
+  btn.addEventListener('click', async function () {
+    const ids = {implementation: 'id_implementation', achievement_detail: 'id_achievement_detail', review_reason: 'id_review_reason'};
+    const filled = Object.values(ids).some(id => (document.getElementById(id)?.value || '').trim());
+    if (filled && !confirm('入力済みの内容を AI の下書きで置き換えますか？')) return;
+    btn.disabled = true; msg.textContent = '記録を読んでいます…（20〜40秒）'; msg.className = 'small w-100 text-muted';
+    try {
+      const fd = new FormData();
+      fd.append('start', document.getElementById('monStart').value); fd.append('end', document.getElementById('monEnd').value);
+      fd.append('csrfmiddlewaretoken', document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '');
+      const res = await fetch('{% url "support_plans:ai_monitoring" plan.pk %}', { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) { msg.textContent = data.error || `サーバーエラー (${res.status})`; msg.className = 'small w-100 text-danger'; return; }
+      const d = data.draft;
+      for (const [k, id] of Object.entries(ids)) { const el = document.getElementById(id); if (el) el.value = d[k] || ''; }
+      const ach = document.getElementById('id_achievement'); if (ach && d.achievement) ach.value = d.achievement;
+      const rv = document.getElementById('id_review_needed'); if (rv) rv.checked = !!d.review_needed;
+      const per = (d.per_goal || []).map(g => `・${g.goal}：${{achieved:'達成',progressing:'順調',partial:'一部達成',not_yet:'未達成'}[g.status] || ''}${g.note ? '（' + g.note + '）' : ''}`).join('\n');
+      if (per) { const el = document.getElementById(ids.achievement_detail); if (el && !el.value.includes(per)) el.value = (el.value ? el.value + '\n' : '') + '【目標ごと】\n' + per; }
+      msg.textContent = `${(d.sources || []).join('・') || `記録 ${data.records} 件`}（${data.start}〜${data.end}）から下書きを入れました。面談で確かめ、直してから「記録する」を押してください。`;
       msg.className = 'small w-100 text-success';
     } catch (e) { msg.textContent = '通信エラー: ' + e.message; msg.className = 'small w-100 text-danger'; }
     finally { btn.disabled = false; }

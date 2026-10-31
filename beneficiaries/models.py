@@ -467,6 +467,10 @@ class BeneficiaryDocument(models.Model):
         return self.title or self.file_name or self.file.name.rsplit('/', 1)[-1]
 
 
+# 計画の書類（個別支援計画・相談支援のサービス等利用計画）。意向・目標を計画のアセスメント・原案の材料にする
+PLAN_DOCUMENT_KINDS = ('個別支援計画', 'サービス等利用計画')
+
+
 class BeneficiaryKnowledge(models.Model):
     """
     診断書・意見書・検査結果などの書類を AI で読み取った内容（利用者ごと）。
@@ -493,6 +497,10 @@ class BeneficiaryKnowledge(models.Model):
     text = models.TextField(blank=True, verbose_name='書類の文字')
     proposals = models.JSONField(default=dict, blank=True, verbose_name='台帳への反映案')
     applied = models.JSONField(default=list, blank=True, verbose_name='台帳に反映したもの')
+    # 書類の種類ごとに取り出した構造（個別支援計画のアセスメント・モニタリングの材料に使う）：
+    #   wishes［本人・家族の意向・願い］、goals［計画の目標・支援目標］、entries［実施記録の日ごとの項目 {date, title, body, staff}］、
+    #   items［フェイスシート・アセスメントシートの「項目：値」 {label, value}］
+    extra = models.JSONField(default=dict, blank=True, verbose_name='取り出した構造')
     # 療育記録の AI で参考にする（Facility.knowledge_reflect の事業所では「療育記録に反映する」と呼び、読み取った直後は印なし）
     use_in_ai = models.BooleanField(default=True, verbose_name='療育記録の AI で参考にする')
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_DRAFT, verbose_name='状態')
@@ -516,6 +524,26 @@ class BeneficiaryKnowledge(models.Model):
     @property
     def points_list(self):
         return [ln.strip().lstrip('・-*•').strip() for ln in (self.points or '').splitlines() if ln.strip().lstrip('・-*•').strip()]
+
+    @property
+    def wishes_list(self):
+        return [x for x in (self.extra or {}).get('wishes') or [] if x]
+
+    @property
+    def goals_list(self):
+        return [x for x in (self.extra or {}).get('goals') or [] if x]
+
+    @property
+    def entries(self):
+        return [e for e in (self.extra or {}).get('entries') or [] if isinstance(e, dict) and (e.get('body') or e.get('title'))]
+
+    @property
+    def items(self):
+        return [i for i in (self.extra or {}).get('items') or [] if isinstance(i, dict) and i.get('value')]
+
+    @property
+    def is_plan_document(self):
+        return self.kind in PLAN_DOCUMENT_KINDS
 
     @property
     def is_saved(self):

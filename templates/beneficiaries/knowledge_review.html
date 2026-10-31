@@ -54,6 +54,23 @@
           <textarea name="summary" class="form-control form-control-sm" rows="4" maxlength="2000">{{ k.summary }}</textarea></div>
         <div class="col-12"><label class="form-label small fw-semibold">支援で気をつけること（1行に1項目）</label>
           <textarea name="points" class="form-control form-control-sm" rows="{{ k.points_list|length|add:2 }}">{{ k.points }}</textarea></div>
+        {% if k.wishes_list or k.goals_list or k.is_plan_document or k.kind == 'フェイスシート' or k.kind == '相談支援の基本情報' %}
+        <div class="col-md-6"><label class="form-label small fw-semibold">本人・家族の意向・願い（1行に1項目）</label>
+          <textarea name="wishes" class="form-control form-control-sm" rows="{{ k.wishes_list|length|add:2 }}">{% for x in k.wishes_list %}{{ x }}
+{% endfor %}</textarea>
+          <div class="form-text">個別支援計画のアセスメント「希望する生活」・原案「本人・家族の意向」の下書きに使います。</div></div>
+        <div class="col-md-6"><label class="form-label small fw-semibold">計画の目標・支援目標（1行に1項目）</label>
+          <textarea name="goals" class="form-control form-control-sm" rows="{{ k.goals_list|length|add:2 }}">{% for x in k.goals_list %}{{ x }}
+{% endfor %}</textarea>
+          <div class="form-text">相談支援のサービス等利用計画の目標は、個別支援計画の方針・目標がそれに沿うように下書きで参照します。</div></div>
+        {% endif %}
+        {% if k.items %}
+        <div class="col-12">
+          <details><summary class="small fw-semibold">項目ごとの値（{{ k.items|length }} 項目。フェイスシート・アセスメントシートなど）</summary>
+            <table class="table table-sm small mt-1 mb-0"><tbody>{% for i in k.items %}<tr><th style="width:28%;white-space:nowrap;">{{ i.label }}</th><td>{{ i.value }}</td></tr>{% endfor %}</tbody></table>
+          </details>
+        </div>
+        {% endif %}
         <div class="col-12">
           <details><summary class="small fw-semibold">書類の文字（検索に使う書き写し。{{ k.text|length }} 字）</summary>
             <textarea name="text" class="form-control form-control-sm mt-1" rows="10">{{ k.text }}</textarea></details>
@@ -72,7 +89,7 @@
       {% if p.cautions_add and therapy and user.facility.knowledge_reflect %}{# ゆあーず：留意点へは画面に出さずに足す（印あり） #}
       <input type="hidden" name="apply_cautions" value="1"><input type="hidden" name="cautions_add" value="{{ p.cautions_add.text }}">
       {% endif %}
-      {% if p.disability_type or p.is_severe or p.notes_add or p.cautions_add and therapy and not user.facility.knowledge_reflect %}
+      {% if p.disability_type or p.is_severe or p.notes_add or p.cautions_add and therapy and not user.facility.knowledge_reflect or k.entries and therapy %}
       <div class="small text-muted mb-2">印を付けたものだけ、保存するときに台帳へ入れます。文は直せます。</div>
       {% if p.disability_type %}
       <div class="kr-apply">
@@ -102,6 +119,27 @@
       {% endif %}
       {% else %}
       <div class="small text-muted mb-2">基本情報に入れる内容はありません（障害種別・重身・備考・留意点は、いまの台帳と同じか、書類に書かれていません）。</div>
+      {% endif %}
+      {% if k.entries and therapy %}
+      <div class="kr-apply">
+        <label class="form-check fw-semibold mb-1"><input type="checkbox" class="form-check-input" name="apply_entries" value="1" {% if p.entries.checked %}checked{% endif %}>実施記録の {{ k.entries|length }} 日分を療育記録に取り込む</label>
+        <div class="cur mb-1">日ごとの「支援内容」がやったこと（①〜⑤）と記録、「ねらい・本日の様子」が様子、記録者が担当（名前）になります。印を外した日は取り込みません。</div>
+        <div style="max-height:260px;overflow:auto;">
+          <table class="table table-sm small mb-0">
+            <thead><tr><th style="width:2rem;"></th><th style="width:7rem;">日付</th><th>支援内容・様子</th><th style="width:7rem;">記録者</th></tr></thead>
+            <tbody>
+            {% for e in k.entries %}
+            <tr {% if e.exists %}class="table-warning"{% endif %}>
+              <td><input type="checkbox" class="form-check-input" name="entry" value="{{ forloop.counter0 }}" {% if not e.exists %}checked{% endif %}></td>
+              <td>{{ e.date }}{% if e.exists %}<div class="text-danger" style="font-size:.7rem;">同じ日の記録あり</div>{% endif %}</td>
+              <td><div class="fw-semibold">{{ e.title|truncatechars:80 }}</div><div class="text-muted">{{ e.body|truncatechars:120 }}</div></td>
+              <td>{{ e.staff }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
       {% endif %}
       {% if k.document %}
       <div class="kr-apply">
