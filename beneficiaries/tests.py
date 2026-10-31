@@ -1840,3 +1840,155 @@ class BeneficiaryToolsTests(TestCase):
         self.client.post(reverse('beneficiaries:knowledge_delete', args=[self.b.pk, k2.pk]))
         self.assertTrue(BeneficiaryKnowledge.objects.filter(pk=k2.pk).exists())
         self.assertNotContains(self.detail(self.b), reverse('beneficiaries:knowledge_delete', args=[self.b.pk, k2.pk]))
+
+
+class KnowledgeDocumentKindsTests(TestCase):
+    """オウル：フェイスシート・アセスメントシート・相談支援の計画・支援の実施記録の読み取り（意向・目標・項目・日ごとの記録）"""
+
+    def setUp(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        from .models import BeneficiaryDocument
+        self.f = Facility.objects.create(name='児童発達支援センター　オウル', layout=Facility.LAYOUT_RYOIKU, use_therapy_record=True)
+        self.user = StaffAccount.objects.create_user('owl', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='owl', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='試験', first_name='太郎', last_name_kana='しけん',
+                                              first_name_kana='たろう', date_of_birth=datetime.date(2022, 7, 1))
+        self.doc = BeneficiaryDocument.objects.create(beneficiary=self.kid, file_name='実施記録.pdf',
+                                                      file=SimpleUploadedFile('kiroku.pdf', b'%PDF-1.4 test'))
+
+    def _read(self, client_cls, data):
+        from types import SimpleNamespace
+        client_cls.return_value.messages.create.return_value = SimpleNamespace(
+            stop_reason='end_turn', content=[SimpleNamespace(type='text', text=json.dumps(data, ensure_ascii=False))])
+        return self.client.post(reverse('beneficiaries:knowledge_read', args=[self.kid.pk]), {'source': 'document', 'source_pk': self.doc.pk})
+
+    def _base(self, **over):
+        d = {'kind': 'その他', 'title': '', 'doc_date': '', 'issuer': '', 'name_on_doc': '試験 太郎', 'birth_on_doc': '2022-07-01',
+             'diagnosis': '', 'severe': 'unknown', 'summary': '要約', 'support_points': [], 'medical_notes': [], 'full_text': '',
+             'wishes': [], 'goals': [], 'items': [], 'entries': [], 'unreadable': ''}
+        d.update(over)
+        return d
+
+    @mock.patch('beneficiaries.knowledge.anthropic.Anthropic')
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    def test_schema_asks_for_new_kinds_and_structures(self, client_cls):
+        from . import knowledge
+        self.assertIn('サービス等利用計画', knowledge.KINDS)
+        self.assertIn('支援の実施記録', knowledge.KINDS)
+        for key in ('wishes', 'goals', 'items', 'entries'):
+            self.assertIn(key, knowledge.SCHEMA['required'])
+        self._read(client_cls, self._base())
+        kwargs = client_cls.return_value.messages.create.call_args.kwargs
+        self.assertIn('サービス等利用計画', kwargs['system'])
+        self.assertIn('entries', kwargs['output_config']['format']['schema']['properties'])
+
+    @mock.patch('beneficiaries.knowledge.anthropic.Anthropic')
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    def test_service_plan_wishes_and_goals(self, client_cls):
+        from .models import BeneficiaryKnowledge
+        self._read(client_cls, self._base(kind='サービス等利用計画', title='障害児支援利用計画', issuer='相談支援事業所テスト', doc_date='2026-08-01',
+                                           wishes=['自分の気持ちを言葉で伝えられるようになってほしい（家族）', 'ぬいぐるみが好き（本人）'],
+                                           goals=['優先1：自分の気持ちを言葉で伝えられるようになる', '優先2：先生と一緒に楽しみながら課題に取り組む'],
+                                           items=[{'label': 'モニタリング期間', 'value': '6か月ごと'}]))
+        k = BeneficiaryKnowledge.objects.get()
+        self.assertEqual(k.kind, 'サービス等利用計画')
+        self.assertEqual(len(k.wishes_list), 2)
+        self.assertEqual(k.goals_list[1], '優先2：先生と一緒に楽しみながら課題に取り組む')
+        self.assertTrue(k.is_plan_document)
+        page = self.client.get(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]))
+        self.assertContains(page, 'name="wishes"')
+        self.assertContains(page, '先生と一緒に楽しみながら')
+        self.assertContains(page, 'モニタリング期間')
+        # 直して保存すると意向・目標が更新され、検索の小片にも入る
+        res = self.client.post(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]),
+                               {'action': 'save', 'kind': k.kind, 'title': k.title, 'summary': k.summary, 'points': '', 'text': '',
+                                'wishes': '気持ちを言葉で伝えられるように', 'goals': '優先1：気持ちを言葉で\n優先2：先生と楽しむ', 'use_in_ai': '1'}, follow=True)
+        self.assertEqual(res.status_code, 200)
+        k.refresh_from_db()
+        self.assertEqual((k.status, k.wishes_list, len(k.goals_list)), ('saved', ['気持ちを言葉で伝えられるように'], 2))
+        self.assertTrue(k.chunks.filter(text__contains='目標：優先2：先生と楽しむ').exists())
+        text, n = __import__('beneficiaries.knowledge', fromlist=['context_for']).context_for(self.kid, '活動')
+        self.assertIn('計画の目標：', text)
+
+    @mock.patch('beneficiaries.knowledge.anthropic.Anthropic')
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    def test_entries_import_into_therapy_records(self, client_cls):
+        from therapy.models import TherapyRecord
+        from .models import BeneficiaryKnowledge
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date(2026, 8, 5), body='前からある記録')
+        self._read(client_cls, self._base(kind='支援の実施記録', title='本日の様子', entries=[
+            {'date': '2026-08-03', 'title': 'バッティング、シューティング、パズル', 'body': 'ねらい：やりとりを楽しむ。本日の様子：紙コップタワーを倒せた。', 'staff': '職員A'},
+            {'date': '2026-08-05', 'title': 'またぎ棒、平均台', 'body': '手をつないで渡れた。', 'staff': '職員B'},
+            {'date': '日付不明', 'title': 'x', 'body': 'y', 'staff': ''},
+        ]))
+        k = BeneficiaryKnowledge.objects.get()
+        self.assertEqual(len(k.entries), 2)
+        self.assertEqual((k.entries[0]['exists'], k.entries[1]['exists']), (False, True))
+        self.assertEqual(k.proposals['entries'], {'count': 2, 'checked': True})
+        page = self.client.get(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]))
+        self.assertContains(page, '実施記録の 2 日分を療育記録に取り込む')
+        self.assertContains(page, '同じ日の記録あり')
+        self.assertContains(page, 'name="entry" value="0" checked')
+        self.assertNotContains(page, 'name="entry" value="1" checked')
+        res = self.client.post(reverse('beneficiaries:knowledge_review', args=[self.kid.pk, k.pk]),
+                               {'action': 'save', 'kind': k.kind, 'title': k.title, 'summary': k.summary, 'points': '', 'text': '',
+                                'apply_entries': '1', 'entry': ['0'], 'use_in_ai': '1'}, follow=True)
+        self.assertContains(res, '台帳に反映：療育記録 1 件')
+        r = TherapyRecord.objects.get(date=datetime.date(2026, 8, 3))
+        self.assertEqual((r.activities, r.staff_name, r.body), (['バッティング', 'シューティング', 'パズル'], '職員A', 'バッティング、シューティング、パズル'))
+        self.assertIn('紙コップタワー', r.situation)
+        self.assertEqual(r.created_by, self.user)
+        self.assertEqual(TherapyRecord.objects.filter(date=datetime.date(2026, 8, 5)).count(), 1)    # 印を外した日は作らない
+
+
+class KnowledgePlanImportTests(TestCase):
+    """読み取った「個別支援計画」を、個別支援計画（原案の段階）として登録する"""
+
+    @mock.patch('beneficiaries.knowledge.anthropic.Anthropic')
+    @override_settings(ANTHROPIC_API_KEY='test-key')
+    def test_make_plan_from_document(self, client_cls):
+        from types import SimpleNamespace
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from accounts.models import StaffAccount
+        from facilities.models import Facility
+        from support_plans.models import SupportPlan
+        from .models import BeneficiaryDocument, BeneficiaryKnowledge
+        f = Facility.objects.create(name='児童発達支援センター　オウル', layout=Facility.LAYOUT_RYOIKU, form_set=Facility.FORM_SET_OWL)
+        user = StaffAccount.objects.create_user('owl', password='pw12345678', facility=f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='owl', password='pw12345678')
+        kid = Beneficiary.objects.create(facility=f, last_name='試験', first_name='太郎', date_of_birth=datetime.date(2022, 7, 1))
+        doc = BeneficiaryDocument.objects.create(beneficiary=kid, file_name='計画.pdf', file=SimpleUploadedFile('plan.pdf', b'%PDF-1.4 test'))
+        data = {'kind': '個別支援計画', 'title': '個別支援計画（第2回）', 'doc_date': '2026-04-23', 'issuer': '児童発達支援センター オウル',
+                'name_on_doc': '試験 太郎', 'birth_on_doc': '2022-07-01', 'diagnosis': '', 'severe': 'unknown',
+                'summary': '生き物が好き。保育園でカニつりをすることが好き。', 'support_points': [], 'medical_notes': [], 'full_text': '',
+                'wishes': ['自分の気持ちを言葉で伝えられるようになってほしい（家族）'],
+                'goals': ['長期目標：安心して過ごしながら興味や経験を広げる', '優先1：安心した環境の中で活動や興味の幅を広げる', '優先2：気持ちや要求の表現方法を広げる'],
+                'items': [{'label': '総合的な支援の方針', 'value': '性格や特性を理解し、心身の発達を促す'}, {'label': '開始日', 'value': '2026-04-23'},
+                          {'label': '有効期限', 'value': '2026-10-22'}, {'label': '送迎', 'value': '迎え：あり 園　送り：あり 園'}, {'label': '受給者証番号', 'value': '1234567890'}],
+                'entries': [], 'unreadable': ''}
+        client_cls.return_value.messages.create.return_value = SimpleNamespace(stop_reason='end_turn', content=[SimpleNamespace(type='text', text=json.dumps(data, ensure_ascii=False))])
+        self.client.post(reverse('beneficiaries:knowledge_read', args=[kid.pk]), {'source': 'document', 'source_pk': doc.pk})
+        k = BeneficiaryKnowledge.objects.get()
+        page = self.client.get(reverse('beneficiaries:knowledge_review', args=[kid.pk, k.pk]))
+        self.assertContains(page, '個別支援計画（原案の段階）として登録する')
+        res = self.client.post(reverse('beneficiaries:knowledge_review', args=[kid.pk, k.pk]),
+                               {'action': 'save', 'kind': k.kind, 'title': k.title, 'doc_date': '2026-04-23', 'summary': k.summary, 'points': '', 'text': '',
+                                'use_in_ai': '1', 'wishes': '\n'.join(k.wishes_list), 'goals': '\n'.join(k.goals_list), 'apply_plan': '1'}, follow=True)
+        self.assertContains(res, '個別支援計画「個別支援計画（第2回）」（原案）')
+        plan = SupportPlan.objects.get(beneficiary=kid)
+        self.assertEqual((plan.current_step, plan.created_by), (2, user))
+        a, d = plan.get_step(1), plan.get_step(2)
+        self.assertEqual((a.interview_date, a.wishes), (datetime.date(2026, 4, 23), '自分の気持ちを言葉で伝えられるようになってほしい（家族）'))
+        self.assertTrue(a.is_completed)
+        self.assertEqual((d.policy, d.period_start, d.period_end), ('性格や特性を理解し、心身の発達を促す', datetime.date(2026, 4, 23), datetime.date(2026, 10, 22)))
+        self.assertEqual((plan.form_extra['transport'], plan.form_extra['cert_number']), ('迎え：あり 園　送り：あり 園', '1234567890'))
+        goals = list(plan.goals.order_by('goal_type', 'order'))
+        self.assertEqual([(g.goal_type, g.content) for g in goals],
+                         [('long', '安心して過ごしながら興味や経験を広げる'), ('short', '安心した環境の中で活動や興味の幅を広げる'), ('short', '気持ちや要求の表現方法を広げる')])
+        self.assertEqual(goals[1].target_date, datetime.date(2026, 10, 22))
+        # オウル様式の計画書に出る
+        res = self.client.get(reverse('custom_forms:plan_owl', args=[plan.pk]) + '?fmt=html')
+        self.assertContains(res, '性格や特性を理解し')
+        self.assertContains(res, '気持ちや要求の表現方法を広げる')

@@ -310,8 +310,9 @@ class PdfAndAiTests(PlanFlowTestBase):
             type='text', text='{"condition": "c", "environment": "e", "wishes": "w"}')])
         res = self.client.post(reverse('support_plans:ai_assessment', args=[self.plan.pk]), {'months': 6})
         self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.json()['draft'], {'condition': 'c', 'environment': 'e', 'wishes': 'w'})
+        self.assertEqual({k: res.json()['draft'][k] for k in ('condition', 'environment', 'wishes')}, {'condition': 'c', 'environment': 'e', 'wishes': 'w'})
         self.assertEqual(res.json()['records'], 3)
+        self.assertEqual(res.json()['sources'], ['日誌 3 件'])
         self.assertIn('かして', mock_cls.return_value.messages.create.call_args.kwargs['messages'][0]['content'])
 
     @override_settings(ANTHROPIC_API_KEY='k')
@@ -507,3 +508,108 @@ class PlanNoAiTests(PlanFlowTestBase):
         res = self.client.get(self.step_url(1))
         self.assertContains(res, '過去の日誌から AI で下書き')
         self.assertNotContains(res, 'アセスメントと療育記録を欄に入れる')
+
+
+class OwlMaterialTests(PlanFlowTestBase):
+    """
+    オウル（療育記録を使う事業所）：個別支援計画の AI 下書きが、療育記録・書類から分かっていること（相談支援のサービス等利用計画を含む）を
+    材料にする。モニタリングの下書き（目標ごとの達成状況）
+    """
+
+    def setUp(self):
+        super().setUp()
+        Facility.objects.filter(pk=self.facility.pk).update(use_therapy_record=True, layout=Facility.LAYOUT_RYOIKU)
+        self.facility.refresh_from_db()
+        from therapy.models import TherapyRecord
+        from beneficiaries.models import BeneficiaryKnowledge
+        for i, (body, sit) in enumerate((('平均台', '手をつなぐと渡れた'), ('輪投げ', '両手で投げると入った'), ('風船', '「もう一回」と言えた'))):
+            TherapyRecord.objects.create(facility=self.facility, beneficiary=self.b, date=date.today() - timedelta(days=5 * (i + 1)),
+                                         activities=[body], body=body, situation=sit, staff_name='職員A')
+        BeneficiaryKnowledge.objects.create(
+            beneficiary=self.b, kind='サービス等利用計画', title='障害児支援利用計画', status='saved', use_in_ai=True, issuer='相談支援事業所テスト',
+            summary='6か月ごとのモニタリング。', extra={'wishes': ['自分の気持ちを言葉で伝えられるようになってほしい（家族）'],
+                                                     'goals': ['短期：先生と一緒に楽しみながら活動に取り組む']})
+        BeneficiaryKnowledge.objects.create(
+            beneficiary=self.b, kind='フェイスシート', title='フェイスシート', status='saved', use_in_ai=True,
+            summary='就寝時刻は日によって違う。緑の野菜が苦手。', points='・集団活動は苦手なので少人数から',
+            extra={'items': [{'label': '睡眠', 'value': 'ばらばら'}]})
+
+    def _mock(self, mock_cls, data):
+        mock_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(type='text', text=json.dumps(data, ensure_ascii=False))])
+        return mock_cls.return_value.messages.create
+
+    def test_material_collects_therapy_records_and_documents(self):
+        from . import material
+        m = material.collect(self.b, date.today() - timedelta(days=60), date.today())
+        self.assertEqual((m['kind'], len(m['lines'])), ('療育記録', 3))
+        self.assertIn('輪投げ', m['lines'][1].text)
+        self.assertIn('サービス等利用計画', m['service_plan'])
+        self.assertIn('先生と一緒に楽しみながら', m['service_plan'])
+        self.assertIn('フェイスシート', m['documents'])
+        self.assertIn('少人数から', m['documents'])
+        self.assertEqual(m['sources'], ['サービス等利用計画', '書類から分かっていること', '療育記録 3 件'])
+        text = material.prompt_blocks(m, date.today() - timedelta(days=60), date.today())
+        self.assertIn('【相談支援事業所のサービス等利用計画（個別支援計画はこれに沿う）】', text)
+        self.assertIn('【療育記録】', text)
+
+    @override_settings(ANTHROPIC_API_KEY='k')
+    @mock.patch('support_plans.ai.anthropic.Anthropic')
+    def test_assessment_draft_uses_therapy_and_documents(self, mock_cls):
+        create = self._mock(mock_cls, {'condition': 'c', 'environment': 'e', 'wishes': 'w'})
+        res = self.client.post(reverse('support_plans:ai_assessment', args=[self.plan.pk]), {'months': 3})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()['sources'], ['サービス等利用計画', '書類から分かっていること', '療育記録 3 件'])
+        sent = create.call_args.kwargs['messages'][0]['content']
+        self.assertIn('輪投げ', sent)
+        self.assertIn('自分の気持ちを言葉で伝えられる', sent)
+        self.assertIn('緑の野菜が苦手', sent)
+
+    @override_settings(ANTHROPIC_API_KEY='k')
+    @mock.patch('support_plans.ai.anthropic.Anthropic')
+    def test_plan_draft_without_journal_uses_documents_and_sets_item_staff(self, mock_cls):
+        self.fill_assessment(); self.plan.complete_step(1, self.user)
+        create = self._mock(mock_cls, {'policy': '方針', 'family_wishes': '意向', 'goals': [
+            {'type': 'long', 'content': '気持ちを言葉で伝えられる', 'evidence_dates': []},
+            {'type': 'short', 'item': '言語・コミュニケーション', 'content': '「もう一回」など要求を言葉で伝える', 'support_content': '職員が言葉を添える',
+             'frequency': '毎回', 'staff': '担当職員', 'notes': '急がせない', 'evidence_dates': []}]})
+        res = self.client.post(reverse('support_plans:ai_draft', args=[self.plan.pk]),
+                               {'start': (date.today() - timedelta(days=60)).isoformat(), 'end': date.today().isoformat()})
+        self.assertRedirects(res, self.step_url(2))
+        short = self.plan.goals.get(goal_type='short')
+        self.assertEqual((short.form_extra['item'], short.form_extra['staff'], short.form_extra['notes']), ('言語・コミュニケーション', '担当職員', '急がせない'))
+        sent = create.call_args.kwargs['messages'][0]['content']
+        self.assertIn('【アセスメント（個別支援計画のステップ1）】', sent)
+        self.assertIn('サービス等利用計画', sent)
+        self.assertIn('平均台', sent)
+
+    @override_settings(ANTHROPIC_API_KEY='k')
+    @mock.patch('support_plans.ai.anthropic.Anthropic')
+    def test_monitoring_draft(self, mock_cls):
+        self.fill_assessment(); self.plan.complete_step(1, self.user)
+        self.fill_draft(); self.plan.complete_step(2, self.user)
+        self.fill_meeting(); self.plan.complete_step(3, self.user)
+        self.fill_consent(); self.plan.complete_step(4, self.user)
+        self.assertEqual(self.plan.current_step, 5)
+        url = reverse('support_plans:ai_monitoring', args=[self.plan.pk])
+        create = self._mock(mock_cls, {'implementation': '計画どおり週2回', 'achievement': 'partial', 'achievement_detail': '目標：順番を待てる…',
+                                       'review_needed': True, 'review_reason': '達成したので次へ',
+                                       'per_goal': [{'goal': '順番を待てる', 'status': 'achieved', 'note': '10/20 輪投げで待てた'}]})
+        res = self.client.post(url, {'start': (date.today() - timedelta(days=60)).isoformat(), 'end': date.today().isoformat()})
+        self.assertEqual(res.status_code, 200, res.content)
+        d = res.json()['draft']
+        self.assertEqual((d['achievement'], d['review_needed'], d['per_goal'][0]['status']), ('partial', True, 'achieved'))
+        self.assertEqual(d['sources'], ['サービス等利用計画', '書類から分かっていること', '療育記録 3 件'])
+        sent = create.call_args.kwargs['messages'][0]['content']
+        self.assertIn('短期目標：順番を待てる', sent)
+        self.assertIn('輪投げ', sent)
+        self.assertNotIn('フェイスシート', sent)        # モニタリングでは書類の要約は渡さない（目標と記録を突き合わせる）
+        # 画面にボタン
+        page = self.client.get(self.step_url(5))
+        self.assertContains(page, 'id="aiMonBtn"')
+        # 記録が無ければ 404
+        from therapy.models import TherapyRecord
+        TherapyRecord.objects.all().delete()
+        self.assertEqual(self.client.post(url, {}).status_code, 404)
+        # ステップ 5 以外は 400
+        other = SupportPlan.objects.create(facility=self.facility, beneficiary=self.b, title='第2期', created_by=self.user)
+        self.assertEqual(self.client.post(reverse('support_plans:ai_monitoring', args=[other.pk]), {}).status_code, 400)
