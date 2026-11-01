@@ -11,7 +11,7 @@
 </style>
 <h1>介護記録</h1>
 <table class="hd"><tr><th>氏名</th><td style="font-size:13px;font-weight:700;">{{ b.full_name }}</td><th>要介護度</th><td>{{ insurance.care_level|default:'' }}</td></tr>
-  <tr><th>期間</th><td>{% if start %}{{ start|date:'Y年n月j日' }}{% endif %} 〜 {% if end %}{{ end|date:'Y年n月j日' }}{% endif %}</td><th>事業所</th><td>{{ facility.name }}</td></tr></table>
+  <tr><th>期間</th><td>{% if start %}{{ start|date:'Y年n月j日' }}{% endif %} 〜 {% if end %}{{ end|date:'Y年n月j日' }}{% endif %}</td><th>事業所</th><td>{{ facility.org_label }}</td></tr></table>
 <table class="rc" style="margin-top:8px;">
   <thead><tr><th>日付</th><th>記録</th><th style="width:18%;">記録者／承認</th></tr></thead>
   <tbody>

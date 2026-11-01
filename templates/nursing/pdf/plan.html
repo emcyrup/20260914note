@@ -32,6 +32,6 @@
 <table class="pl" style="margin-top:6px;">
   <colgroup><col style="width:16%"><col style="width:24%"><col style="width:60%"></colgroup>
   <tr><th>見直しの時期</th><td>{{ plan.review_due|date:'Y年n月j日'|default:'' }}</td><td rowspan="2" style="vertical-align:bottom;">上記の計画について説明を受け、同意しました。　{% if plan.explained_on %}{{ plan.explained_on|date:'Y年n月j日' }}{% else %}　　年　　月　　日{% endif %}<br><br>氏名　<span style="display:inline-block;min-width:220px;border-bottom:1px solid #333;">{{ plan.agreed_by }}</span>　印</td></tr>
-  <tr><th>事業所</th><td>{{ facility.name }}</td></tr>
+  <tr><th>事業所</th><td>{{ facility.org_label }}</td></tr>
 </table>
 {% endblock %}

@@ -1,7 +1,7 @@
 {# 1 人 1 週間の検温板（印刷）。b・sheet・chart・insurance・start・end・facility・week_jp を渡す #}
 <table class="vt-head">
   <tr><th>氏名</th><td class="name">{{ b.full_name }}{% if b.full_name_kana %}<span class="small muted">（{{ b.full_name_kana }}）</span>{% endif %}</td>
-      <th>要介護度</th><td>{{ insurance.care_level|default:'' }}</td><th>期間</th><td>{{ start|date:'Y年n月j日' }} 〜 {{ end|date:'n月j日' }}</td><th>事業所</th><td>{{ facility.name }}</td></tr>
+      <th>要介護度</th><td>{{ insurance.care_level|default:'' }}</td><th>期間</th><td>{{ start|date:'Y年n月j日' }} 〜 {{ end|date:'n月j日' }}</td><th>事業所</th><td>{{ facility.org_label }}</td></tr>
 </table>
 <table class="vt">
   <thead><tr><th class="lbl">項目</th>{% for c in sheet.col_info %}<th class="{% if c.wd == '日' %}sun{% elif c.wd == '土' %}sat{% endif %}">{{ c.d|date:'n/j' }}（{{ c.wd }}）{% if c.slot %}<br>{{ c.slot }}{% endif %}</th>{% endfor %}</tr></thead>

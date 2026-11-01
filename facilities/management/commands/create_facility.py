@@ -123,6 +123,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('name', help='施設名')
         parser.add_argument('--office-number', default='', help='事業所番号（任意）')
+        parser.add_argument('--company', default='', help='法人名（母体）。例：みどり会（任意。画面左上と帳票に出る）')
         parser.add_argument('--admin', metavar='ユーザー名', help='この施設の管理者アカウントを作る')
         parser.add_argument('--password', help='--admin の初期パスワード（省略時は入力を求める）')
         parser.add_argument('--display-name', default='', help='管理者の表示名（任意）')
@@ -160,6 +161,10 @@ class Command(BaseCommand):
                     raise CommandError(f'施設ID {o["copy_settings_from"]} は存在しません（一覧: {self._list()}）')
             facility = create_facility(name, o.get('office_number') or '', copy_from=src,
                                        default_tags=not o.get('no_default_tags'))
+            if (o.get('company') or '').strip():
+                facility.company_name = o['company'].strip()[:100]
+                facility.save(update_fields=['company_name', 'updated_at'])
+                self.stdout.write(f'法人名（母体）：{facility.company_name}')
             if src is not None:
                 self.stdout.write(f'設定を「{src.name}」からコピーしました（呼び方・配色・使う機能・日誌の項目・単位数）')
             if o.get('layout'):

@@ -13,7 +13,7 @@ class FacilityForm(forms.ModelForm):
     class Meta:
         model = Facility
         fields = [
-            'name', 'office_number', 'address', 'phone', 'representative_email',
+            'name', 'company_name', 'office_number', 'address', 'phone', 'representative_email',
             'region_category', 'standard_close_time',
             'base_unit_count', 'base_unit_count_severe', 'is_new_facility_r8',
             'line_channel_access_token', 'line_channel_secret',
@@ -21,6 +21,7 @@ class FacilityForm(forms.ModelForm):
         ]
         widgets = {
             'name':                     forms.TextInput(attrs={'class': 'form-control'}),
+            'company_name':             forms.TextInput(attrs={'class': 'form-control', 'placeholder': '例：みどり会（空でもよい）'}),
             'office_number':            forms.TextInput(attrs={'class': 'form-control'}),
             'address':                  forms.TextInput(attrs={'class': 'form-control'}),
             'phone':                    forms.TextInput(attrs={'class': 'form-control'}),

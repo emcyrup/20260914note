@@ -1,7 +1,7 @@
 # =============================================
 # 介護施設「やすらぎの森」の本番環境（ゆあーず・オウルと同じ AWS 共用サーバー）での管理コマンド（Actions の画面から実行する）
 #   Deploy (yasuragi) と同じ Secrets（YASURAGI_*。無ければゆあーずの YOURS_* を使う）で SSH し、~/kaigonoteyasuragi の manage.py を実行する
-#   - create_facility : 事業所「やすらぎの森」と管理者を作る（--preset care）
+#   - create_facility : 事業所「やすらぎの森」（法人＝みどり会）と管理者を作る（--preset care --company）
 #   - set_password    : 管理者（職員）のパスワードを設定する
 #   - list            : 事業所の一覧を表示する
 #   - delete_facility : 利用者・予約の無い事業所を、職員アカウント・設定ごと消す（facility_id）
@@ -35,6 +35,10 @@ on:
         description: "事業所名（create_facility）"
         type: string
         default: "やすらぎの森"
+      company_name:
+        description: "法人名・母体（create_facility）"
+        type: string
+        default: "みどり会"
       admin_username:
         description: "管理者のユーザー名（create_facility・set_password）"
         type: string
@@ -88,6 +92,7 @@ jobs:
         env:
           TASK: ${{ inputs.task }}
           FACILITY_NAME: ${{ inputs.facility_name }}
+          COMPANY_NAME: ${{ inputs.company_name }}
           ADMIN_USERNAME: ${{ inputs.admin_username }}
           ADMIN_PASSWORD: ${{ secrets.YASURAGI_ADMIN_PASSWORD }}
           WITH_DEMO: ${{ inputs.with_demo }}
@@ -108,8 +113,8 @@ jobs:
           fi
           # 秘密の値はコマンド行に出さず、ssh の標準入力（スクリプトの先頭）で渡す
           {
-            printf 'TASK=%q\nFACILITY_NAME=%q\nADMIN_USERNAME=%q\nADMIN_PASSWORD=%q\nWITH_DEMO=%q\nFACILITY_ID=%q\nCOPY_FROM=%q\nAPP_DIR_IN=%q\nVENV_IN=%q\n' \
-              "$TASK" "$FACILITY_NAME" "$ADMIN_USERNAME" "$ADMIN_PASSWORD" "$WITH_DEMO" "$FACILITY_ID" "$COPY_FROM" "$REMOTE_APP_DIR" "$REMOTE_VENV"
+            printf 'TASK=%q\nFACILITY_NAME=%q\nCOMPANY_NAME=%q\nADMIN_USERNAME=%q\nADMIN_PASSWORD=%q\nWITH_DEMO=%q\nFACILITY_ID=%q\nCOPY_FROM=%q\nAPP_DIR_IN=%q\nVENV_IN=%q\n' \
+              "$TASK" "$FACILITY_NAME" "$COMPANY_NAME" "$ADMIN_USERNAME" "$ADMIN_PASSWORD" "$WITH_DEMO" "$FACILITY_ID" "$COPY_FROM" "$REMOTE_APP_DIR" "$REMOTE_VENV"
             cat <<'REMOTE'
             set -euo pipefail
             export ADMIN_USERNAME ADMIN_PASSWORD
@@ -125,6 +130,7 @@ jobs:
             case "$TASK" in
               create_facility)
                 args=(create_facility "$FACILITY_NAME" --admin "$ADMIN_USERNAME" --password "$(openssl rand -base64 18)" --preset care)
+                [ -n "$COMPANY_NAME" ] && args+=(--company "$COMPANY_NAME")
                 [ -n "$COPY_FROM" ] && args+=(--copy-settings-from "$COPY_FROM")
                 [ "$WITH_DEMO" = "true" ] && args+=(--demo)
                 python manage.py "${args[@]}"

@@ -9,7 +9,7 @@
 </style>
 <h1>{% if rep.kind == 'accident' %}事故報告書{% else %}ヒヤリハット報告書{% endif %}</h1>
 <table class="ir">
-  <tr><th>事業所名</th><td>{{ facility.name }}</td><th>報告日</th><td>{{ rep.created_at|date:'Y年n月j日' }}</td></tr>
+  <tr><th>事業所名</th><td>{{ facility.org_label }}</td><th>報告日</th><td>{{ rep.created_at|date:'Y年n月j日' }}</td></tr>
   <tr><th>{{ terms.beneficiary|default:'利用者' }}</th><td>{{ rep.beneficiary.full_name|default:'—' }}{% if insurance.care_level %}（{{ insurance.care_level }}）{% endif %}</td><th>報告者</th><td>{{ rep.reporter|default:'' }}</td></tr>
   <tr><th>発生日時</th><td>{{ rep.occurred_at|date:'Y年n月j日 H:i' }}</td><th>場所</th><td>{{ rep.place }}</td></tr>
   <tr><th>種類</th><td>{{ rep.get_category_display }}</td><th>けがの程度</th><td>{{ rep.get_injury_display }}</td></tr>

@@ -36,7 +36,7 @@ class Facility(models.Model):
     address2 = models.CharField(max_length=200, blank=True, verbose_name='住所2（建物名など）')
     phone = models.CharField(max_length=20, blank=True, verbose_name='電話番号')
     # 運営会社（計画書中心の画面で「施設アカウント情報」に出す）
-    company_name = models.CharField(max_length=100, blank=True, verbose_name='会社名')
+    company_name = models.CharField(max_length=100, blank=True, verbose_name='会社名（法人名・母体）')
     representative_name = models.CharField(max_length=100, blank=True, verbose_name='代表者名')
     representative_email = models.EmailField(blank=True, verbose_name='代表者メールアドレス')
     # 画面の型：標準（全機能）／計画書中心（利用者・完了期日・スタッフ・保護者・連絡帳・施設の6メニュー）
@@ -169,6 +169,11 @@ class Facility(models.Model):
     @property
     def is_kyotaku(self):
         return self.layout == self.LAYOUT_KYOTAKU
+
+    @property
+    def org_label(self):
+        """印刷に出す事業所名。法人名（母体）があれば「みどり会　やすらぎの森」のように前に付ける"""
+        return f'{self.company_name}　{self.name}' if self.company_name else self.name
 
     @property
     def is_care(self):

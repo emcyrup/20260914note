@@ -294,3 +294,31 @@ class DemoTests(CareBase):
         from .models import NursingSetting
         s = NursingSetting.of(self.f)
         self.assertEqual((s.record_chars, s.family_chars, str(s.fever_temp), s.capacity), (300, 120, '37.3', 25))
+
+
+class OrgNameTests(CareBase):
+    """やすらぎの森の母体（法人名）：画面左上と帳票に「みどり会　やすらぎの森」"""
+
+    def test_company_name_shows(self):
+        self.f.company_name = 'みどり会'
+        self.f.save()
+        self.assertEqual(self.f.org_label, 'みどり会　介護施設（仮）')
+        res = self.client.get(reverse('nursing:home'))
+        self.assertContains(res, 'みどり会')
+        rep = IncidentReport.objects.create(facility=self.f, beneficiary=self.b, occurred_at=datetime.datetime(2026, 10, 1, 10, 0, tzinfo=datetime.timezone.utc),
+                                            situation='状況')
+        res = self.client.get(reverse('nursing:incident_print', args=[rep.pk]) + '?fmt=html')
+        self.assertContains(res, 'みどり会　介護施設（仮）')
+
+    def test_settings_saves_company(self):
+        self.f.refresh_from_db()
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, '法人名（母体）')
+
+    def test_create_facility_company_option(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+        call_command('create_facility', 'やすらぎの森', '--company', 'みどり会', '--preset', 'care', stdout=StringIO())
+        f = Facility.objects.get(name='やすらぎの森')
+        self.assertEqual((f.company_name, f.layout), ('みどり会', Facility.LAYOUT_CARE))
