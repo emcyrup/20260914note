@@ -34,11 +34,31 @@ def standalone_context():
     return {'reservation_only': only, 'home_url': home_url() if only else ''}
 
 
+# ログイン前の画面（ログイン・職員登録）の名前。サーバーの事業所の画面の型から決める（介護施設だけ・居宅介護支援だけのサーバー）
+SITE_BRANDS = {
+    'care': {'app_label': '介護施設の業務支援', 'name': '介護施設 業務支援', 'icon': 'bi-house-heart-fill'},
+    'kyotaku': {'app_label': 'ケアマネ業務支援', 'name': 'ケアマネ業務支援', 'icon': 'bi-clipboard2-heart-fill'},
+}
+DEFAULT_SITE_BRAND = {'app_label': '放課後等デイサービス業務支援', 'name': '放デイ業務支援', 'icon': 'bi-heart-pulse-fill'}
+
+
+def site_brand():
+    """ログイン前の画面の名前・アイコン。事業所がすべて同じ型（介護施設／居宅介護支援）ならその名前、事業所が 1 つならその名前（法人名つき）も"""
+    from .models import Facility
+    rows = list(Facility.objects.order_by('pk').values_list('layout', 'name', 'company_name')[:2])
+    layouts = set(Facility.objects.values_list('layout', flat=True).distinct()[:3])
+    brand = dict(SITE_BRANDS.get(layouts.pop(), DEFAULT_SITE_BRAND) if len(layouts) == 1 else DEFAULT_SITE_BRAND)
+    if len(rows) == 1 and rows[0][0] in SITE_BRANDS:
+        brand['org'] = f'{rows[0][2]}　{rows[0][1]}' if rows[0][2] else rows[0][1]
+    return brand
+
+
 def branding(request):
     user = getattr(request, 'user', None)
     facility = getattr(user, 'facility', None) if user is not None and user.is_authenticated else None
     if facility is None:
-        return {'terms': dict(DEFAULT_TERMS), 'branding': {'logo': None, 'color': ''},
+        site = site_brand()
+        return {'terms': dict(DEFAULT_TERMS), 'branding': {'logo': None, 'color': ''}, 'login_brand': site, 'app_label': site['app_label'],
                 'features': {'billing': True, 'schedule': True, 'line': True, 'reservation': False, 'form_set': 'standard',
                              'planbook': False, 'therapy': False, 'ryoiku': False, 'kyotaku': False, 'care': False, 'kaigo': False},
                  'journal_sections': [],

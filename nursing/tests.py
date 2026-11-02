@@ -277,15 +277,29 @@ class TransportTests(CareBase):
 class DemoTests(CareBase):
     def test_demo_add_and_remove(self):
         n = demo.add(self.f, self.admin)
-        self.assertEqual(n, 4)
+        self.assertEqual(n, len(demo.PEOPLE))
         self.assertEqual(demo.add(self.f, self.admin), 0)
+        self.assertEqual(IncidentReport.objects.filter(facility=self.f).count(), 3)
+        self.assertTrue(CareRecord.objects.filter(facility=self.f, lang='vi').exists())
+        self.assertTrue(VitalsLog.objects.filter(facility=self.f, slot=VitalsLog.SLOT_PM).exists())
+        from transport.models import TransportProfile, Vehicle
+        self.assertEqual(Vehicle.objects.filter(facility=self.f).count(), 2)
+        self.assertTrue(TransportProfile.objects.filter(beneficiary__facility=self.f).exists())
+        # 前の版（一部だけ入っている）なら足りない分だけ足す
+        Beneficiary.objects.filter(facility=self.f, last_name='模擬').delete()
+        self.assertEqual(demo.add(self.f, self.admin), 2)
+        # 手で入れた人員配置は消さない
+        own = StaffingDay.objects.create(facility=self.f, date=self.today - datetime.timedelta(days=30), users=5, care_staff=2, nurses=1, counselors=1)
         self.assertTrue(VitalsLog.objects.filter(facility=self.f).exists())
         self.assertTrue(CareRecord.objects.filter(facility=self.f, status=STATUS_APPROVED).exists())
         self.assertTrue(IncidentReport.objects.filter(facility=self.f).exists())
         for name in ('nursing:home', 'nursing:vitals_day', 'nursing:records', 'nursing:review', 'nursing:renraku', 'nursing:incidents', 'nursing:medications', 'nursing:staffing', 'nursing:transport_day', 'nursing:docs', 'nursing:settings'):
             self.assertEqual(self.client.get(reverse(name)).status_code, 200, name)
-        self.assertEqual(demo.remove(self.f), 4)
+        self.assertEqual(demo.remove(self.f), len(demo.PEOPLE))
         self.assertFalse(CareRecord.objects.filter(facility=self.f, beneficiary__notes__startswith=demo.MARK).exists())
+        self.assertFalse(IncidentReport.objects.filter(facility=self.f).exists())
+        self.assertFalse(Vehicle.objects.filter(facility=self.f).exists())
+        self.assertTrue(StaffingDay.objects.filter(pk=own.pk).exists())
         self.assertTrue(Beneficiary.objects.filter(pk=self.b.pk).exists())
 
     def test_settings_save(self):
@@ -322,3 +336,25 @@ class OrgNameTests(CareBase):
         call_command('create_facility', 'やすらぎの森', '--company', 'みどり会', '--preset', 'care', stdout=StringIO())
         f = Facility.objects.get(name='やすらぎの森')
         self.assertEqual((f.company_name, f.layout), ('みどり会', Facility.LAYOUT_CARE))
+
+
+class LoginBrandTests(TestCase):
+    """ログイン画面の名前：介護施設だけのサーバーなら介護施設の名前（放デイの名前を出さない）"""
+
+    def test_care_only_server(self):
+        f = Facility.objects.create(name='やすらぎの森', company_name='みどり会')
+        apply_care_preset(f)
+        res = self.client.get(reverse('accounts:login'))
+        self.assertContains(res, '介護施設 業務支援')
+        self.assertContains(res, 'みどり会　やすらぎの森')
+        self.assertContains(res, '<title>ログイン — 介護施設の業務支援</title>', html=False)
+        self.assertNotContains(res, '放デイ')
+        self.assertNotContains(res, '放課後等デイサービス')
+
+    def test_mixed_server_keeps_default(self):
+        f = Facility.objects.create(name='介護（仮）')
+        apply_care_preset(f)
+        Facility.objects.create(name='放デイ（仮）')
+        res = self.client.get(reverse('accounts:login'))
+        self.assertContains(res, '放デイ業務支援')
+        self.assertNotContains(res, '介護（仮）')

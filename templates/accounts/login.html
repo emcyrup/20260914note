@@ -9,9 +9,10 @@
       <!-- ロゴ・タイトル -->
       <div class="text-center mb-4">
         <div class="mb-2" style="color: var(--lake); font-size: 2.5rem;">
-          <i class="bi bi-heart-pulse-fill"></i>
+          <i class="bi {{ login_brand.icon|default:'bi-heart-pulse-fill' }}"></i>
         </div>
-        <h1 class="h4 fw-bold" style="font-family: var(--font-display); color: var(--ink);">放デイ業務支援</h1>
+        <h1 class="h4 fw-bold" style="font-family: var(--font-display); color: var(--ink);">{{ login_brand.name|default:"放デイ業務支援" }}</h1>
+        {% if login_brand.org %}<p class="fw-semibold mb-1" style="color: var(--ink);">{{ login_brand.org }}</p>{% endif %}
         <p class="text-muted small">{{ terms.staff }}専用ログイン</p>
       </div>
 
