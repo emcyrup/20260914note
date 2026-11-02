@@ -1,23 +1,30 @@
-# 介護施設「やすらぎの森」（法人：みどり会）の環境（ゆあーず・オウル・コトと同じ AWS 共用サーバー・別ポート・別 DB）
+# 介護施設「やすらぎの森」（法人：みどり会）の環境（開発環境の AWS サーバー・別ポート・別の置き場所）
 
-対象（**仮**。2026-10-31 時点でプロバイダ側の nginx・ポート・DB は準備中。決まったらこの表と Secrets を直す）:
-`https://kaigonote.yasuragi.ai-labo.cloud/` → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn `0.0.0.0:8047` → プロバイダ管理の PostgreSQL（DB `kaigonoteyasuragi`、ユーザー `ai_labo_dbuser`）。
+対象：`https://st-kaigonote.midorikai.ai-labo.cloud/` → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn `0.0.0.0:8045` → プロバイダ管理の PostgreSQL（ユーザー `st_ai_labo_dbuser`、DB 名は下の「DB について」）。2026-11-02 にプロバイダ側で設定ずみ（nginx・HTTPS・ポート 8045・DB）。
 
 やすらぎの森の機能（画面の型「介護施設」・`nursing` アプリ）は **`yasuragi` ブランチ**にあります（コトの `kyotaku` ブランチから分けた。介護保険証・家族の形はコトと共通）。ゆあーず・オウル（`ryoiku`）には入れません。共通部分の修正は `ryoiku` → `kyotaku` → `yasuragi` の順に取り込みます。
 
-コト（`docs/DEPLOY_AWS_KOTO.md`。`~/kaigonotekoto`・8043・DB `kaigonotekoto`）と**同じサーバー・同じ仕組み**で、置き場所・ポート・DB・`.env`・ブランチが違うだけです。venv（`~/env`）はゆあーず・オウル・コトと共用します。DB が別なので、やすらぎの森の利用者・記録はほかの事業所からは見えません。
+開発環境（`docs/DEPLOY_AWS_DEV.md`。`~/michinotedemo`・8029）・コトの開発環境（`docs/DEPLOY_AWS_KYOTAKU.md`。`~/kaigonotekyotaku`・8039）と**同じサーバー・同じ仕組み**で、置き場所・ポート・`.env`・ブランチが違います。venv（`~/env`）は共用します。
 
-| | コト | やすらぎの森（仮） |
+| | コトの開発環境 | やすらぎの森（みどり会） |
 |---|---|---|
-| アドレス | `kaigonote.koto.ai-labo.cloud` | `kaigonote.yasuragi.ai-labo.cloud` |
-| 置き場所 | `~/kaigonotekoto` | `~/kaigonoteyasuragi` |
-| Gunicorn | `0.0.0.0:8043` | `0.0.0.0:8047` |
-| DB | `kaigonotekoto` | `kaigonoteyasuragi`（`ai_labo_dbuser`。ゆあーずと同じユーザー・同じパスワード） |
+| アドレス | `st-kaigonote.kyotaku.ai-labo.cloud` | `st-kaigonote.midorikai.ai-labo.cloud` |
+| 置き場所 | `~/kaigonotekyotaku` | `~/kaigonotemidorikai` |
+| Gunicorn | `0.0.0.0:8039` | `0.0.0.0:8045` |
+| DB | `kaigonotekyotaku`（`st_ai_labo_dbuser`） | プロバイダの連絡では `kaigonotekyotaku`（`st_ai_labo_dbuser`）。**下の「DB について」** |
 | ブランチ | `kyotaku` | **`yasuragi`** |
-| 配備 | Deploy (koto) | **Deploy (yasuragi)**（Actions から手で。ブランチ `yasuragi` を選ぶ。push では動かない） |
-| 管理 | Manage (koto) | **Manage (yasuragi)** |
+| 配備 | Deploy (kyotaku)（push で動く） | **Deploy (yasuragi)**（Actions から手で。ブランチ `yasuragi` を選ぶ） |
+| 管理 | Manage (kyotaku) | **Manage (yasuragi)** |
 
-秘密情報（DB パスワード、`SECRET_KEY`、Anthropic キー、SSH 秘密鍵、管理者のパスワード）はサーバーの `.env`・GitHub Secrets だけに置きます（リポジトリ・Notion・Actions のログには書かない）。DB パスワードはゆあーずと同じユーザーなので、初回の配備でサーバーの中で `~/michinoteyours/.env` から写します。
+秘密情報（DB パスワード、`SECRET_KEY`、Anthropic キー、SSH 秘密鍵、管理者のパスワード）はサーバーの `.env`・GitHub Secrets だけに置きます（リポジトリ・Notion・Actions のログには書かない）。DB パスワードは開発環境と同じユーザーなので、初回の配備でサーバーの中で `~/michinotedemo/.env` から写します。
+
+### DB について（2026-11-02 確認中）
+
+プロバイダから伝えられた DB 名 `kaigonotekyotaku` は、**コトの開発環境が使っている DB と同じ名前**です。ブランチの違う 2 つのアプリ（コト＝`kyotaku`、やすらぎの森＝`yasuragi`）が同じ DB に `migrate` すると、片方で列を足したときにもう片方の保存が失敗するなど、動かなくなるおそれがあります。利用者・記録も同じ DB に入ります（画面上は事業所ごとに分かれる）。
+
+- **別の DB（例：`kaigonotemidorikai`）を用意してもらえた場合**：GitHub Secrets に `YASURAGI_DB_NAME` としてその名前を入れてから Deploy (yasuragi) を実行（初回に作る `.env` に入る）
+- **共用でよいと確かめた場合**：Deploy (yasuragi) の入力「コトの開発環境と DB を共用する」に印を付けて実行
+- どちらでもないまま `kaigonotekyotaku` で実行すると、配備はサーバーで止まる（何も変えない）
 
 ## 画面と機能（画面の型「介護施設」＝ `Facility.LAYOUT_CARE`、`create_facility --preset care`）
 
@@ -39,27 +46,27 @@
 - 請求・予約・来所予定は使わない（請求・LIFE 連携 CSV は後の段階）
 - **法人名（母体）**：やすらぎの森の母体は「みどり会」。施設設定の「法人名（母体）」（`Facility.company_name`）に入れると、画面左上の施設名の下と、介護施設の帳票（検温板・介護記録・連絡帳・事故報告書・服薬一覧・計画書・送迎表）の事業所欄に「みどり会　やすらぎの森」と出る（`Facility.org_label`）。みどり会のほかの事業所を足すときも同じ法人名を入れる
 
-## 1. 準備（プロバイダ側。準備中）
+## 1. 準備（プロバイダ側。2026-11-02 設定ずみ）
 
-- nginx：`kaigonote.yasuragi.ai-labo.cloud` → `127.0.0.1:8047`（HTTPS）
-- PostgreSQL：DB `kaigonoteyasuragi`、ユーザー `ai_labo_dbuser`（ゆあーずと同じユーザー）
-- アドレス・ポート・DB 名が上と違うときは、Secrets `YASURAGI_DOMAIN`・`YASURAGI_PORT` を登録し、`deploy/.env.yasuragi-aws.example` の `DB_NAME` を直してから配備する
+- nginx：`st-kaigonote.midorikai.ai-labo.cloud` → `127.0.0.1:8045`（HTTPS）
+- PostgreSQL：ユーザー `st_ai_labo_dbuser`（開発環境と同じユーザー）、DB 名は上の「DB について」
 
 ## 2. GitHub Secrets
 
-SSH は同じサーバーなのでゆあーずの `YOURS_DEPLOY_*` をそのまま使います（別にしたいときだけ `YASURAGI_DEPLOY_*`）。
+SSH は同じサーバーなので開発環境の `DEV_DEPLOY_*` をそのまま使います（別にしたいときだけ `YASURAGI_DEPLOY_*`）。
 
 | 名前 | 入れるもの |
 |---|---|
-| `YASURAGI_ADMIN_PASSWORD` | 管理者 `yasuragi` のパスワード（Manage (yasuragi) の `set_password` で使う。済んだら消してよい） |
+| `YASURAGI_ADMIN_PASSWORD` | 管理者 `yasuragi` のパスワード（Manage (yasuragi) の `create_facility`・`set_password` で使う。済んだら消してよい） |
+| `YASURAGI_DB_NAME` | やすらぎの森の DB 名（コトと別の DB を用意してもらえたとき。空なら `kaigonotekyotaku`） |
 | `YASURAGI_DOMAIN`・`YASURAGI_PORT` | アドレス・ポートを変えるときだけ（既定は上の表） |
 
 ## 3. 配備（Actions から。サーバーに入らなくてよい）
 
 Actions → **Deploy (yasuragi)** → Run workflow（ブランチ **`yasuragi`**）。
 
-- 初回は `~/kaigonoteyasuragi` に clone し、`.env` を `deploy/.env.yasuragi-aws.example` から作る（`SECRET_KEY` はサーバー上で生成、`DB_PASSWORD`・`ANTHROPIC_API_KEY`・音声の設定は `~/michinoteyours/.env` から写す。ログには項目名だけ）。2 回目以降は `.env` を上書きしない
-- 介護施設の機能（`nursing`）が無いコミットを選ぶと止まる。venv は共用なので `requirements.txt` がゆあーずと違うと止まる（先に Deploy (yours)）
+- 初回は `~/kaigonotemidorikai` に clone し、`.env` を `deploy/.env.yasuragi-aws.example` から作る（`SECRET_KEY` はサーバー上で生成、`DB_NAME` は `YASURAGI_DB_NAME`、`DB_PASSWORD`・`ANTHROPIC_API_KEY`・音声の設定は `~/michinotedemo/.env` から写す。ログには項目名だけ）。2 回目以降は `.env` を上書きしない
+- 介護施設の機能（`nursing`）が無いコミットを選ぶと止まる。DB 名がコトの開発環境と同じなのに「共用する」に印が無いときも止まる
 - そのあと `deploy/venv-deploy.sh` が `pip install` → `migrate` → `collectstatic` → Gunicorn 起動 → ヘルスチェックまで行う。再起動するのはやすらぎの森の Gunicorn だけ
 
 ## 4. 事業所と管理者を作る（初回だけ）
