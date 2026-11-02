@@ -223,7 +223,7 @@ Webhook の URL は事業所ごとで、施設設定の LINE 欄と、予約の�
 - **送迎表**：利用の曜日と送迎の設定（`transport`）から、その日の迎え・送りと車両ごとの人数。印刷
 - **資料・加算の検索**：施設設定で入れた PDF を AI アシスタントが根拠付きで答える（`ai_assist` の資料検索）
 - 法人名（母体）：施設設定の「法人名（母体）」（`company_name`）を入れると、画面左上と介護施設の帳票の事業所欄に「みどり会　やすらぎの森」と出る（`Facility.org_label`）
-- 配備：開発環境の AWS サーバーに別のアドレス・ポートで（`https://st-kaigonote.midorikai.ai-labo.cloud/`・8045。`docs/DEPLOY_AWS_YASURAGI.md`。Deploy (yasuragi) は Actions から手で。DB 名はコトの開発環境と同じと連絡があったため確認中）
+- 配備：開発環境の AWS サーバーに別のアドレス・ポートで（`https://st-kaigonote.midorikai.ai-labo.cloud/`・8045。`docs/DEPLOY_AWS_YASURAGI.md`。Deploy (yasuragi) は Actions から手で。DB `kaigonotemidorikai`）
 
 ### 予約管理だけを別サーバーで動かす（横展開）
 

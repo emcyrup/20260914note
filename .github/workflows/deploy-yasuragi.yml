@@ -1,7 +1,7 @@
 # =============================================
 # 介護施設「やすらぎの森」（法人：みどり会）を AWS 開発環境のサーバー（st-michinotedemo・コトの開発環境と同じサーバー）へデプロイ
 #   https://st-kaigonote.midorikai.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 0.0.0.0:8045（2026-11-02 にプロバイダ側で設定ずみ）
-#   置き場所 ~/kaigonotemidorikai、DB ユーザー st_ai_labo_dbuser。venv（~/env）は開発環境と共用
+#   置き場所 ~/kaigonotemidorikai、DB kaigonotemidorikai（ユーザー st_ai_labo_dbuser）。venv（~/env）は開発環境と共用
 #   Actions から手動で実行し、ブランチは yasuragi を選ぶ（やすらぎの森の機能 nursing は yasuragi ブランチにある）
 #   サーバー側は deploy/venv-deploy.sh が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行う
 #   手順は docs/DEPLOY_AWS_YASURAGI.md
@@ -9,12 +9,12 @@
 # GitHub Secrets：同じサーバーなので DEV_*（Deploy (dev) のもの）をそのまま使う。別にしたいときだけ YASURAGI_* を登録する
 #   YASURAGI_DEPLOY_HOST / YASURAGI_DEPLOY_USER / YASURAGI_DEPLOY_SSH_KEY / YASURAGI_DEPLOY_SSH_PORT（無ければ DEV_*）
 #   YASURAGI_APP_DIR（既定 ~/kaigonotemidorikai）、YASURAGI_VENV（無ければ DEV_VENV、既定 ~/env）
-#   YASURAGI_DOMAIN（既定 st-kaigonote.midorikai.ai-labo.cloud）・YASURAGI_PORT（既定 8045）・YASURAGI_DB_NAME（既定 kaigonotekyotaku）
+#   YASURAGI_DOMAIN（既定 st-kaigonote.midorikai.ai-labo.cloud）・YASURAGI_PORT（既定 8045）・YASURAGI_DB_NAME（既定 kaigonotemidorikai）
 #     （ポート・DB 名は初回に .env を作るときだけ使う）
 #
-# DB について（2026-11-02）：プロバイダから伝えられた DB 名 kaigonotekyotaku は、コトの開発環境（Deploy (kyotaku)）と同じ DB。
-#   ブランチの違うアプリが同じ DB に migrate すると、片方の変更でもう片方が動かなくなるおそれがあるので、
-#   DB 名が kaigonotekyotaku のときは、入力の「コトの開発環境と DB を共用する」に印を付けたときだけ配備する
+# DB について（2026-11-02）：やすらぎの森の DB は kaigonotemidorikai（プロバイダが作成）。コトの開発環境の DB（kaigonotekyotaku）とは別。
+#   ブランチの違うアプリが同じ DB に migrate すると片方が動かなくなるおそれがあるので、
+#   取り違えて DB 名が kaigonotekyotaku になっているときは、入力の「コトの開発環境と DB を共用する」に印が無ければ配備を止める
 #
 # 初回：サーバーに ~/kaigonotemidorikai/.env が無ければ deploy/.env.yasuragi-aws.example から作る。
 #   SECRET_KEY はサーバー上で生成し、DB_PASSWORD・ANTHROPIC_API_KEY・音声の設定は開発環境の ~/michinotedemo/.env から写す
@@ -109,7 +109,7 @@ jobs:
           SRC_APP_DIR: ${{ secrets.DEV_APP_DIR || '~/michinotedemo' }}
           DOMAIN: ${{ env.DOMAIN }}
           PORT_NUM: ${{ secrets.YASURAGI_PORT || '8045' }}
-          DB_NAME_NEW: ${{ secrets.YASURAGI_DB_NAME || 'kaigonotekyotaku' }}
+          DB_NAME_NEW: ${{ secrets.YASURAGI_DB_NAME || 'kaigonotemidorikai' }}
           SHARE_DB: ${{ inputs.share_db_with_koto }}
         run: |
           # 切り戻しで入れるのはコミットの番号だけ（英数字 7〜40 字）。ほかの文字はサーバーのコマンドに渡さない
