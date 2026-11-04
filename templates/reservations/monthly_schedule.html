@@ -15,6 +15,9 @@
   .ms-week td.out { background: #f6f6f6; }
   .ms-week td.off { background: #ececec; }
   .ms-week th.time { width: 46px; font-size: 0.72rem; }
+  /* 下へ送っても、その週の日付の行を画面の上（トップバーの下）に残す（2026-11-04 ゆあーず：スクロールすると日付が分からない） */
+  .ms-week thead th { position: sticky; top: var(--sticky-top, 64px); z-index: 4; background: #f3efe7; box-shadow: inset 0 -1px 0 #cfc8bb; }
+  @media print { .ms-week thead th { position: static; box-shadow: none; } }
   .ms-box { display: block; height: 20px; line-height: 20px; padding: 0 4px; border-bottom: 1px dotted #ddd6c9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; color: inherit; }
   .ms-box:last-child { border-bottom: 0; }
   .ms-box.empty { color: #c9c2b5; }

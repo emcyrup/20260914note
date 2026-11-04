@@ -21,6 +21,9 @@ class TherapyProfile(models.Model):
     beneficiary = models.OneToOneField(Beneficiary, on_delete=models.CASCADE, related_name='therapy_profile',
                                        verbose_name='利用者')
     cautions = models.TextField(blank=True, verbose_name='留意点')
+    # 誰がいつ直したか（2026-11-04 ゆあーず：成長や状況で変わる注意なので、いつの内容か分かるように）
+    updated_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='+', verbose_name='最後に直した職員')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

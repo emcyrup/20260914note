@@ -217,6 +217,8 @@ LOGGING = {
     'root': {'handlers': ['console'], 'level': 'WARNING'},
     'loggers': {
         'django.request': {'handlers': ['console'], 'level': 'ERROR', 'propagate': False},
+        # 療育記録の音声→AI の文字数・時間（中身は出さない）。Manage (yours) の voice_stats で集計する
+        'therapy': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
     },
 }
 

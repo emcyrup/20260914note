@@ -109,6 +109,27 @@
     <div id="voice-direct-status" class="small text-muted mt-2" aria-live="polite">押して話し、話し終えたらもう一度押してください。話した内容を活動ごとの段落にまとめ、書き言葉に整えて、下の「これまでの記録」の<b>今日（{{ today|date:'n/j' }}）の記録</b>に入れます（内容は足しません・変えません）。確かめて直してから「保存する」を押してください（自動では保存しません）。直した内容は、この事業所の次の整え方の参考になります（名前は伏せて使います）。</div>
     <div id="voice-direct-asis"></div>
   </div></div>
+  {# 留意点（手で書く・AI は使わない）。2026-11-04 ゆあーず：成長や状況で変わる注意（例：トイレで遊ぶ間は戸を閉める）。要らなくなったら消す #}
+  <div class="card mb-3" id="cautions-card"><div class="card-body">
+    <form method="post" class="th-save-form" data-draft="therapy-cautions:{{ beneficiary.pk }}" data-draft-fields="#cautions" {% if profile %}data-concurrency="therapy_profile:{{ profile.pk }}" data-concurrency-lazy{% endif %}>
+      {% csrf_token %}<input type="hidden" name="action" value="cautions">{% if profile %}{% version_field profile %}{% endif %}
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+        <label class="th-card-title mb-0" for="cautions"><i class="bi bi-exclamation-diamond"></i>留意点（いま気をつけること）</label>
+        {% if profile and profile.cautions %}<span class="small text-muted">{{ profile.updated_at|date:'Y年n月j日' }}{% if profile.updated_by %} {{ profile.updated_by }}{% endif %} に直した内容</span>{% endif %}
+      </div>
+      {% if unsaved_cautions %}
+      <div class="alert alert-warning small py-2 px-2 mb-2">
+        <b>保存できなかった留意点</b>（開いたあとに他の職員が留意点を保存したため）。下の欄は最新の内容です。見比べて、必要なところを写してから保存してください。
+        <textarea class="form-control form-control-sm mt-1" rows="3" readonly>{{ unsaved_cautions.text }}</textarea>
+      </div>
+      {% endif %}
+      <textarea class="form-control" id="cautions" name="cautions" rows="{% if profile and profile.cautions %}{{ cautions_rows }}{% else %}2{% endif %}" placeholder="例：トイレで遊んでしまう間は、戸を閉めるよう声をかける">{{ profile.cautions|default:'' }}</textarea>
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mt-1">
+        <div class="form-text mb-0">この{{ terms.beneficiary }}に<b>いま</b>気をつけることを手で書きます（AI は使いません。音声の記録にも混ぜません）。成長や状況で要らなくなったら、消すか書き直してください。用紙の上の「留意点」に印刷されます。<br>その日だけの連絡や、あとで見たい気づきは、右上の「メモ」へ。</div>
+        <button class="btn btn-sm btn-outline-secondary th-save-btn"><i class="bi bi-check2 me-1"></i>留意点を保存</button>
+      </div>
+    </form>
+  </div></div>
   {% else %}
   <div class="card mb-3"><div class="card-body">
     <form method="post" class="th-save-form" {% if not user.facility.therapy_no_wording %}data-wording{% endif %} data-draft="therapy-cautions:{{ beneficiary.pk }}" data-draft-fields="#cautions" {% if profile %}data-concurrency="therapy_profile:{{ profile.pk }}" data-concurrency-lazy{% endif %}>
@@ -491,6 +512,38 @@
     say('活動ごとにまとめて、今日の記録に入れました' + (left.length ? '（①〜⑤がいっぱいで入らなかったやったこと：' + left.join('、') + '）' : '') +
         '。確かめて直してから「保存する」を押してください。', 'info', [['入れたのを取り消す', undo]]);
     asisBox.textContent = '';
+    var fd = data.fidelity;
+    if (fd) {
+      // 話した言葉と照らして、否定が消えた・肯定に変わったおそれ・短くなりすぎたおそれ（2026-11-04 ゆあーず）
+      var f = document.createElement('div');
+      f.className = 'alert alert-danger small py-1 px-2 mt-2 mb-0';
+      var head = document.createElement('div');
+      head.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1"></i><b>話した内容とちがうところがあるかもしれません。</b>保存の前に確かめてください。';
+      f.appendChild(head);
+      var items = [];
+      if (fd.flips && fd.flips.length) {
+        items.push('話した言葉では「できなかった」などの否定でしたが、記録では肯定（「できた」など）になっているかもしれません：');
+        fd.flips.forEach(function (t) { items.push('　・' + t); });
+      } else if (fd.dropped) {
+        items.push('話した言葉の「〜なかった」「難しかった」などの否定が、記録では ' + fd.dropped + ' か所少なくなっています。消えていないか確かめてください。');
+      }
+      if (fd.short) items.push('記録が短くなっています（話した文字 約 ' + fd.spoken_len + ' 字 → 記録 ' + fd.body_len + ' 字）。抜けているところがないか確かめてください。');
+      items.forEach(function (t) { var d = document.createElement('div'); d.textContent = t; f.appendChild(d); });
+      asisBox.appendChild(f);
+    }
+    if (data.spoken) {
+      // 話した文字（整える前）を見比べられるようにする。短いときは、聞き取れていない（声が小さい・マイクが遠い）か、AI が省いたかが分かる
+      var det = document.createElement('details');
+      det.className = 'small mt-2';
+      var sum = document.createElement('summary');
+      sum.textContent = '話した文字（整える前）を見る' + (data.spoken_len ? '（約 ' + data.spoken_len + ' 字 → 記録 ' + data.body_len + ' 字）' : '');
+      var pre = document.createElement('div');
+      pre.className = 'border rounded p-2 mt-1 bg-light'; pre.style.whiteSpace = 'pre-wrap';
+      pre.textContent = data.spoken;
+      det.appendChild(sum); det.appendChild(pre);
+      if (fd) det.open = true;
+      asisBox.appendChild(det);
+    }
     if (data.added && data.added.length) {
       var w = document.createElement('div');
       w.className = 'alert alert-warning small py-1 px-2 mt-2 mb-0';
