@@ -13,8 +13,9 @@ from .text import clean_ai_text, effort_kwargs
 logger = logging.getLogger(__name__)
 
 
-def ask_ai(system, content, max_tokens):
-    """AI に1回たずねて (返答の文, None) を返す。使えないときは (None, エラーの JsonResponse)"""
+def ask_ai(system, content, max_tokens, stop_sequences=None):
+    """AI に1回たずねて (返答の文, None) を返す。使えないときは (None, エラーの JsonResponse)。
+    stop_sequences：そこで書くのを止める言葉（JSON を返したあとに、頼んでいない続きを書き始めるのを止める）"""
     if not settings.ANTHROPIC_API_KEY:
         return None, JsonResponse({'error': 'AIを使う設定（ANTHROPIC_API_KEY）がサーバーにありません。管理者に設定を依頼してください。'},
                                   status=500)
@@ -23,6 +24,7 @@ def ask_ai(system, content, max_tokens):
         response = client.messages.create(
             model=settings.AI_TEXT_MODEL, max_tokens=max_tokens, **effort_kwargs(settings.AI_TEXT_MODEL),
             system=system, messages=[{'role': 'user', 'content': content}],
+            **({'stop_sequences': list(stop_sequences)} if stop_sequences else {}),
         )
     except Exception as e:  # noqa: BLE001
         logger.exception('AI の呼び出しでエラー')
