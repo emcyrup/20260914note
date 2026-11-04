@@ -27,9 +27,10 @@ voice_direct（ゆあーず）の事業所は「修正」を押さずに、は�
           {% csrf_token %}<input type="hidden" name="action" value="edit"><input type="hidden" name="record" value="{{ rec.pk }}">{% version_field rec %}
           {% if unsaved_record and unsaved_record.pk == rec.pk %}
           <div class="col-12"><div class="alert alert-warning small py-2 mb-0">
-            <b>保存できなかった内容</b>（開いたあとに他の職員がこの記録を保存したため）。下の欄は最新の内容です。見比べて写してから保存してください。
+            <b>保存できなかった内容</b>（{{ unsaved_record.reason|default:'開いたあとに他の職員がこの記録を保存したため' }}）。下の欄は最新の内容です。見比べて写してから保存してください。
             {% if unsaved_record.activities %}<div class="mt-1">やったこと：{{ unsaved_record.activities|join:'・' }}</div>{% endif %}
-            <textarea class="form-control form-control-sm mt-1" rows="4" readonly>{{ unsaved_record.text }}</textarea>
+            <textarea class="form-control form-control-sm mt-1 th-unsaved-text" rows="4" readonly>{{ unsaved_record.text }}</textarea>
+            <button type="button" class="btn btn-sm btn-outline-primary mt-1 th-unsaved-append" onclick="(function(b){var f=b.closest('form'),t=f.querySelector('textarea[name=body]'),u=f.querySelector('.th-unsaved-text');if(!t||!u)return;t.value=t.value.trim()?t.value.replace(/\s+$/,'')+'\n'+u.value:u.value;t.dispatchEvent(new Event('input',{bubbles:true}));b.disabled=true;b.textContent='記録の欄の最後に足しました（確かめて「保存する」）';})(this)">この内容を記録の欄の最後に足す</button>
           </div></div>
           {% endif %}
           <div class="col-12" data-draft-banner></div>

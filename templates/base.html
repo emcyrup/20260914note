@@ -636,6 +636,14 @@ function closeSidebar() {
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') closeSidebar();
 });
+/* 表の見出しを上に残す画面（月間予定表など）用：トップバーの高さを --sticky-top に入れる（スマホでは高さが変わる） */
+(function () {
+  var bar = document.querySelector('.topbar');
+  if (!bar) return;
+  function set() { document.documentElement.style.setProperty('--sticky-top', bar.offsetHeight + 'px'); }
+  set();
+  window.addEventListener('resize', set);
+})();
 </script>
 </body>
 </html>
