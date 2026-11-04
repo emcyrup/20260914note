@@ -612,11 +612,12 @@ def parse_record_split(raw):
     """AI の返答（JSON）→ {'activities': [5つまで], 'body', 'situation'}。JSON で返らなかったときは、整えた文として全部を body に"""
     import json
     text = (raw or '').strip()
-    m = re.search(r'\{.*\}', text, re.S)
     data = None
-    if m:
+    start = text.find('{')
+    if start >= 0:
+        # 最初の JSON だけを読む（そのあとに続きを書いていても使わない）
         try:
-            data = json.loads(m.group(0))
+            data, _end = json.JSONDecoder().raw_decode(text, start)
         except ValueError:
             data = None
     if not isinstance(data, dict):
@@ -636,8 +637,13 @@ def parse_record_split(raw):
     return {'activities': activities[:ACTIVITY_MAX], 'body': clean(data.get('body')), 'situation': clean(data.get('situation'))}
 
 
+# JSON を返したあとに、頼んでいない続き（別の子の話など）を書き始めることがある（2026-11-04 の確かめで見つかった）。
+# JSON の文字列の中の改行は \n と書かれるので、本当の改行のあとのこれらの言葉は JSON の外。そこで止める
+RECORD_STOP = ['\nuser', '\nUser', '\nHuman', '\nAssistant', '\n【', '\n:【', '\n答：']
+
+
 def _record_once(prompt, content):
-    raw, error = _ask_ai(prompt, content, 4096)
+    raw, error = _ask_ai(prompt, content, 4096, stop_sequences=RECORD_STOP)
     if error:
         return None, error
     data = parse_record_split(raw)

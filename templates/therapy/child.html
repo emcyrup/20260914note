@@ -527,6 +527,7 @@
       } else if (fd.dropped) {
         items.push('話した言葉の「〜なかった」「難しかった」などの否定が、記録では ' + fd.dropped + ' か所少なくなっています。消えていないか確かめてください。');
       }
+      if (fd.long) items.push('記録が話した内容よりずっと長くなっています（話した文字 約 ' + fd.spoken_len + ' 字 → 記録 ' + fd.body_len + ' 字）。話していないことが入っていないか確かめてください。');
       if (fd.short) items.push('記録が短くなっています（話した文字 約 ' + fd.spoken_len + ' 字 → 記録 ' + fd.body_len + ' 字）。抜けているところがないか確かめてください。');
       items.forEach(function (t) { var d = document.createElement('div'); d.textContent = t; f.appendChild(d); });
       asisBox.appendChild(f);

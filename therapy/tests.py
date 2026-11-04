@@ -1114,3 +1114,31 @@ class VoiceDirectDupTests(TestCase):
         # 「もう1件として保存する」ならそのまま保存する
         self.client.post(self.url, {'action': 'add', 'date': today, 'body': '別の回', 'dup_ok': '1'})
         self.assertEqual(TherapyRecord.objects.filter(beneficiary=self.kid).count(), 2)
+
+
+class RecordRunawayTests(TestCase):
+    """AI が JSON のあとに頼んでいない続き（別の子の話）を書いたとき、最初の JSON だけを使う（2026-11-04 の確かめで見つかった）"""
+
+    def test_parse_uses_first_json_only(self):
+        from therapy.views import parse_record_split
+        raw = ('{"activities": ["ブロック"], "body": "ブロックを積んだ。"}\n\nuser【架空 花子さんの今日の療育について職員が話したこと】\n'
+               '今日はね…{"activities": ["粘土"], "body": "粘土をした。"}')
+        d = parse_record_split(raw)
+        self.assertEqual((d['activities'], d['body']), (['ブロック'], 'ブロックを積んだ。'))
+
+    def test_long_body_is_flagged(self):
+        from therapy import fidelity
+        r = fidelity.check('ブロックを積んだ。', 'ブロックを積んだ。' + '別の子が粘土をした。' * 30)
+        self.assertTrue(r['long'] and fidelity.has_problem(r))
+        self.assertIn('話していないことが入っていた', fidelity.retry_note('ブロックを積んだ。', r))
+        self.assertTrue(fidelity.notice(r)['fidelity']['long'])
+        # 「難しく」＋「できなかった」は否定 2 つのまま
+        self.assertFalse(fidelity.has_problem(fidelity.check('ルールが難しくてできなかった。', 'ルールが少し難しくできなかった。')))
+
+    @override_settings(ANTHROPIC_API_KEY='test')
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_record_sends_stop_sequences(self, client_cls):
+        VoiceDirectTests.setUp(self)
+        client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(type='text', text='{"activities": [], "body": "ブロックを積んだ。"}')])
+        self.client.post(self.ai_url, {'mode': 'record', 'text': 'ブロック積んだ'})
+        self.assertIn('\nuser', client_cls.return_value.messages.create.call_args.kwargs['stop_sequences'])

@@ -14,7 +14,7 @@ import re
 # 否定・できなかったことを表す言い方（方言・話し言葉も）。書き言葉に直ると「なかった」「ず」などになる
 _NEG = (r'(?:なかった|なくて|ないで|なく(?=[、。\s]|$)|ない(?![かがはでとよ]|ように|方)|ません(?:でした)?|ず(?:に|、|。|$)|'
         r'(?:へ|ひ|せ)ん(?:かった)?|んかった|んくて|れへん|られへん|でけへん|'
-        r'難しかった|むずかしかった|難しくて|むずかしくて|苦手|嫌が|いやが|拒否|拒ん|できず)')
+        r'難しかった|むずかしかった|難しく|むずかしく|苦手|嫌が|いやが|拒否|拒ん|できず)')
 _NEG_RE = re.compile(_NEG)
 _LEXICAL_RE = re.compile(r'難し|むずかし|苦手|嫌が|いやが|拒|できず')
 # 否定の前の言葉（動詞などの部分）：かな・漢字の続き 1〜4 字
@@ -25,6 +25,8 @@ _FILLERS = re.compile(r'えーと|えっと|えー|あのー|あの|なんか|�
 
 SHORT_MIN_SPOKEN = 150   # これより短い話は「短すぎ」を見ない
 SHORT_RATIO = 0.5        # 言いよどみを除いた話の長さに対して、整えた文がこれより短いと知らせる
+LONG_RATIO = 1.6         # 整えた文が話の長さのこれ倍＋LONG_MARGIN 字より長いと「話していないことが入った」おそれ
+LONG_MARGIN = 60
 
 
 def _clean_len(text):
@@ -78,17 +80,18 @@ def check(spoken, body):
         'dropped': max(0, len(src) - body_negs),
         'neg_spoken': len(src), 'neg_body': body_negs,
         'short': sl >= SHORT_MIN_SPOKEN and bl < sl * SHORT_RATIO,
+        'long': bl > sl * LONG_RATIO + LONG_MARGIN,
         'spoken_len': sl, 'body_len': bl,
     }
 
 
 def has_problem(result):
-    return bool(result['flips'] or result['dropped'] or result['short'])
+    return bool(result['flips'] or result['dropped'] or result['short'] or result.get('long'))
 
 
 def score(result):
     """小さいほどよい（作り直したときにどちらを使うか）"""
-    return len(result['flips']) * 3 + result['dropped'] * 2 + (1 if result['short'] else 0)
+    return len(result['flips']) * 3 + result['dropped'] * 2 + (1 if result['short'] else 0) + (3 if result.get('long') else 0)
 
 
 def retry_note(spoken, result):
@@ -102,6 +105,9 @@ def retry_note(spoken, result):
     if result['short']:
         lines.append(f'前に作った記録は {result["body_len"]} 字で、話した内容（言いよどみを除いて約 {result["spoken_len"]} 字）より短すぎた。'
                      '要約せず、話した内容（したこと・ようす・言葉・回数・順番）を 1 つも落とさずに書くこと。')
+    if result.get('long'):
+        lines.append(f'前に作った記録は {result["body_len"]} 字で、話した内容（約 {result["spoken_len"]} 字）よりずっと長く、話していないことが入っていた。'
+                     '話に無いこと・ほかの子の話・続きの会話は書かず、JSON を 1 つだけ返すこと。')
     return '\n'.join(lines)
 
 
@@ -109,5 +115,5 @@ def notice(result):
     """画面に出す形（問題が無ければ空）"""
     if not has_problem(result):
         return {}
-    return {'fidelity': {'flips': result['flips'][:8], 'dropped': result['dropped'], 'short': result['short'],
+    return {'fidelity': {'flips': result['flips'][:8], 'dropped': result['dropped'], 'short': result['short'], 'long': bool(result.get('long')),
                          'spoken_len': result['spoken_len'], 'body_len': result['body_len']}}
