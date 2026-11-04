@@ -769,8 +769,11 @@ class VoiceDirectTests(TestCase):
         res = self.client.get(self.url)
         self.assertContains(res, 'id="voice-direct-btn"')
         self.assertContains(res, 'data-voice-target="voice-buffer"')
-        for hidden in ('詳しくまとめる', '短く要約', 'id="cautions-tidy"', '見取り図と表', '留意点を保存', '留意点から記録に追記', 'はさみ：見守る'):
+        for hidden in ('詳しくまとめる', '短く要約', 'id="cautions-tidy"', '見取り図と表', '留意点から記録に追記'):
             self.assertNotContains(res, hidden)
+        # 留意点は手で書く欄だけ（AI のボタンなし。2026-11-04）
+        self.assertContains(res, 'id="cautions-card"')
+        self.assertContains(res, 'はさみ：見守る')
         # 今日の記録がまだ無い：これまでの記録の上に今日の新しい記録の欄（保存は「保存する」で）
         self.assertContains(res, 'id="today-form"')
         self.assertContains(res, 'data-form="#today-form"')
@@ -972,3 +975,142 @@ class LearningTests(TestCase):
         # 切り替えがオフの事業所は何もしない（欄も出ない）
         Facility.objects.filter(pk=self.f.pk).update(therapy_voice_direct=False)
         self.assertNotContains(self.client.get(self.url), 'name="spoken_text"')
+
+
+@override_settings(ANTHROPIC_API_KEY='test')
+class FidelityTests(TestCase):
+    """音声→AI の記録で「できなかった」が「できた」になる・否定が落ちる・短くなりすぎるのを見つけて作り直す（2026-11-04 ゆあーず）"""
+
+    setUp = VoiceDirectTests.setUp
+
+    SPOKEN = 'あいさつをしたんですけど、えーと、あいさつができんかったです。それからボール遊びをして、ルールが難しくてできなかった。でもブロックはできた。'
+
+    def _ai(self, client_cls, *bodies):
+        client_cls.return_value.messages.create.side_effect = [
+            SimpleNamespace(content=[SimpleNamespace(type='text', text='{"activities": ["ボール遊び"], "body": "%s"}' % b)]) for b in bodies]
+
+    def test_checker(self):
+        from therapy import fidelity
+        bad = fidelity.check(self.SPOKEN, 'あいさつができた。ボール遊びでは、ルールが難しかったができた。ブロックはできた。')
+        self.assertTrue(fidelity.has_problem(bad))
+        self.assertTrue(any('あいさつができんかった' in s for s in bad['flips']))
+        self.assertEqual(bad['dropped'], 2)
+        good = fidelity.check(self.SPOKEN, 'あいさつができなかった。ボール遊びでは、ルールが難しくてできなかった。ブロックはできた。')
+        self.assertFalse(fidelity.has_problem(good))
+        # 方言の否定 → 書き言葉の否定は問題にしない
+        self.assertFalse(fidelity.has_problem(fidelity.check('お片付けはせえへんかった。おやつは食べへんかった。', 'お片付けはしなかった。おやつは食べなかった。')))
+        self.assertTrue(fidelity.check('お片付けはしなかった。', 'お片付けはした。')['flips'])
+        # 長く話したのに 2 行ほど
+        long = '。'.join(['ウレタン棒で打ち合いをして十回続けたあと休憩してまた始めた'] * 8)
+        self.assertTrue(fidelity.check(long, 'ウレタン棒で打ち合った。')['short'])
+        self.assertFalse(fidelity.check(long, long)['short'])
+
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_retries_once_and_uses_better(self, client_cls):
+        self._ai(client_cls, 'あいさつができた。ボール遊びはできた。ブロックはできた。',
+                 'あいさつができなかった。ボール遊びでは、ルールが難しくてできなかった。ブロックはできた。')
+        d = self.client.post(self.ai_url, {'mode': 'record', 'text': self.SPOKEN}).json()
+        self.assertEqual(client_cls.return_value.messages.create.call_count, 2)
+        self.assertIn('できなかった', d['body'])
+        self.assertNotIn('fidelity', d)
+        second = client_cls.return_value.messages.create.call_args_list[1].kwargs['messages'][0]['content']
+        self.assertIn('【前に作った記録で直すところ】', second)
+        self.assertIn('あいさつができんかったです。', second)
+        system = client_cls.return_value.messages.create.call_args.kwargs['system']
+        self.assertIn('否定はそのまま否定で書く', system)
+        self.assertIn('別の活動の評価にしない', system)
+        self.assertIn('要約しない', system)
+
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_still_wrong_is_shown(self, client_cls):
+        self._ai(client_cls, 'あいさつができた。ボール遊びはできた。', 'あいさつができた。ボール遊びはできた。ブロックはできた。')
+        d = self.client.post(self.ai_url, {'mode': 'record', 'text': self.SPOKEN}).json()
+        self.assertEqual(client_cls.return_value.messages.create.call_count, 2)
+        self.assertTrue(d['fidelity']['flips'])
+        self.assertEqual(d['spoken'], self.SPOKEN)
+        self.assertGreater(d['spoken_len'], d['body_len'])
+
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_no_retry_when_fine(self, client_cls):
+        self._ai(client_cls, 'あいさつができなかった。ボール遊びでは、ルールが難しくてできなかった。ブロックはできた。')
+        d = self.client.post(self.ai_url, {'mode': 'record', 'text': self.SPOKEN}).json()
+        self.assertEqual(client_cls.return_value.messages.create.call_count, 1)
+        self.assertNotIn('fidelity', d)
+
+
+class VoiceDirectCautionsTests(TestCase):
+    """音声入力を直接入れる事業所の、手で書く留意点（2026-11-04 ゆあーず）"""
+
+    setUp = VoiceDirectTests.setUp
+
+    def test_manual_cautions_saved_with_staff_and_date(self):
+        res = self.client.get(self.url)
+        self.assertContains(res, '留意点（いま気をつけること）')
+        self.assertContains(res, 'AI は使いません')
+        self.assertNotContains(res, 'cautions-ai')
+        profile = TherapyProfile.objects.get(beneficiary=self.kid)
+        res = self.client.post(self.url, {'action': 'cautions', 'cautions': 'トイレで遊んでしまう間は、戸を閉めるよう声をかける',
+                                          'version': profile.updated_at.isoformat()})
+        self.assertEqual(res.status_code, 302)
+        profile.refresh_from_db()
+        self.assertEqual(profile.cautions, 'トイレで遊んでしまう間は、戸を閉めるよう声をかける')
+        self.assertEqual(profile.updated_by.username, 'ryo')
+        res = self.client.get(self.url)
+        self.assertContains(res, 'に直した内容')
+        self.assertContains(res, 'トイレで遊んでしまう間は')
+        # 印刷の用紙の上の「留意点」にも出る
+        self.assertContains(self.client.get(reverse('therapy:pdf', args=[self.kid.pk]) + '?fmt=html'), 'トイレで遊んでしまう間は')
+
+
+class VoiceStatsTests(TestCase):
+    """調べるためのコマンドとログ（数字だけ。名前・中身は出さない。2026-11-04）"""
+
+    setUp = VoiceDirectTests.setUp
+
+    def test_stats_command_prints_numbers_only(self):
+        from io import StringIO
+        from django.core.management import call_command
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date.today(), body='ブロックを積んだ。',
+                                     spoken_text='ブロック積んだ', ai_body='ブロックを積んだ。')
+        long = '。'.join(['ウレタン棒で打ち合いをして十回続けたあと休憩してまた始めた'] * 8)
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date.today(), body='短い。', spoken_text=long, ai_body='短い。')
+        out = StringIO()
+        call_command('therapy_voice_stats', stdout=out)
+        text = out.getvalue()
+        self.assertIn('音声の記録 2 件', text)
+        self.assertIn('話した文字が短い（聞き取り）', text)
+        self.assertIn('AI が短くした', text)
+        self.assertNotIn('青木', text)
+        self.assertNotIn('ブロック', text)
+
+    def test_save_is_logged_without_content(self):
+        with self.assertLogs('therapy.views', level='INFO') as cm:
+            self.client.post(self.url, {'action': 'add', 'date': datetime.date.today().isoformat(), 'body': '青木さんがブロックを積んだ。',
+                                        'spoken_text': 'ブロック'}, HTTP_USER_AGENT='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)')
+            self.client.post(self.url, {'action': 'add', 'date': datetime.date.today().isoformat(), 'body': 'もう一度'})
+        log = '\n'.join(cm.output)
+        self.assertIn('result=saved device=iphone voice=1', log)
+        self.assertIn('result=dup_kept device=pc', log)       # 音声を直接入れる画面では、入れた文を残して知らせる
+        self.assertNotIn('青木', log)
+        self.assertNotIn('ブロック', log)
+
+
+class VoiceDirectDupTests(TestCase):
+    """音声を直接入れる画面で、開いたあとに今日の記録が別にできていたとき、入れた文を消さずに見せる（2026-11-04）"""
+
+    setUp = VoiceDirectTests.setUp
+
+    def test_dup_keeps_text_next_to_existing_record(self):
+        today = datetime.date.today().isoformat()
+        rec = TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date.today(), body='ほかの端末の記録')
+        res = self.client.post(self.url, {'action': 'add', 'date': today, 'activity_1': 'ブロック', 'body': '音声で入れた記録'})
+        self.assertEqual(TherapyRecord.objects.filter(beneficiary=self.kid).count(), 1)
+        self.assertRedirects(res, f'{self.url}?edit={rec.pk}#rec{rec.pk}', fetch_redirect_response=False)
+        page = self.client.get(res['Location']).content.decode()
+        self.assertIn('開いたあとに、この日の記録が別に保存されていたため', page)
+        self.assertIn('音声で入れた記録', page)
+        self.assertIn('この内容を記録の欄の最後に足す', page)
+        self.assertIn('やったこと：ブロック', page)
+        # 「もう1件として保存する」ならそのまま保存する
+        self.client.post(self.url, {'action': 'add', 'date': today, 'body': '別の回', 'dup_ok': '1'})
+        self.assertEqual(TherapyRecord.objects.filter(beneficiary=self.kid).count(), 2)
