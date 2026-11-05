@@ -6,10 +6,10 @@
 
 | | やすらぎの森（みどり会） | デモ事業所（老健・通所リハ） |
 |---|---|---|
-| アドレス | `st-kaigonote.midorikai.ai-labo.cloud` | **プロバイダに用意してもらう**（Secrets `KAIGODEMO_DOMAIN`。例 `st-kaigonote-demo.ai-labo.cloud`） |
+| アドレス | `st-kaigonote.midorikai.ai-labo.cloud` | `st-kaigonote.demo.ai-labo.cloud`（2026-11-05 プロバイダ設定ずみ） |
 | 置き場所 | `~/kaigonotemidorikai` | `~/kaigonotedemo` |
-| Gunicorn | `0.0.0.0:8045` | `0.0.0.0:<KAIGODEMO_PORT>`（例 8046） |
-| DB | `kaigonotemidorikai` | `<KAIGODEMO_DB_NAME>`（例 `kaigonotedemo`。ユーザー `st_ai_labo_dbuser`） |
+| Gunicorn | `0.0.0.0:8045` | `0.0.0.0:8046` |
+| DB | `kaigonotemidorikai` | `kaigonotedemo`（ユーザー `st_ai_labo_dbuser`） |
 | ブランチ | `yasuragi` | `yasuragi` |
 | 配備 | Deploy (yasuragi) | **Deploy (kaigodemo)**（Actions から手で。ブランチ `yasuragi` を選ぶ） |
 | 管理 | Manage (yasuragi) | **Manage (kaigodemo)** |
@@ -18,25 +18,23 @@
 
 秘密情報（DB パスワード、`SECRET_KEY`、Anthropic キー、SSH 秘密鍵、管理者のパスワード）はサーバーの `.env`・GitHub Secrets だけに置きます。
 
-## 1. 準備（プロバイダに頼む）
+## 1. 準備（プロバイダ側。2026-11-05 設定ずみ）
 
-- nginx：`<KAIGODEMO_DOMAIN>` → `127.0.0.1:<KAIGODEMO_PORT>`（HTTPS。やすらぎの森と同じ設定：`X-Forwarded-Proto`・`client_max_body_size 100m`・`proxy_read_timeout 300s`）
-- PostgreSQL：DB `<KAIGODEMO_DB_NAME>`、ユーザー `st_ai_labo_dbuser`（開発環境と同じユーザー）
+- nginx：`st-kaigonote.demo.ai-labo.cloud` → `127.0.0.1:8046`（HTTPS）
+- PostgreSQL：DB `kaigonotedemo`、ユーザー `st_ai_labo_dbuser`（開発環境と同じユーザー）
 
 ## 2. GitHub Secrets
 
 | 名前 | 入れるもの |
 |---|---|
-| `KAIGODEMO_DOMAIN` | プロバイダが用意したアドレス（必須。無ければ配備しない） |
-| `KAIGODEMO_PORT` | Gunicorn のポート（必須） |
-| `KAIGODEMO_DB_NAME` | DB 名（必須。`kaigonotekyotaku`・`kaigonotemidorikai`・`michinotedemo` などほかの環境の DB 名は拒む） |
+| `KAIGODEMO_DOMAIN`・`KAIGODEMO_PORT`・`KAIGODEMO_DB_NAME` | アドレス・ポート・DB 名を変えるときだけ（既定は上の表。`kaigonotekyotaku`・`kaigonotemidorikai`・`michinotedemo` などほかの環境の DB 名は拒む） |
 | `KAIGODEMO_ADMIN_PASSWORD` | 管理者 `kaigodemo` のパスワード（Manage (kaigodemo) の `create_facility`・`set_password` で使う。デモの相手に伝える値） |
 
 SSH は同じサーバーなので開発環境の `DEV_DEPLOY_*` をそのまま使います。
 
 ## 3. 配備（Actions から）
 
-1. Actions → **Deploy (kaigodemo)** → Run workflow → ブランチ **`yasuragi`**。テスト → SSH → 初回は `.env` を雛形（`deploy/.env.kaigodemo-aws.example`）から作り（`SECRET_KEY` は生成、DB パスワード・Anthropic キー・音声の設定は `~/michinotedemo/.env` から写す）→ `migrate` → `collectstatic` → Gunicorn 起動 → `https://<KAIGODEMO_DOMAIN>/healthz/` で確認
+1. Actions → **Deploy (kaigodemo)** → Run workflow → ブランチ **`yasuragi`**。テスト → SSH → 初回は `.env` を雛形（`deploy/.env.kaigodemo-aws.example`）から作り（`SECRET_KEY` は生成、DB パスワード・Anthropic キー・音声の設定は `~/michinotedemo/.env` から写す）→ `migrate` → `collectstatic` → Gunicorn 起動 → `https://st-kaigonote.demo.ai-labo.cloud/healthz/` で確認
 2. Manage (kaigodemo) → `task=autostart_install`（サーバーの再起動のあとに自動で上がる・5 分ごとの見回り・毎日 3:15 のバックアップ）
 
 ## 4. 事業所と管理者を作る
