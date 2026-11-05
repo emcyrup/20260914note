@@ -138,7 +138,8 @@ jobs:
                 [ -n "$COPY_FROM" ] && args+=(--copy-settings-from "$COPY_FROM")
                 python manage.py "${args[@]}"
                 if [ "$WITH_DEMO" = "true" ]; then
-                  fid=$(python manage.py shell -c "from facilities.models import Facility; print(Facility.objects.order_by('-pk').first().pk)")
+                  # -v 0：shell の「N objects imported automatically」を出さない（番号だけを受け取る）
+                  fid=$(python manage.py shell -v 0 -c "from facilities.models import Facility; print(Facility.objects.order_by('-pk').first().pk)" | tail -n 1)
                   python manage.py nursing_demo --facility "$fid" --scenario "$SCENARIO"
                 fi
                 set_password
