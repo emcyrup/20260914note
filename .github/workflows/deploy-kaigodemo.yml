@@ -1,15 +1,14 @@
 # =============================================
 # 介護施設のデモ事業所（2026-11-05 の相談：病院併設の介護老人保健施設・通所リハ・居宅介護支援・デイサービスを運営する法人向けの試用）を
 # AWS 開発環境のサーバー（st-michinotedemo・コト／やすらぎの森の開発環境と同じサーバー）へデプロイ
-#   https://<KAIGODEMO_DOMAIN>/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 0.0.0.0:<KAIGODEMO_PORT>
-#   置き場所 ~/kaigonotedemo、DB <KAIGODEMO_DB_NAME>（ユーザー st_ai_labo_dbuser）。venv（~/env）は開発環境と共用
+#   https://st-kaigonote.demo.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 0.0.0.0:8046（2026-11-05 にプロバイダ側で設定ずみ）
+#   置き場所 ~/kaigonotedemo、DB kaigonotedemo（ユーザー st_ai_labo_dbuser）。venv（~/env）は開発環境と共用
 #   Actions から手動で実行し、ブランチは yasuragi を選ぶ（介護施設の機能 nursing は yasuragi ブランチにある）
 #   サーバー側は deploy/venv-deploy.sh が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行う
 #   手順は docs/DEPLOY_AWS_KAIGODEMO.md
 #
-# GitHub Secrets（必須。プロバイダに環境を用意してもらってから入れる。既定値は無い＝入っていなければ配備しない）
-#   KAIGODEMO_DOMAIN（例 st-kaigonote-demo.ai-labo.cloud）・KAIGODEMO_PORT（例 8046）・KAIGODEMO_DB_NAME（例 kaigonotedemo）
-#     （ポート・DB 名は初回に .env を作るときだけ使う）
+# GitHub Secrets：アドレス・ポート・DB 名を変えるときだけ KAIGODEMO_DOMAIN・KAIGODEMO_PORT・KAIGODEMO_DB_NAME を登録する
+#   （既定は st-kaigonote.demo.ai-labo.cloud・8046・kaigonotedemo＝2026-11-05 にプロバイダが用意した値。ポート・DB 名は初回に .env を作るときだけ使う）
 #   SSH は同じサーバーなので DEV_*（Deploy (dev) のもの）をそのまま使う。別にしたいときだけ KAIGODEMO_DEPLOY_* を登録する
 #   KAIGODEMO_APP_DIR（既定 ~/kaigonotedemo）、KAIGODEMO_VENV（無ければ DEV_VENV、既定 ~/env）
 #
@@ -37,8 +36,8 @@ env:
   APP_DIR: ${{ secrets.KAIGODEMO_APP_DIR || '~/kaigonotedemo' }}
   VENV: ${{ secrets.KAIGODEMO_VENV || secrets.DEV_VENV || '~/env' }}
   SSH_PORT: ${{ secrets.KAIGODEMO_DEPLOY_SSH_PORT || secrets.DEV_DEPLOY_SSH_PORT || '22' }}
-  DOMAIN: ${{ secrets.KAIGODEMO_DOMAIN }}
-  HEALTH_URL: ${{ secrets.KAIGODEMO_HEALTH_URL || format('https://{0}/healthz/', secrets.KAIGODEMO_DOMAIN) }}
+  DOMAIN: ${{ secrets.KAIGODEMO_DOMAIN || 'st-kaigonote.demo.ai-labo.cloud' }}
+  HEALTH_URL: ${{ secrets.KAIGODEMO_HEALTH_URL || format('https://{0}/healthz/', secrets.KAIGODEMO_DOMAIN || 'st-kaigonote.demo.ai-labo.cloud') }}
 
 jobs:
   test:
@@ -104,13 +103,11 @@ jobs:
           REMOTE_VENV: ${{ env.VENV }}
           SRC_APP_DIR: ${{ secrets.DEV_APP_DIR || '~/michinotedemo' }}
           DOMAIN: ${{ env.DOMAIN }}
-          PORT_NUM: ${{ secrets.KAIGODEMO_PORT }}
-          DB_NAME_NEW: ${{ secrets.KAIGODEMO_DB_NAME }}
+          PORT_NUM: ${{ secrets.KAIGODEMO_PORT || '8046' }}
+          DB_NAME_NEW: ${{ secrets.KAIGODEMO_DB_NAME || 'kaigonotedemo' }}
         run: |
           # 切り戻しで入れるのはコミットの番号だけ（英数字 7〜40 字）。ほかの文字はサーバーのコマンドに渡さない
           [[ "$SHA" =~ ^[0-9a-fA-F]{7,40}$ ]] || { echo "ref はコミットの番号（7〜40 桁の英数字）で入れてください: $SHA"; exit 1; }
-          # 環境ごとの値（アドレス・ポート・DB 名）は Secrets に入っていなければ配備しない（既定値は無い：ほかの環境と取り違えないため）
-          [ -n "$DOMAIN" ] && [ -n "$PORT_NUM" ] && [ -n "$DB_NAME_NEW" ] || { echo "Secrets の KAIGODEMO_DOMAIN・KAIGODEMO_PORT・KAIGODEMO_DB_NAME を先に登録してください（プロバイダが用意したアドレス・ポート・DB 名。docs/DEPLOY_AWS_KAIGODEMO.md）"; exit 1; }
           [[ "$DOMAIN" =~ ^[a-z0-9.-]+$ ]] || { echo "KAIGODEMO_DOMAIN はアドレス（英小文字・数字・. と - だけ）で入れてください"; exit 1; }
           case "$DB_NAME_NEW" in kaigonotekyotaku|kaigonotemidorikai|michinotedemo|michinoteyours|michinoteowl) echo "ERROR: KAIGODEMO_DB_NAME（$DB_NAME_NEW）はほかの環境の DB です。デモ用に別の DB を用意してください"; exit 1;; esac
           [[ "$PORT_NUM" =~ ^[0-9]{4,5}$ ]] || { echo "KAIGODEMO_PORT は 4〜5 桁の数字で入れてください"; exit 1; }
@@ -142,7 +139,7 @@ jobs:
               key=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))")
               sed -i "s#^SECRET_KEY=.*#SECRET_KEY=$key#" .env
               sed -i "s#^MEDIA_ROOT=.*#MEDIA_ROOT=$APP_DIR/media#" .env
-              sed -i "s#KAIGODEMO_DOMAIN_PLACEHOLDER#$DOMAIN_IN#g" .env
+              sed -i "s#st-kaigonote.demo.ai-labo.cloud#$DOMAIN_IN#g" .env
               sed -i "s#^PORT=.*#PORT=$PORT_IN#" .env
               sed -i "s#^DB_NAME=.*#DB_NAME=$DB_IN#" .env
               if [ -f "$SRC_DIR/.env" ]; then
