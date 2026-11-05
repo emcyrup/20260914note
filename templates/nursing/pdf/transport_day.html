@@ -2,16 +2,15 @@
 {% block title %}送迎表 {{ day|date:'Y/n/j' }}{% endblock %}
 {% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
 {% block body %}
+<style>.ng { color: #b23b3b; font-weight: 700; } .wc { color: #2f6f9f; }</style>
 <h1>送迎表　{{ day_jp }}</h1>
-<p class="small muted">{{ facility.org_label }}　迎え {{ board.pickup|length }} 人・送り {{ board.dropoff|length }} 人</p>
-<table style="width:49%;float:left;">
-  <thead><tr><th colspan="4">迎え{% for c in board.pickup_counts %}　{{ c.vehicle.name }} {{ c.count }}{% if c.vehicle.capacity %}/{{ c.vehicle.capacity }}{% endif %}{% endfor %}</th></tr><tr><th style="width:14%;">時刻</th><th style="width:26%;">氏名</th><th>場所</th><th style="width:24%;">車両／運転手</th></tr></thead>
-  <tbody>{% for r in board.pickup %}<tr><td class="c">{{ r.time|time:'H:i'|default:'' }}</td><td>{{ r.b.full_name }}</td><td>{{ r.place }}{% if r.note %}<br><span class="small">{{ r.note }}</span>{% endif %}</td><td class="small">{{ r.vehicle|default:'' }}{% if r.driver %}／{{ r.driver }}{% endif %}</td></tr>{% empty %}<tr><td colspan="4">なし</td></tr>{% endfor %}</tbody>
+<p class="small muted">{{ facility.org_label }}　迎え {{ board.pickup|length }} 人・送り {{ board.dropoff|length }} 人{% if board.problems %}　<span class="ng">確かめるところ {{ board.problems }} か所</span>{% endif %}</p>
+{% for part in parts %}
+<table style="width:49%;float:{% if part.key == 'pickup' %}left{% else %}right{% endif %};">
+  <thead><tr><th colspan="4">{% if part.key == 'pickup' %}迎え{% else %}送り{% endif %}{% for c in part.counts %}　<span class="{% if c.ng %}ng{% endif %}">{{ c.vehicle.name }} {{ c.seats }}{% if c.vehicle.capacity %}/{{ c.vehicle.capacity }}{% endif %}{% if c.wheelchairs %}（車いす {{ c.wheelchairs }}）{% endif %}{% if c.over %} 定員超{% endif %}{% if c.wc_over %} 車いす枠超{% endif %}{% if c.driver_ng %} 運転不可{% endif %}{% if c.ride_ng %} 同乗NG{% endif %}</span>{% endfor %}{% if part.unassigned %}　<span class="ng">車両未定 {{ part.unassigned }}</span>{% endif %}</th></tr><tr><th style="width:14%;">時刻</th><th style="width:26%;">氏名</th><th>場所</th><th style="width:24%;">車両／運転手</th></tr></thead>
+  <tbody>{% for r in part.rows %}<tr><td class="c">{{ r.time|time:'H:i'|default:'' }}</td><td>{{ r.b.full_name }}{% if r.wheelchair %} <span class="wc">（車いす）</span>{% endif %}{% if r.ride_ng %}<br><span class="small ng">同じ車に乗せない相手：{{ r.ride_ng|join:'・' }}</span>{% endif %}</td><td>{{ r.place }}{% if r.note %}<br><span class="small">{{ r.note }}</span>{% endif %}</td><td class="small">{% if r.vehicle %}{{ r.vehicle }}{% else %}<span class="ng">未定</span>{% endif %}{% if r.driver %}／{% if r.driver_ng %}<span class="ng">{{ r.driver }}（運転不可）</span>{% else %}{{ r.driver }}{% endif %}{% endif %}</td></tr>{% empty %}<tr><td colspan="4">なし</td></tr>{% endfor %}</tbody>
 </table>
-<table style="width:49%;float:right;">
-  <thead><tr><th colspan="4">送り{% for c in board.dropoff_counts %}　{{ c.vehicle.name }} {{ c.count }}{% if c.vehicle.capacity %}/{{ c.vehicle.capacity }}{% endif %}{% endfor %}</th></tr><tr><th style="width:14%;">時刻</th><th style="width:26%;">氏名</th><th>場所</th><th style="width:24%;">車両／運転手</th></tr></thead>
-  <tbody>{% for r in board.dropoff %}<tr><td class="c">{{ r.time|time:'H:i'|default:'' }}</td><td>{{ r.b.full_name }}</td><td>{{ r.place }}{% if r.note %}<br><span class="small">{{ r.note }}</span>{% endif %}</td><td class="small">{{ r.vehicle|default:'' }}{% if r.driver %}／{{ r.driver }}{% endif %}</td></tr>{% empty %}<tr><td colspan="4">なし</td></tr>{% endfor %}</tbody>
-</table>
+{% endfor %}
 <div style="clear:both;"></div>
 {% if board.walk %}<p class="small" style="margin-top:8px;">送迎なし：{% for b in board.walk %}{{ b.full_name }}{% if not forloop.last %}・{% endif %}{% endfor %}</p>{% endif %}
 {% endblock %}

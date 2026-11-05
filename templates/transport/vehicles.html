@@ -11,7 +11,7 @@
   .vh-row { display: grid; grid-template-columns: 1fr; gap: 6px; padding: 10px 0; border-top: 1px solid var(--line, #e5e1d8); }
   .vh-row:first-of-type { border-top: 0; }
   .vh-row .form-control, .vh-row .form-select { font-size: 0.88rem; }
-  .vh-grid { display: grid; grid-template-columns: 2fr 1fr 1.4fr 1.6fr 2fr 70px; gap: 6px; align-items: center; }
+  .vh-grid { display: grid; grid-template-columns: 2fr 0.8fr 0.8fr 0.8fr 1.2fr 1.4fr 1.6fr 70px; gap: 6px; align-items: center; }
   .vh-grid.d { grid-template-columns: 2fr 1.4fr 3fr 70px; }
   .vh-head { font-size: 0.75rem; color: #8a8378; }
   @media (max-width: 768px) { .vh-grid, .vh-grid.d { grid-template-columns: 1fr 1fr; } .vh-head { display: none; } }
@@ -24,15 +24,17 @@
 
   <div class="vh-card">
     <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-      <div><div class="vh-title"><i class="bi bi-truck me-1"></i>車両</div><div class="small text-muted">乗れる人数を入れると、配車表で人数が超えたとき赤く出ます。</div></div>
+      <div><div class="vh-title"><i class="bi bi-truck me-1"></i>車両</div><div class="small text-muted">乗れる人数を入れると、配車表・送迎表で人数が超えたとき赤く出ます。車いすのまま乗る人は「車いす枠」のある車にだけ乗せ、1 台で座席を「車いすの座席数」分使います（例：定員 10・車いすの座席数 2 なら、車いす 1 台で残り 8 人）。</div></div>
     </div>
-    <div class="vh-grid vh-head"><div>車両名</div><div>乗れる人数</div><div>ナンバー・色</div><div>いつもの運転手</div><div>備考</div><div></div></div>
+    <div class="vh-grid vh-head"><div>車両名</div><div>乗れる人数</div><div>車いす枠</div><div>車いすの座席数</div><div>ナンバー・色</div><div>いつもの運転手</div><div>備考</div><div></div></div>
     {% for v in vehicles %}
     <form method="post" class="vh-row" id="vf-{{ v.pk }}">
       {% csrf_token %}<input type="hidden" name="action" value="vehicle_save"><input type="hidden" name="pk" value="{{ v.pk }}">
       <div class="vh-grid">
         <input type="text" name="name" class="form-control form-control-sm" maxlength="50" value="{{ v.name }}" required aria-label="車両名">
         <input type="number" name="capacity" class="form-control form-control-sm" min="0" max="99" value="{{ v.capacity }}" aria-label="乗れる人数">
+        <input type="number" name="wheelchair_slots" class="form-control form-control-sm" min="0" max="20" value="{{ v.wheelchair_slots }}" aria-label="車いすのまま乗れる台数" title="車いすのまま乗れる台数（0 なら乗れない）">
+        <input type="number" name="wheelchair_seats" class="form-control form-control-sm" min="1" max="6" value="{{ v.wheelchair_seats }}" aria-label="車いす 1 台で使う座席の数" title="車いす 1 台で使う座席の数">
         <input type="text" name="plate" class="form-control form-control-sm" maxlength="30" value="{{ v.plate }}" aria-label="ナンバー・色">
         <select name="default_driver" class="form-select form-select-sm" aria-label="いつもの運転手"><option value="">－</option>{% for d in drivers %}<option value="{{ d.pk }}" {% if v.default_driver_id == d.pk %}selected{% endif %}>{{ d.name }}</option>{% endfor %}</select>
         <input type="text" name="note" class="form-control form-control-sm" maxlength="200" value="{{ v.note }}" aria-label="備考">
@@ -50,6 +52,8 @@
       <div class="vh-grid">
         <input type="text" name="name" class="form-control form-control-sm" maxlength="50" placeholder="新しい車両名" required aria-label="車両名">
         <input type="number" name="capacity" class="form-control form-control-sm" min="0" max="99" placeholder="人数" aria-label="乗れる人数">
+        <input type="number" name="wheelchair_slots" class="form-control form-control-sm" min="0" max="20" placeholder="車いす" aria-label="車いすのまま乗れる台数">
+        <input type="number" name="wheelchair_seats" class="form-control form-control-sm" min="1" max="6" value="2" aria-label="車いす 1 台で使う座席の数">
         <input type="text" name="plate" class="form-control form-control-sm" maxlength="30" placeholder="ナンバー・色" aria-label="ナンバー・色">
         <select name="default_driver" class="form-select form-select-sm" aria-label="いつもの運転手"><option value="">運転手 －</option>{% for d in drivers %}<option value="{{ d.pk }}">{{ d.name }}</option>{% endfor %}</select>
         <input type="text" name="note" class="form-control form-control-sm" maxlength="200" placeholder="備考" aria-label="備考">
@@ -61,7 +65,7 @@
 
   <div class="vh-card">
     <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-      <div><div class="vh-title"><i class="bi bi-person-badge me-1"></i>運転手</div><div class="small text-muted">ログインする職員でなくても登録できます。</div></div>
+      <div><div class="vh-title"><i class="bi bi-person-badge me-1"></i>運転手</div><div class="small text-muted">ログインする職員でなくても登録できます。「運転できる車両」に印を付けると、その人がほかの車の運転手になっている日は送迎表で赤く出ます（1 つも付けなければどの車でも）。</div></div>
     </div>
     <div class="vh-grid d vh-head"><div>名前</div><div>電話番号</div><div>備考</div><div></div></div>
     {% for d in drivers %}
@@ -74,9 +78,10 @@
         <div class="d-flex gap-1"><button class="btn btn-sm btn-outline-primary" title="保存"><i class="bi bi-check2"></i></button>
           <button class="btn btn-sm btn-outline-danger" form="dd-{{ d.pk }}" title="削除" onclick="return confirm('運転手「{{ d.name|escapejs }}」を削除します。配車表のこの人の欄は空になります。よろしいですか？');"><i class="bi bi-trash"></i></button></div>
       </div>
-      <div class="d-flex gap-3 small">
+      <div class="d-flex gap-3 small flex-wrap">
         <label class="form-check mb-0"><input type="checkbox" class="form-check-input" name="is_active" {% if d.is_active %}checked{% endif %}> 在籍中（外すと配車表の選択肢から消える）</label>
         <label class="d-flex align-items-center gap-1 mb-0">並び順 <input type="number" name="order" class="form-control form-control-sm" style="width:70px;" min="0" max="999" value="{{ d.order }}"></label>
+        {% if vehicles %}<span class="d-flex align-items-center gap-2 flex-wrap"><input type="hidden" name="vehicles_present" value="1">運転できる車両：{% with allowed=d.vehicles.all %}{% for v in vehicles %}<label class="form-check form-check-inline mb-0"><input type="checkbox" class="form-check-input" name="vehicles" value="{{ v.pk }}" {% if v in allowed %}checked{% endif %}>{{ v.name }}</label>{% endfor %}{% endwith %}</span>{% endif %}
       </div>
     </form>
     {% empty %}<div class="small text-muted py-2">まだ登録がありません。</div>{% endfor %}

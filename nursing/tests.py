@@ -358,3 +358,65 @@ class LoginBrandTests(TestCase):
         res = self.client.get(reverse('accounts:login'))
         self.assertContains(res, '放デイ業務支援')
         self.assertNotContains(res, '介護（仮）')
+
+
+class RokenDemoTests(TestCase):
+    """老健・通所リハのデモ事業所（2026-11-05 の相談）：型・サンプル・送迎表の条件"""
+
+    def setUp(self):
+        from facilities.management.commands.create_facility import apply_roken_preset
+        self.f = Facility.objects.create(name='介護老人保健施設　デモ', company_name='医療法人（デモ）')
+        apply_roken_preset(self.f)
+        self.admin = StaffAccount.objects.create_user('kaigodemo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.admin)
+
+    def test_preset(self):
+        self.f.refresh_from_db()
+        self.assertTrue(self.f.is_care and self.f.use_transport and not self.f.use_line and not self.f.use_billing)
+        res = self.client.get(reverse('nursing:home'))
+        self.assertEqual(res.status_code, 200)
+        self.assertNotContains(res, 'LINE連携')     # 入所施設では家族への LINE は使わない
+        self.assertContains(res, '送迎表')
+
+    def test_demo_and_transport_conditions(self):
+        from transport.models import Driver, TransportProfile, Vehicle
+        from nursing.views import transport_rows
+        n = demo.add(self.f, self.admin, scenario='roken')
+        self.assertEqual(n, 44)
+        self.assertEqual(Beneficiary.objects.filter(facility=self.f, weekday_mon=False, weekday_tue=False, weekday_wed=False, weekday_thu=False,
+                                                    weekday_fri=False, weekday_sat=False).count(), 8)      # 入所 8 人
+        self.assertEqual(Vehicle.objects.filter(facility=self.f).count(), 4)
+        self.assertEqual(Driver.objects.filter(facility=self.f).count(), 4)
+        self.assertEqual(TransportProfile.objects.filter(beneficiary__facility=self.f, wheelchair=True).count(), 4)
+        self.assertEqual(demo.add(self.f, self.admin, scenario='roken'), 0)
+        # 月曜：定員超・車いす枠超・運転できない車・同乗NG がそれぞれ出る
+        monday = datetime.date.today() + datetime.timedelta(days=(0 - datetime.date.today().weekday()) % 7)
+        b = transport_rows(self.f, monday)
+        self.assertGreaterEqual(len(b['pickup']), 9)
+        flags = {k: any(c[k] for c in b['pickup_counts']) for k in ('over', 'wc_over', 'driver_ng')}
+        self.assertTrue(all(flags.values()), flags)
+        self.assertTrue(any(r['ride_ng'] for r in b['pickup']))
+        self.assertGreater(b['problems'], 0)
+        res = self.client.get(reverse('nursing:transport_day') + f'?d={monday.isoformat()}')
+        self.assertContains(res, '確かめるところが')
+        self.assertContains(res, '運転不可')
+        self.assertContains(res, '車いす枠超')
+        self.assertContains(res, '同じ車に乗せない相手')
+        res = self.client.get(reverse('nursing:transport_day_print') + f'?d={monday.isoformat()}&fmt=html')
+        self.assertContains(res, '定員超')
+        # 入所の人は送迎表に出ない。検温板・ホームには出る
+        self.assertNotIn('（入所）', res.content.decode())
+        self.assertEqual(self.client.get(reverse('nursing:vitals_day')).status_code, 200)
+        for name in ('nursing:home', 'nursing:records', 'nursing:review', 'nursing:incidents', 'nursing:medications', 'nursing:staffing', 'transport:vehicles'):
+            self.assertEqual(self.client.get(reverse(name)).status_code, 200, name)
+        self.assertEqual(demo.remove(self.f), 44)
+        self.assertFalse(Vehicle.objects.filter(facility=self.f).exists())
+
+    def test_login_brand_with_two_care_facilities(self):
+        g = Facility.objects.create(name='やすらぎの森', company_name='みどり会')
+        apply_care_preset(g)
+        self.client.logout()
+        res = self.client.get(reverse('accounts:login'))
+        self.assertContains(res, '介護施設 業務支援')
+        self.assertNotContains(res, 'みどり会')        # 事業所が 2 つあるときは法人名を出さない
+        self.assertNotContains(res, '放デイ')

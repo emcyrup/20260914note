@@ -27,6 +27,10 @@ class Vehicle(models.Model):
                                        related_name='default_vehicles', verbose_name='いつもの運転手')
     note = models.CharField(max_length=200, blank=True, verbose_name='備考',
                             help_text='チャイルドシートの数・車いす対応など')
+    # 車いすのまま乗る人の枠（2026-11-05 老健・通所リハの相談：車いすを載せると定員が変わる）。0 なら車いすのままは乗れない
+    wheelchair_slots = models.PositiveSmallIntegerField(default=0, verbose_name='車いすのまま乗れる台数')
+    wheelchair_seats = models.PositiveSmallIntegerField(default=2, verbose_name='車いす 1 台で使う座席の数',
+                                                        help_text='車いすを 1 台載せると、乗れる人数がこの数だけ減る')
     is_active = models.BooleanField(default=True, verbose_name='使っている')
     order = models.PositiveSmallIntegerField(default=0, verbose_name='並び順')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -40,12 +44,18 @@ class Vehicle(models.Model):
     def __str__(self):
         return self.name
 
+    def seats_used(self, count, wheelchairs):
+        """count 人（うち車いすのまま wheelchairs 人）が乗ると使う座席の数"""
+        return count + wheelchairs * max(0, self.wheelchair_seats - 1)
+
 
 class Driver(models.Model):
     facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='drivers')
     name = models.CharField(max_length=50, verbose_name='運転手の名前')
     phone = models.CharField(max_length=20, blank=True, verbose_name='電話番号')
     note = models.CharField(max_length=200, blank=True, verbose_name='備考', help_text='出られる曜日・時間など')
+    # 運転できる車両（空ならどの車両でも。2026-11-05：職員ごとに運転できる車種が違う）
+    vehicles = models.ManyToManyField(Vehicle, blank=True, related_name='allowed_drivers', verbose_name='運転できる車両')
     is_active = models.BooleanField(default=True, verbose_name='在籍中')
     order = models.PositiveSmallIntegerField(default=0, verbose_name='並び順')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -59,6 +69,15 @@ class Driver(models.Model):
     def __str__(self):
         return self.name
 
+    def can_drive(self, vehicle):
+        """その車両を運転できるか（運転できる車両を 1 つも選んでいなければ、どれでも）"""
+        if vehicle is None:
+            return True
+        allowed = getattr(self, '_allowed_ids', None)
+        if allowed is None:
+            allowed = self._allowed_ids = set(self.vehicles.values_list('pk', flat=True))
+        return not allowed or vehicle.pk in allowed
+
 
 class TransportProfile(models.Model):
     """利用者ごとの送迎の設定（利用者情報の「送迎」欄）"""
@@ -71,6 +90,8 @@ class TransportProfile(models.Model):
     dropoff_time = models.TimeField(null=True, blank=True, verbose_name='送りの目安の時刻')
     default_vehicle = models.ForeignKey(Vehicle, on_delete=models.SET_NULL, null=True, blank=True,
                                         related_name='regulars', verbose_name='いつもの車両')
+    wheelchair = models.BooleanField(default=False, verbose_name='車いすのまま乗る',
+                                     help_text='車いすの枠がある車両に乗せる。1 台で座席を 2 つ分使う（車両の設定で変えられる）')
     note = models.CharField(max_length=200, blank=True, verbose_name='送迎の注意',
                             help_text='チャイルドシート・酔いやすい・引き渡しの相手など')
     updated_at = models.DateTimeField(auto_now=True)

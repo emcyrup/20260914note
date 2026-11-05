@@ -252,7 +252,7 @@ class VehiclesView(TransportEnabledMixin, View):
         return render(request, self.template_name, {
             'facility': facility,
             'vehicles': list(Vehicle.objects.filter(facility=facility).select_related('default_driver')),
-            'drivers': list(Driver.objects.filter(facility=facility)),
+            'drivers': list(Driver.objects.filter(facility=facility).prefetch_related('vehicles')),
         })
 
     def post(self, request):
@@ -276,6 +276,8 @@ class VehiclesView(TransportEnabledMixin, View):
             v.capacity = max(0, min(99, to_int(p.get('capacity'), 0)))
             v.plate = (p.get('plate') or '').strip()[:30]
             v.note = (p.get('note') or '').strip()[:200]
+            v.wheelchair_slots = max(0, min(20, to_int(p.get('wheelchair_slots'), 0)))
+            v.wheelchair_seats = max(1, min(6, to_int(p.get('wheelchair_seats'), 2)))
             v.order = max(0, min(999, to_int(p.get('order'), 0)))
             v.is_active = 'is_active' in p if what == 'save' else True
             v.default_driver = Driver.objects.filter(facility=facility, pk=to_int(p.get('default_driver'), 0)).first()
@@ -299,6 +301,9 @@ class VehiclesView(TransportEnabledMixin, View):
             d.order = max(0, min(999, to_int(p.get('order'), 0)))
             d.is_active = 'is_active' in p if what == 'save' else True
             d.save()
+            if 'vehicles_present' in p:     # 運転できる車両（空ならどれでも）
+                ids = [to_int(x, 0) for x in p.getlist('vehicles')]
+                d.vehicles.set(Vehicle.objects.filter(facility=facility, pk__in=ids))
             messages.success(request, f'運転手「{d.name}」を{"保存" if what == "save" else "登録"}しました。')
         return redirect('transport:vehicles')
 
@@ -334,6 +339,7 @@ class ProfileView(TransportEnabledMixin, View):
         profile.dropoff_place = (p.get('dropoff_place') or '').strip()[:200]
         profile.dropoff_time = parse_time(p.get('dropoff_time'))
         profile.default_vehicle = Vehicle.objects.filter(facility=b.facility, pk=to_int(p.get('default_vehicle'), 0)).first()
+        profile.wheelchair = 'wheelchair' in p
         profile.note = (p.get('note') or '').strip()[:200]
         profile.save()
         if 'ride_ng_present' in p:      # 同じ車に乗せない利用者（同じ事業所の人だけ。相手の側にも付く）

@@ -198,3 +198,35 @@ class TransportTests(TestCase):
         van2 = Vehicle.objects.create(facility=self.f, name='軽')
         res = self.client.post(reverse('transport:day'), dict(post, **{f'time_{k2}': '14:30', f'vehicle_{k2}': van2.pk}), follow=True)
         self.assertNotContains(res, '同乗NG：')
+
+
+class VehicleConditionTests(TestCase):
+    """車いす・運転できる車両（2026-11-05 老健・通所リハの相談）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='通所リハ（仮）', layout=Facility.LAYOUT_RYOIKU, use_reservation=True, use_transport=True)
+        StaffAccount.objects.create_user('tr', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='tr', password='pw12345678')
+        self.van = Vehicle.objects.create(facility=self.f, name='リフト車', capacity=6)
+        self.kei = Vehicle.objects.create(facility=self.f, name='軽', capacity=3)
+        self.drv = Driver.objects.create(facility=self.f, name='運転手')
+
+    def test_vehicle_fields_and_driver_vehicles_saved(self):
+        self.client.post(reverse('transport:vehicles'), {'action': 'vehicle_save', 'pk': self.van.pk, 'name': 'リフト車', 'capacity': '6',
+                                                         'wheelchair_slots': '2', 'wheelchair_seats': '3', 'is_active': '1'})
+        self.van.refresh_from_db()
+        self.assertEqual((self.van.wheelchair_slots, self.van.wheelchair_seats), (2, 3))
+        self.assertEqual(self.van.seats_used(4, 2), 8)      # 車いす 1 台で座席 3 分（1 人ぶん＋2）
+        self.client.post(reverse('transport:vehicles'), {'action': 'driver_save', 'pk': self.drv.pk, 'name': '運転手', 'is_active': '1',
+                                                         'vehicles_present': '1', 'vehicles': [str(self.kei.pk)]})
+        self.assertTrue(self.drv.can_drive(self.kei))
+        self.assertFalse(self.drv.can_drive(self.van))
+        self.assertTrue(Driver.objects.create(facility=self.f, name='だれでも').can_drive(self.van))
+        page = self.client.get(reverse('transport:vehicles')).content.decode()
+        self.assertIn('運転できる車両', page)
+        self.assertIn('車いす枠', page)
+
+    def test_profile_wheelchair(self):
+        b = Beneficiary.objects.create(facility=self.f, last_name='見本', first_name='花子', last_name_kana='みほん', date_of_birth=datetime.date(1940, 1, 1))
+        self.client.post(reverse('transport:profile', args=[b.pk]), {'pickup': '1', 'wheelchair': '1', 'default_vehicle': self.van.pk})
+        self.assertTrue(TransportProfile.objects.get(beneficiary=b).wheelchair)

@@ -1,7 +1,13 @@
 {% extends 'base.html' %}
 {% block title %}送迎表 {{ day|date:'n/j' }} — {{ app_label }}{% endblock %}
 {% block page_title %}送迎表{% endblock %}
-{% block extra_css %}{% include 'nursing/_style.html' %}{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}
+<style>
+  .tr-wc { color: #2f6f9f; }
+  .tr-ng { color: #b23b3b; font-weight: 600; }
+  .tr-veh { font-size: .85rem; }
+  .tr-veh .badge { font-weight: 500; }
+</style>{% endblock %}
 {% block content %}
 <div class="px-2" style="max-width: 1100px;">
   <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -15,27 +21,37 @@
       <a href="{% url 'nursing:transport_day_print' %}?d={{ day|date:'Y-m-d' }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>送迎表を印刷</a>
     </div>
   </div>
-  <div class="small text-muted mb-2">その曜日に利用する人（{{ terms.beneficiary }}情報の「利用の曜日」）と、送迎の設定（迎え・送り・場所・いつもの車両）から作った送迎表の下書きです。住所・車両・運転手の条件を見た自動の割り振りは、事業所の条件（住所・車両・運転できる職員・乗車定員）がそろってから足します。</div>
+  {# 条件に合わないところ（2026-11-05 老健・通所リハの相談：定員・車いす・運転できる車種・相性） #}
+  {% if board.problems %}
+  <div class="alert alert-danger small py-2 px-3 mb-2"><i class="bi bi-exclamation-triangle-fill me-1"></i><b>確かめるところが {{ board.problems }} か所あります。</b>赤いところを見て、{{ terms.beneficiary }}情報の「送迎」でいつもの車両を変えるか、車両・運転手の設定を直してください。</div>
+  {% elif board.people %}
+  <div class="alert alert-success small py-2 px-3 mb-2"><i class="bi bi-check-circle me-1"></i>定員・車いすの枠・運転できる車両・同乗NG のどれにも引っかかっていません。</div>
+  {% endif %}
+  <div class="small text-muted mb-2">その曜日に利用する人（{{ terms.beneficiary }}情報の「利用の曜日」）と送迎の設定（迎え・送り・場所・いつもの車両・車いす）から作った送迎表です。車両ごとに <b>乗る人数／定員</b>、車いすのまま乗る人の数、運転手を見て、<span class="tr-ng">定員超・車いすの枠超・運転できない車・同じ車に乗せない相手</span>があれば赤く知らせます。住所の近さを見た自動の割り振りは、事業所の条件（住所・ルート）がそろってから足します。</div>
   <div class="row g-3">
     {% with pick=board.pickup drop=board.dropoff %}
+    {% for part in parts %}
     <div class="col-lg-6">
       <div class="nr-card">
-        <div class="d-flex justify-content-between align-items-center mb-1"><div class="nr-h"><i class="bi bi-box-arrow-in-right me-1"></i>迎え（{{ pick|length }} 人）</div>
-          <div class="small">{% for c in board.pickup_counts %}<span class="badge {% if c.over %}text-bg-danger{% else %}text-bg-light border{% endif %} me-1">{{ c.vehicle.name }} {{ c.count }}{% if c.vehicle.capacity %}/{{ c.vehicle.capacity }}{% endif %}</span>{% endfor %}</div></div>
+        <div class="d-flex justify-content-between align-items-start mb-1 flex-wrap gap-1">
+          <div class="nr-h">{% if part.key == 'pickup' %}<i class="bi bi-box-arrow-in-right me-1"></i>迎え{% else %}<i class="bi bi-box-arrow-right me-1"></i>送り{% endif %}（{{ part.rows|length }} 人{% if part.unassigned %}・<span class="tr-ng">車両が決まっていない {{ part.unassigned }} 人</span>{% endif %}）</div>
+          <div class="tr-veh">{% for c in part.counts %}<span class="badge {% if c.ng %}text-bg-danger{% else %}text-bg-light border{% endif %} me-1" title="{{ c.vehicle.name }}：{{ c.count }} 人が乗る{% if c.wheelchairs %}（うち車いすのまま {{ c.wheelchairs }} 台。座席 {{ c.seats }} 分）{% endif %}{% if c.vehicle.capacity %}／定員 {{ c.vehicle.capacity }}{% endif %}{% if c.vehicle.wheelchair_slots %}・車いす枠 {{ c.vehicle.wheelchair_slots }}{% endif %}">{{ c.vehicle.name }} {{ c.seats }}{% if c.vehicle.capacity %}/{{ c.vehicle.capacity }}{% endif %}{% if c.wheelchairs %} <i class="bi bi-person-wheelchair"></i>{{ c.wheelchairs }}{% if c.vehicle.wheelchair_slots %}/{{ c.vehicle.wheelchair_slots }}{% endif %}{% endif %}{% if c.over %} 定員超{% endif %}{% if c.wc_over %} 車いす枠超{% endif %}{% if c.driver_ng %} 運転不可{% endif %}{% if c.ride_ng %} 同乗NG{% endif %}</span>{% endfor %}</div>
+        </div>
         <table class="table table-sm mb-0 small"><thead><tr><th>時刻</th><th>{{ terms.beneficiary }}</th><th>場所</th><th>車両／運転手</th></tr></thead>
-          <tbody>{% for r in pick %}<tr><td>{{ r.time|time:'H:i'|default:'—' }}</td><td><a href="{% url 'transport:profile' r.b.pk %}" class="text-decoration-none">{{ r.b.full_name }}</a>{% if r.note %}<div class="text-danger">{{ r.note }}</div>{% endif %}</td><td>{{ r.place }}</td><td>{{ r.vehicle|default:'—' }}{% if r.driver %}／{{ r.driver }}{% endif %}</td></tr>{% empty %}<tr><td colspan="4" class="text-muted">この日の迎えはありません。</td></tr>{% endfor %}</tbody></table>
+          <tbody>{% for r in part.rows %}<tr>
+            <td>{{ r.time|time:'H:i'|default:'—' }}</td>
+            <td><a href="{% url 'transport:profile' r.b.pk %}" class="text-decoration-none">{{ r.b.full_name }}</a>{% if r.wheelchair %} <i class="bi bi-person-wheelchair tr-wc" title="車いすのまま乗る"></i>{% endif %}{% if r.ride_ng %}<div class="tr-ng">同じ車に乗せない相手：{{ r.ride_ng|join:'・' }}</div>{% endif %}{% if r.note %}<div class="text-danger">{{ r.note }}</div>{% endif %}</td>
+            <td>{{ r.place }}</td>
+            <td>{% if r.vehicle %}{{ r.vehicle }}{% else %}<span class="tr-ng">未定</span>{% endif %}{% if r.driver %}／{% if r.driver_ng %}<span class="tr-ng" title="この運転手は {{ r.vehicle }} を運転できる車両に入れていません">{{ r.driver }}（運転不可）</span>{% else %}{{ r.driver }}{% endif %}{% elif r.vehicle %}／<span class="tr-ng">運転手なし</span>{% endif %}</td>
+          </tr>{% empty %}<tr><td colspan="4" class="text-muted">この日の{% if part.key == 'pickup' %}迎え{% else %}送り{% endif %}はありません。</td></tr>{% endfor %}</tbody></table>
       </div>
     </div>
-    <div class="col-lg-6">
-      <div class="nr-card">
-        <div class="d-flex justify-content-between align-items-center mb-1"><div class="nr-h"><i class="bi bi-box-arrow-right me-1"></i>送り（{{ drop|length }} 人）</div>
-          <div class="small">{% for c in board.dropoff_counts %}<span class="badge {% if c.over %}text-bg-danger{% else %}text-bg-light border{% endif %} me-1">{{ c.vehicle.name }} {{ c.count }}{% if c.vehicle.capacity %}/{{ c.vehicle.capacity }}{% endif %}</span>{% endfor %}</div></div>
-        <table class="table table-sm mb-0 small"><thead><tr><th>時刻</th><th>{{ terms.beneficiary }}</th><th>場所</th><th>車両／運転手</th></tr></thead>
-          <tbody>{% for r in drop %}<tr><td>{{ r.time|time:'H:i'|default:'—' }}</td><td><a href="{% url 'transport:profile' r.b.pk %}" class="text-decoration-none">{{ r.b.full_name }}</a>{% if r.note %}<div class="text-danger">{{ r.note }}</div>{% endif %}</td><td>{{ r.place }}</td><td>{{ r.vehicle|default:'—' }}{% if r.driver %}／{{ r.driver }}{% endif %}</td></tr>{% empty %}<tr><td colspan="4" class="text-muted">この日の送りはありません。</td></tr>{% endfor %}</tbody></table>
-      </div>
-    </div>
+    {% endfor %}
     {% endwith %}
   </div>
+  {% if board.vehicles %}
+  <div class="small text-muted mt-2">車両の条件：{% for v in board.vehicles %}{{ v.name }}（定員 {{ v.capacity|default:'未設定' }}{% if v.wheelchair_slots %}・車いす {{ v.wheelchair_slots }} 台まで・1 台で座席 {{ v.wheelchair_seats }} 分{% else %}・車いすのままは不可{% endif %}{% if v.default_driver %}・運転手 {{ v.default_driver }}{% endif %}）{% if not forloop.last %}／{% endif %}{% endfor %}</div>
+  {% endif %}
   {% if board.walk %}<div class="small text-muted mt-2">送迎なし（自分で来る・家族が送る）：{% for b in board.walk %}<a href="{% url 'transport:profile' b.pk %}">{{ b.full_name }}</a>{% if not forloop.last %}・{% endif %}{% endfor %}　— 送迎が要る人は名前を押して「迎え・送り」を設定します。</div>{% endif %}
   {% if not board.people %}<div class="small text-muted mt-2">この曜日に利用する人がいません。{{ terms.beneficiary }}情報の「利用の曜日」に印を付けてください。</div>{% endif %}
 </div>

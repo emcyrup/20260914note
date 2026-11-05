@@ -41,7 +41,11 @@
           {% for v in transport_vehicles %}<option value="{{ v.pk }}" {% if transport_profile.default_vehicle_id == v.pk %}selected{% endif %}>{{ v.name }}</option>{% endfor %}
         </select>
       </div>
-      <div class="col-md-8">
+      <div class="col-md-3">
+        <label class="form-label small mb-0 d-block">車いす</label>
+        <label class="form-check small mb-0"><input type="checkbox" class="form-check-input" name="wheelchair" {% if transport_profile.wheelchair %}checked{% endif %}> 車いすのまま乗る</label>
+      </div>
+      <div class="col-md-5">
         <label class="form-label small mb-0" for="tp-note">送迎の注意</label>
         <input type="text" name="note" id="tp-note" class="form-control form-control-sm" maxlength="200" value="{{ transport_profile.note }}" placeholder="チャイルドシート・酔いやすい・引き渡しの相手 など">
       </div>

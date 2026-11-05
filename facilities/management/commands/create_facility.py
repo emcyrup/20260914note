@@ -117,6 +117,17 @@ def apply_care_preset(facility):
     return facility
 
 
+def apply_roken_preset(facility):
+    """介護老人保健施設・通所リハ（2026-11-05 の相談のデモ）：介護施設の型で、家族への LINE は使わない（入所施設では連絡帳の LINE はあまり使わない）。
+    送迎表は車いす・運転できる車両・同乗NG・定員を見る"""
+    apply_care_preset(facility)
+    facility.use_line = False
+    if facility.brand_color in ('', '#4f7a4a'):
+        facility.brand_color = '#3a6b8f'   # 老健の画面は落ち着いた青
+    facility.save()
+    return facility
+
+
 class Command(BaseCommand):
     help = '別の事業所（施設）を作成し、標準タグと管理者アカウントを用意する'
 
@@ -132,9 +143,10 @@ class Command(BaseCommand):
         parser.add_argument('--demo', action='store_true', help='架空のサンプルデータ（seed_demo）も投入する')
         parser.add_argument('--layout', choices=['standard', 'planbook'], default=None,
                             help='画面の型（planbook＝計画書中心・シンプル：利用者・完了期日一覧・スタッフ・保護者・連絡帳・施設の6メニュー）')
-        parser.add_argument('--preset', choices=['ryoiku', 'kyotaku', 'care'], default=None,
+        parser.add_argument('--preset', choices=['ryoiku', 'kyotaku', 'care', 'roken'], default=None,
                             help='ryoiku＝療育の事業所：予約管理（時間枠・月予約利用希望・月間予定表）と療育記録を使う。'
-                                 'kyotaku＝居宅介護支援（ケアマネ）。care＝介護施設（やすらぎの森：検温板・介護記録・連絡帳・事故報告・薬・送迎・計画書）')
+                                 'kyotaku＝居宅介護支援（ケアマネ）。care＝介護施設（やすらぎの森：検温板・介護記録・連絡帳・事故報告・薬・送迎・計画書）。'
+                                 'roken＝介護老人保健施設・通所リハ（care と同じで LINE は使わない。--demo は通所リハ 36 人・入所 8 人の送迎つきサンプル）')
 
     def handle(self, *args, **o):
         name = o['name'].strip()
@@ -185,6 +197,10 @@ class Command(BaseCommand):
                 apply_care_preset(facility)
                 self.stdout.write('介護施設の設定にしました：検温板・介護記録・連絡帳（LINE）・ヒヤリハット／事故報告・薬の管理・送迎表・人員配置・'
                                   '通所介護計画書を使います（請求・予約は使いません）')
+            if o.get('preset') == 'roken':
+                apply_roken_preset(facility)
+                self.stdout.write('介護老人保健施設・通所リハの設定にしました：検温板・介護記録・連絡帳（印刷）・ヒヤリハット／事故報告・薬の管理・'
+                                  '送迎表（車いす・運転できる車両・同乗NG・定員）・人員配置・計画書を使います（LINE・請求・予約は使いません）')
             if src is not None and getattr(src, 'use_reservation', False) and copy_reservation_setting(src, facility):
                 self.stdout.write(f'予約の設定（枠・時間・休業曜日・受付の決まり）も「{src.name}」から写しました')
             self.stdout.write(self.style.SUCCESS(f'施設「{facility.name}」を作成しました（ID {facility.pk}）'))
@@ -203,10 +219,12 @@ class Command(BaseCommand):
             call_command('kaigo_demo', '--facility', str(facility.pk), stdout=self.stdout)
         elif o.get('demo') and o.get('preset') == 'care':
             call_command('nursing_demo', '--facility', str(facility.pk), stdout=self.stdout)
+        elif o.get('demo') and o.get('preset') == 'roken':
+            call_command('nursing_demo', '--facility', str(facility.pk), '--scenario', 'roken', stdout=self.stdout)
         elif o.get('demo'):
             call_command('seed_demo', '--facility', str(facility.pk), stdout=self.stdout)
 
-        if o.get('preset') in ('kyotaku', 'care'):
+        if o.get('preset') in ('kyotaku', 'care', 'roken'):
             self.stdout.write('次の手順: この管理者でログイン → 施設設定で事業所名・事業所番号・住所・電話を入れる → 利用者情報で利用者を登録')
         else:
             self.stdout.write('次の手順: この管理者でログイン → 施設設定で事業所番号・呼び方・使う機能を確認 → 職員・運用管理で職員を追加')

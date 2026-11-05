@@ -955,7 +955,13 @@ WEEKDAY_FIELDS = ['weekday_mon', 'weekday_tue', 'weekday_wed', 'weekday_thu', 'w
 
 
 def transport_rows(facility, day):
-    """その日に利用する人（利用の曜日に印のある人）の迎え・送り。車両ごとにまとめる"""
+    """
+    その日に利用する人（利用の曜日に印のある人）の迎え・送り。車両ごとにまとめ、条件に合わないところを知らせる
+    （2026-11-05 老健・通所リハの相談：定員・車いすを載せたときの定員の変わり方・職員ごとの運転できる車種・利用者同士の相性）。
+    行：b・time・place・vehicle・driver・note・wheelchair・driver_ng（運転手がその車を運転できない）・ride_ng（同じ車に乗せない相手の名前）
+    車両ごと：vehicle・count・wheelchairs・seats（使う座席）・over（定員超）・wc_over（車いすの枠超）・driver_ng
+    """
+    from beneficiaries.models import Beneficiary as _B
     from transport.models import TransportProfile, Vehicle
     field = WEEKDAY_FIELDS[day.weekday()]
     people = Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE).order_by('last_name_kana', 'first_name_kana')
@@ -963,9 +969,13 @@ def transport_rows(facility, day):
         people = people.filter(**{field: True})
     else:
         people = people.none()
-    profiles = {t.beneficiary_id: t for t in TransportProfile.objects.filter(beneficiary__in=people).select_related('default_vehicle', 'default_vehicle__default_driver')}
-    vehicles = list(Vehicle.objects.filter(facility=facility, is_active=True).select_related('default_driver'))
-    out = {'pickup': [], 'dropoff': [], 'walk': []}
+    profiles = {t.beneficiary_id: t for t in TransportProfile.objects.filter(beneficiary__in=people)
+                .select_related('default_vehicle', 'default_vehicle__default_driver')}
+    vehicles = list(Vehicle.objects.filter(facility=facility, is_active=True).select_related('default_driver').prefetch_related('default_driver__vehicles'))
+    pairs = {}
+    for a, b in _B.no_ride_with.through.objects.filter(from_beneficiary__facility=facility).values_list('from_beneficiary_id', 'to_beneficiary_id'):
+        pairs.setdefault(a, set()).add(b)
+    out = {'pickup': [], 'dropoff': [], 'walk': [], 'problems': 0}
     for b in people:
         t = profiles.get(b.pk)
         if not t or not (t.pickup or t.dropoff):
@@ -973,20 +983,46 @@ def transport_rows(facility, day):
             continue
         for direction, flag in (('pickup', t.pickup), ('dropoff', t.dropoff)):
             if flag:
-                out[direction].append({'b': b, 'time': t.time(direction), 'place': t.place(direction) or b.address, 'vehicle': t.default_vehicle,
-                                       'driver': t.default_vehicle.default_driver if t.default_vehicle else None, 'note': t.note})
+                v = t.default_vehicle
+                driver = v.default_driver if v else None
+                out[direction].append({'b': b, 'time': t.time(direction), 'place': t.place(direction) or b.address, 'vehicle': v, 'driver': driver,
+                                       'note': t.note, 'wheelchair': t.wheelchair,
+                                       'driver_ng': bool(v and driver and not driver.can_drive(v)), 'ride_ng': []})
     for direction in ('pickup', 'dropoff'):
-        out[direction].sort(key=lambda r: ((r['vehicle'].order, r['vehicle'].pk) if r['vehicle'] else (999, 0), r['time'] is None, r['time'] or datetime.time.min))
+        rows = out[direction]
+        rows.sort(key=lambda r: ((r['vehicle'].order, r['vehicle'].pk) if r['vehicle'] else (999, 0), r['time'] is None, r['time'] or datetime.time.min))
+        # 同乗NG：同じ車両に「同じ車に乗せない」相手がいる
+        for i, x in enumerate(rows):
+            for y in rows[i + 1:]:
+                if x['vehicle'] and y['vehicle'] and x['vehicle'].pk == y['vehicle'].pk and y['b'].pk in pairs.get(x['b'].pk, ()):
+                    x['ride_ng'].append(y['b'].full_name)
+                    y['ride_ng'].append(x['b'].full_name)
         counts = {}
-        for r in out[direction]:
+        for r in rows:
             if r['vehicle']:
-                counts.setdefault(r['vehicle'].pk, {'vehicle': r['vehicle'], 'count': 0})['count'] += 1
+                c = counts.setdefault(r['vehicle'].pk, {'vehicle': r['vehicle'], 'count': 0, 'wheelchairs': 0, 'driver_ng': False, 'ride_ng': 0})
+                c['count'] += 1
+                c['wheelchairs'] += 1 if r['wheelchair'] else 0
+                c['driver_ng'] = c['driver_ng'] or r['driver_ng']
+                c['ride_ng'] += 1 if r['ride_ng'] else 0
         for c in counts.values():
-            c['over'] = bool(c['vehicle'].capacity and c['count'] > c['vehicle'].capacity)
+            v = c['vehicle']
+            c['seats'] = v.seats_used(c['count'], c['wheelchairs'])
+            c['over'] = bool(v.capacity and c['seats'] > v.capacity)
+            c['wc_over'] = c['wheelchairs'] > v.wheelchair_slots
+            c['ng'] = c['over'] or c['wc_over'] or c['driver_ng'] or bool(c['ride_ng'])
+            out['problems'] += int(c['over']) + int(c['wc_over']) + int(c['driver_ng']) + c['ride_ng'] // 2
         out[direction + '_counts'] = sorted(counts.values(), key=lambda c: (c['vehicle'].order, c['vehicle'].pk))
+        out[direction + '_unassigned'] = sum(1 for r in rows if not r['vehicle'])
+        out['problems'] += out[direction + '_unassigned']
     out['vehicles'] = vehicles
     out['people'] = list(people)
     return out
+
+
+def transport_parts(board):
+    """画面・印刷で迎え／送りを同じ形で回すためのまとめ"""
+    return [{'key': k, 'rows': board[k], 'counts': board[k + '_counts'], 'unassigned': board[k + '_unassigned']} for k in ('pickup', 'dropoff')]
 
 
 class TransportDayView(CareMixin, View):
@@ -997,14 +1033,15 @@ class TransportDayView(CareMixin, View):
         board = transport_rows(self.facility, day)
         return render(request, self.template_name, {'day': day, 'day_jp': jp_date(day), 'board': board, 'today': datetime.date.today(),
                                                     'prev': day - datetime.timedelta(days=1), 'next': day + datetime.timedelta(days=1),
-                                                    'use_transport': self.facility.use_transport})
+                                                    'use_transport': self.facility.use_transport, 'parts': transport_parts(board)})
 
 
 class TransportDayPdfView(CareMixin, View):
     def get(self, request):
         day = parse_date(request.GET.get('d'), datetime.date.today())
-        return pdf_or_html(request, 'nursing/pdf/transport_day.html', {'facility': self.facility, 'day': day, 'day_jp': jp_date(day), 'board': transport_rows(self.facility, day),
-                                                                       'back_url': reverse('nursing:transport_day') + f'?d={day.isoformat()}'},
+        board = transport_rows(self.facility, day)
+        return pdf_or_html(request, 'nursing/pdf/transport_day.html', {'facility': self.facility, 'day': day, 'day_jp': jp_date(day), 'board': board,
+                                                                       'parts': transport_parts(board), 'back_url': reverse('nursing:transport_day') + f'?d={day.isoformat()}'},
                            f'送迎表_{day:%Y%m%d}')
 
 
