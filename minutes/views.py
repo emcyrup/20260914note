@@ -3,6 +3,8 @@ import datetime
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.paginator import Paginator
+from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -13,7 +15,7 @@ from ai_assist.quick import ask_ai, tidy_sections
 from config.concurrency import check_conflict, keep_unsaved, pop_unsaved
 from config.utils import to_int
 
-from .models import KEEP, Minutes
+from .models import KEEP, LIST_PER_PAGE, Minutes
 
 TEXT_MAX = 30000      # 話した内容（1時間ほど話したぶん）
 
@@ -71,12 +73,14 @@ def _default_title(day):
 
 
 class MinutesView(LoginRequiredMixin, View):
-    """議事録：新しく書く／履歴（新しい10件）から開いて直す"""
+    """議事録：新しく書く／履歴（新しい10件。全件は一覧）から開いて直す"""
     template_name = 'minutes/index.html'
 
     def get(self, request):
         facility = request.user.facility
-        history = list(Minutes.objects.filter(facility=facility).select_related('created_by')[:KEEP])
+        qs = Minutes.objects.filter(facility=facility)
+        history = list(qs.select_related('created_by')[:KEEP])
+        total = qs.count()
         current = None
         if request.GET.get('id'):
             current = get_object_or_404(Minutes, pk=to_int(request.GET.get('id'), -1), facility=facility)
@@ -88,7 +92,7 @@ class MinutesView(LoginRequiredMixin, View):
         return render(request, self.template_name, {
             'history': history, 'current': current, 'keep': KEEP, 'today': today, 'consent_notice': CONSENT_NOTICE,
             'unsaved': pop_unsaved(request, 'minutes', current.pk) if current else None,
-            'default_title': _default_title(today), 'full': len(history) >= KEEP,
+            'default_title': _default_title(today), 'total': total,
             'text_max': TEXT_MAX, 'summary_max': SUMMARY_MAX, 'children': children,
             'therapy_body_max': THERAPY_BODY_MAX,
         })
@@ -128,12 +132,10 @@ class MinutesView(LoginRequiredMixin, View):
             m.save()
             messages.success(request, f'「{m.title}」を保存しました。')
         else:
+            # 件数の上限は無い（以前は新しい 10 件だけ残して古いものを消していたが、10 件を超えると
+            # 保存できない・消えると受け取られたのでやめた。古いものは一覧から職員が消す）
             m = Minutes.objects.create(facility=facility, created_by=request.user, **fields)
-            removed = Minutes.prune(facility)
-            msg = f'「{m.title}」を保存しました。'
-            if removed:
-                msg += f'（新しい{KEEP}件を残すため、古い議事録を{removed}件消しました）'
-            messages.success(request, msg)
+            messages.success(request, f'「{m.title}」を保存しました。')
         return redirect(f"{reverse('minutes:index')}?id={m.pk}")
 
 
@@ -167,6 +169,43 @@ class MinutesView(LoginRequiredMixin, View):
             msg += f'（記録の欄は {THERAPY_BODY_MAX} 字までのため、後ろを切りました）'
         messages.success(request, msg)
         return redirect(f"{reverse('therapy:child', args=[beneficiary.pk])}?ym={rec.date:%Y-%m}#rec{rec.pk}")
+
+
+class ListView(LoginRequiredMixin, View):
+    """議事録の一覧（全件）。件名・内容で探す、ページ送り、1 件ずつ／選んでまとめて削除"""
+    template_name = 'minutes/list.html'
+
+    def get(self, request):
+        facility = request.user.facility
+        q = (request.GET.get('q') or '').strip()[:100]
+        qs = Minutes.objects.filter(facility=facility).select_related('created_by')
+        if q:
+            qs = qs.filter(Q(title__icontains=q) | Q(summary__icontains=q) | Q(transcript__icontains=q))
+        page = Paginator(qs, LIST_PER_PAGE).get_page(request.GET.get('page'))
+        return render(request, self.template_name, {
+            'page': page, 'q': q, 'total': Minutes.objects.filter(facility=facility).count(),
+        })
+
+    def post(self, request):
+        facility = request.user.facility
+        p = request.POST
+        ids = [to_int(v, -1) for v in p.getlist('ids')] if p.get('action') == 'delete_many' else [to_int(p.get('id'), -1)]
+        qs = Minutes.objects.filter(facility=facility, pk__in=[i for i in ids if i > 0])
+        titles = list(qs.values_list('title', flat=True))
+        if not titles:
+            messages.error(request, '消す議事録を選んでください。')
+        else:
+            qs.delete()
+            if len(titles) == 1:
+                messages.success(request, f'「{titles[0]}」を削除しました。')
+            else:
+                messages.success(request, f'議事録を {len(titles)} 件削除しました。')
+        back = reverse('minutes:list')
+        extra = {k: v for k, v in (('q', p.get('q')), ('page', p.get('page'))) if v}
+        if extra:
+            from urllib.parse import urlencode
+            back += '?' + urlencode(extra)
+        return redirect(back)
 
 
 class OrganizeView(LoginRequiredMixin, View):

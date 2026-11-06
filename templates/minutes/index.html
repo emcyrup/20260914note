@@ -138,7 +138,7 @@
       </div>
       {% endif %}
       <div class="mn-save mt-3">
-        <div class="form-text mb-0" id="mn-save-note">{% if full and not current %}<span class="text-danger">保存すると、一番古い議事録（履歴の一番下）が消えます。</span>{% else %}議事録は新しい{{ keep }}件まで残ります。{% endif %}</div>
+        <div class="form-text mb-0" id="mn-save-note">議事録は件数の上限なく残ります。要らなくなったものは<a href="{% url 'minutes:list' %}">一覧</a>から消せます。</div>
         <div class="d-flex gap-2 align-items-center">
           {% if current %}<a href="{% url 'minutes:print' current.pk %}" target="_blank" class="btn btn-outline-secondary"><i class="bi bi-printer me-1"></i>印刷</a>{% endif %}
           <button class="btn btn-primary" id="mn-save"><i class="bi bi-check2 me-1"></i>保存する</button>
@@ -147,7 +147,10 @@
     </div></form>
 
     <div class="card mn-hist">
-      <div class="card-body pb-2"><div class="mn-title"><i class="bi bi-clock-history"></i>履歴<span class="small text-muted fw-normal ms-1">新しい{{ keep }}件</span></div></div>
+      <div class="card-body pb-2 d-flex justify-content-between align-items-center flex-wrap gap-1">
+        <div class="mn-title"><i class="bi bi-clock-history"></i>履歴<span class="small text-muted fw-normal ms-1">新しい{{ keep }}件</span></div>
+        <a href="{% url 'minutes:list' %}" class="small"><i class="bi bi-list-ul me-1"></i>一覧（全 {{ total }} 件）・削除</a>
+      </div>
       {% for m in history %}
       <a href="{% url 'minutes:index' %}?id={{ m.pk }}" class="{% if current and current.pk == m.pk %}on{% endif %}">
         <div class="t">{{ m.title }}</div>
