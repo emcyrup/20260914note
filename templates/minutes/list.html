@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+
+{% block title %}議事録の一覧 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}議事録の一覧{% endblock %}
+{% block nav_minutes %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .ml-wrap { max-width: 1100px; }
+  .ml-table td, .ml-table th { vertical-align: middle; }
+  .ml-table .t { font-weight: 600; }
+  .ml-table .d { white-space: nowrap; }
+  .ml-table .x { color: #8a8378; font-size: 0.82rem; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ml-table .ops { white-space: nowrap; text-align: right; }
+  .ml-table .ops form { display: inline; }
+  @media (max-width: 700px) { .ml-table .x { display: none; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2 ml-wrap">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="text-muted small">議事録は全 {{ total }} 件。件数の上限はありません。要らなくなったものはここから消せます（消すと元に戻せません）。</div>
+    <div class="d-flex gap-2">
+      <a href="{% url 'minutes:index' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>議事録へ戻る</a>
+      <a href="{% url 'minutes:index' %}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>新しく書く</a>
+    </div>
+  </div>
+
+  <form method="get" class="d-flex gap-2 mb-3" role="search">
+    <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm" style="max-width:360px;" placeholder="件名・内容で探す">
+    <button class="btn btn-sm btn-outline-secondary">探す</button>
+    {% if q %}<a href="{% url 'minutes:list' %}" class="btn btn-sm btn-link">すべて</a>{% endif %}
+  </form>
+
+  <form method="post" id="ml-form" onsubmit="return mlConfirm();">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="delete_many">
+    <input type="hidden" name="q" value="{{ q }}"><input type="hidden" name="page" value="{{ page.number }}">
+    <div class="card">
+      <table class="table table-sm mb-0 ml-table">
+        <thead class="table-light">
+          <tr>
+            <th style="width:32px;"><input type="checkbox" class="form-check-input" id="ml-all" title="このページの全部を選ぶ"></th>
+            <th class="d">日付</th><th>件名</th><th class="x">内容</th><th>作成者</th><th class="ops"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in page %}
+          <tr>
+            <td><input type="checkbox" class="form-check-input ml-pick" name="ids" value="{{ m.pk }}" form="ml-form"></td>
+            <td class="d">{{ m.held_on|date:'Y/n/j' }}</td>
+            <td class="t"><a href="{% url 'minutes:index' %}?id={{ m.pk }}">{{ m.title }}</a></td>
+            <td class="x">{{ m.summary|default:m.transcript|truncatechars:80 }}</td>
+            <td class="small">{% if m.created_by %}{{ m.created_by }}{% endif %}</td>
+            <td class="ops">
+              <a href="{% url 'minutes:print' m.pk %}" target="_blank" class="btn btn-sm btn-outline-secondary" title="印刷"><i class="bi bi-printer"></i></a>
+              <button type="submit" form="ml-del-{{ m.pk }}" class="btn btn-sm btn-outline-danger" title="この議事録を削除"><i class="bi bi-trash"></i></button>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="6" class="text-muted small py-3">{% if q %}見つかりませんでした。{% else %}まだありません。{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-2">
+      <button class="btn btn-sm btn-outline-danger" id="ml-del-many" disabled><i class="bi bi-trash me-1"></i>選んだ議事録を削除</button>
+      {% if page.paginator.num_pages > 1 %}
+      <nav class="small">
+        {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}{% if q %}&q={{ q|urlencode }}{% endif %}">« 前</a>{% endif %}
+        <span class="mx-2">{{ page.number }} / {{ page.paginator.num_pages }} ページ</span>
+        {% if page.has_next %}<a href="?page={{ page.next_page_number }}{% if q %}&q={{ q|urlencode }}{% endif %}">次 »</a>{% endif %}
+      </nav>
+      {% endif %}
+    </div>
+  </form>
+  {% for m in page %}
+  <form method="post" id="ml-del-{{ m.pk }}" class="d-none" onsubmit="return confirm('「{{ m.title|escapejs }}」（{{ m.held_on|date:'Y/n/j' }}）を削除します。元に戻せません。よろしいですか？');">
+    {% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="{{ m.pk }}">
+    <input type="hidden" name="q" value="{{ q }}"><input type="hidden" name="page" value="{{ page.number }}">
+  </form>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var all = document.getElementById('ml-all'), picks = document.querySelectorAll('.ml-pick'), btn = document.getElementById('ml-del-many');
+  function refresh() {
+    var n = document.querySelectorAll('.ml-pick:checked').length;
+    btn.disabled = n === 0;
+    btn.innerHTML = '<i class="bi bi-trash me-1"></i>選んだ議事録を削除' + (n ? '（' + n + ' 件）' : '');
+  }
+  all.addEventListener('change', function () { picks.forEach(function (c) { c.checked = all.checked; }); refresh(); });
+  picks.forEach(function (c) { c.addEventListener('change', refresh); });
+  window.mlConfirm = function () {
+    var n = document.querySelectorAll('.ml-pick:checked').length;
+    if (!n) return false;
+    return confirm('選んだ ' + n + ' 件の議事録を削除します。元に戻せません。よろしいですか？');
+  };
+  refresh();
+})();
+</script>
+{% endblock %}
