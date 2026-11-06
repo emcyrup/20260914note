@@ -438,7 +438,7 @@ class PdfView(TherapyEnabledMixin, View):
             pages.append(chunk + [None] * (PAGE_ENTRIES - len(chunk)))
         ctx = {'beneficiary': beneficiary, 'profile': profile, 'pages': pages, 'facility': facility,
                'long_cautions': len(profile.cautions if profile else '') > LONG_CAUTIONS,
-               'blank': blank, 'ym': ym, 'line_range': range(6)}
+               'blank': blank, 'ym': ym, 'line_range': range(6), 'blank_year': datetime.date.today().year}
         name = f'療育記録_{beneficiary.full_name}' + (f'_{ym}' if ym else '')
         if date_from or date_to:
             name += f'_{date_from or ""}〜{date_to or ""}'
