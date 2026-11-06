@@ -741,3 +741,35 @@ class MediaRootAndEditingTests(TestCase):
         res = self.client.post(reverse('facilities:editing'), {'kind': 'facility', 'id': f.pk, 'action': 'touch'})
         self.assertEqual(res.status_code, 200)
         self.assertEqual(self.client.get(reverse('facilities:editing'), {'kind': 'facility', 'id': g.pk}).status_code, 404)
+
+
+class HoudeiPresetTests(TestCase):
+    """放課後等デイサービスのデモ事業所（2026-11-06。はびりすと同じ使い方）：create_facility --preset houdei"""
+
+    def test_preset_sets_habirisu_like_settings(self):
+        from io import StringIO
+        from django.core.management import call_command
+        from facilities.models import AddonMaster, FacilityAddonSetting
+        out = StringIO()
+        call_command('create_facility', '放デイ　デモ', '--admin', 'houdeidemo', '--password', 'pw12345678', '--preset', 'houdei', stdout=out)
+        f = Facility.objects.get(name='放デイ　デモ')
+        self.assertEqual((f.layout, f.form_set, f.capacity_class), (Facility.LAYOUT_STANDARD, Facility.FORM_SET_HAPPINESS, '20'))
+        self.assertTrue(f.use_billing and f.use_schedule and f.use_line and not f.use_reservation)
+        self.assertTrue(AddonMaster.objects.exists())                                    # 加算マスタが無い DB でも標準を入れる
+        self.assertGreaterEqual(FacilityAddonSetting.objects.filter(facility=f, is_enabled=True).count(), 5)
+        self.assertIn('はびりすと同じ', out.getvalue())
+        # 2 つ目の事業所を作っても、加算マスタは増えない
+        call_command('create_facility', '放デイ　デモ 2', '--preset', 'houdei', stdout=StringIO())
+        self.assertEqual(AddonMaster.objects.count(), AddonMaster.objects.values('name').distinct().count())
+
+    def test_demo_fills_journal_and_billing(self):
+        from io import StringIO
+        from django.core.management import call_command
+        from beneficiaries.models import Beneficiary
+        call_command('create_facility', '放デイ　デモ', '--admin', 'houdeidemo', '--password', 'pw12345678', '--preset', 'houdei', '--demo', stdout=StringIO())
+        f = Facility.objects.get(name='放デイ　デモ')
+        self.assertGreaterEqual(Beneficiary.objects.filter(facility=f).count(), 46)      # 日誌などのサンプル 6 人＋請求デモ 40 人
+        self.client.login(username='houdeidemo', password='pw12345678')
+        for url in ('/', '/billing/matrix/', '/billing/forecast/', '/billing/copayment/', '/forms/'):
+            res = self.client.get(url, follow=True)
+            self.assertEqual(res.status_code, 200, url)
