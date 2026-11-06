@@ -23,6 +23,7 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
+from django.utils import timezone
 
 from config.utils import month_or_404, reservation_enabled, to_int
 
@@ -46,7 +47,7 @@ def client_key(request):
 
 
 def today_first():
-    today = datetime.date.today()
+    today = timezone.localdate()
     return datetime.date(today.year, today.month, 1)
 
 
@@ -147,7 +148,7 @@ class PublicCalendarView(PublicPageMixin):
     def get(self, request, token, year=None, month=None):
         setting = self.get_setting(token)
         facility = setting.facility
-        today = datetime.date.today()
+        today = timezone.localdate()
         year, month = month_or_404(year or today.year, month or today.month)
         start, end = setting.booking_window(today)
 
@@ -239,7 +240,7 @@ class CustomerPageView(PublicPageMixin):
         customer = self.get_customer(token)
         facility = customer.facility
         setting = services.get_setting(facility)
-        today = datetime.date.today()
+        today = timezone.localdate()
         year, month = month_or_404(year or today.year, month or today.month)
         start, end = setting.booking_window(today)
 
@@ -319,7 +320,7 @@ class CustomerPageView(PublicPageMixin):
             if res is None or res.beneficiary_id not in children:
                 messages.error(request, 'そのご予約は見つかりませんでした。')
                 return back
-            if res.date < datetime.date.today():
+            if res.date < timezone.localdate():
                 messages.error(request, '過ぎた日のご予約は取り消せません。')
                 return back
             services.cancel_reservation(res)
