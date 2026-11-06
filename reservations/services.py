@@ -400,6 +400,7 @@ def mark_pairs(facility, reservations):
     return reservations
 
 
+@transaction.atomic   # select_for_update はトランザクションの中でしか使えない（PostgreSQL では外だと 500。2026-11-06 本番で発生）
 def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STAFF, customer=None,
                        note='', guest_name='', start_time=None, notify=True, share_seat=False):
     """

@@ -108,20 +108,36 @@ class MinutesTests(TestCase):
         self.client.post(self.url, {'title': '空', 'transcript': ' ', 'summary': ''})
         self.assertFalse(Minutes.objects.exists())
 
-    def test_keeps_newest_ten(self):
+    def test_keeps_all_and_list_delete(self):
+        """件数の上限は無い（以前は新しい 10 件だけ残していた）。履歴は新しい 10 件、一覧は全件。一覧から 1 件ずつ・まとめて消せる"""
         for i in range(KEEP + 2):
             self.client.post(self.url, {'title': f'会議{i}', 'transcript': f'内容{i}'})
-        titles = list(Minutes.objects.values_list('title', flat=True))
-        self.assertEqual(len(titles), KEEP)
-        self.assertEqual(titles[0], f'会議{KEEP + 1}')
-        self.assertNotIn('会議0', titles)
-        self.assertNotIn('会議1', titles)
+        self.assertEqual(Minutes.objects.count(), KEEP + 2)
         res = self.client.get(self.url)
-        self.assertContains(res, '一番古い議事録')
-        # 直すだけなら消えない
-        m = Minutes.objects.last()
-        self.client.post(self.url, {'id': m.pk, 'title': '直した', 'transcript': 'x'})
-        self.assertEqual(Minutes.objects.count(), KEEP)
+        self.assertContains(res, '会議2')
+        self.assertNotContains(res, '>会議0<')
+        self.assertContains(res, f'一覧（全 {KEEP + 2} 件）')
+        self.assertNotContains(res, '一番古い議事録')
+        lst = self.client.get(reverse('minutes:list'))
+        self.assertContains(lst, '会議0')
+        self.assertContains(lst, f'議事録は全 {KEEP + 2} 件')
+        # 探す
+        self.assertNotContains(self.client.get(reverse('minutes:list') + '?q=内容3'), '会議4')
+        self.assertContains(self.client.get(reverse('minutes:list') + '?q=内容3'), '会議3')
+        # 1 件ずつ
+        m0 = Minutes.objects.get(title='会議0')
+        res = self.client.post(reverse('minutes:list'), {'action': 'delete', 'id': m0.pk, 'q': '', 'page': '1'})
+        self.assertRedirects(res, reverse('minutes:list') + '?page=1')
+        self.assertFalse(Minutes.objects.filter(pk=m0.pk).exists())
+        # まとめて
+        ids = list(Minutes.objects.filter(title__in=['会議1', '会議2', '会議3']).values_list('pk', flat=True))
+        res = self.client.post(reverse('minutes:list'), {'action': 'delete_many', 'ids': ids}, follow=True)
+        self.assertContains(res, '議事録を 3 件削除しました')
+        self.assertEqual(Minutes.objects.count(), KEEP - 2)
+        # 何も選ばないと消えない
+        res = self.client.post(reverse('minutes:list'), {'action': 'delete_many'}, follow=True)
+        self.assertContains(res, '消す議事録を選んでください')
+        self.assertEqual(Minutes.objects.count(), KEEP - 2)
 
     def test_other_facility_cannot_open(self):
         other = Facility.objects.create(name='ほか')
@@ -129,16 +145,16 @@ class MinutesTests(TestCase):
         self.assertEqual(self.client.get(f'{self.url}?id={m.pk}').status_code, 404)
         self.assertEqual(self.client.get(reverse('minutes:print', args=[m.pk])).status_code, 404)
         self.client.post(self.url, {'action': 'delete', 'id': m.pk})
-        self.assertTrue(Minutes.objects.filter(pk=m.pk).exists())
-        # ほかの事業所の議事録は数に入れない
-        for i in range(KEEP):
-            self.client.post(self.url, {'title': f'会議{i}', 'transcript': 'x'})
+        self.client.post(reverse('minutes:list'), {'action': 'delete', 'id': m.pk})
+        self.client.post(reverse('minutes:list'), {'action': 'delete_many', 'ids': [m.pk]})
         self.assertTrue(Minutes.objects.filter(pk=m.pk).exists())
         self.assertNotContains(self.client.get(self.url), 'ひみつ')
+        self.assertNotContains(self.client.get(reverse('minutes:list')), 'ひみつ')
 
     def test_login_required(self):
         self.client.logout()
         self.assertEqual(self.client.get(self.url).status_code, 302)
+        self.assertEqual(self.client.get(reverse('minutes:list')).status_code, 302)
 
     @override_settings(ANTHROPIC_API_KEY='test-key')
     @mock.patch('ai_assist.quick.anthropic.Anthropic')
