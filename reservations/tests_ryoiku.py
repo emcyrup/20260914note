@@ -2161,12 +2161,9 @@ class PairAutoMoveTests(TestCase):
     def _hours(self):
         return {r.beneficiary_id: r.hour for r in Reservation.objects.filter(date=self.day, status=Reservation.STATUS_CONFIRMED)}
 
-    @mock.patch('reservations.monthly.datetime')
-    def test_schedule_opens_and_moves_one_to_eleven(self, dt):
-        dt.date.today.return_value = self.today
-        dt.date.side_effect = lambda *a, **k: datetime.date(*a, **k)
-        dt.time = datetime.time
-        dt.timedelta = datetime.timedelta
+    @mock.patch('reservations.monthly.timezone.localdate')
+    def test_schedule_opens_and_moves_one_to_eleven(self, localdate):
+        localdate.return_value = self.today          # きょうの日付（サーバーの時計は UTC なので localdate を使う）
         res = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))
         self.assertContains(res, '共演NG で同じ時間だったので、利用希望のほかの時刻へ移しました：10月9日(金) 青木 子 さん 10時→11時')
         self.assertEqual(self._hours(), {self.a.pk: 11, self.b.pk: 10})
@@ -2176,12 +2173,9 @@ class PairAutoMoveTests(TestCase):
         self.assertNotContains(res, '移しました')
         self.assertEqual(self._hours(), {self.a.pk: 11, self.b.pk: 10})
 
-    @mock.patch('reservations.monthly.datetime')
-    def test_no_other_wish_stays_red_and_pair_ok_is_kept(self, dt):
-        dt.date.today.return_value = self.today
-        dt.date.side_effect = lambda *a, **k: datetime.date(*a, **k)
-        dt.time = datetime.time
-        dt.timedelta = datetime.timedelta
+    @mock.patch('reservations.monthly.timezone.localdate')
+    def test_no_other_wish_stays_red_and_pair_ok_is_kept(self, localdate):
+        localdate.return_value = self.today          # きょうの日付（サーバーの時計は UTC なので localdate を使う）
         for kid in (self.a, self.b):
             monthly.save_request(self.f, kid, 2026, 10, 1, {'2026-10-09': [10]})
         res = self.client.get(reverse('reservations:monthly_schedule', args=[2026, 10]))

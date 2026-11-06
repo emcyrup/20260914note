@@ -1301,3 +1301,20 @@ class LockNeedsTransactionTests(TransactionTestCase):
             url = reverse('reservations:day', args=[2026, 11, 24])                 # 1 日の画面から（火曜）
             self.assertEqual(self.client.post(url, {'action': 'add', 'beneficiary': self.kid.pk}).status_code, 302)
             self.assertTrue(Reservation.objects.filter(beneficiary=self.kid, date=datetime.date(2026, 11, 24)).exists())
+
+
+class WishGridStickyHeaderTests(TestCase):
+    """利用希望の表の見出しを上に留める作り：表を囲むカードの overflow: hidden を外しておく
+    （外さないと見出しがカードの中で留まり、1 日の行が見出しの上に出て 2 日の行が隠れる。2026-11-06 ゆあーず）"""
+
+    def test_wish_card_overflow_visible(self):
+        f = Facility.objects.create(name='テスト', use_reservation=True)
+        u = StaffAccount.objects.create_user('s', password='pw12345678', facility=f, role=StaffAccount.ROLE_ADMIN)
+        kid = child(f, '山田')
+        setting = services.get_setting(f)
+        setting.slot_mode = True
+        setting.save()
+        self.client.force_login(u)
+        res = self.client.get(reverse('reservations:monthly_request_edit', args=[2026, 12, kid.pk]))
+        self.assertContains(res, '#wishGrid.card { overflow: visible; }')
+        self.assertContains(res, 'id="wishGrid"')

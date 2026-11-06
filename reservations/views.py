@@ -60,7 +60,7 @@ class CalendarView(ReservationEnabledMixin, View):
     template_name = 'reservations/calendar.html'
 
     def get(self, request, year=None, month=None):
-        today = datetime.date.today()
+        today = timezone.localdate()
         year, month = month_or_404(year or today.year, month or today.month)
         facility = request.user.facility
         setting = services.get_setting(facility)
@@ -874,7 +874,7 @@ class MonthlyRequestListView(SlotModeMixin, View):
             'beneficiaries': Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE),
             'ai_enabled': bool(settings.ANTHROPIC_API_KEY),
             'targets_missing': sum(1 for t in targets if t['missing']),
-            'default_deadline': max(datetime.date(*monthly.prev_month(year, month), 20), datetime.date.today()),
+            'default_deadline': max(datetime.date(*monthly.prev_month(year, month), 20), timezone.localdate()),
             **_month_ctx(year, month),
         })
 
@@ -1181,7 +1181,7 @@ class MonthlyScheduleNowView(SlotModeMixin, View):
     """左メニューの「月間予定表」：今月の月間予定表へ"""
 
     def get(self, request):
-        today = datetime.date.today()
+        today = timezone.localdate()
         return redirect('reservations:monthly_schedule', year=today.year, month=today.month)
 
 
@@ -1211,7 +1211,7 @@ class MonthlyScheduleView(SlotModeMixin, View):
         return render(request, self.template_name, {
             'schedule': schedule, 'setting': setting, 'cap': cap,
             'rows': monthly.schedule_rows(rows), 'row_totals': monthly.row_totals(monthly.schedule_rows(rows)),
-            'facility': facility, 'today': datetime.date.today(),
+            'facility': facility, 'today': timezone.localdate(),
             'therapy': getattr(facility, 'use_therapy_record', False),
             'staff_suggestions': monthly.staff_suggestions(facility),
             'shift_count': StaffShift.objects.filter(facility=facility, is_active=True).count() if facility.is_ryoiku else 0,
@@ -1234,16 +1234,16 @@ class DailyBoardView(RyoikuOnlyMixin, View):
     @staticmethod
     def _day(request):
         try:
-            return datetime.date.fromisoformat(request.GET.get('d', '')) if request.GET.get('d') else datetime.date.today()
+            return datetime.date.fromisoformat(request.GET.get('d', '')) if request.GET.get('d') else timezone.localdate()
         except ValueError:
-            return datetime.date.today()
+            return timezone.localdate()
 
     def get(self, request):
         facility = request.user.facility
         day = self._day(request)
         board = monthly.day_board(facility, day, services.get_setting(facility))
         return render(request, self.template_name, {
-            'facility': facility, 'b': board, 'today': datetime.date.today(),
+            'facility': facility, 'b': board, 'today': timezone.localdate(),
             'limit_text': services.limit_notice(facility, day),
             'attendance_choices': Reservation.ATT_CHOICES,
             'staff_suggestions': monthly.staff_suggestions(facility),
@@ -1303,7 +1303,7 @@ class StaffShiftView(RyoikuOnlyMixin, View):
 
     def get(self, request):
         facility = request.user.facility
-        today = datetime.date.today()
+        today = timezone.localdate()
         return render(request, self.template_name, {
             'facility': facility,
             'shifts': StaffShift.objects.filter(facility=facility),
@@ -1425,7 +1425,7 @@ class PairCheckView(SlotModeMixin, View):
         facility = request.user.facility
         if not facility.schedule_tools:
             raise Http404
-        today = datetime.date.today()
+        today = timezone.localdate()
         check = monthly.pair_check(facility, today)
         return render(request, 'reservations/pair_check.html', {
             'check': check, 'today': today, 'facility': facility,

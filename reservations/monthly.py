@@ -10,6 +10,7 @@ import calendar
 import datetime
 
 from django.db import transaction
+from django.utils import timezone
 
 from beneficiaries.models import Beneficiary
 from config.jp_holidays import holiday_name
@@ -428,7 +429,7 @@ def refresh_month_notice(facility, beneficiary, year, month, setting=None):
 
 def pair_overlaps(facility, year, month, today=None):
     """共演NG の 2 人が同じ日・同じ時間枠にいる組（今日から先の確定した予約）。[(予約a, 予約b)]"""
-    today = today or datetime.date.today()
+    today = today or timezone.localdate()
     pairs = pair_map(facility)
     if not pairs:
         return []
@@ -544,7 +545,7 @@ def pair_check(facility, today=None):
     戻り値 {'pairs'（登録の組数）, 'inactive_pairs'（在籍中でない人を含む組）, 'future': [{year, month, rows, fixable}], 'past': [row]}
     row = {'a', 'b'（予約）, 'sibling', 'movable'（「ほかの時刻へ移す」の対象）}
     """
-    today = today or datetime.date.today()
+    today = today or timezone.localdate()
     links = Beneficiary.cannot_pair.through.objects.filter(from_beneficiary__facility=facility)
     ng = {}
     for a, b in links.values_list('from_beneficiary_id', 'to_beneficiary_id'):
@@ -599,7 +600,7 @@ def reset_preview(facility, year, month, today=None):
     リセットの確認ダイアログ用：scope ごとに {'delete': 消す件数, 'keep': 残す件数, 'past', 'attended', 'recorded'（残す理由ごとの件数）}
     （2026-10-18 ゆあーず「削除前に確認ダイアログを」）
     """
-    today = today or datetime.date.today()
+    today = today or timezone.localdate()
     out = {}
     for scope in (RESET_ASSIGNED, RESET_ALL):
         qs = _reset_scope(facility, year, month, scope)
@@ -618,7 +619,7 @@ def reset_month(facility, year, month, scope=RESET_ASSIGNED, today=None):
     残すもの：今日より前の日・実績を入れた予約・療育記録に結びついた予約（記録をなくさないため）。
     消した予約の送信待ちのお知らせも消し、「ご利用日が決まりました」はいまの予約に合わせて書き直す（無くなれば消す）。
     """
-    today = today or datetime.date.today()
+    today = today or timezone.localdate()
     qs = _reset_scope(facility, year, month, scope)
     total = qs.count()
     target = qs.filter(date__gte=today, attendance='').exclude(therapy_records__isnull=False)
