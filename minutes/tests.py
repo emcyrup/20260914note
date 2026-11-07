@@ -75,7 +75,8 @@ class MinutesTests(TestCase):
         kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
         res = self.client.get(self.url)
         self.assertContains(res, 'id="save-as-therapy"')
-        self.assertContains(res, f'<option value="{kid.pk}">青木 子</option>')
+        self.assertContains(res, 'id="save-as-both"')
+        self.assertContains(res, f'id="mn-kid-{kid.pk}"')
         # 利用者を選ばないと保存しない
         res = self.client.post(self.url, {'title': '面談', 'held_on': '2026-09-24', 'transcript': 'x', 'summary': '',
                                           'save_as': 'therapy', 'beneficiary': ''}, follow=True)
@@ -89,7 +90,13 @@ class MinutesTests(TestCase):
         self.assertEqual((rec.beneficiary, rec.date, rec.time, rec.staff, rec.facility),
                          (kid, datetime.date(2026, 9, 24), datetime.time(14, 30), self.user, self.f))
         self.assertEqual(rec.body, '【保護者面談】\n【概要】\n母から家庭でのようすを聞いた')   # 議事録の欄を優先、件名を頭に
-        self.assertFalse(Minutes.objects.exists())                                       # 議事録の履歴には残さない
+        self.assertFalse(Minutes.objects.exists())                                       # 「反映」だけなら議事録の履歴には残さない
+        # 同じ日にもう一度入れると、その記録の後ろに足す（同じ日の記録を 2 つにしない）
+        self.client.post(self.url, {'title': '追加の面談', 'held_on': '2026-09-24', 'transcript': 'x', 'summary': '父からも聞いた',
+                                    'save_as': 'therapy', 'beneficiaries': [kid.pk]})
+        rec.refresh_from_db()
+        self.assertEqual(TherapyRecord.objects.filter(beneficiary=kid, date=datetime.date(2026, 9, 24)).count(), 1)
+        self.assertTrue(rec.body.endswith('\n\n【追加の面談】\n父からも聞いた'))
         # 議事録の欄が空なら話した内容。ほかの事業所の利用者は選べない
         other_f = Facility.objects.create(name='ほか', use_therapy_record=True)
         other = Beneficiary.objects.create(facility=other_f, last_name='井上', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
@@ -221,3 +228,38 @@ class MinutesConflictTests(TestCase):
                                                     'summary': 'わたしの議事録', 'version': version_token(m)})
         m.refresh_from_db()
         self.assertEqual(m.summary, 'わたしの議事録')
+
+
+class MinutesToManyTherapyRecordsTests(TestCase):
+    """オウル（2026-11-07）：小集団の会や面談の議事録を、何人かの療育記録にまとめて入れる。「両方」なら議事録にも残す"""
+
+    def setUp(self):
+        from beneficiaries.models import Beneficiary
+        self.f = Facility.objects.create(name='児童発達支援センター　オウル', use_therapy_record=True)
+        self.user = StaffAccount.objects.create_user('owl', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        self.url = reverse('minutes:index')
+        self.kids = [Beneficiary.objects.create(facility=self.f, last_name=n, first_name='子', date_of_birth=datetime.date(2020, 4, 1))
+                     for n in ('青木', '石田', '上野')]
+
+    def test_reflects_to_several_children_and_keeps_minutes(self):
+        from therapy.models import TherapyRecord
+        res = self.client.post(self.url, {'title': '小集団の会', 'held_on': '2026-11-06', 'transcript': 'x',
+                                          'summary': '【概要】\n3 人で順番に話した', 'save_as': 'both', 'time': '10:30',
+                                          'beneficiaries': [self.kids[0].pk, self.kids[1].pk]}, follow=True)
+        self.assertEqual(TherapyRecord.objects.count(), 2)
+        for kid in self.kids[:2]:
+            rec = TherapyRecord.objects.get(beneficiary=kid)
+            self.assertEqual((rec.date, rec.time, rec.staff), (datetime.date(2026, 11, 6), datetime.time(10, 30), self.user))
+            self.assertEqual(rec.body, '【小集団の会】\n【概要】\n3 人で順番に話した')
+        self.assertFalse(TherapyRecord.objects.filter(beneficiary=self.kids[2]).exists())
+        m = Minutes.objects.get()
+        self.assertEqual(m.title, '小集団の会')                 # 両方：議事録にも残る
+        self.assertContains(res, '2 人（青木 子・石田 子）の 11/6 の療育記録に入れました')
+        self.assertContains(res, '議事録「小集団の会」としても残しました')
+        self.assertContains(res, f'id="mn-kid-{self.kids[2].pk}"')   # 戻り先は議事録の画面（開いた状態）
+        # 選ばないと入れない。ほかの事業所の子は数に入らない
+        res = self.client.post(self.url, {'title': 'x', 'held_on': '2026-11-06', 'transcript': 'x', 'summary': '',
+                                          'save_as': 'therapy'}, follow=True)
+        self.assertContains(res, 'どの利用者の記録かを選んでください')
+        self.assertEqual(TherapyRecord.objects.count(), 2)
