@@ -122,18 +122,27 @@
           </div>
           <div class="form-check form-check-inline mb-0">
             <input class="form-check-input" type="radio" name="save_as" id="save-as-therapy" value="therapy">
-            <label class="form-check-label small" for="save-as-therapy">{{ terms.beneficiary }}の療育記録として保存</label>
+            <label class="form-check-label small" for="save-as-therapy">{{ terms.beneficiary }}の療育記録へ反映</label>
+          </div>
+          <div class="form-check form-check-inline mb-0">
+            <input class="form-check-input" type="radio" name="save_as" id="save-as-both" value="both">
+            <label class="form-check-label small" for="save-as-both">両方（療育記録へ反映し、議事録にも残す）</label>
           </div>
         </div>
-        <div class="d-flex flex-wrap align-items-center gap-2 mt-2 d-none" id="mn-therapy-fields">
-          <label class="small fw-semibold mb-0" for="mn-beneficiary">{{ terms.beneficiary }}</label>
-          <select name="beneficiary" id="mn-beneficiary" class="form-select form-select-sm" style="width:auto;">
-            <option value="">— 選ぶ —</option>
-            {% for b in children %}<option value="{{ b.pk }}">{{ b.full_name }}</option>{% endfor %}
-          </select>
-          <label class="small fw-semibold mb-0" for="mn-time">時刻</label>
-          <input type="time" name="time" id="mn-time" class="form-control form-control-sm" style="width:auto;">
-          <span class="form-text mt-0">「議事録」の欄（無ければ「話した内容」）が、上の日付のその{{ terms.beneficiary }}の「記録」に入ります（{{ therapy_body_max }} 字まで）。議事録の履歴には残りません。</span>
+        <div class="mt-2 d-none" id="mn-therapy-fields">
+          <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+            <span class="small fw-semibold">{{ terms.beneficiary }}（何人でも）</span>
+            <a href="#" class="small" id="mn-kids-all">全員に印</a><a href="#" class="small" id="mn-kids-none">印を外す</a>
+            <label class="small fw-semibold mb-0 ms-2" for="mn-time">時刻</label>
+            <input type="time" name="time" id="mn-time" class="form-control form-control-sm" style="width:auto;">
+          </div>
+          <div class="d-flex flex-wrap gap-1" id="mn-kids" style="max-height: 150px; overflow-y: auto;">
+            {% for b in children %}
+            <input type="checkbox" class="btn-check" name="beneficiaries" id="mn-kid-{{ b.pk }}" value="{{ b.pk }}" autocomplete="off">
+            <label class="btn btn-sm btn-outline-secondary" for="mn-kid-{{ b.pk }}">{{ b.full_name }}</label>
+            {% endfor %}
+          </div>
+          <div class="form-text">「議事録」の欄（無ければ「話した内容」）が、上の日付の印を付けた{{ terms.beneficiary }}それぞれの「記録」に入ります（{{ therapy_body_max }} 字まで）。その日の記録がすでにあれば、その後ろに足します。<span id="mn-keep-note">「両方」なら議事録の履歴にも残ります。</span></div>
         </div>
       </div>
       {% endif %}
@@ -206,24 +215,32 @@
     }, 50); });
   }
   form.addEventListener('input', function () { dirty = true; });
-  // 保存先：療育記録を選んだら利用者の欄を出し、選ばれていなければ送らせない
+  // 保存先：療育記録へ反映（または両方）を選んだら利用者の欄を出し、1 人も選ばれていなければ送らせない
   var saveAs = document.querySelectorAll('input[name=save_as]'), tf = document.getElementById('mn-therapy-fields');
+  function toTherapy() {
+    var t = document.getElementById('save-as-therapy'), b = document.getElementById('save-as-both');
+    return (t && t.checked) || (b && b.checked);
+  }
   function applySaveAs() {
-    var t = document.getElementById('save-as-therapy');
-    if (!t || !tf) return;
-    tf.classList.toggle('d-none', !t.checked);
-    document.getElementById('mn-save').innerHTML = t.checked
-      ? '<i class="bi bi-check2 me-1"></i>療育記録として保存'
+    if (!tf) return;
+    var on = toTherapy();
+    tf.classList.toggle('d-none', !on);
+    document.getElementById('mn-save').innerHTML = on
+      ? '<i class="bi bi-check2 me-1"></i>' + (document.getElementById('save-as-both').checked ? '療育記録へ反映して議事録も保存' : '療育記録へ反映')
       : '<i class="bi bi-check2 me-1"></i>保存する';
   }
   saveAs.forEach(function (el) { el.addEventListener('change', applySaveAs); });
   applySaveAs();
+  var kidsAll = document.getElementById('mn-kids-all'), kidsNone = document.getElementById('mn-kids-none');
+  if (kidsAll) {
+    kidsAll.addEventListener('click', function (e) { e.preventDefault(); document.querySelectorAll('#mn-kids input').forEach(function (c) { c.checked = true; }); });
+    kidsNone.addEventListener('click', function (e) { e.preventDefault(); document.querySelectorAll('#mn-kids input').forEach(function (c) { c.checked = false; }); });
+  }
   form.addEventListener('submit', function (e) {
-    var t = document.getElementById('save-as-therapy');
-    if (t && t.checked && !document.getElementById('mn-beneficiary').value) {
+    if (toTherapy() && !document.querySelector('#mn-kids input:checked')) {
       e.preventDefault();
-      show('療育記録として保存するには、どの{{ terms.beneficiary }}の記録かを選んでください。', 'warning', false);
-      document.getElementById('mn-beneficiary').focus();
+      show('療育記録へ反映するには、どの{{ terms.beneficiary }}の記録に入れるかに印を付けてください。', 'warning', false);
+      var k = document.getElementById('mn-kids'); if (k) k.scrollIntoView({block: 'center'});
     }
   });
   // 「話者を分ける」の状態を覚える（端末ごと）

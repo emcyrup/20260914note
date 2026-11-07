@@ -118,40 +118,51 @@ class MinutesView(LoginRequiredMixin, View):
         if not fields['transcript'] and not fields['summary']:
             messages.error(request, '話した内容か議事録のどちらかを入れてから保存してください。')
             return redirect(request.get_full_path())
-        if p.get('save_as') == 'therapy':
-            return self._save_as_therapy(request, facility, fields)
+        save_as = p.get('save_as') or 'minutes'
+        if save_as in ('therapy', 'both'):
+            return self._save_as_therapy(request, facility, fields, keep=(save_as == 'both'))
+        m, back = self._save_minutes(request, facility, fields)
+        if back is not None:
+            return back
+        messages.success(request, f'「{m.title}」を保存しました。')
+        return redirect(f"{reverse('minutes:index')}?id={m.pk}")
+
+    @staticmethod
+    def _save_minutes(request, facility, fields):
+        """議事録を保存（id があれば上書き）。(議事録, ほかの職員と重なったときの戻り先) を返す"""
+        p = request.POST
         if p.get('id'):
             m = get_object_or_404(Minutes, pk=to_int(p.get('id'), -1), facility=facility)
             conflict = check_conflict(request, m)
             if conflict:
                 keep_unsaved(request, 'minutes', m.pk, {k: str(v) for k, v in fields.items()})
                 messages.error(request, conflict + '（入れた内容は画面の上に残してあります）')
-                return redirect(f"{reverse('minutes:index')}?id={m.pk}")
+                return m, redirect(f"{reverse('minutes:index')}?id={m.pk}")
             for k, v in fields.items():
                 setattr(m, k, v)
             m.save()
-            messages.success(request, f'「{m.title}」を保存しました。')
-        else:
-            # 件数の上限は無い（以前は新しい 10 件だけ残して古いものを消していたが、10 件を超えると
-            # 保存できない・消えると受け取られたのでやめた。古いものは一覧から職員が消す）
-            m = Minutes.objects.create(facility=facility, created_by=request.user, **fields)
-            messages.success(request, f'「{m.title}」を保存しました。')
-        return redirect(f"{reverse('minutes:index')}?id={m.pk}")
+            return m, None
+        # 件数の上限は無い（以前は新しい 10 件だけ残して古いものを消していたが、10 件を超えると
+        # 保存できない・消えると受け取られたのでやめた。古いものは一覧から職員が消す）
+        return Minutes.objects.create(facility=facility, created_by=request.user, **fields), None
 
-
-    @staticmethod
-    def _save_as_therapy(request, facility, fields):
-        """議事録ではなく、選んだ利用者の療育記録（記録の欄）として保存する。議事録の履歴には残さない"""
+    def _save_as_therapy(self, request, facility, fields, keep=False):
+        """
+        選んだ利用者（複数可）の療育記録の「記録」の欄に入れる（2026-11-07 オウル：小集団の会・面談を何人かの記録に）。
+        その日の記録がすでにあれば、その後ろに足す（同じ日の記録を 2 つにしない）。無ければ新しく作る。
+        keep=True（両方）なら議事録の履歴にも残す
+        """
         from beneficiaries.models import Beneficiary
         from therapy.models import TherapyRecord
         p = request.POST
         if not getattr(facility, 'use_therapy_record', False):
             messages.error(request, 'この事業所では療育記録を使っていません。')
             return redirect(request.get_full_path())
-        beneficiary = Beneficiary.objects.filter(facility=facility, pk=to_int(p.get('beneficiary'), -1),
-                                                 status=Beneficiary.STATUS_ACTIVE).first()
-        if beneficiary is None:
-            messages.error(request, '療育記録として保存するには、どの利用者の記録かを選んでください。')
+        ids = {to_int(v, -1) for v in p.getlist('beneficiaries')} | {to_int(p.get('beneficiary'), -1)}
+        kids = list(Beneficiary.objects.filter(facility=facility, pk__in=[i for i in ids if i > 0],
+                                               status=Beneficiary.STATUS_ACTIVE).order_by('last_name_kana', 'pk'))
+        if not kids:
+            messages.error(request, '療育記録に入れるには、どの利用者の記録かを選んでください。')
             return redirect(request.get_full_path())
         try:
             time = datetime.time.fromisoformat(p.get('time') or '')
@@ -160,15 +171,50 @@ class MinutesView(LoginRequiredMixin, View):
         body = fields['summary'] or fields['transcript']
         if fields['title'] and not fields['title'].endswith('の記録'):
             body = f"【{fields['title']}】\n{body}"
-        cut = len(body) > THERAPY_BODY_MAX
-        rec = TherapyRecord.objects.create(
-            facility=facility, beneficiary=beneficiary, date=fields['held_on'], time=time,
-            staff=request.user, body=body[:THERAPY_BODY_MAX], created_by=request.user)
-        msg = f'{beneficiary.full_name} さんの {fields["held_on"]:%-m/%-d} の療育記録として保存しました。「やったこと」は療育記録の画面で足せます。'
+        m = None
+        if keep:
+            m, back = self._save_minutes(request, facility, fields)
+            if back is not None:
+                return back
+        made, added, cut, last = [], [], False, None
+        for kid in kids:
+            rec = TherapyRecord.objects.filter(beneficiary=kid, date=fields['held_on']).order_by('pk').first()
+            if rec is not None and (rec.body or rec.situation):
+                text = f'{rec.body}\n\n{body}' if rec.body else body
+                cut = cut or len(text) > THERAPY_BODY_MAX
+                rec.body = text[:THERAPY_BODY_MAX]
+                rec.save(update_fields=['body', 'updated_at'])
+                added.append(kid)
+            else:
+                cut = cut or len(body) > THERAPY_BODY_MAX
+                if rec is None:
+                    rec = TherapyRecord.objects.create(
+                        facility=facility, beneficiary=kid, date=fields['held_on'], time=time,
+                        staff=request.user, body=body[:THERAPY_BODY_MAX], created_by=request.user)
+                else:
+                    rec.body = body[:THERAPY_BODY_MAX]
+                    if time and not rec.time:
+                        rec.time = time
+                    rec.save(update_fields=['body', 'time', 'updated_at'])
+                made.append(kid)
+            last = rec
+        day = f'{fields["held_on"]:%-m/%-d}'
+        names = '・'.join(k.full_name for k in kids)
+        if len(kids) == 1:
+            msg = f'{names} さんの {day} の療育記録に' + ('足しました' if added else 'なりました') + '。「やったこと」は療育記録の画面で足せます。'
+        else:
+            msg = f'{len(kids)} 人（{names}）の {day} の療育記録に入れました'
+            if added:
+                msg += f'（{len(added)} 人はその日の記録があったので後ろに足しました）'
+            msg += '。'
         if cut:
             msg += f'（記録の欄は {THERAPY_BODY_MAX} 字までのため、後ろを切りました）'
+        if m is not None:
+            msg += f' 議事録「{m.title}」としても残しました。'
         messages.success(request, msg)
-        return redirect(f"{reverse('therapy:child', args=[beneficiary.pk])}?ym={rec.date:%Y-%m}#rec{rec.pk}")
+        if len(kids) == 1 and m is None:
+            return redirect(f"{reverse('therapy:child', args=[kids[0].pk])}?ym={last.date:%Y-%m}#rec{last.pk}")
+        return redirect(f"{reverse('minutes:index')}?id={m.pk}" if m is not None else reverse('minutes:index'))
 
 
 class ListView(LoginRequiredMixin, View):
