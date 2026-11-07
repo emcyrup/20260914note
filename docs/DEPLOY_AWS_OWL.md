@@ -1,5 +1,7 @@
 # 「児童発達支援センター　オウル」を AWS 共用サーバーで動かす手順（ゆあーずと同じサーバー・別ポート・別 DB）
 
+> **2026-11-07 から**：オウルの本番はブランチ **`owl`** への push で配備する（Deploy (owl)）。それまではゆあーずと同じ `ryoiku` への push で両方に配備していたが、環境が別なので分けた。ゆあーず・オウル共通の修正は、作業ブランチから `ryoiku` と `owl` のそれぞれへ cherry-pick する。venv（`~/env`）は当面ゆあーずと共用（requirements が違う変更を入れるときは `OWL_VENV` で分ける）。
+
 対象: `https://michinote.owl.ai-labo.cloud/` → プロバイダ管理の nginx（HTTPS 終端。設定はゆあーずと同じ）→ Gunicorn `0.0.0.0:8034` → プロバイダ管理の PostgreSQL（DB `michinoteowl`、ユーザー `ai_labo_dbuser`）。
 
 ゆあーず（`docs/DEPLOY_AWS_YOURS.md`。`~/michinoteyours`・ポート 8030・DB `michinoteyours`）と**同じサーバー・同じ仕組み**で、置き場所・ポート・DB・`.env` が違うだけです。venv（`~/env`）は共用します。同じアプリを別々に動かすので、オウルの職員・利用者・予約はゆあーずからは見えません（DB が別）。
