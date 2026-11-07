@@ -1,14 +1,17 @@
 # =============================================
 # 介護施設のデモ事業所（2026-11-05 の相談。老健・通所リハの法人の試用）の環境での管理コマンド（Actions の画面から実行する）
 #   Deploy (kaigodemo) と同じ Secrets（KAIGODEMO_*。無ければ開発環境の DEV_* を使う）で SSH し、~/kaigonotedemo の manage.py を実行する
-#   - create_facility : デモ事業所と管理者を作る（--preset は入力の preset：roken＝老健・通所リハ（LINE なし）／care＝通所介護。--company）
+#   - create_facility : デモ事業所と管理者を作る（--preset は入力の preset：roken＝老健・通所リハ（LINE なし）／care＝通所介護／
+#                       houdei＝放課後等デイサービス（はびりすと同じ。2026-11-07 特別対応：放デイ デモをこの環境に同居させる）。--company）
 #   - set_password    : 管理者（職員）のパスワードを設定する
 #   - list / delete_facility / demo_add / demo_remove / error_log / speech_check / speech_log / set_media_root / status /
 #     autostart_check / autostart_install / backup / backup_list / backup_check : Manage (yasuragi) と同じ
-#   - demo_add の scenario：roken（通所リハ 36 人・入所 8 人・車両 4 台・運転手 4 人・同乗NG）／care（通所介護 12 人）
+#   - demo_add の scenario：roken（通所リハ 36 人・入所 8 人・車両 4 台・運転手 4 人・同乗NG）／care（通所介護 12 人）／
+#                          houdei（日誌・計画・来所予定・はびりす様式の 6 人と、請求デモ 40 人。facility_id 必須）
 #
 # パスワードは入力欄では受け取らない（入力欄の値は公開のログの「env:」にそのまま出るため）。
 # リポジトリの Secrets の KAIGODEMO_ADMIN_PASSWORD を使う（Secrets はログで伏せられる）。
+# 放デイ デモの管理者（houdeidemo）は password_secret=houdeidemo で HOUDEIDEMO_ADMIN_PASSWORD を使う。
 # 空なら create_facility はランダムな仮の値にする。このリポジトリは公開なので、ログに秘密の値を出さないこと。
 # =============================================
 name: Manage (kaigodemo)
@@ -35,15 +38,20 @@ on:
         type: string
         default: kaigodemo
       preset:
-        description: "事業所の型（create_facility）：roken＝老健・通所リハ（LINE なし）／care＝通所介護"
+        description: "事業所の型（create_facility）：roken＝老健・通所リハ（LINE なし）／care＝通所介護／houdei＝放課後等デイサービス（はびりすと同じ）"
         type: choice
         default: roken
-        options: [roken, care]
+        options: [roken, care, houdei]
       scenario:
-        description: "サンプルの内容（create_facility の with_demo・demo_add）：roken＝通所リハ 36 人・入所 8 人／care＝通所介護 12 人"
+        description: "サンプルの内容（create_facility の with_demo・demo_add・demo_remove）：roken＝通所リハ 36 人・入所 8 人／care＝通所介護 12 人／houdei＝放デイ（日誌などの 6 人と請求デモ 40 人。demo は facility_id 必須）"
         type: choice
         default: roken
-        options: [roken, care]
+        options: [roken, care, houdei]
+      password_secret:
+        description: "管理者のパスワードに使う Secrets（create_facility・set_password）：kaigodemo＝KAIGODEMO_ADMIN_PASSWORD／houdeidemo＝HOUDEIDEMO_ADMIN_PASSWORD"
+        type: choice
+        default: kaigodemo
+        options: [kaigodemo, houdeidemo]
       with_demo:
         description: "サンプルデータも入れる（create_facility）"
         type: boolean
@@ -95,7 +103,8 @@ jobs:
           FACILITY_NAME: ${{ inputs.facility_name }}
           COMPANY_NAME: ${{ inputs.company_name }}
           ADMIN_USERNAME: ${{ inputs.admin_username }}
-          ADMIN_PASSWORD: ${{ secrets.KAIGODEMO_ADMIN_PASSWORD }}
+          ADMIN_PASSWORD: ${{ inputs.password_secret == 'houdeidemo' && secrets.HOUDEIDEMO_ADMIN_PASSWORD || secrets.KAIGODEMO_ADMIN_PASSWORD }}
+          SECRET_NAME: ${{ inputs.password_secret == 'houdeidemo' && 'HOUDEIDEMO_ADMIN_PASSWORD' || 'KAIGODEMO_ADMIN_PASSWORD' }}
           WITH_DEMO: ${{ inputs.with_demo }}
           PRESET: ${{ inputs.preset }}
           SCENARIO: ${{ inputs.scenario }}
@@ -104,9 +113,9 @@ jobs:
           REMOTE_APP_DIR: ${{ env.APP_DIR }}
           REMOTE_VENV: ${{ env.VENV }}
         run: |
-          # パスワードは Secrets（KAIGODEMO_ADMIN_PASSWORD）から。無ければランダムな仮の値（どちらもログに出さない）
+          # パスワードは Secrets（password_secret で選ぶ）から。無ければランダムな仮の値（どちらもログに出さない）
           if [ "$TASK" = "set_password" ] && [ -z "$ADMIN_PASSWORD" ]; then
-            echo "Secrets の KAIGODEMO_ADMIN_PASSWORDが空です。先に Settings → Secrets and variables → Actions で登録してください（入力欄では受け取りません）"; exit 1
+            echo "Secrets の $SECRET_NAME が空です。先に Settings → Secrets and variables → Actions で登録してください（入力欄では受け取りません）"; exit 1
           fi
           if [ -n "$ADMIN_PASSWORD" ]; then
             echo "::add-mask::$ADMIN_PASSWORD"
@@ -132,12 +141,14 @@ jobs:
             }
             case "$TASK" in
               create_facility)
-                case "$PRESET" in roken|care) ;; *) PRESET=roken;; esac
+                case "$PRESET" in roken|care|houdei) ;; *) PRESET=roken;; esac
                 args=(create_facility "$FACILITY_NAME" --admin "$ADMIN_USERNAME" --password "$(openssl rand -base64 18)" --preset "$PRESET")
                 [ -n "$COMPANY_NAME" ] && args+=(--company "$COMPANY_NAME")
                 [ -n "$COPY_FROM" ] && args+=(--copy-settings-from "$COPY_FROM")
+                # 放デイ（houdei）のサンプルは create_facility の --demo（seed_demo＋billing_demo）で入れる
+                [ "$PRESET" = "houdei" ] && [ "$WITH_DEMO" = "true" ] && args+=(--demo)
                 python manage.py "${args[@]}"
-                if [ "$WITH_DEMO" = "true" ]; then
+                if [ "$WITH_DEMO" = "true" ] && [ "$PRESET" != "houdei" ]; then
                   # -v 0：shell の「N objects imported automatically」を出さない（番号だけを受け取る）
                   fid=$(python manage.py shell -v 0 -c "from facilities.models import Facility; print(Facility.objects.order_by('-pk').first().pk)" | tail -n 1)
                   python manage.py nursing_demo --facility "$fid" --scenario "$SCENARIO"
@@ -153,10 +164,22 @@ jobs:
                 [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください"; exit 1; }
                 python manage.py delete_facility "$FACILITY_ID" --yes ;;
               demo_add|demo_remove)
-                args=(nursing_demo --scenario "$SCENARIO")
-                [ -n "$FACILITY_ID" ] && args+=(--facility "$FACILITY_ID")
-                [ "$TASK" = "demo_remove" ] && args+=(--remove)
-                python manage.py "${args[@]}" ;;
+                if [ "$SCENARIO" = "houdei" ]; then
+                  # 放デイのサンプル：日誌などの 6 人（seed_demo）と請求デモの 40 人（billing_demo）。事業所を間違えないよう facility_id 必須
+                  [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください（list で確認）"; exit 1; }
+                  if [ "$TASK" = "demo_add" ]; then
+                    python manage.py seed_demo --reset --facility "$FACILITY_ID"
+                    python manage.py billing_demo --facility "$FACILITY_ID"
+                  else
+                    FACILITY_ID="$FACILITY_ID" python manage.py shell -c "import os; from facilities.models import Facility; from facilities.management.commands.seed_demo import Command; f = Facility.objects.get(pk=os.environ['FACILITY_ID']); print('サンプルデータを消します:', f.pk, f.name); Command()._reset(f)"
+                    python manage.py billing_demo --facility "$FACILITY_ID" --remove
+                  fi
+                else
+                  args=(nursing_demo --scenario "$SCENARIO")
+                  [ -n "$FACILITY_ID" ] && args+=(--facility "$FACILITY_ID")
+                  [ "$TASK" = "demo_remove" ] && args+=(--remove)
+                  python manage.py "${args[@]}"
+                fi ;;
               error_log)
                 # 公開リポジトリのログに出るので、日本語（利用者名など）と 6 桁以上の数字は伏せ、技術的な行だけにする
                 for f in logs/error.log logs/gunicorn.out; do
