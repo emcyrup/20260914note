@@ -44,12 +44,27 @@ class StaffLoginView(LoginView):
         # 失敗が続いたユーザー名・IP は、しばらくログインを受け付けない（accounts/security.py）。正しいパスワードでも
         from . import security
         username = (request.POST.get('username') or '').strip()
+        # スマホは先頭を大文字にしたり前後に空白を入れたりする（2026-11-07 放デイ デモ「スマホではログインできない」）。
+        # 大文字小文字だけ違うユーザー名が 1 人に決まるなら、そのユーザー名として扱う
+        fixed = self._fix_username(username)
+        if fixed != (request.POST.get('username') or ''):
+            request.POST = request.POST.copy()
+            request.POST['username'] = fixed
+            username = fixed
         until = security.locked_until(username, security.client_ip(request))
         if until is not None:
             security.record(LoginEvent.KIND_LOCK, request, username)
             form = self.get_form()
             return self.render_to_response(self.get_context_data(form=form, locked_until=timezone.localtime(until)))
         return super().post(request, *args, **kwargs)
+
+    @staticmethod
+    def _fix_username(username):
+        username = (username or '').strip()
+        if not username or StaffAccount.objects.filter(username=username).exists():
+            return username
+        found = list(StaffAccount.objects.filter(username__iexact=username).values_list('username', flat=True)[:2])
+        return found[0] if len(found) == 1 else username
 
     def form_invalid(self, form):
         # 承認待ちの人には、パスワード違いではなく承認待ちであることを伝える
