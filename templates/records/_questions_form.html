@@ -1,0 +1,26 @@
+{# 日誌の入力：共通の質問・個別の質問（records/questions.py）。rows: [{kind, text, level, answer}]、prefix: 欄の id の頭 #}
+<div class="mb-3 q-box" id="{{ prefix }}-questions">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-1 mb-1">
+    <label class="form-label small fw-semibold mb-0" style="color:var(--lake-text);"><i class="bi bi-ui-checks me-1"></i>きょうの様子（すべての質問に答えます）</label>
+    {% if question_stats.levels %}<span class="q-level small">個別の質問 レベル {{ question_stats.level }}／{{ question_stats.levels }}・直近 {{ question_stats.records }} 回で「はい」{{ question_stats.rate }}%（{{ question_stats.window }} 回で {{ question_stats.need }}% 以上なら次のレベルへ）</span>{% endif %}
+  </div>
+  <input type="hidden" name="q_count" value="{{ rows|length }}">
+  {% for r in rows %}
+  {% ifchanged r.kind %}<div class="q-head">{% if r.kind == 'common' %}共通の質問{% else %}{{ beneficiary.full_name }} さんの質問（レベル {{ r.level }}）{% endif %}</div>{% endifchanged %}
+  <div class="q-row">
+    <span class="q-text">{{ r.text }}</span>
+    <input type="hidden" name="q_text_{{ forloop.counter0 }}" value="{{ r.text }}">
+    <input type="hidden" name="q_kind_{{ forloop.counter0 }}" value="{{ r.kind }}">
+    <input type="hidden" name="q_level_{{ forloop.counter0 }}" value="{{ r.level|default_if_none:'' }}">
+    <div class="q-answers" role="radiogroup" aria-label="{{ r.text }}">
+      {% for v, label in question_answers %}
+      <input type="radio" class="btn-check" name="q_answer_{{ forloop.parentloop.counter0 }}" id="{{ prefix }}-q{{ forloop.parentloop.counter0 }}-{{ v }}" value="{{ v }}" autocomplete="off"{% if r.answer == v %} checked{% endif %}>
+      <label class="q-btn q-{{ v }}" for="{{ prefix }}-q{{ forloop.parentloop.counter0 }}-{{ v }}">{{ label }}</label>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+  {% if not question_stats.levels %}
+  <p class="small text-muted mb-0 mt-1">{{ beneficiary.full_name }} さんの個別の質問はまだありません。<a href="{% url 'beneficiaries:detail' beneficiary.pk %}#questions">利用者情報で入れる</a></p>
+  {% endif %}
+</div>

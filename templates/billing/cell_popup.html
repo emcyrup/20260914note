@@ -62,6 +62,19 @@
       </div>
     </div>
 
+    <div class="mb-3">
+      <div class="fw-semibold small mb-2" style="color: var(--color-primary-dark);">
+        <i class="bi bi-circle-fill me-1" style="font-size: 0.6rem;"></i>基本報酬の時間区分
+        <span class="text-muted fw-normal">（支援の時間。区分3は学校休業日だけ）</span>
+      </div>
+      {% for k, label, u in kubun_rows %}
+      <div class="form-check">
+        <input class="form-check-input" type="radio" name="time_kubun" value="{{ k }}" id="kb_{{ k }}" {% if current_kubun == k %}checked{% endif %}>
+        <label class="form-check-label small" for="kb_{{ k }}">{{ label }}{% if u %} <span class="text-muted">{{ u }} 単位</span>{% endif %}</label>
+      </div>
+      {% endfor %}
+    </div>
+
     <hr class="my-2">
 
     <div class="fw-semibold small mb-1" style="color: var(--color-primary-dark);">

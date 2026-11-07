@@ -5,15 +5,27 @@ from .uploads import logo_upload_to
 
 
 # 地域区分別・1単位あたり単価（円）
-# 障害福祉サービス等報酬告示に基づく（令和6年度改定時点）
+# 地域区分ごとの 1 単位の単価（令和6年度改定。障害児通所支援：児童発達支援・放課後等デイサービス）
+# 上乗せ割合（1級地 20%・2級地 16%・3級地 15%・4級地 12%・5級地 10%・6級地 6%・7級地 3%）× 人件費割合 60%
 REGION_UNIT_PRICE = {
-    '1':     Decimal('11.40'),
-    '2':     Decimal('11.12'),
-    '3':     Decimal('11.05'),
-    '4':     Decimal('10.90'),
-    '5':     Decimal('10.70'),
-    '6':     Decimal('10.42'),
-    '7':     Decimal('10.21'),
+    '1':     Decimal('11.20'),
+    '2':     Decimal('10.96'),
+    '3':     Decimal('10.90'),
+    '4':     Decimal('10.72'),
+    '5':     Decimal('10.60'),
+    '6':     Decimal('10.36'),
+    '7':     Decimal('10.18'),
+    'other': Decimal('10.00'),
+}
+# 主として重症心身障害児を通わせる事業所（人件費割合 76%）
+REGION_UNIT_PRICE_SEVERE = {
+    '1':     Decimal('11.52'),
+    '2':     Decimal('11.22'),
+    '3':     Decimal('11.14'),
+    '4':     Decimal('10.91'),
+    '5':     Decimal('10.76'),
+    '6':     Decimal('10.46'),
+    '7':     Decimal('10.23'),
     'other': Decimal('10.00'),
 }
 
@@ -60,19 +72,43 @@ class Facility(models.Model):
         null=True, blank=True, verbose_name='通常終了時刻',
         help_text='例：17:00。延長支援加算の自動チェックに使います。'
     )
-    # 基本報酬単位数（請求書PDF生成に使用）
+    # 基本報酬（billing/codes.py）：定員区分を選ぶと、時間区分（区分1〜3）ごとの単位数は表から決まる。
+    # 空なら下の「1日あたり基本報酬単位数」を使う（主として重症心身障害児の事業所・医療的ケア児の区分など、表に無いとき）
+    CAPACITY_CHOICES = [('', '（単位数を手で入れる）'), ('10', '定員10人以下'), ('20', '定員11〜20人'), ('21', '定員21人以上')]
+    capacity_class = models.CharField(max_length=2, blank=True, choices=CAPACITY_CHOICES, verbose_name='定員区分（基本報酬）')
+    time_kubun_weekday = models.PositiveSmallIntegerField(default=2, verbose_name='平日の時間区分の初期値')
+    time_kubun_holiday = models.PositiveSmallIntegerField(default=3, verbose_name='学校休業日の時間区分の初期値')
+    # 基本報酬の国保連サービスコード（事業所が使っているコード表の値。区分ごと）
+    base_code_1 = models.CharField(max_length=10, blank=True, verbose_name='基本報酬のサービスコード（区分1）')
+    base_code_2 = models.CharField(max_length=10, blank=True, verbose_name='基本報酬のサービスコード（区分2）')
+    base_code_3 = models.CharField(max_length=10, blank=True, verbose_name='基本報酬のサービスコード（区分3）')
+    # 主として重症心身障害児を通わせる事業所（地域区分の単価が違う）
+    is_severe_facility = models.BooleanField(default=False, verbose_name='主として重症心身障害児を通わせる事業所')
+    # 重心型の定員（1 人刻み）。基本報酬の帯（5〜7・8〜10・11 人以上）と看護職員加配加算の単位数が決まる（billing/codes.py）
+    severe_capacity = models.CharField(max_length=2, blank=True, verbose_name='重心型の定員')
+    # 基本報酬単位数（定員区分が空のときの 1 日の単位数。請求書PDF生成に使用）
     base_unit_count = models.IntegerField(
         null=True, blank=True, verbose_name='1日あたり基本報酬単位数'
     )
     # 重症心身障害児（重身）の基本報酬単位数（普通用と単位が異なる）
     base_unit_count_severe = models.IntegerField(
-        null=True, blank=True, verbose_name='重身の1日あたり基本報酬単位数',
-        help_text='重症心身障害児の利用者に使う単位数。空なら通常の単位数を使います。'
+        null=True, blank=True, verbose_name='重身の1日あたり基本報酬単位数（授業終了後）',
+        help_text='重症心身障害児の利用者に使う単位数（授業終了後）。空なら通常の単位数を使います。'
     )
+    # 重心型の基本報酬は時間区分が無く「授業終了後／学校休業日」の 2 つ（2026-10-16 はびりす）。学校休業日が空なら授業終了後と同じ
+    base_unit_count_severe_holiday = models.IntegerField(null=True, blank=True, verbose_name='重身の1日あたり基本報酬単位数（学校休業日）')
+    base_code_severe = models.CharField(max_length=10, blank=True, verbose_name='重身の基本報酬サービスコード（授業終了後）')
+    base_code_severe_holiday = models.CharField(max_length=10, blank=True, verbose_name='重身の基本報酬サービスコード（学校休業日）')
     is_new_facility_r8 = models.BooleanField(
         default=False, verbose_name='令和8年6月以降新規指定事業所',
         help_text='令和8年6月1日以降に新規指定された事業所の場合はチェック'
     )
+    # 減算（事業所全体。基本報酬に掛ける。billing/codes.py の REDUCTIONS）。当てはまる月だけ印を付ける
+    reduce_self_eval = models.BooleanField(default=False, verbose_name='自己評価結果等未公表減算（85%）')
+    reduce_program = models.BooleanField(default=False, verbose_name='支援プログラム未公表減算（85%）')
+    HOURS_REDUCTION_CHOICES = [('', 'なし（学校休業日の営業時間が 6 時間以上）'), ('85', '4 時間以上 6 時間未満（85%）'), ('70', '4 時間未満（70%）')]
+    reduce_hours = models.CharField(max_length=2, blank=True, default='', choices=HOURS_REDUCTION_CHOICES,
+                                    verbose_name='開所時間減算（学校休業日の営業時間）')
     # 呼び方の置き換え（メニューと見出しに反映）
     term_staff = models.CharField(max_length=20, default='職員', verbose_name='職員の呼び方',
                                   help_text='例：支援員／先生／職員')
@@ -82,6 +118,14 @@ class Facility(models.Model):
     logo = models.ImageField(upload_to=logo_upload_to, blank=True, null=True, verbose_name='ロゴ画像')
     brand_color = models.CharField(max_length=7, blank=True, verbose_name='コーポレートカラー',
                                    help_text='#4e7d89 のような16進数。空なら標準色')
+    # 不正アクセスの通知（accounts/security.py。2026-10-20）：ロック・初めての場所からのログイン・深夜のログイン・管理者の操作を知らせる
+    security_notify = models.BooleanField(default=True, verbose_name='不正アクセスの通知を送る',
+                                          help_text='予約の増減を知らせる LINE グループと、管理者・児発管のメール（または下の宛先）へ')
+    # 送信用の Gmail（画面から設定。facilities/mail.py。空ならサーバーの .env の EMAIL_* を使う）
+    mail_from = models.EmailField(blank=True, verbose_name='送信用の Gmail アドレス')
+    mail_app_password = models.CharField(max_length=64, blank=True, verbose_name='Gmail のアプリ パスワード')
+    security_notify_email = models.EmailField(blank=True, verbose_name='通知のメール宛先',
+                                              help_text='空なら管理者・児発管のメールと代表者メール')
     line_channel_access_token = models.TextField(blank=True, verbose_name='LINEチャネルアクセストークン')
     line_channel_secret = models.CharField(max_length=100, blank=True, verbose_name='LINEチャネルシークレット')
     # 使う機能（事業所によっては請求・LINE を使わない）
@@ -119,6 +163,11 @@ class Facility(models.Model):
                                              help_text='健康・生活／運動・感覚／認知・行動／言語・コミュニケーション／人間関係・社会性の5領域を5段階で評価する用紙。利用者情報から作り、A4で印刷できます。')
     use_survey = models.BooleanField(default=False, verbose_name='アンケート・自己評価を使う',
                                      help_text='保護者評価アンケート（ログインなしの回答ページ・LINE や QR で配る・集計）と事業所の自己評価、公表用の PDF。ガイドラインで年 1 回の実施と公表が求められているもの。')
+    use_consultation = models.BooleanField(default=False, verbose_name='相談支援の計画を使う',
+                                           help_text='計画相談支援・障害児相談支援の書類（申請者の現状・サービス等利用計画・週間計画表）を作り、A4 で印刷します。児童発達支援の個別支援計画はこの計画の方針・目標に沿わせます。')
+    # 療育の画面（ゆあーず・オウル）で「帳票出力」（利用者ごとの実績記録票・記録一覧・名簿・計画一覧）を出す（2026-10-31 オウル）。標準の画面は常に出る
+    use_reports = models.BooleanField(default=False, verbose_name='帳票出力を使う（療育の画面）',
+                                      help_text='利用者ごとのサービス提供実績記録票・療育記録一覧、出欠一覧・業務日誌・名簿・個別支援計画一覧を PDF・CSV で出す画面。')
     use_daily_ops = models.BooleanField(default=False, verbose_name='毎日の運営を使う',
                                         help_text='クラス（小集団）の週間の活動計画と当日の記録（各児の療育記録に写す）、健康・生活の記録（体温・食事・排せつ・午睡・服薬と引き渡しカード）、発達検査の結果の推移。')
     # ログイン画面の「職員として新しく登録」で使うコード（空なら受け付けない）。登録した人は管理者が承認するまでログインできない
@@ -137,7 +186,9 @@ class Facility(models.Model):
     # 事業所固有の帳票様式（標準以外を選ぶと「事業所様式」メニューが出る）
     FORM_SET_STANDARD = 'standard'
     FORM_SET_HAPPINESS = 'happiness'
-    FORM_SET_CHOICES = [(FORM_SET_STANDARD, '標準'), (FORM_SET_HAPPINESS, 'はびりす様式（関係機関連携報告書・個別支援計画書 別紙1／詳細版・専門的支援実施計画書）')]
+    FORM_SET_OWL = 'owl'
+    FORM_SET_CHOICES = [(FORM_SET_STANDARD, '標準'), (FORM_SET_HAPPINESS, 'はびりす様式（関係機関連携報告書・個別支援計画書 別紙1／詳細版・専門的支援実施計画書）'),
+                        (FORM_SET_OWL, 'オウル様式（個別支援計画・個別支援計画別表）')]
     form_set = models.CharField(max_length=20, choices=FORM_SET_CHOICES, default=FORM_SET_STANDARD, verbose_name='帳票様式')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -187,13 +238,55 @@ class Facility(models.Model):
 
     @property
     def unit_price(self):
-        """地域区分に応じた 1単位あたりの単価（円）"""
-        return REGION_UNIT_PRICE.get(self.region_category, Decimal('10.00'))
+        """地域区分に応じた 1 単位あたりの単価（円）。主として重症心身障害児の事業所は別の表"""
+        table = REGION_UNIT_PRICE_SEVERE if self.is_severe_facility else REGION_UNIT_PRICE
+        return table.get(self.region_category, Decimal('10.00'))
 
-    def base_units_for(self, beneficiary):
-        """利用者に応じた基本報酬単位数（重身なら重身用。未設定なら普通用）"""
-        if getattr(beneficiary, 'is_severe', False) and self.base_unit_count_severe:
-            return self.base_unit_count_severe
+    def severe_units_apply(self, beneficiary):
+        """この利用者に重心型の基本報酬（授業終了後／学校休業日）を使うか（手で入れた単位数か、重心型の定員があるとき）"""
+        return bool(getattr(beneficiary, 'is_severe', False) and (self.base_unit_count_severe or (self.is_severe_facility and self.severe_capacity)))
+
+    def severe_base_units(self, kind):
+        """重心型の基本報酬（授業終了後／学校休業日）。施設設定の単位数があればそれ、無ければ重心型の定員の表"""
+        from billing.codes import SEVERE_HOLIDAY, severe_base_units
+        manual = (self.base_unit_count_severe_holiday or self.base_unit_count_severe) if kind == SEVERE_HOLIDAY else self.base_unit_count_severe
+        if manual:
+            return manual
+        if self.is_severe_facility and self.severe_capacity:
+            return severe_base_units(self.severe_capacity, kind) or 0
+        return 0
+
+    def base_code(self, kubun, beneficiary=None):
+        """
+        基本報酬のサービスコード（時間区分ごと）。施設設定で入れた値があればそれ、無ければ定員区分と利用者の医療的ケア区分から
+        コード表（billing/codes.py）の値。どちらも無ければ空。重心の利用者は重心用のコード（授業終了後／学校休業日）
+        """
+        if kubun not in (1, 2, 3):
+            return ''
+        if self.severe_units_apply(beneficiary):
+            from billing.codes import SEVERE_HOLIDAY, severe_kind
+            return self.base_code_severe_holiday or self.base_code_severe if severe_kind(kubun) == SEVERE_HOLIDAY else self.base_code_severe
+        manual = getattr(self, f'base_code_{kubun}', '')
+        care = getattr(beneficiary, 'medical_care_level', 0) or 0
+        if manual and not care:
+            return manual
+        from billing.codes import table_code
+        return table_code(self.capacity_class, kubun, care) or manual
+
+    def base_units_for(self, beneficiary, kubun=None):
+        """
+        その利用者の 1 日の基本報酬の単位数。
+        重身の利用者で重身の単位数があればそれ。定員区分と時間区分があれば表（billing/codes.py。医療的ケア区分も見る）、
+        無ければ手入力の単位数
+        """
+        if self.severe_units_apply(beneficiary):
+            from billing.codes import SEVERE_SCHOOL, severe_kind
+            return self.severe_base_units(severe_kind(kubun) if kubun else SEVERE_SCHOOL)
+        if self.capacity_class and kubun:
+            from billing.codes import table_units
+            units = table_units(self.capacity_class, kubun, getattr(beneficiary, 'medical_care_level', 0) or 0)
+            if units is not None:
+                return units
         return self.base_unit_count
 
     def journal_section_keys(self):
@@ -295,6 +388,8 @@ class FacilityAddonSetting(models.Model):
     # 事業所ごとの上書き（区分や地域で単位数・コードが変わる加算のため）。空ならマスタの値
     code       = models.CharField(max_length=10, blank=True, verbose_name='サービスコード（事業所）')
     unit_count = models.IntegerField(null=True, blank=True, verbose_name='単位数（事業所）')
+    # 処遇改善加算の率（%）。空なら billing/codes.py の標準の率（月で変わる）
+    rate       = models.DecimalField(max_digits=4, decimal_places=1, null=True, blank=True, verbose_name='加算率（%・事業所）')
 
     class Meta:
         verbose_name        = '施設加算設定'
@@ -316,10 +411,31 @@ class AddonRow:
         self.addon = addon
         self.setting = setting
         self.is_enabled = bool(setting and setting.is_enabled)
-        self.code = (setting.code if setting and setting.code else addon.code) or ''
-        self.unit_count = setting.unit_count if setting and setting.unit_count is not None else addon.unit_count
+        # 定員区分で単位数が変わる体制加算は、事業所の上書きが無ければコード表（billing/codes.py）の値
+        from billing.codes import facility_capacity_addon
+        by_cap = facility_capacity_addon(facility, addon.name)
+        self.code = (setting.code if setting and setting.code else (by_cap[0] if by_cap else addon.code)) or ''
+        self.unit_count = (setting.unit_count if setting and setting.unit_count is not None
+                           else (by_cap[1] if by_cap else addon.unit_count))
         self.override_code = setting.code if setting else ''
         self.override_units = setting.unit_count if setting else None
+        self.override_rate = setting.rate if setting else None
+
+    @property
+    def is_rate(self):
+        """単位数ではなく率で算定する加算（処遇改善加算）"""
+        from billing.codes import is_treatment
+        return is_treatment(self.addon.name)
+
+    def rate_on(self, day):
+        """処遇改善加算の率（%）。事業所の率があればそれ、無ければその日の標準の率"""
+        from billing.codes import treatment_rate
+        return self.override_rate if self.override_rate is not None else treatment_rate(self.addon.name, day)
+
+    @property
+    def rate(self):
+        import datetime
+        return self.rate_on(datetime.date.today())
 
     @property
     def pk(self):

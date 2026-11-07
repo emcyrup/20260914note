@@ -25,11 +25,19 @@ RULE_LABELS = {k: label for k, label, _s, _t, _n in RULES}
 MIN_CHARS_MAX = 400
 
 
+# 共通の質問・個別の質問を使う事業所（records/questions.py）：観点の代わりに、質問にすべて答えたかを必ず見る
+QUESTIONS_RULE = ('questions', '質問（共通・個別。すべてに答える）', None, 'questions', 'question_answers')
+
+
 def active_rules(facility):
     """この事業所で見る規則（施設設定で選ばれ、日誌の項目として使っているもの）"""
+    from . import questions
     chosen = set(getattr(facility, 'journal_required', None) or [])
     sections = set(facility.journal_section_keys()) if facility is not None else set()
-    return [r for r in RULES if r[0] in chosen and (r[2] is None or r[2] in sections)]
+    rules = [r for r in RULES if r[0] in chosen and (r[2] is None or r[2] in sections)]
+    if questions.enabled(facility):
+        rules = [QUESTIONS_RULE] + [r for r in rules if r[0] != 'viewpoints']
+    return rules
 
 
 def min_chars(facility):
@@ -44,6 +52,7 @@ def values_of(record):
     return {
         'activity_name': record.activity_name or '', 'activity_aim': record.activity_aim or '',
         'activity_viewpoints': record.activity_viewpoints or [],
+        'question_answers': record.question_answers or [],
         'domains': [k for k in DOMAIN_KEYS if getattr(record, k, False)],
         'observation_text': record.observation_text or '', 'support_text': record.support_text or '',
         'reaction_text': record.reaction_text or '', 'parent_message_draft': record.parent_message_draft or '',
@@ -59,7 +68,12 @@ def missing(values, facility):
     out = []
     n = min_chars(facility)
     for key, label, _section, kind, name in active_rules(facility):
-        if kind == 'viewpoints':
+        if kind == 'questions':
+            from . import questions
+            left = questions.unanswered(questions.clean(values.get(name)))
+            if left:
+                out.append(f'{label}：{left} 問が未回答')
+        elif kind == 'viewpoints':
             vps = [v for v in (values.get(name) or []) if (v.get('text') or '').strip()]
             if not vps:
                 out.append(f'{label}：観点がありません')

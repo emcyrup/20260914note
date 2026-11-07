@@ -30,9 +30,58 @@ GOAL_CELLS = [
     ('staff', '担当者・提供機関', 'extra', '担当者や職種を短く'),
     ('notes', '留意事項（本人の役割を含む）', 'extra', '本人の役割や配慮を 1〜2 文で'),
 ]
-PLAN_LABELS = {k: label for k, label, _, _ in PLAN_CELLS} | {k: label for k, label, _ in PLAN_EXTRA_FIELDS}
-GOAL_LABELS = {k: label for k, label, _, _ in GOAL_CELLS}
-HINTS = {k: hint for k, _, _, hint in PLAN_CELLS} | {f'goal.{k}': hint for k, _, _, hint in GOAL_CELLS}
+# オウル様式（児童発達支援センター オウル）の計画書：上の欄と、目標の表（項目＝本人のニーズ等／具体的な達成目標／支援内容／達成時期／担当者／留意事項／優先順位）
+OWL_PLAN_CELLS = [
+    ('family_wishes', '利用児及び家族の生活に対する意向', 'draft', '本人と家族が望んでいることを、面談や相談支援の計画の言葉を生かして 2〜4 文で（本人・家族の別を書く）'),
+    ('policy', '総合的な支援の方針', 'draft', '意向と目標につながる方針を 150〜250 字で'),
+    ('long_goal_text', '長期目標（内容・期間等）', 'extra', '1 年程度で目指す姿を 1〜2 文で'),
+    ('short_goal_text', '短期目標（内容・期間等）', 'extra', '半年程度で目指す姿を 1〜2 文で'),
+    ('service_hours', '支援の標準的な提供時間等（曜日・頻度、時間）', 'extra', '曜日・頻度・時間を 1 行で（例：週3回・個別月、水、金 10時〜）'),
+    ('transport', '送迎', 'extra', '迎え・送りの有無と場所を 1 行で（例：迎え：あり 園　送り：あり 自宅）'),
+    ('notes', '備考', 'draft', '支援にあたって気をつけることや家庭からの連絡事項を 1〜3 文で'),
+]
+OWL_GOAL_CELLS = [
+    ('item', '項目（本人のニーズ等）', 'extra', '支援の区分を短く（例：発達支援／家族支援・移行支援／地域連携）'),
+    ('content', '具体的な達成目標', 'goal', '「〜できる」「〜が増える」のように達成が確かめられる形で 1〜2 文'),
+    ('support_content', '支援内容（内容・支援の提供上のポイント・5領域との関連性等）', 'goal', '誰が・いつ・どのように支援するかを 2〜4 文で。関係する 5 領域を添える'),
+    ('frequency', '頻度・時間', 'goal', '例：週3回・個別'),
+    ('timing', '達成時期', 'extra', '例：6か月'),
+    ('staff', '担当者・提供機関', 'extra', '例：オウル職員・保護者・保育園'),
+    ('notes', '留意事項（本人の役割を含む）', 'extra', '本人の役割や配慮、関係する加算を 1〜2 文で'),
+    ('priority', '優先順位', 'extra', '1 から'),
+]
+OWL_EXTRA_IN_SHEET = []
+# 別表（オウル様式）の加算の候補
+OWL_ADDONS = ['専門的支援実施加算', '家族支援加算', '子育てサポート加算', '送迎加算', '保育・教育等移行支援加算', '個別サポート加算(I)',
+              '個別サポート加算(II)', '個別サポート加算(III)', '関係機関連携加算', '通所自立支援加算', '延長支援加算', '強度行動障害児支援加算',
+              '集中的支援加算', '人工内耳装用児支援加算', '医療連携体制加算']
+OWL_WEEKDAYS = [('mon', '月'), ('tue', '火'), ('wed', '水'), ('thu', '木'), ('fri', '金'), ('sat', '土'), ('sun', '日・祝日')]
+OWL_SLOTS_NOTE = ('※利用曜日や利用時間に変更がある場合は、下記時間枠にてご利用いただきます。\n'
+                  '(1)9:00〜9:40、(2)10:00〜10:40、(3)13:00〜13:40、(4)14:00〜14:40、(5)15:00〜15:40\n'
+                  '※以下の加算項目を根拠として支援してまいります。')
+
+
+def is_owl(facility):
+    return getattr(facility, 'form_set', '') == 'owl'
+
+
+def plan_cells(facility):
+    return OWL_PLAN_CELLS if is_owl(facility) else PLAN_CELLS
+
+
+def goal_cells(facility):
+    return OWL_GOAL_CELLS if is_owl(facility) else GOAL_CELLS
+
+
+def extra_in_sheet(facility):
+    return OWL_EXTRA_IN_SHEET if is_owl(facility) else EXTRA_IN_SHEET
+
+
+_ALL_PLAN = PLAN_CELLS + OWL_PLAN_CELLS
+_ALL_GOAL = GOAL_CELLS + OWL_GOAL_CELLS
+PLAN_LABELS = {k: label for k, label, _, _ in reversed(_ALL_PLAN)} | {k: label for k, label, _ in PLAN_EXTRA_FIELDS}   # 同じキーは標準の見出し
+GOAL_LABELS = {k: label for k, label, _, _ in reversed(_ALL_GOAL)}
+HINTS = {k: hint for k, _, _, hint in reversed(_ALL_PLAN)} | {f'goal.{k}': hint for k, _, _, hint in reversed(_ALL_GOAL)}
 NEW_ROWS = 3        # 空の目標の行をいくつ出すか
 
 
@@ -45,37 +94,48 @@ def _split(field):
     return 'plan', field
 
 
-def label_of(field):
+def label_of(field, facility=None):
     kind, key = _split(field)
+    if facility is not None:
+        cells = goal_cells(facility) if kind == 'goal' else plan_cells(facility)
+        for k, label, _w, _h in cells:
+            if k == key:
+                return label
     return GOAL_LABELS.get(key, key) if kind == 'goal' else PLAN_LABELS.get(key, key)
 
 
-def hint_of(field):
+def hint_of(field, facility=None):
     kind, key = _split(field)
+    if facility is not None:
+        cells = goal_cells(facility) if kind == 'goal' else plan_cells(facility)
+        for k, _label, _w, hint in cells:
+            if k == key:
+                return hint
     return HINTS.get('goal.' + key if kind == 'goal' else key, '')
 
 
 def plan_values(plan, draft):
-    """計画の欄の今の値 {キー: 文}"""
+    """計画の欄の今の値 {キー: 文}（使っている様式の欄）"""
     x = plan.form_extra or {}
     out = {}
-    for key, _label, where, _hint in PLAN_CELLS:
+    for key, _label, where, _hint in plan_cells(plan.facility):
         out[key] = getattr(draft, key, '') if where == 'draft' else x.get(key, '')
-    for key in EXTRA_IN_SHEET:
+    for key in extra_in_sheet(plan.facility):
         out[key] = x.get(key, '')
     return out
 
 
 def goal_rows(plan):
     """目標の行：[{'goal', 'prefix', 'values': {キー: 文}, 'type', 'target_date'}]"""
+    cells = goal_cells(plan.facility)
     rows = []
     for g in plan.goals.order_by('goal_type', 'order', 'pk'):
         e = g.form_extra or {}
-        values = {key: (getattr(g, key, '') if where == 'goal' else e.get(key, '')) for key, _l, where, _h in GOAL_CELLS}
+        values = {key: (getattr(g, key, '') if where == 'goal' else e.get(key, '')) for key, _l, where, _h in cells}
         rows.append({'goal': g, 'prefix': f'g{g.pk}', 'values': values, 'type': g.goal_type,
                      'target_date': g.target_date.isoformat() if g.target_date else ''})
     for i in range(1, NEW_ROWS + 1):
-        rows.append({'goal': None, 'prefix': f'n{i}', 'values': {k: '' for k, _l, _w, _h in GOAL_CELLS},
+        rows.append({'goal': None, 'prefix': f'n{i}', 'values': {k: '' for k, _l, _w, _h in cells},
                      'type': PlanGoal.TYPE_SHORT, 'target_date': ''})
     return rows
 
@@ -90,21 +150,22 @@ def _date(value):
 def save(plan, draft, post):
     """画面の内容を保存する。戻り値は (直した目標の数, 足した目標の数, 消した目標の数)"""
     x = dict(plan.form_extra or {})
-    for key, _label, where, _hint in PLAN_CELLS:
+    for key, _label, where, _hint in plan_cells(plan.facility):
         value = post.get(f'f_{key}', '').strip()
         if where == 'draft':
             setattr(draft, key, value)
         else:
             x[key] = value
-    for key in EXTRA_IN_SHEET:
+    for key in extra_in_sheet(plan.facility):
         if f'f_{key}' in post:
             x[key] = post.get(f'f_{key}', '').strip()
     draft.save()
     plan.form_extra = x
     plan.save(update_fields=['form_extra', 'updated_at'])
 
-    goal_keys = [k for k, _l, w, _h in GOAL_CELLS if w == 'goal']
-    extra_keys = [k for k, _l, w, _h in GOAL_CELLS if w == 'extra']
+    cells = goal_cells(plan.facility)
+    goal_keys = [k for k, _l, w, _h in cells if w == 'goal']
+    extra_keys = [k for k, _l, w, _h in cells if w == 'extra']
     edited = added = removed = 0
     for g in list(plan.goals.all()):
         p = f'g{g.pk}_'

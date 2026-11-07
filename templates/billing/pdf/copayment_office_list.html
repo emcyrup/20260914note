@@ -1,0 +1,55 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}利用者負担額一覧表 {{ year }}年{{ month }}月{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">上限額管理へ戻る</a>{% endblock %}
+{% block body %}
+{% for g in offices %}
+<div class="{% if not forloop.first %}pb{% endif %}">
+  <p class="right">{{ issued_date|date:"Y年n月j日" }}</p>
+  <p style="font-size:13px;">{{ g.office_name }}　御中{% if g.contact and g.contact.contact_name %}<br><span class="small">（ご担当：{{ g.contact.contact_name }} 様）</span>{% endif %}</p>
+  {% if g.contact and g.contact.fax %}<p class="small muted">FAX：{{ g.contact.fax }}</p>{% endif %}
+  <p class="right" style="margin-top:12px;">
+    {{ facility.name }}{% if facility.office_number %}<br><span class="small">事業所番号：{{ facility.office_number }}</span>{% endif %}
+    {% if facility.address %}<br><span class="small">{{ facility.address }}{{ facility.address2 }}</span>{% endif %}
+    {% if facility.phone %}<br><span class="small">TEL：{{ facility.phone }}</span>{% endif %}
+  </p>
+  <h1 style="margin-top:20px;">利用者負担上限額管理　負担額一覧表（{{ year }}年{{ month }}月分）</h1>
+  <p style="margin-top:12px;">
+    平素より大変お世話になっております。当事業所が上限額管理事業所として管理した {{ year }}年{{ month }}月分の結果のうち、貴事業所に関わる分を下記のとおりお知らせします。<br>
+    ご確認のうえ、「管理結果後利用者負担額」を貴事業所の請求にご反映くださいますようお願い申し上げます。
+  </p>
+  <table style="margin-top:10px;">
+    <thead>
+      <tr>
+        <th style="width:4%;">No</th><th>障害児氏名</th><th style="width:13%;">受給者証番号</th><th style="width:9%;">上限月額</th>
+        <th style="width:7%;">管理結果</th><th style="width:11%;">貴事業所<br>総費用額</th><th style="width:11%;">貴事業所<br>利用者負担額</th>
+        <th style="width:12%;">貴事業所<br>管理結果後<br>利用者負担額</th><th style="width:11%;">当事業所<br>管理結果後<br>利用者負担額</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in g.rows %}
+      <tr>
+        <td class="c">{{ forloop.counter }}</td>
+        <td>{{ r.beneficiary.full_name }}</td>
+        <td class="c">{{ r.cert.certificate_number|default:"" }}</td>
+        <td class="right">{% if r.cap is not None %}{{ r.cap }}{% endif %}</td>
+        <td class="c">{{ r.result }}</td>
+        <td class="right">{{ r.total_cost }}</td>
+        <td class="right">{{ r.original }}</td>
+        <td class="right"><b>{{ r.adjusted }}</b></td>
+        <td class="right">{{ r.mine_adjusted }}</td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <th colspan="5" class="h">合計（{{ g.rows|length }} 名）</th>
+        <td class="right">{{ g.sum_total_cost }}</td><td class="right">{{ g.sum_original }}</td><td class="right"><b>{{ g.sum_adjusted }}</b></td><td></td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="small muted" style="margin-top:8px;">
+    管理結果：1＝管理事業所が利用者負担額を充当したため、他事業所の徴収なし／2＝利用者負担額の合算額が負担上限月額以下のため調整なし／3＝合算額が負担上限月額を超過するため調整あり。<br>
+    金額の単位は円。各児童の「利用者負担上限額管理結果票」は、必要に応じて別途お送りします。ご不明な点は上記連絡先までお問い合わせください。
+  </p>
+  <p class="right" style="margin-top:12px;">以上</p>
+</div>
+{% endfor %}
+{% endblock %}

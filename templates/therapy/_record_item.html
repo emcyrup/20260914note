@@ -1,4 +1,5 @@
-{% load concurrency %}{% comment %}「これまでの記録」の1件（表示と直す欄）。child.html の一覧と、今日の記録の欄で使う{% endcomment %}
+{% load concurrency %}{% comment %}「これまでの記録」の1件（表示と直す欄）。child.html の一覧と、今日の記録の欄で使う。
+voice_direct（ゆあーず）の事業所は「修正」を押さずに、はじめから直す欄で出す（2026-10-14）{% endcomment %}
     <div class="th-rec" id="rec{{ rec.pk }}">
       <div class="th-rec-head">
         <div>
@@ -6,32 +7,51 @@
           {% if rec.staff_label %}<span class="th-rec-meta">担当 {{ rec.staff_label }}</span>{% endif %}
         </div>
         <div class="th-rec-btns">
-          <button type="button" class="btn btn-sm btn-outline-secondary" title="修正" aria-label="修正"
-                  onclick="document.getElementById('edit{{ rec.pk }}').classList.toggle('d-none')"><i class="bi bi-pencil"></i><span class="d-none d-sm-inline ms-1">修正</span></button>
+          {% if not voice_direct %}<button type="button" class="btn btn-sm btn-outline-secondary" title="修正" aria-label="修正"
+                  onclick="document.getElementById('edit{{ rec.pk }}').classList.toggle('d-none')"><i class="bi bi-pencil"></i><span class="d-none d-sm-inline ms-1">修正</span></button>{% endif %}
           <form method="post" onsubmit="return confirm('{{ rec.date|date:'n/j' }} の記録を削除します。よろしいですか？');">
             {% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="record" value="{{ rec.pk }}">
             <button class="btn btn-sm btn-outline-danger" title="削除" aria-label="削除"><i class="bi bi-trash"></i><span class="d-none d-sm-inline ms-1">削除</span></button>
           </form>
         </div>
       </div>
+      {% if not voice_direct %}
       {% if rec.activity_list %}<div class="th-chips">{% for a in rec.activity_list %}<span class="th-chip">{{ a }}</span>{% endfor %}</div>{% endif %}
       {% if rec.situation %}
       {% if rec.body %}<div class="th-body"><span class="th-lbl">事実</span>{{ rec.body }}</div>{% endif %}
       <div class="th-body"><span class="th-lbl">様子</span>{{ rec.situation }}</div>
       {% elif rec.body %}<div class="th-body">{{ rec.body }}</div>{% endif %}
-      <div class="th-edit {% if edit_pk != rec.pk %}d-none{% endif %}" id="edit{{ rec.pk }}" data-draft-reveal>
+      {% endif %}
+      <div class="th-edit{% if voice_direct %} th-edit-inline{% elif edit_pk != rec.pk %} d-none{% endif %}" id="edit{{ rec.pk }}" data-draft-reveal>
         <form method="post" class="row g-2 th-save-form" {% if not user.facility.therapy_no_wording %}data-wording{% endif %} data-draft="therapy-rec:{{ rec.pk }}" data-concurrency="therapy_record:{{ rec.pk }}" data-concurrency-lazy>
           {% csrf_token %}<input type="hidden" name="action" value="edit"><input type="hidden" name="record" value="{{ rec.pk }}">{% version_field rec %}
           {% if unsaved_record and unsaved_record.pk == rec.pk %}
           <div class="col-12"><div class="alert alert-warning small py-2 mb-0">
-            <b>保存できなかった内容</b>（開いたあとに他の職員がこの記録を保存したため）。下の欄は最新の内容です。見比べて写してから保存してください。
+            <b>保存できなかった内容</b>（{{ unsaved_record.reason|default:'開いたあとに他の職員がこの記録を保存したため' }}）。下の欄は最新の内容です。見比べて写してから保存してください。
             {% if unsaved_record.activities %}<div class="mt-1">やったこと：{{ unsaved_record.activities|join:'・' }}</div>{% endif %}
-            <textarea class="form-control form-control-sm mt-1" rows="4" readonly>{{ unsaved_record.text }}</textarea>
+            <textarea class="form-control form-control-sm mt-1 th-unsaved-text" rows="4" readonly>{{ unsaved_record.text }}</textarea>
+            <button type="button" class="btn btn-sm btn-outline-primary mt-1 th-unsaved-append" onclick="(function(b){var f=b.closest('form'),t=f.querySelector('textarea[name=body]'),u=f.querySelector('.th-unsaved-text');if(!t||!u)return;t.value=t.value.trim()?t.value.replace(/\s+$/,'')+'\n'+u.value:u.value;t.dispatchEvent(new Event('input',{bubbles:true}));b.disabled=true;b.textContent='記録の欄の最後に足しました（確かめて「保存する」）';})(this)">この内容を記録の欄の最後に足す</button>
           </div></div>
           {% endif %}
           <div class="col-12" data-draft-banner></div>
           {% include 'therapy/_record_fields.html' with rec=rec %}
           <div class="col-12 d-flex justify-content-end align-items-center gap-2"><span class="small text-muted th-save-hint"></span><button class="btn btn-sm btn-outline-secondary th-save-btn"><i class="bi bi-check2 me-1"></i>保存する</button></div>
         </form>
+        {% if voice_direct and rec.spoken_text or voice_direct and rec.ai_body %}
+        <details class="th-source" id="src{{ rec.pk }}">
+          <summary>音声の文字と AI の文（整える前）</summary>
+          <div class="th-source-body">
+            {% if rec.spoken_text %}<div><span class="th-lbl">音声の文字</span><span class="th-source-text">{{ rec.spoken_text }}</span></div>{% endif %}
+            {% if rec.ai_body %}<div><span class="th-lbl">AI の文</span><span class="th-source-text">{{ rec.ai_body }}</span></div>{% endif %}
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-1">
+              <span class="small text-muted">上の記録を直して保存すると、AI の文との違いが、この事業所の次の整え方の参考になります（名前は伏せて使います）。{{ keep_days }} 日たつと自動で消えます。</span>
+              <form method="post" onsubmit="return confirm('{{ rec.date|date:'n/j' }} の記録の、音声の文字と AI の文を消します（記録の本文は残ります）。よろしいですか？');">
+                {% csrf_token %}<input type="hidden" name="action" value="clear_source"><input type="hidden" name="record" value="{{ rec.pk }}">
+                <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-circle me-1"></i>これを消す</button>
+              </form>
+            </div>
+          </div>
+        </details>
+        {% endif %}
       </div>
     </div>

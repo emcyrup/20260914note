@@ -10,6 +10,7 @@ import calendar
 import datetime
 
 from django.db import transaction
+from django.utils import timezone
 
 from beneficiaries.models import Beneficiary
 from config.jp_holidays import holiday_name
@@ -426,8 +427,190 @@ def refresh_month_notice(facility, beneficiary, year, month, setting=None):
     return notice
 
 
+def pair_overlaps(facility, year, month, today=None):
+    """共演NG の 2 人が同じ日・同じ時間枠にいる組（今日から先の確定した予約）。[(予約a, 予約b)]"""
+    today = today or timezone.localdate()
+    pairs = pair_map(facility)
+    if not pairs:
+        return []
+    by_slot = {}
+    for r in month_reservations(facility, year, month):
+        if r.beneficiary_id and r.hour is not None and r.date >= today:
+            by_slot.setdefault((r.date, r.hour), []).append(r)
+    out = []
+    for key in sorted(by_slot):
+        rows = by_slot[key]
+        out += [(a, b) for i, a in enumerate(rows) for b in rows[i + 1:] if b.beneficiary_id in pairs.get(a.beneficiary_id, ())]
+    return out
+
+
+def move_to_other_wish(res, setting=None, request=None):
+    """
+    その予約を、その人の利用希望で○の付いた同じ日のほかの時刻へ移す（空きがあり、移った先に共演NG の人がいない枠。早い時刻から）。
+    実績を入れた予約・きょうだいと 1 枠の予約は動かさない。移せたら前の時刻、移せなければ None。
+    （共演NG で同じ時間になったとき：「希望に 10 時と 11 時があるなら、どちらかが 11 時になれば赤にしなくてよい」2026-10-17 ゆあーず）
+    """
+    if res.status != Reservation.STATUS_CONFIRMED or res.attendance or res.share_seat or res.beneficiary_id is None:
+        return None
+    setting = setting or services.get_setting(res.facility)
+    if request is None:
+        request = MonthlyRequest.objects.filter(facility=res.facility, beneficiary_id=res.beneficiary_id,
+                                                year=res.date.year, month=res.date.month).first()
+    if request is None:
+        return None
+    old = res.hour
+    for hour in request.wish_hours(res.date, setting):
+        if hour == old:
+            continue
+        try:
+            move_on_schedule(res, res.date, hour)
+        except services.ReservationError:
+            continue
+        if res.pair_ok:
+            res.pair_ok = False
+            res.save(update_fields=['pair_ok'])
+        return old
+    return None
+
+
+def fix_pair_slots(facility, year, month, setting=None, today=None, skip_ok=False):
+    """
+    共演NG の 2 人が同じ時間枠にいるとき、どちらかを、その人の利用希望で○の付いた同じ日のほかの時刻へ移す（move_to_other_wish）。
+    保護者へのお知らせは積まず、送信待ちの「ご利用日が決まりました」は書き直す。
+    skip_ok=True は、職員が共演NG を承知で同じ時間にした組（pair_ok）を動かさない（月間予定表を開いたときの自動の移動）。
+    戻り値 (moved: [(予約, 前の時), ...], left: [(予約a, 予約b), ...] 動かせなかった組)
+    """
+    setting = setting or services.get_setting(facility)
+    requests = {r.beneficiary_id: r for r in MonthlyRequest.objects.filter(facility=facility, year=year, month=month)}
+    moved, left, done = [], [], set()
+    for a, b in pair_overlaps(facility, year, month, today):
+        if a.pk in done or b.pk in done:
+            continue
+        if skip_ok and (a.pair_ok or b.pair_ok):
+            continue
+        ok = False
+        for res in (a, b):
+            old = move_to_other_wish(res, setting, requests.get(res.beneficiary_id))
+            if old is not None:
+                moved.append((res, old))
+                done.add(res.pk)
+                ok = True
+                break
+        if not ok:
+            left.append((a, b))
+    for b in {r.beneficiary for r, _ in moved if r.beneficiary_id}:
+        refresh_month_notice(facility, b, year, month, setting)
+    return moved, left
+
+
+def settle_pair(res, setting=None):
+    """
+    職員が共演NG と分かったうえで同じ枠に入れた直後の後始末：利用希望にほかの時刻があればそちらへ移す（戻り値 ('moved', 前の時)）。
+    無ければ pair_ok の印を付けて赤いまま残す（('kept', 相手の名前のリスト)）。共演NG が無ければ None
+    """
+    if res.beneficiary_id is None:
+        return None
+    names = services.pair_conflicts(res.beneficiary, res.date, exclude_pk=res.pk, start_time=res.start_time)
+    if not names:
+        if res.pair_ok:
+            res.pair_ok = False
+            res.save(update_fields=['pair_ok'])
+        return None
+    old = move_to_other_wish(res, setting)
+    if old is not None:
+        return ('moved', old)
+    if not res.pair_ok:
+        res.pair_ok = True
+        res.save(update_fields=['pair_ok'])
+    return ('kept', names)
+
+
+def fix_pairs_message(moved, left):
+    """fix_pair_slots の結果を、画面に出す文に"""
+    parts = []
+    if moved:
+        parts.append('共演NG で同じ時間だったので、利用希望のほかの時刻へ移しました：'
+                     + '、'.join(f'{services.jp_date(r.date)} {r.display_name} さん {old}時→{r.hour}時' for r, old in moved) + '。')
+    if left:
+        parts.append('利用希望にほかの空いた時刻が無く、移せなかった共演NG：'
+                     + '、'.join(f'{services.jp_date(a.date)} {a.hour}時 {a.display_name} さんと {b.display_name} さん' for a, b in left)
+                     + '（予定表で赤く出ます。入れ替えで直してください）。')
+    return ' '.join(parts)
+
+
+def pair_check(facility, today=None):
+    """
+    共演NG の確認（Facility.schedule_tools）：全期間の有効な予約（確定・キャンセル待ち）で、共演NG の 2 人が同じ日・同じ時間枠にいる組。
+    在籍中でない利用者との登録も見る（予約を入れるときの判定・「ほかの時刻へ移す」は在籍中どうしの確定した予約だけ）。
+    戻り値 {'pairs'（登録の組数）, 'inactive_pairs'（在籍中でない人を含む組）, 'future': [{year, month, rows, fixable}], 'past': [row]}
+    row = {'a', 'b'（予約）, 'sibling', 'movable'（「ほかの時刻へ移す」の対象）}
+    """
+    today = today or timezone.localdate()
+    links = Beneficiary.cannot_pair.through.objects.filter(from_beneficiary__facility=facility)
+    ng = {}
+    for a, b in links.values_list('from_beneficiary_id', 'to_beneficiary_id'):
+        ng.setdefault(a, set()).add(b)
+        ng.setdefault(b, set()).add(a)
+    pairs = {frozenset((a, b)) for a, others in ng.items() for b in others}
+    active = set(Beneficiary.objects.filter(pk__in=ng, status=Beneficiary.STATUS_ACTIVE).values_list('pk', flat=True))
+    out = {'pairs': len(pairs), 'inactive_pairs': sum(1 for p in pairs if not p <= active), 'future': [], 'past': []}
+    if not ng:
+        return out
+    sib = services.sibling_map(facility)
+    by_day = {}
+    for r in (Reservation.objects.filter(facility=facility, status__in=Reservation.ACTIVE_STATUSES, beneficiary_id__in=ng)
+              .select_related('beneficiary', 'customer').order_by('date', 'start_time', 'pk')):
+        by_day.setdefault(r.date, []).append(r)
+    months = {}
+    for day in sorted(by_day):
+        rs = by_day[day]
+        for i, a in enumerate(rs):
+            for b in rs[i + 1:]:
+                if b.beneficiary_id not in ng[a.beneficiary_id] or not services.same_time(a.start_time, b.start_time):
+                    continue
+                row = {'a': a, 'b': b, 'sibling': b.beneficiary_id in sib.get(a.beneficiary_id, ()),
+                       'movable': day >= today and {a.beneficiary_id, b.beneficiary_id} <= active
+                       and a.status == b.status == Reservation.STATUS_CONFIRMED}
+                if day < today:
+                    out['past'].append(row)
+                else:
+                    months.setdefault((day.year, day.month), []).append(row)
+    out['past'].reverse()      # 過去は新しい順に
+    out['future'] = [{'year': y, 'month': m, 'rows': rows, 'fixable': sum(1 for r in rows if r['movable'])}
+                     for (y, m), rows in sorted(months.items())]
+    return out
+
+
 RESET_ASSIGNED = 'assigned'   # 利用希望から割り当てた予約だけ
 RESET_ALL = 'all'             # この月の予約すべて（キャンセル待ちも）
+
+
+def _reset_scope(facility, year, month, scope):
+    """リセットの対象になりうる予約（消す・残すの判定前）"""
+    first, last = month_range(year, month)
+    statuses = (Reservation.STATUS_CONFIRMED,) if scope == RESET_ASSIGNED else Reservation.ACTIVE_STATUSES
+    qs = Reservation.objects.filter(facility=facility, date__gte=first, date__lte=last, status__in=statuses)
+    if scope == RESET_ASSIGNED:
+        qs = qs.filter(source=Reservation.SOURCE_REQUEST)
+    return qs
+
+
+def reset_preview(facility, year, month, today=None):
+    """
+    リセットの確認ダイアログ用：scope ごとに {'delete': 消す件数, 'keep': 残す件数, 'past', 'attended', 'recorded'（残す理由ごとの件数）}
+    （2026-10-18 ゆあーず「削除前に確認ダイアログを」）
+    """
+    today = today or timezone.localdate()
+    out = {}
+    for scope in (RESET_ASSIGNED, RESET_ALL):
+        qs = _reset_scope(facility, year, month, scope)
+        total = qs.count()
+        past = qs.filter(date__lt=today).count()
+        attended = qs.filter(date__gte=today).exclude(attendance='').count()
+        recorded = qs.filter(date__gte=today, attendance='', therapy_records__isnull=False).distinct().count()
+        delete = qs.filter(date__gte=today, attendance='').exclude(therapy_records__isnull=False).count()
+        out[scope] = {'delete': delete, 'keep': total - delete, 'past': past, 'attended': attended, 'recorded': recorded, 'total': total}
+    return out
 
 
 def reset_month(facility, year, month, scope=RESET_ASSIGNED, today=None):
@@ -436,12 +619,8 @@ def reset_month(facility, year, month, scope=RESET_ASSIGNED, today=None):
     残すもの：今日より前の日・実績を入れた予約・療育記録に結びついた予約（記録をなくさないため）。
     消した予約の送信待ちのお知らせも消し、「ご利用日が決まりました」はいまの予約に合わせて書き直す（無くなれば消す）。
     """
-    today = today or datetime.date.today()
-    first, last = month_range(year, month)
-    statuses = (Reservation.STATUS_CONFIRMED,) if scope == RESET_ASSIGNED else Reservation.ACTIVE_STATUSES
-    qs = Reservation.objects.filter(facility=facility, date__gte=first, date__lte=last, status__in=statuses)
-    if scope == RESET_ASSIGNED:
-        qs = qs.filter(source=Reservation.SOURCE_REQUEST)
+    today = today or timezone.localdate()
+    qs = _reset_scope(facility, year, month, scope)
     total = qs.count()
     target = qs.filter(date__gte=today, attendance='').exclude(therapy_records__isnull=False)
     people = {r.beneficiary for r in target.select_related('beneficiary') if r.beneficiary_id}

@@ -6,6 +6,29 @@
 
 {% block content %}
 <div class="px-2">
+  {% if owl %}
+  <p class="text-muted small mb-3">この事業所の様式（オウル様式）で出力します。個別支援計画は支援計画のデータ（「様式のまま編集」の欄）から作り、別表の提供時間・加算・延長支援は計画ごとの「別表の入力」で補います。</p>
+  <div class="card">
+    <div class="card-header fw-bold"><i class="bi bi-file-earmark-ruled me-1"></i>個別支援計画・個別支援計画別表</div>
+    {% if plans %}
+    <ul class="list-group list-group-flush">
+      {% for p in plans %}
+      <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="small"><strong>{{ p.beneficiary.full_name }}</strong>　{{ p.title }}　<span class="badge text-bg-light border">{{ p.get_status_display }}</span></div>
+        <div class="d-flex gap-1 flex-wrap">
+          <a href="{% url 'support_plans:sheet' p.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-table me-1"></i>様式のまま編集</a>
+          <a href="{% url 'custom_forms:plan_owl_table_edit' p.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil-square me-1"></i>別表の入力</a>
+          <a href="{% url 'custom_forms:plan_owl' p.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary">計画 画面</a>
+          <a href="{% url 'custom_forms:plan_owl' p.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-pdf"></i> 計画</a>
+          <a href="{% url 'custom_forms:plan_owl_table' p.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary">別表 画面</a>
+          <a href="{% url 'custom_forms:plan_owl_table' p.pk %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-file-earmark-pdf"></i> 別表</a>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<div class="card-body text-muted small">作成中・実施中の支援計画がありません。「支援計画」から作成してください。</div>{% endif %}
+  </div>
+  {% else %}
   <p class="text-muted small mb-3">この事業所の様式（はびりす様式）で作成・出力します。個別支援計画書（別紙1／詳細版）は支援計画のデータから作り、足りない項目は各計画の「様式の追加項目」で補います。</p>
 
   <div class="row g-3">
@@ -80,5 +103,6 @@
       </div>
     </div>
   </div>
+  {% endif %}
 </div>
 {% endblock %}

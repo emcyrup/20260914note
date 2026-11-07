@@ -23,7 +23,7 @@
   <link rel="stylesheet"
         href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   <!-- カスタムCSS（みちのーとデザインシステム） -->
-  <link rel="stylesheet" href="{% static 'css/base.css' %}?v=20261004a">
+  <link rel="stylesheet" href="{% static 'css/base.css' %}?v=20261015b">
   {% if user.is_authenticated %}
   <style>
     :root { --font-body: {{ user.prefs.font_stack|safe }}; }
@@ -305,6 +305,13 @@
         </a>
       </li>
       {% endif %}
+      {% if features.consultation %}
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'consultation' %}active{% endif %}" href="{% url 'consultation:index' %}" title="相談支援の書類：申請者の現状・サービス等利用計画／障害児支援利用計画・週間計画表">
+          <i class="bi bi-diagram-3"></i><span>相談支援の計画</span>
+        </a>
+      </li>
+      {% endif %}
       {% if features.survey %}
       <li>
         <a class="sidebar-nav-item {% if rm.app_name == 'surveys' %}active{% endif %}" href="{% url 'surveys:index' %}" title="保護者評価アンケートの回収・集計と事業所の自己評価、公表用の PDF">
@@ -337,6 +344,23 @@
         </a>
       </li>
 
+      {% if features.reports or features.form_set != 'standard' %}
+      <li class="sidebar-nav-label nav-secondary">帳票</li>
+      {% if features.reports %}
+      <li class="nav-secondary">
+        <a class="sidebar-nav-item {% if rm.app_name == 'reports' %}active{% endif %}" href="{% url 'reports:index' %}" title="利用者ごとの実績記録票・療育記録一覧、出欠一覧・業務日誌・名簿・計画一覧を PDF・CSV で">
+          <i class="bi bi-printer"></i><span>帳票出力</span>
+        </a>
+      </li>
+      {% endif %}
+      {% if features.form_set and features.form_set != 'standard' %}
+      <li class="nav-secondary">
+        <a class="sidebar-nav-item {% if rm.app_name == 'custom_forms' %}active{% endif %}" href="{% url 'custom_forms:index' %}">
+          <i class="bi bi-file-earmark-ruled"></i><span>事業所様式</span>
+        </a>
+      </li>
+      {% endif %}
+      {% endif %}
       <li class="sidebar-nav-label nav-secondary">設定</li>
       {% if user.is_admin or user.is_superuser %}
       <li class="nav-secondary">
@@ -425,6 +449,14 @@
       </li>
 
       <li class="sidebar-nav-label nav-secondary">{% if features.billing %}請求・帳票{% else %}帳票{% endif %}</li>
+      {% if features.consultation %}
+      <li class="nav-secondary">
+        <a class="sidebar-nav-item {% if rm.app_name == 'consultation' %}active{% endif %}" href="{% url 'consultation:index' %}">
+          <i class="bi bi-diagram-3"></i>
+          <span>相談支援の計画</span>
+        </a>
+      </li>
+      {% endif %}
       {% if features.billing %}
       <li class="nav-secondary">
         <a class="sidebar-nav-item {% block nav_billing_matrix %}{% endblock %}"
@@ -445,6 +477,13 @@
            href="{% url 'billing:invoice_list' %}">
           <i class="bi bi-file-earmark-text"></i>
           <span>請求書・領収書</span>
+        </a>
+      </li>
+      <li class="nav-secondary">
+        <a class="sidebar-nav-item {% block nav_billing_forecast %}{% endblock %}"
+           href="{% url 'billing:forecast' %}">
+          <i class="bi bi-graph-up"></i>
+          <span>月次の見込み</span>
         </a>
       </li>
       {% endif %}
@@ -724,6 +763,14 @@ function closeSidebar() {
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') closeSidebar();
 });
+/* 表の見出しを上に残す画面（月間予定表など）用：トップバーの高さを --sticky-top に入れる（スマホでは高さが変わる） */
+(function () {
+  var bar = document.querySelector('.topbar');
+  if (!bar) return;
+  function set() { document.documentElement.style.setProperty('--sticky-top', bar.offsetHeight + 'px'); }
+  set();
+  window.addEventListener('resize', set);
+})();
 </script>
 </body>
 </html>

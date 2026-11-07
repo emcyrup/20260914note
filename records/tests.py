@@ -563,9 +563,9 @@ class SevereJournalAndAddonTests(TestCase):
         self.assertContains(res, '重身用')
         self.assertContains(res, 'severe_temperature')
         self.assertContains(res, '加算の入力はありますか')
-        # 事業所の上書き（コード・単位数・円換算 123×11.05）
+        # 事業所の上書き（コード・単位数・円換算 123×10.90）
         self.assertContains(res, '615999')
-        self.assertContains(res, '123単位（1359円）')
+        self.assertContains(res, '123単位（1340円）')
 
     def test_create_severe_record_with_care_and_addons(self):
         from billing.models import BillingMatrixAddon, BillingMatrixEntry

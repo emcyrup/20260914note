@@ -324,6 +324,9 @@ class Reservation(models.Model):
     note = models.CharField(max_length=200, blank=True, verbose_name='備考')
     # きょうだいと同じ時間枠に入るとき、1枠（1人ぶんの席）にまとめる。まとめない日は、きょうだいもそれぞれ1枠ずつ数える
     share_seat = models.BooleanField(default=False, verbose_name='きょうだいと1枠にまとめる')
+    # 共演NG の人と同じ時間枠だと職員が確かめたうえで入れた予約（利用希望にほかの時刻が無かったとき）。
+    # 月間予定表を開いたときの自動の移動（monthly.fix_pair_slots）では動かさない（2026-10-17 ゆあーず）
+    pair_ok = models.BooleanField(default=False, verbose_name='共演NG を承知で同じ時間にした')
     # 実績（来た・欠席・キャンセル）。月間予定表・その日の画面で入れ、業務日誌の「実績」欄に印字する。空は未入力
     ATT_ATTENDED = 'attended'
     ATT_ABSENT = 'absent'

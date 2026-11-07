@@ -165,5 +165,6 @@ def send_for(facility, today=None, days=DEFAULT_DAYS, force=False, dry_run=False
         return False, len(items), [], '宛先がありません（管理者・児発管のメール、または施設設定の代表者メールを入れてください）'
     subject, body = build_mail(facility, items, today, base_url)
     if not dry_run:
-        send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, to, fail_silently=False)
+        from . import mail as fmail
+        fmail.send(facility, subject, body, to)
     return True, len(items), to, subject

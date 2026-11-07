@@ -15,6 +15,9 @@
   .ms-week td.out { background: #f6f6f6; }
   .ms-week td.off { background: #ececec; }
   .ms-week th.time { width: 46px; font-size: 0.72rem; }
+  /* 下へ送っても、その週の日付の行を画面の上（トップバーの下）に残す（2026-11-04 ゆあーず：スクロールすると日付が分からない） */
+  .ms-week thead th { position: sticky; top: var(--sticky-top, 64px); z-index: 4; background: #f3efe7; box-shadow: inset 0 -1px 0 #cfc8bb; }
+  @media print { .ms-week thead th { position: static; box-shadow: none; } }
   .ms-box { display: block; height: 20px; line-height: 20px; padding: 0 4px; border-bottom: 1px dotted #ddd6c9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; color: inherit; }
   .ms-box:last-child { border-bottom: 0; }
   .ms-box.empty { color: #c9c2b5; }
@@ -147,21 +150,56 @@
         <button class="btn btn-primary btn-sm"><i class="bi bi-magic me-1"></i>利用希望から割り当てる</button>
       </form>
       {% if facility.schedule_tools %}
-      <div class="dropdown ms-hide-fit">
-        <button type="button" class="btn btn-outline-danger btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-arrow-counterclockwise me-1"></i>やり直す</button>
-        <form method="post" action="{% url 'reservations:monthly_schedule_reset' year month %}" class="dropdown-menu dropdown-menu-end p-2 small" style="min-width: 300px;" id="ms-reset-form">
-          {% csrf_token %}
-          <div class="fw-bold mb-1">{{ month }}月の予定をまとめて消す</div>
-          <div class="text-muted mb-2">今日より前の日・実績を入れた予約・療育記録に結びついた予約は残します。保護者へのお知らせは積みません（送信待ちの「ご利用日が決まりました」は書き直し、予約が無くなった方の分は消します）。</div>
-          <button class="btn btn-sm btn-outline-danger w-100 mb-1" name="scope" value="assigned"
-                  onclick="return confirm('{{ month }}月の、利用希望から割り当てた予約を消します。\n職員・保護者が入れた予約とキャンセル待ちは残します。よろしいですか？');">利用希望から割り当てた予約だけ消す</button>
-          <button class="btn btn-sm btn-danger w-100" name="scope" value="all"
-                  onclick="return confirm('{{ month }}月の予約をすべて消します（キャンセル待ちも）。\n元に戻せません。よろしいですか？');">すべての予約を消す（キャンセル待ちも）</button>
-        </form>
-      </div>
+      <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#ms-reset-modal"
+              title="この月の予約をまとめて消して、利用希望から作り直せるようにします（消す前に確認の画面が出ます）"><i class="bi bi-arrow-counterclockwise me-1"></i>リセット</button>
       {% endif %}
     </div>
   </div>
+
+  {% if facility.schedule_tools and reset_preview %}
+  {# 月間予定表のリセット（確認ダイアログ）：消す件数と残す件数を見せ、「確認した」に印を付けないと消せない（2026-10-18 ゆあーず） #}
+  <div class="modal fade" id="ms-reset-modal" tabindex="-1" aria-labelledby="ms-reset-title" aria-hidden="true">
+    <div class="modal-dialog">
+      <form method="post" action="{% url 'reservations:monthly_schedule_reset' year month %}" class="modal-content" id="ms-reset-form">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title" id="ms-reset-title"><i class="bi bi-exclamation-triangle text-danger me-1"></i>{{ year }}年{{ month }}月の月間予定表をリセット</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="閉じる"></button>
+        </div>
+        <div class="modal-body small">
+          <p class="mb-2">この月の予約をまとめて消します。<b>元に戻せません。</b>消したあとは「利用希望から割り当てる」で作り直せます。</p>
+          {% with a=reset_preview.assigned all=reset_preview.all %}
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="radio" name="scope" id="ms-reset-assigned" value="assigned" checked>
+            <label class="form-check-label" for="ms-reset-assigned">
+              <b>利用希望から割り当てた予約だけ消す</b>：消す <b class="text-danger">{{ a.delete }}</b> 件{% if a.keep %}（残す {{ a.keep }} 件）{% endif %}<br>
+              <span class="text-muted">職員・保護者が入れた予約とキャンセル待ちは残します。</span>
+            </label>
+          </div>
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="radio" name="scope" id="ms-reset-all" value="all">
+            <label class="form-check-label" for="ms-reset-all">
+              <b>すべての予約を消す（キャンセル待ちも）</b>：消す <b class="text-danger">{{ all.delete }}</b> 件{% if all.keep %}（残す {{ all.keep }} 件）{% endif %}
+            </label>
+          </div>
+          <div class="text-muted border-top pt-2 mt-2">
+            残すもの：今日より前の日{% if all.past %}（{{ all.past }} 件）{% endif %}・実績を入れた予約{% if all.attended %}（{{ all.attended }} 件）{% endif %}・療育記録に結びついた予約{% if all.recorded %}（{{ all.recorded }} 件）{% endif %}。
+            保護者へのお知らせは積みません（送信待ちの「ご利用日が決まりました」は書き直し、予約が無くなった方の分は消します）。
+          </div>
+          <div class="form-check mt-3">
+            <input class="form-check-input" type="checkbox" id="ms-reset-ok">
+            <label class="form-check-label fw-bold" for="ms-reset-ok">消す内容を確認しました</label>
+          </div>
+          {% endwith %}
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">やめる</button>
+          <button type="submit" class="btn btn-sm btn-danger" id="ms-reset-submit" disabled><i class="bi bi-trash me-1"></i>消す</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
 
   <div id="ms-swap-bar" class="alert alert-warning py-2 small mb-3">
     <i class="bi bi-arrow-left-right me-1"></i><strong>入れ替え・移動モード</strong>：
@@ -205,8 +243,18 @@
     <span class="text-muted small d-block">欠席・キャンセルは数えません（まだの日は予定の人数）。定員超過利用減算の目安で、予約は止めません。設定は予約カレンダーの「予約の設定」。</span>
   </div>
   {% endif %}
+  {% if pair_overlaps %}
+  <form method="post" action="{% url 'reservations:monthly_schedule_fix_pairs' year month %}" class="alert alert-danger py-2 px-3 small d-flex align-items-center flex-wrap gap-2 mb-2"
+        onsubmit="return confirm('共演NG で同じ時間の組を、どちらかの利用希望（同じ日）のほかの時刻へ移します。保護者へのお知らせは積みません。よろしいですか？');">
+    {% csrf_token %}
+    <span><i class="bi bi-exclamation-triangle me-1"></i>今日から先に、共演NG で同じ時間の組が <b>{{ pair_overlaps }}</b> 組あります（赤い名前。利用希望に同じ日のほかの時刻がある組は、開いたときに自動で移しています）。</span>
+    <button class="btn btn-sm btn-danger py-0">利用希望のほかの時刻へ移す</button>
+    <a href="{% url 'reservations:pair_check' %}" class="alert-link">一覧で見る</a>
+  </form>
+  {% endif %}
   <div class="ms-total mb-2" id="ms-total">
-    {% if facility.schedule_tools %}<span class="d-inline-flex align-items-center gap-1"><input type="search" class="form-control form-control-sm ms-find" placeholder="名前で探す" aria-label="名前で探す（ふりがなでも）" data-name-filter="#ms-main" data-nf-mode="mark" data-nf-count="#ms-find-count"><span id="ms-find-count" class="small fw-bold" aria-live="polite"></span></span>{% endif %}
+    {% if facility.schedule_tools %}<span class="d-inline-flex align-items-center gap-1"><input type="search" class="form-control form-control-sm ms-find" placeholder="名前で探す" aria-label="名前で探す（ふりがなでも）" data-name-filter="#ms-main" data-nf-mode="mark" data-nf-count="#ms-find-count"><span id="ms-find-count" class="small fw-bold" aria-live="polite"></span></span>
+    <a href="{% url 'reservations:pair_check' %}" class="small ms-hide-fit" title="これまでの予約も含めて、共演NG の 2 人が同じ時間枠にいる組を一覧にします"><i class="bi bi-person-x me-1"></i>共演NG の確認</a>{% endif %}
     <span><i class="bi bi-calendar-check me-1"></i>{{ month }}月の予約 合計 <strong>{{ schedule.total }}</strong> 件</span>
     {% if facility.is_ryoiku %}<span>来た <strong>{{ schedule.total_attended }}</strong></span>{% endif %}
     <span>空き枠 <strong>{{ schedule.total_free }}</strong></span>
@@ -327,6 +375,16 @@
 <script>
 (function () {
   var body = document.body, form = document.getElementById('ms-swap-form');
+  (function () {   // リセットの確認ダイアログ：「確認しました」に印を付けたときだけ消せる
+    var ok = document.getElementById('ms-reset-ok'), btn = document.getElementById('ms-reset-submit'), form = document.getElementById('ms-reset-form');
+    if (!ok || !btn || !form) return;
+    ok.addEventListener('change', function () { btn.disabled = !ok.checked; });
+    form.addEventListener('submit', function (e) {
+      var scope = form.querySelector('input[name=scope]:checked');
+      var label = scope ? scope.nextElementSibling.querySelector('b').textContent : '';
+      if (!ok.checked || !confirm('{{ month }}月の予定表をリセットします（' + label + '）。\n元に戻せません。本当によろしいですか？')) e.preventDefault();
+    });
+  })();
   var msg = document.getElementById('ms-swap-msg'), picked = null;
   var first = msg.textContent;
   function reset() {
@@ -361,7 +419,7 @@
     if (swap) check(target, src.dataset.date, src.dataset.hour, [src, target]);
     return out.filter(function (x, i) { return out.indexOf(x) === i; });
   }
-  function ngText(names) { return names.length ? '\n\n※共演NG：' + names.join('／') + ' が同じ時間になります（予定表では赤く出ます）。' : ''; }
+  function ngText(names) { return names.length ? '\n\n※共演NG：' + names.join('／') + ' が同じ時間になります。利用希望に同じ日のほかの時刻があればそちらへ入れます（無ければ赤く出ます）。' : ''; }
   // 画面の上（ヘッダー）に、いま触っている日時を出す
   var editing = document.getElementById('ms-editing');
   var WD = ['日', '月', '火', '水', '木', '金', '土'];

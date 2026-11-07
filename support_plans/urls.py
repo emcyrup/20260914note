@@ -16,6 +16,7 @@ urlpatterns = [
     path('<int:pk>/step/<int:n>/reopen/', views.PlanStepReopenView.as_view(), name='step_reopen'),
     path('<int:pk>/ai/assessment/', views.AssessmentDraftView.as_view(), name='ai_assessment'),
     path('<int:pk>/ai/draft/', views.PlanDraftView.as_view(), name='ai_draft'),
+    path('<int:pk>/ai/monitoring/', views.MonitoringDraftView.as_view(), name='ai_monitoring'),
     path('<int:pk>/fill/assessment/', views.AssessmentFillView.as_view(), name='fill_assessment'),
     path('<int:pk>/sheet/', views.PlanSheetView.as_view(), name='sheet'),
     path('<int:pk>/sheet/ai/', views.PlanSheetAiView.as_view(), name='sheet_ai'),

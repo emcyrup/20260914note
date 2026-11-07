@@ -400,6 +400,7 @@ def mark_pairs(facility, reservations):
     return reservations
 
 
+@transaction.atomic   # select_for_update はトランザクションの中でしか使えない（PostgreSQL では外だと 500。2026-11-06 本番で発生）
 def create_reservation(facility, beneficiary, day, source=Reservation.SOURCE_STAFF, customer=None,
                        note='', guest_name='', start_time=None, notify=True, share_seat=False):
     """
@@ -754,7 +755,7 @@ def announce_after_capacity_change(facility, old_capacity, setting=None, base=''
     setting = setting or get_setting(facility)
     if setting.capacity <= old_capacity:
         return []
-    today = datetime.date.today()
+    today = timezone.localdate()
     end = today + datetime.timedelta(days=setting.booking_until_days)
     counts = {}
     for row in Reservation.objects.filter(facility=facility, date__gte=today, date__lte=end,
@@ -788,7 +789,7 @@ def bookable(facility, day, setting=None, today=None):
     受付できる日の範囲・休業日・満枠（キャンセル待ちを受けない設定のとき）で判断する。
     """
     setting = setting or get_setting(facility)
-    today = today or datetime.date.today()
+    today = today or timezone.localdate()
     if not setting.public_booking:
         return False, 'この事業所では、ページからの予約は受け付けていません。'
     start, end = setting.booking_window(today)
@@ -877,7 +878,7 @@ def parse_message(text, today=None):
     届いた文から「何をしたいか」と「いつ」を読み取る。
     決められないところは空のままにする（決めつけない）。
     """
-    today = today or datetime.date.today()
+    today = today or timezone.localdate()
     raw = (text or '').strip()
     result = {'intent': 'unknown', 'date': None, 'dates': [], 'name': '', 'fields': {}, 'text': raw, 'hour': None}
     if not raw:
@@ -1019,7 +1020,7 @@ def apply_message(facility, text, customer=None, staff=False, today=None, settin
     - 職員（スタッフのグループ）: 名前を書いてもらう。受付の範囲は見ない
     """
     setting = setting or get_setting(facility)
-    today = today or datetime.date.today()
+    today = today or timezone.localdate()
     parsed = parse_message(text, today)
     dates = parsed['dates'][:MAX_DATES_PER_MESSAGE]
 

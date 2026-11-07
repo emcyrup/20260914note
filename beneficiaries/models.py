@@ -87,6 +87,9 @@ class Beneficiary(models.Model):
     disability_type = models.CharField(max_length=100, blank=True, verbose_name='障害種別')
     # 重症心身障害児（重身）。日誌の種類と基本報酬単位数の切り替えに使う
     is_severe = models.BooleanField(default=False, verbose_name='重症心身障害児（重身）')
+    # 医療的ケア区分（医療的ケア判定スコア。請求の基本報酬が変わる。billing/codes.py）
+    CARE_LEVEL_CHOICES = [(0, 'なし'), (3, '医療的ケア児（スコア 3 点以上）'), (16, '医療的ケア児（スコア 16 点以上）'), (32, '医療的ケア児（スコア 32 点以上）')]
+    medical_care_level = models.PositiveSmallIntegerField(default=0, choices=CARE_LEVEL_CHOICES, verbose_name='医療的ケア区分')
     notes = models.TextField(blank=True, verbose_name='備考')
     # --- 住まいと学校（計画書中心の画面のプロフィール） ---
     GRADE_CHOICES = [
@@ -346,6 +349,7 @@ class RecipientCertificate(models.Model):
     valid_until = models.DateField(verbose_name='有効期間（終了）')
     # 市区町村・相談支援事業所
     municipality = models.CharField(max_length=50, blank=True, verbose_name='市区町村')
+    municipality_code = models.CharField(max_length=6, blank=True, verbose_name='市町村番号', help_text='受給者証の市町村番号（6 桁）。上限額管理結果票に印字')
     support_office = models.CharField(max_length=100, blank=True, verbose_name='相談支援事業所')
     # OCRで読み取った際の元画像
     scanned_image = models.ImageField(
@@ -422,6 +426,11 @@ class BeneficiaryDocument(models.Model):
     file = models.FileField(upload_to=document_upload_to, verbose_name='ファイル')
     file_name = models.CharField(max_length=200, blank=True, verbose_name='元のファイル名')
     title = models.CharField(max_length=100, blank=True, verbose_name='件名')
+    # 書類の分類：空は基本情報の「書類・画像」、support_plan は画面のいちばん下の「相談員支援計画」（2026-10-20 ゆあーず）
+    CATEGORY_GENERAL = ''
+    CATEGORY_SUPPORT_PLAN = 'support_plan'
+    CATEGORY_CHOICES = [(CATEGORY_GENERAL, '書類・画像'), (CATEGORY_SUPPORT_PLAN, '相談員支援計画')]
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default=CATEGORY_GENERAL, blank=True, verbose_name='分類')
     uploaded_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
                                     related_name='+', verbose_name='登録者')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -458,6 +467,10 @@ class BeneficiaryDocument(models.Model):
         return self.title or self.file_name or self.file.name.rsplit('/', 1)[-1]
 
 
+# 計画の書類（個別支援計画・相談支援のサービス等利用計画）。意向・目標を計画のアセスメント・原案の材料にする
+PLAN_DOCUMENT_KINDS = ('個別支援計画', 'サービス等利用計画')
+
+
 class BeneficiaryKnowledge(models.Model):
     """
     診断書・意見書・検査結果などの書類を AI で読み取った内容（利用者ごと）。
@@ -484,6 +497,10 @@ class BeneficiaryKnowledge(models.Model):
     text = models.TextField(blank=True, verbose_name='書類の文字')
     proposals = models.JSONField(default=dict, blank=True, verbose_name='台帳への反映案')
     applied = models.JSONField(default=list, blank=True, verbose_name='台帳に反映したもの')
+    # 書類の種類ごとに取り出した構造（個別支援計画のアセスメント・モニタリングの材料に使う）：
+    #   wishes［本人・家族の意向・願い］、goals［計画の目標・支援目標］、entries［実施記録の日ごとの項目 {date, title, body, staff}］、
+    #   items［フェイスシート・アセスメントシートの「項目：値」 {label, value}］
+    extra = models.JSONField(default=dict, blank=True, verbose_name='取り出した構造')
     # 療育記録の AI で参考にする（Facility.knowledge_reflect の事業所では「療育記録に反映する」と呼び、読み取った直後は印なし）
     use_in_ai = models.BooleanField(default=True, verbose_name='療育記録の AI で参考にする')
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_DRAFT, verbose_name='状態')
@@ -507,6 +524,26 @@ class BeneficiaryKnowledge(models.Model):
     @property
     def points_list(self):
         return [ln.strip().lstrip('・-*•').strip() for ln in (self.points or '').splitlines() if ln.strip().lstrip('・-*•').strip()]
+
+    @property
+    def wishes_list(self):
+        return [x for x in (self.extra or {}).get('wishes') or [] if x]
+
+    @property
+    def goals_list(self):
+        return [x for x in (self.extra or {}).get('goals') or [] if x]
+
+    @property
+    def entries(self):
+        return [e for e in (self.extra or {}).get('entries') or [] if isinstance(e, dict) and (e.get('body') or e.get('title'))]
+
+    @property
+    def items(self):
+        return [i for i in (self.extra or {}).get('items') or [] if isinstance(i, dict) and i.get('value')]
+
+    @property
+    def is_plan_document(self):
+        return self.kind in PLAN_DOCUMENT_KINDS
 
     @property
     def is_saved(self):

@@ -769,13 +769,30 @@ class VoiceDirectTests(TestCase):
         res = self.client.get(self.url)
         self.assertContains(res, 'id="voice-direct-btn"')
         self.assertContains(res, 'data-voice-target="voice-buffer"')
-        for hidden in ('詳しくまとめる', '短く要約', 'id="cautions-tidy"', '見取り図と表', '留意点を保存', '留意点から記録に追記', 'はさみ：見守る'):
+        for hidden in ('詳しくまとめる', '短く要約', 'id="cautions-tidy"', '見取り図と表', '留意点から記録に追記'):
             self.assertNotContains(res, hidden)
+        # 留意点は手で書く欄だけ（AI のボタンなし。2026-11-04）
+        self.assertContains(res, 'id="cautions-card"')
+        self.assertContains(res, 'はさみ：見守る')
         # 今日の記録がまだ無い：これまでの記録の上に今日の新しい記録の欄（保存は「保存する」で）
         self.assertContains(res, 'id="today-form"')
         self.assertContains(res, 'data-form="#today-form"')
         self.assertContains(res, 'id="today-body"')
         self.assertContains(res, f'value="{datetime.date.today():%Y-%m-%d}"')
+        # 記録は 1 つ（2026-10-14）：様子の欄は出さない
+        self.assertNotContains(res, 'id="today-situation"')
+        self.assertNotContains(res, 'id="record-situation"')
+        self.assertContains(res, '>記録</label>')
+        old = TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date(2026, 9, 1), body='前', situation='前の様子')
+        page = self.client.get(self.url).content.decode()
+        self.assertIn(f'id="sit-{old.pk}"', page)                  # 前に様子を書いた記録だけ、様子の欄を残す
+        # これまでの記録は「修正」を押さずに、はじめから直す欄で出す（2026-10-14）
+        self.assertIn(f'class="th-edit th-edit-inline" id="edit{old.pk}"', page)
+        self.assertNotIn('title="修正"', page)
+        self.assertIn('class="th-edit th-edit-inline" id="edit-today"', page)
+        self.assertIn('class="card th-compact" id="records"', page)      # コンパクトに出す（見出しは見た目だけ消す）
+        self.assertIn('class="row g-1 th-acts"', page)
+        old.delete()
         # 今日の記録がある：その記録の直す欄へ入れる（新しい欄は出さない）
         rec = TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date.today(), body='朝の記録')
         res = self.client.get(self.url)
@@ -790,6 +807,12 @@ class VoiceDirectTests(TestCase):
         self.assertContains(res, '詳しくまとめる')
         self.assertContains(res, 'はさみ：見守る')
         self.assertNotContains(res, 'voice-direct-btn')
+        self.assertContains(res, 'id="record-situation"')
+        self.assertContains(res, '記録（事実：したこと）')
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date(2026, 9, 2), body='前')
+        res = self.client.get(self.url)
+        self.assertContains(res, 'title="修正"')                       # オフの事業所は「修正」で開く
+        self.assertNotContains(res, 'class="th-edit th-edit-inline"')
 
     def test_today_slot_saves_as_new_record(self):
         self.client.post(self.url, {'action': 'add', 'date': datetime.date.today().isoformat(),
@@ -807,10 +830,14 @@ class VoiceDirectTests(TestCase):
         self.assertEqual(res.status_code, 200, res.content)
         d = res.json()
         self.assertEqual(d['activities'], ['ウレタン棒', 'ブロック'])
-        self.assertEqual(d['body'], 'ウレタン棒で10回打ち合った。\nブロックを積んだ。')
-        self.assertEqual(d['situation'], '「もう1回」と言った。')
+        # 記録は 1 つ（2026-10-14）：様子に分けて返ってきても記録の後ろに足す
+        self.assertEqual(d['body'], 'ウレタン棒で10回打ち合った。\nブロックを積んだ。\n「もう1回」と言った。')
+        self.assertEqual(d['situation'], '')
         kwargs = client_cls.return_value.messages.create.call_args.kwargs
-        self.assertIn('話したことは1文も落とさない', kwargs['system'])
+        self.assertIn('活動・場面ごとに 1 つの段落にする', kwargs['system'])      # 2026-10-17 まとまる記録に
+        self.assertIn('肯定／否定）は 1 つも落とさず、変えない', kwargs['system'])
+        self.assertIn('肯定と否定を入れ替えない', kwargs['system'])
+        self.assertNotIn('"situation"', kwargs['system'])
         self.assertIn('青木 子さん', kwargs['messages'][0]['content'])
         self.assertFalse(TherapyRecord.objects.exists())           # 返すだけで保存はしない
 
@@ -841,3 +868,277 @@ class VoiceDirectTests(TestCase):
         self.assertTrue(self.f.therapy_voice_direct)
         self.assertTrue(self.f.knowledge_reflect)
         self.assertContains(self.client.get(reverse('facilities:settings')), 'name="knowledge_reflect" id="knowledge_reflect" checked')
+
+
+@override_settings(ANTHROPIC_API_KEY='test')
+class LearningTests(TestCase):
+    """整文を職員の直し方に寄せる（therapy/learning.py。2026-10-16 ゆあーず）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_therapy_record=True, therapy_voice_direct=True)
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', last_name_kana='あおき',
+                                              date_of_birth=datetime.date(2019, 4, 1))
+        self.other = Beneficiary.objects.create(facility=self.f, last_name='山田', first_name='太郎', last_name_kana='やまだ',
+                                                date_of_birth=datetime.date(2018, 4, 1))
+        self.url = reverse('therapy:child', args=[self.kid.pk])
+        self.ai_url = reverse('therapy:cautions_summary', args=[self.kid.pk])
+
+    def _rec(self, b, day, ai, body, spoken='話した文字'):
+        return TherapyRecord.objects.create(facility=self.f, beneficiary=b, date=day, body=body, ai_body=ai, spoken_text=spoken)
+
+    def test_pairs_take_only_changed_sentences_and_mask_names(self):
+        from therapy import learning
+        self._rec(self.other, datetime.date(2026, 10, 1),
+                  ai='ウレタン棒で打ち合った。山田太郎さんは泣いた。意欲的だった。ブロックを積んだ。',
+                  body='ウレタン棒で打ち合った。太郎さんは負けて泣いた。ブロックを積んだ。「できた」と言った。')
+        self._rec(self.other, datetime.date(2026, 9, 30), ai='ブロックを積んだ。楽しそうだった。', body='ブロックを積んだ。')
+        # 言い回しの直しだけを例にする。消した文・足した文は例にしない。肯定／否定が変わる直し・大きく書き換えた直しも例にしない
+        self.assertEqual(learning.pairs_for(self.f), [('{名前}さんは泣いた。 意欲的だった。', '{名前}さんは負けて泣いた。')])
+        self._rec(self.other, datetime.date(2026, 9, 29), ai='靴をはけた。', body='靴をはけなかった。')
+        self._rec(self.other, datetime.date(2026, 9, 28), ai='ボールを投げた。', body='ブランコに乗って 10 回こいだ。')
+        self.assertEqual(len(learning.pairs_for(self.f)), 1)
+        # 例の投入は止めている（EXAMPLES_ENABLED=False）。再開したときの文
+        self.assertEqual(learning.examples_block(self.f), '')
+        with mock.patch.object(learning, 'EXAMPLES_ENABLED', True):
+            block = learning.examples_block(self.f)
+        self.assertIn('直し：{名前}さんは負けて泣いた。', block)
+        self.assertNotIn('この文は消した', block)
+        self.assertNotIn('山田', block)
+        self.assertNotIn('「できた」', block)          # 職員が足した文は例にしない
+        # 直していない記録・ほかの事業所の記録は使わない
+        self._rec(self.kid, datetime.date(2026, 10, 2), ai='同じ。', body='同じ。')
+        g = Facility.objects.create(name='ほか', use_therapy_record=True, therapy_voice_direct=True)
+        o = Beneficiary.objects.create(facility=g, last_name='他', first_name='人', last_name_kana='ほか', date_of_birth=datetime.date(2018, 4, 1))
+        TherapyRecord.objects.create(facility=g, beneficiary=o, date=datetime.date(2026, 10, 3), body='よその直し', ai_body='よそ')
+        self.assertEqual(len(learning.pairs_for(self.f)), 1)
+        Facility.objects.filter(pk=self.f.pk).update(therapy_voice_direct=False)
+        with mock.patch.object(learning, 'EXAMPLES_ENABLED', True):
+            self.assertEqual(learning.examples_block(Facility.objects.get(pk=self.f.pk)), '')
+
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_record_mode_sends_examples_and_returns_source(self, client_cls):
+        from therapy import learning
+        self._rec(self.other, datetime.date(2026, 10, 1), ai='山田さんは泣いた。', body='山田さんは負けて泣いた。')
+        client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(
+            type='text', text='{"activities": ["ブロック"], "body": "ブロックを積んだ。"}')])
+        d = self.client.post(self.ai_url, {'mode': 'record', 'text': 'ブロック積んだ'}).json()
+        self.assertEqual((d['spoken'], d['ai_body']), ('ブロック積んだ', 'ブロックを積んだ。'))
+        sent = client_cls.return_value.messages.create.call_args.kwargs['messages'][0]['content']
+        self.assertNotIn('直し方の例', sent)                           # 止めている間は渡さない（2026-10-17）
+        with mock.patch.object(learning, 'EXAMPLES_ENABLED', True):
+            self.client.post(self.ai_url, {'mode': 'record', 'text': 'ブロック積んだ'})
+        kwargs = client_cls.return_value.messages.create.call_args.kwargs
+        sent = kwargs['messages'][0]['content']
+        self.assertIn('【この事業所での直し方の例', sent)
+        self.assertIn('AI：{名前}さんは泣いた。\n　→ 直し：{名前}さんは負けて泣いた。', sent)
+        self.assertNotIn('山田', sent)
+        self.assertIn('直し方の例があるとき', kwargs['system'])
+        # 例が無ければ付けない
+        TherapyRecord.objects.all().delete()
+        with mock.patch.object(learning, 'EXAMPLES_ENABLED', True):
+            self.client.post(self.ai_url, {'mode': 'record', 'text': 'ブロック積んだ'})
+        self.assertNotIn('直し方の例（', client_cls.return_value.messages.create.call_args.kwargs['messages'][0]['content'])
+
+    def test_save_keeps_source_and_shows_it(self):
+        today = datetime.date.today()
+        self.client.post(self.url, {'action': 'add', 'date': today.isoformat(), 'body': 'ブロックを積んで笑った。',
+                                    'spoken_text': 'ブロック積んで笑ってた', 'ai_body': 'ブロックを積んだ。笑っていた。'})
+        rec = TherapyRecord.objects.get(beneficiary=self.kid)
+        self.assertEqual((rec.spoken_text, rec.ai_body), ('ブロック積んで笑ってた', 'ブロックを積んだ。笑っていた。'))
+        page = self.client.get(self.url).content.decode()
+        self.assertIn(f'id="src{rec.pk}"', page)
+        self.assertIn('ブロック積んで笑ってた', page)
+        self.assertIn('name="spoken_text"', page)
+        self.assertIn('90 日たつと自動で消えます', page)
+        # 直すときに空で送られても、前の文字は残る
+        self.client.post(self.url, {'action': 'edit', 'record': rec.pk, 'date': today.isoformat(), 'body': 'ブロックを積んで笑った。直した。',
+                                    'spoken_text': '', 'ai_body': ''})
+        rec.refresh_from_db()
+        self.assertEqual((rec.body, rec.ai_body), ('ブロックを積んで笑った。直した。', 'ブロックを積んだ。笑っていた。'))
+        # 「これを消す」
+        res = self.client.post(self.url, {'action': 'clear_source', 'record': rec.pk})
+        self.assertEqual(res.status_code, 302)
+        rec.refresh_from_db()
+        self.assertEqual((rec.body, rec.spoken_text, rec.ai_body), ('ブロックを積んで笑った。直した。', '', ''))
+        self.assertNotIn(f'id="src{rec.pk}"', self.client.get(self.url).content.decode())
+
+    def test_expire_after_keep_days(self):
+        from therapy import learning
+        old = self._rec(self.kid, datetime.date.today() - datetime.timedelta(days=learning.KEEP_DAYS + 1), ai='古い', body='古い直し')
+        new = self._rec(self.kid, datetime.date.today() - datetime.timedelta(days=5), ai='新しい', body='新しい直し')
+        self.client.get(self.url)                                      # 画面を開いたときに消す
+        old.refresh_from_db(); new.refresh_from_db()
+        self.assertEqual((old.body, old.spoken_text, old.ai_body), ('古い直し', '', ''))
+        self.assertEqual((new.spoken_text, new.ai_body), ('話した文字', '新しい'))
+        # 切り替えがオフの事業所は何もしない（欄も出ない）
+        Facility.objects.filter(pk=self.f.pk).update(therapy_voice_direct=False)
+        self.assertNotContains(self.client.get(self.url), 'name="spoken_text"')
+
+
+@override_settings(ANTHROPIC_API_KEY='test')
+class FidelityTests(TestCase):
+    """音声→AI の記録で「できなかった」が「できた」になる・否定が落ちる・短くなりすぎるのを見つけて作り直す（2026-11-04 ゆあーず）"""
+
+    setUp = VoiceDirectTests.setUp
+
+    SPOKEN = 'あいさつをしたんですけど、えーと、あいさつができんかったです。それからボール遊びをして、ルールが難しくてできなかった。でもブロックはできた。'
+
+    def _ai(self, client_cls, *bodies):
+        client_cls.return_value.messages.create.side_effect = [
+            SimpleNamespace(content=[SimpleNamespace(type='text', text='{"activities": ["ボール遊び"], "body": "%s"}' % b)]) for b in bodies]
+
+    def test_checker(self):
+        from therapy import fidelity
+        bad = fidelity.check(self.SPOKEN, 'あいさつができた。ボール遊びでは、ルールが難しかったができた。ブロックはできた。')
+        self.assertTrue(fidelity.has_problem(bad))
+        self.assertTrue(any('あいさつができんかった' in s for s in bad['flips']))
+        self.assertEqual(bad['dropped'], 2)
+        good = fidelity.check(self.SPOKEN, 'あいさつができなかった。ボール遊びでは、ルールが難しくてできなかった。ブロックはできた。')
+        self.assertFalse(fidelity.has_problem(good))
+        # 方言の否定 → 書き言葉の否定は問題にしない
+        self.assertFalse(fidelity.has_problem(fidelity.check('お片付けはせえへんかった。おやつは食べへんかった。', 'お片付けはしなかった。おやつは食べなかった。')))
+        self.assertTrue(fidelity.check('お片付けはしなかった。', 'お片付けはした。')['flips'])
+        # 長く話したのに 2 行ほど
+        long = '。'.join(['ウレタン棒で打ち合いをして十回続けたあと休憩してまた始めた'] * 8)
+        self.assertTrue(fidelity.check(long, 'ウレタン棒で打ち合った。')['short'])
+        self.assertFalse(fidelity.check(long, long)['short'])
+
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_retries_once_and_uses_better(self, client_cls):
+        self._ai(client_cls, 'あいさつができた。ボール遊びはできた。ブロックはできた。',
+                 'あいさつができなかった。ボール遊びでは、ルールが難しくてできなかった。ブロックはできた。')
+        d = self.client.post(self.ai_url, {'mode': 'record', 'text': self.SPOKEN}).json()
+        self.assertEqual(client_cls.return_value.messages.create.call_count, 2)
+        self.assertIn('できなかった', d['body'])
+        self.assertNotIn('fidelity', d)
+        second = client_cls.return_value.messages.create.call_args_list[1].kwargs['messages'][0]['content']
+        self.assertIn('【前に作った記録で直すところ】', second)
+        self.assertIn('あいさつができんかったです。', second)
+        system = client_cls.return_value.messages.create.call_args.kwargs['system']
+        self.assertIn('否定はそのまま否定で書く', system)
+        self.assertIn('別の活動の評価にしない', system)
+        self.assertIn('要約しない', system)
+
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_still_wrong_is_shown(self, client_cls):
+        self._ai(client_cls, 'あいさつができた。ボール遊びはできた。', 'あいさつができた。ボール遊びはできた。ブロックはできた。')
+        d = self.client.post(self.ai_url, {'mode': 'record', 'text': self.SPOKEN}).json()
+        self.assertEqual(client_cls.return_value.messages.create.call_count, 2)
+        self.assertTrue(d['fidelity']['flips'])
+        self.assertEqual(d['spoken'], self.SPOKEN)
+        self.assertGreater(d['spoken_len'], d['body_len'])
+
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_no_retry_when_fine(self, client_cls):
+        self._ai(client_cls, 'あいさつができなかった。ボール遊びでは、ルールが難しくてできなかった。ブロックはできた。')
+        d = self.client.post(self.ai_url, {'mode': 'record', 'text': self.SPOKEN}).json()
+        self.assertEqual(client_cls.return_value.messages.create.call_count, 1)
+        self.assertNotIn('fidelity', d)
+
+
+class VoiceDirectCautionsTests(TestCase):
+    """音声入力を直接入れる事業所の、手で書く留意点（2026-11-04 ゆあーず）"""
+
+    setUp = VoiceDirectTests.setUp
+
+    def test_manual_cautions_saved_with_staff_and_date(self):
+        res = self.client.get(self.url)
+        self.assertContains(res, '留意点（いま気をつけること）')
+        self.assertContains(res, 'AI は使いません')
+        self.assertNotContains(res, 'cautions-ai')
+        profile = TherapyProfile.objects.get(beneficiary=self.kid)
+        res = self.client.post(self.url, {'action': 'cautions', 'cautions': 'トイレで遊んでしまう間は、戸を閉めるよう声をかける',
+                                          'version': profile.updated_at.isoformat()})
+        self.assertEqual(res.status_code, 302)
+        profile.refresh_from_db()
+        self.assertEqual(profile.cautions, 'トイレで遊んでしまう間は、戸を閉めるよう声をかける')
+        self.assertEqual(profile.updated_by.username, 'ryo')
+        res = self.client.get(self.url)
+        self.assertContains(res, 'に直した内容')
+        self.assertContains(res, 'トイレで遊んでしまう間は')
+        # 印刷の用紙の上の「留意点」にも出る
+        self.assertContains(self.client.get(reverse('therapy:pdf', args=[self.kid.pk]) + '?fmt=html'), 'トイレで遊んでしまう間は')
+
+
+class VoiceStatsTests(TestCase):
+    """調べるためのコマンドとログ（数字だけ。名前・中身は出さない。2026-11-04）"""
+
+    setUp = VoiceDirectTests.setUp
+
+    def test_stats_command_prints_numbers_only(self):
+        from io import StringIO
+        from django.core.management import call_command
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date.today(), body='ブロックを積んだ。',
+                                     spoken_text='ブロック積んだ', ai_body='ブロックを積んだ。')
+        long = '。'.join(['ウレタン棒で打ち合いをして十回続けたあと休憩してまた始めた'] * 8)
+        TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date.today(), body='短い。', spoken_text=long, ai_body='短い。')
+        out = StringIO()
+        call_command('therapy_voice_stats', stdout=out)
+        text = out.getvalue()
+        self.assertIn('音声の記録 2 件', text)
+        self.assertIn('話した文字が短い（聞き取り）', text)
+        self.assertIn('AI が短くした', text)
+        self.assertNotIn('青木', text)
+        self.assertNotIn('ブロック', text)
+
+    def test_save_is_logged_without_content(self):
+        with self.assertLogs('therapy.views', level='INFO') as cm:
+            self.client.post(self.url, {'action': 'add', 'date': datetime.date.today().isoformat(), 'body': '青木さんがブロックを積んだ。',
+                                        'spoken_text': 'ブロック'}, HTTP_USER_AGENT='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0)')
+            self.client.post(self.url, {'action': 'add', 'date': datetime.date.today().isoformat(), 'body': 'もう一度'})
+        log = '\n'.join(cm.output)
+        self.assertIn('result=saved device=iphone voice=1', log)
+        self.assertIn('result=dup_kept device=pc', log)       # 音声を直接入れる画面では、入れた文を残して知らせる
+        self.assertNotIn('青木', log)
+        self.assertNotIn('ブロック', log)
+
+
+class VoiceDirectDupTests(TestCase):
+    """音声を直接入れる画面で、開いたあとに今日の記録が別にできていたとき、入れた文を消さずに見せる（2026-11-04）"""
+
+    setUp = VoiceDirectTests.setUp
+
+    def test_dup_keeps_text_next_to_existing_record(self):
+        today = datetime.date.today().isoformat()
+        rec = TherapyRecord.objects.create(facility=self.f, beneficiary=self.kid, date=datetime.date.today(), body='ほかの端末の記録')
+        res = self.client.post(self.url, {'action': 'add', 'date': today, 'activity_1': 'ブロック', 'body': '音声で入れた記録'})
+        self.assertEqual(TherapyRecord.objects.filter(beneficiary=self.kid).count(), 1)
+        self.assertRedirects(res, f'{self.url}?edit={rec.pk}#rec{rec.pk}', fetch_redirect_response=False)
+        page = self.client.get(res['Location']).content.decode()
+        self.assertIn('開いたあとに、この日の記録が別に保存されていたため', page)
+        self.assertIn('音声で入れた記録', page)
+        self.assertIn('この内容を記録の欄の最後に足す', page)
+        self.assertIn('やったこと：ブロック', page)
+        # 「もう1件として保存する」ならそのまま保存する
+        self.client.post(self.url, {'action': 'add', 'date': today, 'body': '別の回', 'dup_ok': '1'})
+        self.assertEqual(TherapyRecord.objects.filter(beneficiary=self.kid).count(), 2)
+
+
+class RecordRunawayTests(TestCase):
+    """AI が JSON のあとに頼んでいない続き（別の子の話）を書いたとき、最初の JSON だけを使う（2026-11-04 の確かめで見つかった）"""
+
+    def test_parse_uses_first_json_only(self):
+        from therapy.views import parse_record_split
+        raw = ('{"activities": ["ブロック"], "body": "ブロックを積んだ。"}\n\nuser【架空 花子さんの今日の療育について職員が話したこと】\n'
+               '今日はね…{"activities": ["粘土"], "body": "粘土をした。"}')
+        d = parse_record_split(raw)
+        self.assertEqual((d['activities'], d['body']), (['ブロック'], 'ブロックを積んだ。'))
+
+    def test_long_body_is_flagged(self):
+        from therapy import fidelity
+        r = fidelity.check('ブロックを積んだ。', 'ブロックを積んだ。' + '別の子が粘土をした。' * 30)
+        self.assertTrue(r['long'] and fidelity.has_problem(r))
+        self.assertIn('話していないことが入っていた', fidelity.retry_note('ブロックを積んだ。', r))
+        self.assertTrue(fidelity.notice(r)['fidelity']['long'])
+        # 「難しく」＋「できなかった」は否定 2 つのまま
+        self.assertFalse(fidelity.has_problem(fidelity.check('ルールが難しくてできなかった。', 'ルールが少し難しくできなかった。')))
+
+    @override_settings(ANTHROPIC_API_KEY='test')
+    @mock.patch('ai_assist.quick.anthropic.Anthropic')
+    def test_record_sends_stop_sequences(self, client_cls):
+        VoiceDirectTests.setUp(self)
+        client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(type='text', text='{"activities": [], "body": "ブロックを積んだ。"}')])
+        self.client.post(self.ai_url, {'mode': 'record', 'text': 'ブロック積んだ'})
+        self.assertIn('\nuser', client_cls.return_value.messages.create.call_args.kwargs['stop_sequences'])

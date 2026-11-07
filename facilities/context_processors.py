@@ -40,6 +40,8 @@ SITE_BRANDS = {
     'kyotaku': {'app_label': 'ケアマネ業務支援', 'name': 'ケアマネ業務支援', 'icon': 'bi-clipboard2-heart-fill'},
 }
 DEFAULT_SITE_BRAND = {'app_label': '放課後等デイサービス業務支援', 'name': '放デイ業務支援', 'icon': 'bi-heart-pulse-fill'}
+# 型の違う事業所が同居するサーバー（2026-11-07 介護デモの環境に放デイ デモを同居）：どちらの名前も出さない
+MIXED_SITE_BRAND = {'app_label': '業務支援', 'name': 'みちノート 業務支援', 'icon': 'bi-journal-text'}
 
 
 def site_brand():
@@ -47,7 +49,12 @@ def site_brand():
     from .models import Facility
     rows = list(Facility.objects.order_by('pk').values_list('layout', 'name', 'company_name')[:2])
     layouts = set(Facility.objects.values_list('layout', flat=True).distinct()[:3])
-    brand = dict(SITE_BRANDS.get(layouts.pop(), DEFAULT_SITE_BRAND) if len(layouts) == 1 else DEFAULT_SITE_BRAND)
+    if len(layouts) == 1:
+        brand = dict(SITE_BRANDS.get(layouts.pop(), DEFAULT_SITE_BRAND))
+    elif layouts & set(SITE_BRANDS):          # 介護施設・居宅介護支援と放デイが同居
+        brand = dict(MIXED_SITE_BRAND)
+    else:
+        brand = dict(DEFAULT_SITE_BRAND)
     if len(rows) == 1 and rows[0][0] in SITE_BRANDS:
         brand['org'] = f'{rows[0][2]}　{rows[0][1]}' if rows[0][2] else rows[0][1]
     return brand
@@ -69,7 +76,7 @@ def branding(request):
         'features': {'billing': facility.use_billing, 'schedule': facility.use_schedule, 'line': facility.use_line,
                      'reservation': facility.use_reservation, 'form_set': facility.form_set,
                      'planbook': facility.is_planbook, 'therapy': facility.use_therapy_record,
-                     'transport': facility.use_transport, 'dev_assessment': facility.use_dev_assessment, 'survey': facility.use_survey, 'daily': facility.use_daily_ops,
+                     'transport': facility.use_transport, 'dev_assessment': facility.use_dev_assessment, 'survey': facility.use_survey, 'daily': facility.use_daily_ops, 'consultation': facility.use_consultation, 'reports': facility.use_reports,
                      'ryoiku': facility.is_ryoiku, 'kyotaku': facility.is_kyotaku, 'care': facility.is_care, 'kaigo': facility.is_kaigo},
         'app_label': ('ケアマネ業務支援' if facility.is_kyotaku else '介護施設の業務支援' if facility.is_care else '放課後等デイサービス業務支援'),
         'trial_ai': _trial_ai(facility),

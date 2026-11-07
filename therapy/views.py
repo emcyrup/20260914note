@@ -1,6 +1,8 @@
 """療育記録の画面（発達支援ルーム　ゆあーず）"""
 import datetime
+import logging
 import re
+import time
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -20,8 +22,10 @@ from beneficiaries.models import Beneficiary
 from config.concurrency import check_conflict, keep_unsaved, pop_unsaved
 from config.utils import to_int
 
-from . import figure
+from . import fidelity, figure, learning
 from .models import ACTIVITY_MAX, TherapyProfile, TherapyRecord
+
+logger = logging.getLogger(__name__)
 
 PAGE_ENTRIES = 5     # 用紙1枚に入る回数
 LONG_CAUTIONS = 300  # これより長い留意点は、用紙の2枚目からは「1枚目のとおり」にする
@@ -206,6 +210,17 @@ class SearchView(TherapyEnabledMixin, View):
         })
 
 
+_MOBILE_RE = re.compile(r'iPhone|iPad|Android|Mobile', re.I)
+
+
+def _log_save(request, action, result):
+    """保存の結果を残す（中身・名前は出さない）。スマホで「保存を押しても残らない」件の調べ（2026-11-04 ゆあーず）"""
+    ua = request.META.get('HTTP_USER_AGENT', '')
+    device = 'iphone' if 'iPhone' in ua else 'ipad' if 'iPad' in ua else 'android' if 'Android' in ua else 'mobile' if _MOBILE_RE.search(ua) else 'pc'
+    logger.info('therapy save: facility=%s action=%s result=%s device=%s voice=%s', request.user.facility_id, action, result, device,
+                '1' if request.POST.get('spoken_text') else '0')
+
+
 class ChildView(TherapyEnabledMixin, View):
     """利用者1人の療育記録：留意点・記録の一覧・追加・修正・削除"""
     template_name = 'therapy/child.html'
@@ -213,7 +228,7 @@ class ChildView(TherapyEnabledMixin, View):
     def get(self, request, pk):
         facility = request.user.facility
         beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=facility)
-        profile = TherapyProfile.objects.filter(beneficiary=beneficiary).first()
+        profile = TherapyProfile.objects.filter(beneficiary=beneficiary).select_related('updated_by').first()
         records = TherapyRecord.objects.filter(beneficiary=beneficiary).select_related('staff')
         months = [d for d in records.dates('date', 'month', order='DESC')]
         records, ym, date_from, date_to = filter_records(records, request.GET)
@@ -241,6 +256,7 @@ class ChildView(TherapyEnabledMixin, View):
         today = datetime.date.today()
         today_rec = today_hour = None
         if voice_direct:
+            learning.expire(facility, today)      # 古い記録の「整える前の文字・AI の文」を消す（本文は残る）
             today_rec = (TherapyRecord.objects.filter(beneficiary=beneficiary, date=today).select_related('staff')
                          .order_by('-time', '-pk').first())
             if today_rec is None and facility.use_reservation:
@@ -250,7 +266,7 @@ class ChildView(TherapyEnabledMixin, View):
                        .order_by('start_time').first())
                 today_hour = res.start_time.hour if res else None
         return render(request, self.template_name, {
-            'voice_direct': voice_direct, 'today': today, 'today_rec': today_rec, 'today_hour': today_hour,
+            'voice_direct': voice_direct, 'today': today, 'today_rec': today_rec, 'today_hour': today_hour, 'keep_days': learning.KEEP_DAYS,
             'today_in_list': bool(today_rec and any(r.pk == today_rec.pk for r in records)),
             'dup': dup, 'day_res': day_res,
             'beneficiary': beneficiary, 'profile': profile, 'records': records, 'ym': ym, 'months': months,
@@ -293,13 +309,23 @@ class ChildView(TherapyEnabledMixin, View):
             if conflict:            # 開いたあとに他の職員（または書類の読み取り）が留意点を保存していた
                 keep_unsaved(request, 'therapy_profile', beneficiary.pk, {'text': text})
                 messages.error(request, conflict + '（入れた文は留意点の下に残してあります）')
+                _log_save(request, action, 'conflict')
                 return back
             if profile is None:
                 profile, _ = TherapyProfile.objects.get_or_create(beneficiary=beneficiary)
             profile.cautions = text
+            profile.updated_by = request.user
             profile.save()
             messages.success(request, '留意点を保存しました。')
+            _log_save(request, action, 'saved')
             return back
+
+        if action == 'clear_source':      # その記録の「整える前の文字・AI の文」だけ消す（本文は残る）
+            rec = get_object_or_404(TherapyRecord, pk=to_int(p.get('record'), -1), beneficiary=beneficiary)
+            rec.spoken_text = rec.ai_body = ''
+            rec.save(update_fields=['spoken_text', 'ai_body'])
+            messages.success(request, f'{rec.date:%-m/%-d} の記録の、整える前の文字と AI の文を消しました。')
+            return redirect(f"{reverse('therapy:child', args=[pk])}#rec{rec.pk}")
 
         if action == 'delete':
             rec = get_object_or_404(TherapyRecord, pk=to_int(p.get('record'), -1), beneficiary=beneficiary)
@@ -310,10 +336,12 @@ class ChildView(TherapyEnabledMixin, View):
         day = _parse_date(p.get('date'))
         if day is None:
             messages.error(request, '日付を入れてください。')
+            _log_save(request, action, 'no_date')
             return back
         if action == 'add' and not any(_activities_from_post(p)) and not p.get('body', '').strip() \
                 and not p.get('situation', '').strip():
             messages.error(request, '「やったこと」か「記録」（事実・様子）を入れてから保存してください。')
+            _log_save(request, action, 'empty')
             return back
         staff = StaffAccount.objects.filter(facility=facility, pk=to_int(p.get('staff'), -1)).first()
         fields = {
@@ -323,6 +351,10 @@ class ChildView(TherapyEnabledMixin, View):
         }
         if 'situation' in p:     # 2段の記録の「様子」（無い画面から送られたときは変えない）
             fields['situation'] = p.get('situation', '').strip()[:4000]
+        for k in ('spoken_text', 'ai_body'):     # 音声入力を整えて入れたとき（therapy_voice_direct）。空なら前のまま
+            v = p.get(k, '').strip()[:CAUTIONS_MAX]
+            if v:
+                fields[k] = v
         if action == 'edit':
             rec = get_object_or_404(TherapyRecord, pk=to_int(p.get('record'), -1), beneficiary=beneficiary)
             conflict = check_conflict(request, rec)
@@ -330,11 +362,13 @@ class ChildView(TherapyEnabledMixin, View):
                 keep_unsaved(request, 'therapy_record', rec.pk, {'text': '\n'.join(x for x in (fields['body'], fields.get('situation', '')) if x),
                                                                  'activities': [a for a in fields['activities'] if a]})
                 messages.error(request, conflict + '（入れた記録は、その記録の直す欄の下に残してあります）')
+                _log_save(request, action, 'conflict')
                 return redirect(f"{reverse('therapy:child', args=[pk])}?edit={rec.pk}#rec{rec.pk}")
             for k, v in fields.items():
                 setattr(rec, k, v)
             rec.save()
             messages.success(request, f'{day:%-m/%-d} の療育記録を保存しました。')
+            _log_save(request, action, 'saved')
             return back
 
         # 二重の確認：同じ日（同じ時刻）の記録がすでにあれば、「もう1件として保存」の印が無いかぎり保存しない
@@ -343,9 +377,20 @@ class ChildView(TherapyEnabledMixin, View):
         if fields['time'] is not None:
             same = same.filter(Q(time=fields['time']) | Q(time__isnull=True))
         dup = same.order_by('pk').first()
+        if dup and p.get('dup_ok') != '1' and facility.therapy_voice_direct:
+            # 音声を直接入れる画面（ゆあーず）：開いたあとに今日の記録が別にできていた（ほかの端末・職員が保存した）。
+            # 今日の新しい欄は無くなるので、入れた文はその記録の直す欄の下に残して見せる（2026-11-04：保存を押しても残らない件）
+            keep_unsaved(request, 'therapy_record', dup.pk, {'text': '\n'.join(x for x in (fields['body'], fields.get('situation', '')) if x),
+                                                             'activities': [a for a in fields['activities'] if a],
+                                                             'reason': '開いたあとに、この日の記録が別に保存されていたため'})
+            messages.warning(request, f'{day:%-m/%-d} の療育記録は、この画面を開いたあとに別に保存されていました（{dup.time_label or "時刻なし"}）。'
+                                      '二重にならないよう、今の内容はまだ保存していません。その記録の欄の下に残してあるので、写してから「保存する」を押してください。')
+            _log_save(request, action, 'dup_kept')
+            return redirect(f"{reverse('therapy:child', args=[pk])}?edit={dup.pk}#rec{dup.pk}")
         if dup and p.get('dup_ok') != '1':
             messages.warning(request, f'{day:%-m/%-d} の療育記録はすでにあります（{dup.time_label or "時刻なし"}）。二重にならないよう保存していません。'
                                       '直すなら下の「これまでの記録」の「直す」から。別の回として足すなら「もう1件として保存する」に印を付けて保存してください。')
+            _log_save(request, action, 'dup_blocked')
             return redirect(f"{reverse('therapy:child', args=[pk])}?date={day:%Y-%m-%d}&dup={dup.pk}#add")
         reservation = None
         if facility.use_reservation:
@@ -362,12 +407,14 @@ class ChildView(TherapyEnabledMixin, View):
             cautions = p.get('cautions', '').strip()[:CAUTIONS_MAX]
             if 'cautions' in p and cautions != profile.cautions:
                 profile.cautions = cautions
+                profile.updated_by = request.user
                 profile.save()
             messages.success(request, f'{day:%-m/%-d} の療育記録を留意点から作って保存しました'
                                       f'{"（留意点も保存）" if "cautions" in p else ""}。'
                                       '直すときは下の「これまでの記録」の「直す」からできます。')
             return redirect(f"{reverse('therapy:child', args=[pk])}#records")
         messages.success(request, f'{day:%-m/%-d} の療育記録を保存しました。')
+        _log_save(request, action, 'saved')
         return back
 
 
@@ -391,7 +438,7 @@ class PdfView(TherapyEnabledMixin, View):
             pages.append(chunk + [None] * (PAGE_ENTRIES - len(chunk)))
         ctx = {'beneficiary': beneficiary, 'profile': profile, 'pages': pages, 'facility': facility,
                'long_cautions': len(profile.cautions if profile else '') > LONG_CAUTIONS,
-               'blank': blank, 'ym': ym, 'line_range': range(6)}
+               'blank': blank, 'ym': ym, 'line_range': range(6), 'blank_year': datetime.date.today().year}
         name = f'療育記録_{beneficiary.full_name}' + (f'_{ym}' if ym else '')
         if date_from or date_to:
             name += f'_{date_from or ""}〜{date_to or ""}'
@@ -406,6 +453,8 @@ AS_IS_RULES = """
 - 入力に無い飾りや評価の言い回しを足さない（例：「しっかり」「積極的に」「意欲的に」「楽しそうに」「落ち着いて」「〜が見られた」
   「〜と考えられる」「〜が大切」「成長が感じられる」「〜に留意して取り組む」など）
 - 内容・事実・順番・程度は変えない。言いかえて意味がずれないようにする。分かりにくいところは、意味を変えずに残す
+- 肯定と否定を入れ替えない（「できた／できなかった」「泣いた／泣かなかった」「好き／嫌い」など、話したとおりに）。
+  否定の言葉を落としたり足したりしない。迷うところは話した言葉のまま残す
 - 話し言葉は読みやすい書き言葉に直す：
   - 「えー」「あの」「なんか」「まあ」「〜みたいな」「〜って感じ」などの言いよどみ・つなぎの言葉、言い直し、同じことのくり返しは消す
   - 「めっちゃ」「すごい」「やばい」などのくだけた程度の言葉は「とても」「かなり」などの書き言葉にする（程度は落とさない）
@@ -469,24 +518,42 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
 - 返すのは整えた文だけ"""
 
     # 音声入力を今日の記録へ直接入れるとき（Facility.therapy_voice_direct）：整文だけ＋やったこと・事実・様子に分ける
+    # 2026-10-17 ゆあーず：「そのままの内容が入るとまとまらない。議事録のようなまとまり方で、ただし項目ごとには分けないで」
+    # → 活動・場面ごとの段落にまとめる（見出し・箇条書きは付けない）。内容は足さない・変えない
     RECORD_PROMPT = f"""あなたは放課後等デイサービス（療育）の職員を手伝うAIです。
-職員がその日の療育について話した言葉（音声入力の文字）を、読める書き言葉に整え、療育記録の欄に分けます。要約はしません。
+職員がその日の療育について話した言葉（音声入力の文字）を、あとから読んだ職員がその日のようすを思い浮かべられる、
+読みやすくまとまった療育記録にします。「やったこと」も抜き出します。
 {AS_IS_RULES}
-【整え方】
-- 上の約束のとおり、言いよどみ・くだけた言葉を消し、文末を断定の形にする。句読点を付ける。話した順のまま
+【いちばん先に守ること（2026-11-04 ゆあーず：意味が逆になる・混ざる・短くなりすぎると、直す手間がかえって増える）】
+- 否定はそのまま否定で書く。「できなかった」「しなかった」「難しかった」「わからなかった」「いやがった」「〜せずに」などを、
+  「できた」「した」などの肯定に変えない。方言・話し言葉の否定（「できんかった」「せえへんかった」「やらへん」など）も否定のまま書き言葉にする
+- 「できた／できなかった」などの評価は、話した人がその評価を言った活動のところにだけ書く。別の活動の評価にしない・まとめない。
+  どの活動のことか話からはっきりしない評価は、話した位置のまま、話した言葉で残す
+- 要約しない。話した内容（したこと・子どものようす・言葉・回数・順番・できたこと・できなかったこと）は 1 つも落とさない。
+  消してよいのは言いよどみ・言い直し・同じことのくり返しだけ。長く話したときは長い記録になってよい
+- 文の組み立てを大きく変えない。話した順に書く。読みやすくするのは言葉づかいと句読点・段落の区切りだけ
+
+【まとめ方】
+- 活動・場面ごとに 1 つの段落にする。段落の間は空行 1 つ。見出し（【】）・箇条書き（・）・番号は付けない
+- 段落の最初の文で、その活動が何か分かるようにする（例：「ウレタン棒では、…」「おやつのときに、…」）。活動は話に出てきた順に並べる
+- 同じ活動について話の中で何度か触れているときは、その活動の段落に話した順で足す（ほかの活動の話と混ぜない）
+- 言いよどみ・言い直し・同じことのくり返しは 1 回にまとめる。ただし話した内容（事実・数・順番・程度・肯定／否定）は 1 つも落とさず、変えない
+- 上の約束のとおり、くだけた言葉は書き言葉にし、文末は断定の形にする。句読点を付ける
 - 漢字・かなの変換の誤り（音声入力の聞き違い）は、前後から明らかなときだけ直す
-- 文を短くしたり、まとめたり、内容を言いかえたりしない。話したことは1文も落とさない
+- 子どもの言葉・職員の声かけは「」で、話したとおりに残す
+- 全体の感想・まとめ・評価の文は足さない。活動と関係ない雑談は入れない
+
+【この事業所での直し方の例があるとき】
+- 【この事業所での直し方の例】が付いていれば、言い回し・言葉の選び方だけ参考にする。例の内容を今回の文に混ぜない。
+  例を当てはめて意味（肯定／否定・事実）を変えることはしない
 
 【分け方】
 - activities：話に出てきた「やったこと（活動・遊び・課題）」の名前。話に出てきた言葉のまま短く（例：ウレタン棒、ブロック）。出てきた順に5つまで。無ければ空
-- body（事実：したこと）：何をしたか・職員がどう関わったか・回数や順番
-- situation（様子：どうだったか）：子どもの表情・動き・言ったこと（「」でそのまま）・職員が「〜と思う」と感じたこと
-- 整えた文はすべて body か situation のどちらか一方に入れる（両方に同じ文を入れない。どちらにも入れずに落とさない）。それぞれ話した順のまま
-- どちらか分からない文は body に入れる
+- body（記録）：上のまとめ方で書いた記録の全文（段落ごとに空行で区切る。したこと・様子・言葉を別の欄に分けない）
 
 【返し方】
 次の形の JSON だけを返す（前置き・説明・マークダウンは付けない）：
-{{"activities": ["…"], "body": "…", "situation": "…"}}"""
+{{"activities": ["…"], "body": "…"}}"""
 
     def post(self, request, pk):
         beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
@@ -520,13 +587,15 @@ class CautionsSummaryView(TherapyEnabledMixin, View):
 
     def record(self, beneficiary, text):
         """話した言葉 → {'activities', 'body', 'situation'}（整文だけ。書類の内容は混ぜない）。分けられなければ全部を body に"""
-        raw, error = _ask_ai(self.RECORD_PROMPT, f'【{beneficiary.full_name}さんの今日の療育について職員が話したこと】\n{text[:CAUTIONS_MAX]}', 4096)
+        out, error = build_record(self.RECORD_PROMPT, beneficiary.full_name, beneficiary.facility, text)
         if error:
             return error
-        data = parse_record_split(raw)
-        if not (data['body'] or data['situation'] or data['activities']):
+        data, result = out['data'], out['result']
+        if not (data['body'] or data['activities']):
             return JsonResponse({'error': 'AIの返答が空でした。もう一度お試しください。'}, status=500)
-        return JsonResponse({**data, **asis.check(text, data['body'] + '\n' + data['situation'])})
+        # 整える前の文字と AI の文は、保存のときに記録へ一緒に残す（職員の直し方を次の例にする）
+        return JsonResponse({**data, 'spoken': text[:CAUTIONS_MAX], 'ai_body': data['body'], 'spoken_len': result['spoken_len'],
+                             'body_len': result['body_len'], **fidelity.notice(result), **asis.check(text, data['body'])})
 
     @staticmethod
     def tidy(raw):
@@ -543,11 +612,12 @@ def parse_record_split(raw):
     """AI の返答（JSON）→ {'activities': [5つまで], 'body', 'situation'}。JSON で返らなかったときは、整えた文として全部を body に"""
     import json
     text = (raw or '').strip()
-    m = re.search(r'\{.*\}', text, re.S)
     data = None
-    if m:
+    start = text.find('{')
+    if start >= 0:
+        # 最初の JSON だけを読む（そのあとに続きを書いていても使わない）
         try:
-            data = json.loads(m.group(0))
+            data, _end = json.JSONDecoder().raw_decode(text, start)
         except ValueError:
             data = None
     if not isinstance(data, dict):
@@ -565,6 +635,54 @@ def parse_record_split(raw):
         if a and a not in activities:
             activities.append(a)
     return {'activities': activities[:ACTIVITY_MAX], 'body': clean(data.get('body')), 'situation': clean(data.get('situation'))}
+
+
+# JSON を返したあとに、頼んでいない続き（別の子の話など）を書き始めることがある（2026-11-04 の確かめで見つかった）。
+# JSON の文字列の中の改行は \n と書かれるので、本当の改行のあとのこれらの言葉は JSON の外。そこで止める
+RECORD_STOP = ['\nuser', '\nUser', '\nHuman', '\nAssistant', '\n【', '\n:【', '\n答：']
+
+
+def _record_once(prompt, content):
+    raw, error = _ask_ai(prompt, content, 4096, stop_sequences=RECORD_STOP)
+    if error:
+        return None, error
+    data = parse_record_split(raw)
+    # 記録は 1 つにまとめる（2026-10-14 ゆあーず）：様子に分けて返ってきても記録の後ろに足す
+    if data['situation']:
+        data['body'] = (data['body'] + '\n' + data['situation']).strip()
+        data['situation'] = ''
+    return data, None
+
+
+def build_record(prompt, full_name, facility, text):
+    """
+    話した言葉 → ({'data': {...}, 'result': fidelity の結果, 'retried': bool, 'sec': 秒}, None) か (None, エラーの JsonResponse)。
+    話した言葉と照らし合わせ（否定が肯定に変わっていないか・否定が落ちていないか・短くなりすぎていないか）、
+    ずれがあれば注意書きを付けて 1 回だけ作り直し、ずれの少ないほうを使う（2026-11-04 ゆあーず）
+    """
+    content = f'【{full_name}さんの今日の療育について職員が話したこと】\n{text[:CAUTIONS_MAX]}'
+    examples = learning.examples_block(facility)     # 職員の直し方（名前は伏せる）
+    if examples:
+        content += '\n\n' + examples
+    started = time.monotonic()
+    data, error = _record_once(prompt, content)
+    if error:
+        return None, error
+    result = fidelity.check(text, data['body'])
+    retried = False
+    if data['body'] and fidelity.has_problem(result):
+        retried = True
+        again, error2 = _record_once(prompt, content + '\n\n' + fidelity.retry_note(text, result))
+        if not error2 and again['body']:
+            result2 = fidelity.check(text, again['body'])
+            if fidelity.score(result2) <= fidelity.score(result):
+                data, result = again, result2
+    sec = time.monotonic() - started
+    # 調べるための記録（中身は出さない：文字数・かかった時間・ずれの数だけ）
+    logger.info('therapy voice record: facility=%s spoken=%d body=%d sec=%.1f retried=%s flips=%d dropped=%d short=%s',
+                getattr(facility, 'pk', None), result['spoken_len'], result['body_len'], sec, retried,
+                len(result['flips']), result['dropped'], result['short'])
+    return {'data': data, 'result': result, 'retried': retried, 'sec': sec}, None
 
 
 class CautionsFigureView(TherapyEnabledMixin, View):

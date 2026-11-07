@@ -60,7 +60,7 @@ class CalendarView(ReservationEnabledMixin, View):
     template_name = 'reservations/calendar.html'
 
     def get(self, request, year=None, month=None):
-        today = datetime.date.today()
+        today = timezone.localdate()
         year, month = month_or_404(year or today.year, month or today.month)
         facility = request.user.facility
         setting = services.get_setting(facility)
@@ -874,7 +874,7 @@ class MonthlyRequestListView(SlotModeMixin, View):
             'beneficiaries': Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE),
             'ai_enabled': bool(settings.ANTHROPIC_API_KEY),
             'targets_missing': sum(1 for t in targets if t['missing']),
-            'default_deadline': max(datetime.date(*monthly.prev_month(year, month), 20), datetime.date.today()),
+            'default_deadline': max(datetime.date(*monthly.prev_month(year, month), 20), timezone.localdate()),
             **_month_ctx(year, month),
         })
 
@@ -889,6 +889,10 @@ class MonthlyRequestListView(SlotModeMixin, View):
                 ' 通知は送信待ちに入れています。' if result.notices else ''))
         else:
             messages.info(request, '割り当てるものがありません（利用希望が無いか、希望回数ぶんの予約がすでにあります）。')
+        if facility.schedule_tools:       # 共演NG で同じ時間の組は、利用希望のほかの時刻へ移す（ゆあーず）
+            moved, left = monthly.fix_pair_slots(facility, year, month, setting)
+            if moved or left:
+                (messages.warning if left else messages.info)(request, monthly.fix_pairs_message(moved, left))
         cap = monthly.capacity_report(facility, year, month, setting)
         if cap and cap['over_days']:
             messages.warning(request, f'1日の上限 {cap["day_limit"]} 名を超えた日があります：'
@@ -1177,7 +1181,7 @@ class MonthlyScheduleNowView(SlotModeMixin, View):
     """左メニューの「月間予定表」：今月の月間予定表へ"""
 
     def get(self, request):
-        today = datetime.date.today()
+        today = timezone.localdate()
         return redirect('reservations:monthly_schedule', year=today.year, month=today.month)
 
 
@@ -1189,6 +1193,12 @@ class MonthlyScheduleView(SlotModeMixin, View):
         year, month = month_or_404(year, month)
         facility = request.user.facility
         setting = services.get_setting(facility)
+        if facility.schedule_tools:
+            # 共演NG で同じ時間の組があり、どちらかの利用希望に同じ日のほかの時刻があれば、開いたときに自動で移す（赤にしない）。
+            # 職員が承知で同じ時間にした組（pair_ok）は動かさない（2026-10-17 ゆあーず）
+            moved, _left = monthly.fix_pair_slots(facility, year, month, setting, skip_ok=True)
+            if moved:
+                messages.info(request, monthly.fix_pairs_message(moved, []))
         rows = monthly.request_rows(facility, year, month, setting)
         schedule = monthly.month_schedule(facility, year, month, setting)
         cap = monthly.capacity_report(facility, year, month, setting)
@@ -1201,11 +1211,15 @@ class MonthlyScheduleView(SlotModeMixin, View):
         return render(request, self.template_name, {
             'schedule': schedule, 'setting': setting, 'cap': cap,
             'rows': monthly.schedule_rows(rows), 'row_totals': monthly.row_totals(monthly.schedule_rows(rows)),
-            'facility': facility, 'today': datetime.date.today(),
+            'facility': facility, 'today': timezone.localdate(),
             'therapy': getattr(facility, 'use_therapy_record', False),
             'staff_suggestions': monthly.staff_suggestions(facility),
             'shift_count': StaffShift.objects.filter(facility=facility, is_active=True).count() if facility.is_ryoiku else 0,
             'attendance_choices': Reservation.ATT_CHOICES,
+            # 共演NG で同じ時間の組（今日から先）。「利用希望のほかの時刻へ移す」を出す（ゆあーず）
+            'pair_overlaps': len(monthly.pair_overlaps(facility, year, month)) if facility.schedule_tools else 0,
+            # リセットの確認ダイアログ：消す件数・残す件数（ゆあーず）
+            'reset_preview': monthly.reset_preview(facility, year, month) if facility.schedule_tools else None,
             **_month_ctx(year, month),
         })
 
@@ -1220,16 +1234,16 @@ class DailyBoardView(RyoikuOnlyMixin, View):
     @staticmethod
     def _day(request):
         try:
-            return datetime.date.fromisoformat(request.GET.get('d', '')) if request.GET.get('d') else datetime.date.today()
+            return datetime.date.fromisoformat(request.GET.get('d', '')) if request.GET.get('d') else timezone.localdate()
         except ValueError:
-            return datetime.date.today()
+            return timezone.localdate()
 
     def get(self, request):
         facility = request.user.facility
         day = self._day(request)
         board = monthly.day_board(facility, day, services.get_setting(facility))
         return render(request, self.template_name, {
-            'facility': facility, 'b': board, 'today': datetime.date.today(),
+            'facility': facility, 'b': board, 'today': timezone.localdate(),
             'limit_text': services.limit_notice(facility, day),
             'attendance_choices': Reservation.ATT_CHOICES,
             'staff_suggestions': monthly.staff_suggestions(facility),
@@ -1289,7 +1303,7 @@ class StaffShiftView(RyoikuOnlyMixin, View):
 
     def get(self, request):
         facility = request.user.facility
-        today = datetime.date.today()
+        today = timezone.localdate()
         return render(request, self.template_name, {
             'facility': facility,
             'shifts': StaffShift.objects.filter(facility=facility),
@@ -1386,6 +1400,39 @@ class DailyLogPdfView(RyoikuOnlyMixin, View):
         return pdf_or_html(request, 'reservations/pdf/daily_log.html', ctx, name)
 
 
+class MonthlyScheduleFixPairsView(SlotModeMixin, View):
+    """共演NG で同じ時間の組を、利用希望のほかの時刻へ移す（Facility.schedule_tools）"""
+
+    def post(self, request, year, month):
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        if not facility.schedule_tools:
+            raise Http404
+        moved, left = monthly.fix_pair_slots(facility, year, month)
+        if moved or left:
+            (messages.warning if left else messages.success)(request, monthly.fix_pairs_message(moved, left))
+        else:
+            messages.info(request, f'{month}月（今日から先）に、共演NG で同じ時間の組はありません。')
+        if request.POST.get('next') == 'check':
+            return redirect('reservations:pair_check')
+        return redirect('reservations:monthly_schedule', year=year, month=month)
+
+
+class PairCheckView(SlotModeMixin, View):
+    """共演NG の確認（Facility.schedule_tools）：これまでの予約も含めて、共演NG の 2 人が同じ時間枠にいる組の一覧"""
+
+    def get(self, request):
+        facility = request.user.facility
+        if not facility.schedule_tools:
+            raise Http404
+        today = timezone.localdate()
+        check = monthly.pair_check(facility, today)
+        return render(request, 'reservations/pair_check.html', {
+            'check': check, 'today': today, 'facility': facility,
+            'future_count': sum(len(m['rows']) for m in check['future']),
+        })
+
+
 class MonthlyScheduleResetView(SlotModeMixin, View):
     """月間予定表のやり直し（Facility.schedule_tools）：scope=assigned は利用希望から割り当てた予約、all はこの月の予約すべて"""
 
@@ -1398,6 +1445,8 @@ class MonthlyScheduleResetView(SlotModeMixin, View):
         deleted, kept = monthly.reset_month(facility, year, month, scope)
         what = 'の予約' if scope == monthly.RESET_ALL else 'の、利用希望から割り当てた予約'
         if deleted:
+            from accounts import security
+            security.admin_action(request, f'{year}年{month}月の月間予定表をリセットしました（{what.lstrip("の、")} {deleted} 件を消去）')
             msg = f'{month}月{what}を {deleted} 件消しました。'
             if kept:
                 msg += f'（今日より前の日・実績を入れた・療育記録のある予約 {kept} 件は残しました）'
@@ -1466,12 +1515,18 @@ class MonthlyScheduleSwapView(SlotModeMixin, View):
         if allow_pairs:
             moved = [res_a] + ([res_b] if action == 'swap' else [])
             for r in moved:
-                if r.beneficiary is None:
+                # 共演NG の人と同じ枠になったら、利用希望にほかの時刻があればそちらへ入れる。無ければ承知のうえ（pair_ok）で赤く残す
+                outcome = monthly.settle_pair(r, setting)
+                if outcome is None:
                     continue
-                names = services.pair_conflicts(r.beneficiary, r.date, exclude_pk=r.pk, start_time=r.start_time)
-                if names:
+                if outcome[0] == 'moved':
+                    monthly.refresh_month_notice(facility, r.beneficiary, r.date.year, r.date.month, setting)
+                    messages.info(request, f'{services.jp_date(r.date)} {outcome[1]}時 は共演NG の人と同じ時間だったので、'
+                                           f'{r.display_name} さんは利用希望の {r.time_label} に入れました。')
+                else:
                     messages.warning(request, f'{services.jp_date(r.date)} {r.time_label} は {r.display_name} さんと '
-                                              f'{"・".join(names)} さんが同じ時間です（共演NG）。予定表では赤く出ます。')
+                                              f'{"・".join(outcome[1])} さんが同じ時間です（共演NG）。利用希望にほかの時刻が無いので、'
+                                              '予定表では赤く出ます。')
         _warn_limit(request, facility, res_a.date)
         return back
 
@@ -1509,8 +1564,9 @@ class MonthlySchedulePdfView(SlotModeMixin, View):
         rows = monthly.request_rows(facility, year, month, setting)
         schedule = monthly.month_schedule(facility, year, month, setting)
         paper = 'a4' if request.GET.get('paper', '').lower() == 'a4' else 'a3'
+        shown = monthly.schedule_rows(rows)
         ctx = {'schedule': schedule, 'setting': setting,
-               'rows': monthly.schedule_rows(rows), 'facility': facility,
+               'rows': shown, 'totals': monthly.row_totals(shown), 'facility': facility,
                'year': year, 'month': month, 'paper': paper,
                'has_staff': any(d['staff'] for w in schedule['weeks'] for d in w['days']),
                'box_pct': 100 // max(int(schedule['capacity'] or 1), 1),

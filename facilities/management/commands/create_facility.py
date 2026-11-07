@@ -125,6 +125,31 @@ def apply_roken_preset(facility):
     if facility.brand_color in ('', '#4f7a4a'):
         facility.brand_color = '#3a6b8f'   # 老健の画面は落ち着いた青
     facility.save()
+
+
+def apply_houdei_preset(facility):
+    """放課後等デイサービスのデモ事業所（2026-11-06。はびりすと同じ使い方）：標準の型で、はびりす様式・請求・予定・LINE を使う。
+    定員区分 11〜20 人、加算マスタ（全事業所共通）が無ければ標準を入れ、はびりすが算定している標準の加算を「算定する」に"""
+    from billing.demo import STANDARD_ADDONS
+    from facilities.addon_defaults import load_default_addons
+    from facilities.models import AddonMaster, FacilityAddonSetting
+    facility.layout = Facility.LAYOUT_STANDARD
+    facility.form_set = Facility.FORM_SET_HAPPINESS
+    facility.use_billing = True
+    facility.use_schedule = True
+    facility.use_line = True
+    facility.use_reservation = False
+    facility.use_therapy_record = False
+    if not facility.capacity_class and not facility.base_unit_count:
+        facility.capacity_class = '20'
+    if not facility.brand_color:
+        facility.brand_color = '#4e7ea8'   # 放デイのデモは青系
+    facility.save()
+    if not AddonMaster.objects.exists():
+        load_default_addons()
+    if not FacilityAddonSetting.objects.filter(facility=facility, is_enabled=True).exists():
+        for a in AddonMaster.objects.filter(is_active=True, name__in=STANDARD_ADDONS):
+            FacilityAddonSetting.objects.update_or_create(facility=facility, addon=a, defaults={'is_enabled': True})
     return facility
 
 
@@ -143,10 +168,11 @@ class Command(BaseCommand):
         parser.add_argument('--demo', action='store_true', help='架空のサンプルデータ（seed_demo）も投入する')
         parser.add_argument('--layout', choices=['standard', 'planbook'], default=None,
                             help='画面の型（planbook＝計画書中心・シンプル：利用者・完了期日一覧・スタッフ・保護者・連絡帳・施設の6メニュー）')
-        parser.add_argument('--preset', choices=['ryoiku', 'kyotaku', 'care', 'roken'], default=None,
+        parser.add_argument('--preset', choices=['ryoiku', 'kyotaku', 'care', 'roken', 'houdei'], default=None,
                             help='ryoiku＝療育の事業所：予約管理（時間枠・月予約利用希望・月間予定表）と療育記録を使う。'
                                  'kyotaku＝居宅介護支援（ケアマネ）。care＝介護施設（やすらぎの森：検温板・介護記録・連絡帳・事故報告・薬・送迎・計画書）。'
-                                 'roken＝介護老人保健施設・通所リハ（care と同じで LINE は使わない。--demo は通所リハ 36 人・入所 8 人の送迎つきサンプル）')
+                                 'roken＝介護老人保健施設・通所リハ（care と同じで LINE は使わない。--demo は通所リハ 36 人・入所 8 人の送迎つきサンプル）。'
+                                 'houdei＝放課後等デイサービス（はびりすと同じ：はびりす様式・請求・予定・LINE。--demo は日誌などのサンプルと請求デモ 40 人）')
 
     def handle(self, *args, **o):
         name = o['name'].strip()
@@ -201,6 +227,10 @@ class Command(BaseCommand):
                 apply_roken_preset(facility)
                 self.stdout.write('介護老人保健施設・通所リハの設定にしました：検温板・介護記録・連絡帳（印刷）・ヒヤリハット／事故報告・薬の管理・'
                                   '送迎表（車いす・運転できる車両・同乗NG・定員）・人員配置・計画書を使います（LINE・請求・予約は使いません）')
+            if o.get('preset') == 'houdei':
+                apply_houdei_preset(facility)
+                self.stdout.write('放課後等デイサービスの設定にしました（はびりすと同じ）：日誌・個別支援計画・来所予定と出欠・請求（請求マトリックス・'
+                                  '上限額管理・請求書）・はびりす様式（事業所様式）・LINE を使います。定員区分 11〜20 人、標準の加算を算定')
             if src is not None and getattr(src, 'use_reservation', False) and copy_reservation_setting(src, facility):
                 self.stdout.write(f'予約の設定（枠・時間・休業曜日・受付の決まり）も「{src.name}」から写しました')
             self.stdout.write(self.style.SUCCESS(f'施設「{facility.name}」を作成しました（ID {facility.pk}）'))
@@ -221,6 +251,10 @@ class Command(BaseCommand):
             call_command('nursing_demo', '--facility', str(facility.pk), stdout=self.stdout)
         elif o.get('demo') and o.get('preset') == 'roken':
             call_command('nursing_demo', '--facility', str(facility.pk), '--scenario', 'roken', stdout=self.stdout)
+        elif o.get('demo') and o.get('preset') == 'houdei':
+            # 日誌・計画・来所予定・はびりす様式のサンプル（6 人）と、請求の動作確認用の 40 人（2 か月ぶんの出欠・加算・上限額管理）
+            call_command('seed_demo', '--facility', str(facility.pk), stdout=self.stdout)
+            call_command('billing_demo', '--facility', str(facility.pk), stdout=self.stdout)
         elif o.get('demo'):
             call_command('seed_demo', '--facility', str(facility.pk), stdout=self.stdout)
 

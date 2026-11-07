@@ -260,6 +260,8 @@ class BeneficiaryDeleteView(LoginRequiredMixin, View):
             return redirect('beneficiaries:delete', pk=pk)
         name, status = b.full_name, b.status
         delete_beneficiary(b, by=request.user)
+        from accounts import security
+        security.admin_action(request, f'{get_terms(request.user.facility)["beneficiary"]}「{name}」を削除しました（ごみ箱へ）')
         messages.success(request, f'「{name}」を削除しました（ごみ箱に {TRASH_DAYS} 日置きます。そのあいだは一覧の「ごみ箱」から戻せます）。')
         return redirect(f"{reverse('beneficiaries:list')}?status={status}")
 
@@ -509,11 +511,19 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
             # 「今日の予定に追加」：きょうの時間枠と空き（reservations/views.py の AddTodayView で予約を作る）
             from reservations.services import add_today_choices
             ctx['add_today'] = add_today_choices(facility, b, timezone.localdate())
+        from records import questions
+        if questions.enabled(facility):          # 日誌の個別の質問（ウィズユー藤森）
+            from records.question_views import section_context
+            ctx.update(section_context(b))
         ctx['certificates'] = b.recipient_certificates.all()
         ctx['offices'] = b.offices.all()
         ctx['assessments'] = b.assessments.select_related('created_by')
         ctx['assessment_kinds'] = BeneficiaryAssessment.KIND_CHOICES
-        ctx['documents'] = b.documents.select_related('uploaded_by') if self.request.user.facility.is_ryoiku else []
+        ctx['documents'] = (b.documents.filter(category=BeneficiaryDocument.CATEGORY_GENERAL).select_related('uploaded_by')
+                            if self.request.user.facility.is_ryoiku else [])
+        # いちばん下の「相談員支援計画」（相談支援事業所の計画をスキャンして残す。2026-10-20 ゆあーず）
+        ctx['plan_documents'] = (list(b.documents.filter(category=BeneficiaryDocument.CATEGORY_SUPPORT_PLAN).select_related('uploaded_by'))
+                                 if self.request.user.facility.is_ryoiku else [])
         # 書類から分かっていること（診断書などを AI で読み取ったもの。ゆあーず）
         ctx['knowledge'], ctx['knowledge_drafts'], ctx['ai_ready'] = [], [], bool(settings.ANTHROPIC_API_KEY)
         if self.request.user.facility.is_ryoiku:
@@ -624,7 +634,7 @@ class BeneficiaryUpdateView(LoginRequiredMixin, UpdateView):
     # 利用者の「編集」の窓（モーダル）と編集の画面（form.html）に出している項目。そこから保存したとき（_partial=1）は、
     # 画面に無い項目（住所・電話・学校・入所日など。取り込みや計画書中心の画面で入れる）を今の値のままにする（空で上書きして消さないように）
     MODAL_FIELDS = {'last_name', 'first_name', 'last_name_kana', 'first_name_kana', 'date_of_birth', 'gender',
-                    'disability_class', 'disability_type', 'is_severe', 'notes', 'status', 'cannot_pair', 'siblings',
+                    'disability_class', 'disability_type', 'is_severe', 'medical_care_level', 'notes', 'status', 'cannot_pair', 'siblings',
                     'weekday_mon', 'weekday_tue', 'weekday_wed', 'weekday_thu', 'weekday_fri', 'weekday_sat',
                     'line_send_journal'}
 
@@ -880,6 +890,7 @@ class RecipientCertificateOcrView(LoginRequiredMixin, View):
   "valid_from": "有効期間の開始日（YYYY-MM-DD形式）",
   "valid_until": "有効期間の終了日（YYYY-MM-DD形式）",
   "municipality": "市区町村名",
+  "municipality_code": "市町村番号（6桁の数字。受給者証に印字があれば）",
   "support_office": "相談支援事業所名"
 }
 """
@@ -970,6 +981,12 @@ def _assessment_fields(request):
 DOCUMENT_MAX_FILES = 20
 
 
+def _document_back(beneficiary_pk, category=''):
+    """書類の操作のあとに戻る場所（分類ごとの欄）"""
+    anchor = 'support-plan-docs' if category == BeneficiaryDocument.CATEGORY_SUPPORT_PLAN else 'documents'
+    return f"{reverse('beneficiaries:detail', args=[beneficiary_pk])}#{anchor}"
+
+
 class DocumentUploadView(LoginRequiredMixin, View):
     """利用者の基本情報に書類・画像（写真・PDF・Excel・CSV）を付ける。1回に 20 個まで。ゆあーず（療育の型）だけ"""
 
@@ -978,7 +995,10 @@ class DocumentUploadView(LoginRequiredMixin, View):
         if not facility.is_ryoiku:
             raise Http404
         beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=facility)
-        back = redirect(f"{reverse('beneficiaries:detail', args=[beneficiary_pk])}#documents")
+        category = request.POST.get('category') or ''
+        if category not in dict(BeneficiaryDocument.CATEGORY_CHOICES):
+            category = ''
+        back = redirect(_document_back(beneficiary_pk, category))
         files = request.FILES.getlist('files')[:DOCUMENT_MAX_FILES]
         title = (request.POST.get('title') or '').strip()[:100]
         made, skipped = 0, []
@@ -990,11 +1010,12 @@ class DocumentUploadView(LoginRequiredMixin, View):
             if f.size > DOCUMENT_MAX_BYTES:
                 skipped.append(f'{f.name}（{DOCUMENT_MAX_BYTES // (1024 * 1024)} MB を超えています）')
                 continue
-            BeneficiaryDocument.objects.create(beneficiary=beneficiary, file=f, file_name=(f.name or '')[:200],
+            BeneficiaryDocument.objects.create(beneficiary=beneficiary, file=f, file_name=(f.name or '')[:200], category=category,
                                                title=title if len(files) == 1 else '', uploaded_by=request.user)
             made += 1
         if made:
-            messages.success(request, f'書類を {made} 件取り込みました。')
+            what = dict(BeneficiaryDocument.CATEGORY_CHOICES)[category] if category else '書類'
+            messages.success(request, f'{what}を {made} 件取り込みました。')
         if skipped:
             messages.error(request, '取り込めなかったもの：' + '、'.join(skipped))
         if not made and not skipped:
@@ -1015,19 +1036,19 @@ class DocumentRenameView(LoginRequiredMixin, View):
             d.title = title
             d.save(update_fields=['title'])
             messages.success(request, f'書類の名前を「{title}」にしました。')
-        return redirect(f"{reverse('beneficiaries:detail', args=[beneficiary_pk])}#documents")
+        return redirect(_document_back(beneficiary_pk, d.category))
 
 
 class DocumentDeleteView(LoginRequiredMixin, View):
     def post(self, request, beneficiary_pk, document_pk):
         beneficiary = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
         d = get_object_or_404(beneficiary.documents, pk=document_pk)
-        label = d.label
+        label, category = d.label, d.category
         if d.file:
             d.file.delete(save=False)
         d.delete()
         messages.success(request, f'「{label}」を削除しました。')
-        return redirect(f"{reverse('beneficiaries:detail', args=[beneficiary_pk])}#documents")
+        return redirect(_document_back(beneficiary_pk, category))
 
 
 class AssessmentCreateView(LoginRequiredMixin, View):

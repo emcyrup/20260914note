@@ -11,6 +11,11 @@
   .wish { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: 0.85rem; }
   .wish th, .wish td { border: 1px solid #cfc8bb; text-align: center; padding: 2px; height: 32px; }
   .wish th { background: rgba(243,239,231,0.9); font-weight: 600; font-size: 0.78rem; }
+  .wish thead th { position: sticky; top: var(--sticky-top, 64px); z-index: 4; background: #f3efe7; box-shadow: inset 0 -1px 0 #cfc8bb; }   /* 時間の見出しを上に残す */
+  /* 見出しを画面に留めるには、表を囲むカードの overflow: hidden（角を丸くするため）を外す。
+     付いたままだと見出しはカードの中で留まり、1 日の行が見出しの上に出て 2 日の行が隠れる（2026-11-06 ゆあーず「日付がバグっている」） */
+  #wishGrid.card { overflow: visible; }
+  @media print { .wish thead th { position: static; } }
   .wish td.day { text-align: left; padding-left: 6px; white-space: nowrap; }
   .wish tr.closed td { background: #ececec; color: #999; }
   .wish td.off { background: #ececec; }

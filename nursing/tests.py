@@ -351,12 +351,15 @@ class LoginBrandTests(TestCase):
         self.assertNotContains(res, '放デイ')
         self.assertNotContains(res, '放課後等デイサービス')
 
-    def test_mixed_server_keeps_default(self):
+    def test_mixed_server_shows_neutral_brand(self):
+        """介護施設と放デイが同居するサーバー（2026-11-07 介護デモの環境に放デイ デモを同居）：どちらの名前も出さない"""
         f = Facility.objects.create(name='介護（仮）')
         apply_care_preset(f)
         Facility.objects.create(name='放デイ（仮）')
         res = self.client.get(reverse('accounts:login'))
-        self.assertContains(res, '放デイ業務支援')
+        self.assertContains(res, 'みちノート 業務支援')
+        self.assertNotContains(res, '放デイ業務支援')
+        self.assertNotContains(res, '介護施設 業務支援')
         self.assertNotContains(res, '介護（仮）')
 
 
@@ -420,3 +423,14 @@ class RokenDemoTests(TestCase):
         self.assertContains(res, '介護施設 業務支援')
         self.assertNotContains(res, 'みどり会')        # 事業所が 2 つあるときは法人名を出さない
         self.assertNotContains(res, '放デイ')
+
+    def test_login_brand_when_houdei_demo_shares_the_server(self):
+        """介護デモの環境に放デイ デモを同居させたとき（2026-11-07 特別対応）：どちらの名前も出さない"""
+        from facilities.management.commands.create_facility import apply_houdei_preset
+        h = Facility.objects.create(name='放デイ　デモ')
+        apply_houdei_preset(h)
+        self.client.logout()
+        res = self.client.get(reverse('accounts:login'))
+        self.assertContains(res, 'みちノート 業務支援')
+        self.assertNotContains(res, '介護施設 業務支援')
+        self.assertNotContains(res, '放デイ業務支援')

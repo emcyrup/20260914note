@@ -2,7 +2,8 @@
 import datetime
 from unittest import mock
 
-from django.test import TestCase, override_settings
+from django.db import connection
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -1276,3 +1277,44 @@ class FirstComeFirstServedTests(TestCase):
         self.client.post(url, {'action': 'link', 'reservation': res.pk, 'beneficiary': newcomer.pk})
         res.refresh_from_db()
         self.assertEqual(res.beneficiary, newcomer)
+
+
+class LockNeedsTransactionTests(TransactionTestCase):
+    """
+    select_for_update はトランザクションの中でしか使えない。テストの SQLite は行ロックを持たず黙って通すが、
+    本番の PostgreSQL では外で呼ぶと TransactionManagementError（500）になる（2026-11-06 ゆあーず本番：1 日の画面から予約を足すと落ちた）。
+    ここでは SQLite にロックがあることにして（FOR UPDATE の文は空に）、トランザクションの外からの呼び出しを本番と同じ条件で確かめる。
+    """
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='テスト', use_reservation=True)
+        self.user = StaffAccount.objects.create_user('staff', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.kid = child(self.f, '山田')
+        self.client.force_login(self.user)
+
+    def test_create_reservation_locks_inside_a_transaction(self):
+        day = datetime.date(2026, 11, 21)
+        with mock.patch.object(connection.features, 'has_select_for_update', True), \
+             mock.patch.object(connection.ops, 'for_update_sql', return_value=''):
+            res, _ = services.create_reservation(self.f, self.kid, day)            # 直接
+            self.assertEqual(res.date, day)
+            url = reverse('reservations:day', args=[2026, 11, 24])                 # 1 日の画面から（火曜）
+            self.assertEqual(self.client.post(url, {'action': 'add', 'beneficiary': self.kid.pk}).status_code, 302)
+            self.assertTrue(Reservation.objects.filter(beneficiary=self.kid, date=datetime.date(2026, 11, 24)).exists())
+
+
+class WishGridStickyHeaderTests(TestCase):
+    """利用希望の表の見出しを上に留める作り：表を囲むカードの overflow: hidden を外しておく
+    （外さないと見出しがカードの中で留まり、1 日の行が見出しの上に出て 2 日の行が隠れる。2026-11-06 ゆあーず）"""
+
+    def test_wish_card_overflow_visible(self):
+        f = Facility.objects.create(name='テスト', use_reservation=True)
+        u = StaffAccount.objects.create_user('s', password='pw12345678', facility=f, role=StaffAccount.ROLE_ADMIN)
+        kid = child(f, '山田')
+        setting = services.get_setting(f)
+        setting.slot_mode = True
+        setting.save()
+        self.client.force_login(u)
+        res = self.client.get(reverse('reservations:monthly_request_edit', args=[2026, 12, kid.pk]))
+        self.assertContains(res, '#wishGrid.card { overflow: visible; }')
+        self.assertContains(res, 'id="wishGrid"')

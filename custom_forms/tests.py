@@ -156,3 +156,106 @@ class SeedCustomFormsTests(TestCase):
         g = Facility.objects.create(name='標準')
         call_command('seed_demo', '--facility', g.pk, stdout=StringIO())
         self.assertEqual(AgencyMeetingReport.objects.filter(facility=g).count(), 0)
+
+
+class OwlFormsTests(TestCase):
+    """オウル様式：個別支援計画（計画書・別表）の出力と別表の入力。様式のまま編集の欄がオウルの並びになる。他の様式からは遮断"""
+
+    def setUp(self):
+        self.facility = Facility.objects.create(name='児童発達支援センター　オウル', form_set=Facility.FORM_SET_OWL)
+        self.user = StaffAccount.objects.create_user('owl', password='pass12345', facility=self.facility, display_name='太田', role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        self.b = Beneficiary.objects.create(facility=self.facility, last_name='試験', first_name='太郎', date_of_birth=date(2022, 7, 1),
+                                            weekday_mon=True, weekday_wed=True, weekday_fri=True)
+        self.plan = SupportPlan.objects.create(facility=self.facility, beneficiary=self.b, title='第1期', created_by=self.user, manager=self.user,
+                                               current_step=SupportPlan.STEP_DRAFT)
+        d = self.plan.get_step(2)
+        d.period_start, d.period_end, d.policy, d.family_wishes = date(2026, 4, 23), date(2026, 10, 22), '方針の文', '意向の文'
+        d.save()
+        PlanGoal.objects.create(plan=self.plan, goal_type='long', content='いろいろな活動に挑戦できる', target_date=date(2026, 10, 22))
+        PlanGoal.objects.create(plan=self.plan, goal_type='short', content='安心した環境の中で興味の幅を広げる', support_content='安心して過ごせる環境を整え…',
+                                target_date=date(2026, 10, 22), form_extra={'item': '発達支援', 'timing': '6か月', 'staff': 'オウル職員', 'notes': '健康・生活', 'priority': '2'})
+        PlanGoal.objects.create(plan=self.plan, goal_type='short', content='要求を言葉で伝える', support_content='言葉を添える', target_date=date(2026, 10, 22),
+                                form_extra={'item': '発達支援', 'timing': '6か月', 'staff': 'オウル職員', 'priority': '1'})
+
+    def test_index_sidebar_and_gating(self):
+        res = self.client.get(reverse('custom_forms:index'))
+        self.assertContains(res, 'オウル様式')
+        self.assertContains(res, reverse('custom_forms:plan_owl', args=[self.plan.pk]))
+        self.assertNotContains(res, '関係機関連携加算Ⅱ 報告書')
+        # はびりすだけの画面は開けない
+        self.assertRedirects(self.client.get(reverse('custom_forms:plan_sheet1', args=[self.plan.pk])), reverse('reports:index'))
+        # はびりすの施設からオウルの画面は開けない
+        other = Facility.objects.create(name='はびりす', form_set=Facility.FORM_SET_HAPPINESS)
+        u = StaffAccount.objects.create_user('h', password='pass12345', facility=other)
+        self.client.force_login(u)
+        self.assertRedirects(self.client.get(reverse('custom_forms:plan_owl', args=[self.plan.pk])), reverse('reports:index'))
+
+    def test_plan_owl_html(self):
+        res = self.client.get(reverse('custom_forms:plan_owl', args=[self.plan.pk]) + '?fmt=html')
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, '試験 太郎さんの個別支援計画')
+        self.assertContains(res, '利用児及び家族の<br>生活に対する意向')
+        self.assertContains(res, '方針の文')
+        self.assertContains(res, '・いろいろな活動に挑戦できる（2026年10月まで）')
+        self.assertContains(res, '2026年04月23日')
+        self.assertContains(res, '2026年10月22日')
+        self.assertContains(res, '月・水・金曜日')
+        # 表は優先順位の順
+        body = res.content.decode()
+        table = body[body.index('優先<br>順位'):]
+        self.assertLess(table.index('要求を言葉で伝える'), table.index('安心した環境の中で興味の幅を広げる'))
+        self.assertContains(res, '児童発達支援管理責任者')
+        self.assertContains(res, '太田')
+
+    def test_table_edit_and_html(self):
+        url = reverse('custom_forms:plan_owl_table_edit', args=[self.plan.pk])
+        res = self.client.get(url)
+        self.assertContains(res, '提供時間（曜日ごと）')
+        self.assertContains(res, '専門的支援実施加算')
+        res = self.client.post(url, {'w_mon_start': '10時00分', 'w_mon_end': '10時40分', 'w_mon_hours': '0時間40分', 'w_wed_start': '10時00分',
+                                     'addons': ['専門的支援実施加算', '送迎加算', 'でたらめ'], 'e_mon_before': '', 'ext_reason': '',
+                                     'slots_note': '時間枠の案内', 'service_name': '児童発達支援', 'cert_number': '1234567890', 'revision': '2', 'next': 'pdf'})
+        self.assertEqual(res.status_code, 302)
+        self.plan.refresh_from_db()
+        x = self.plan.form_extra
+        self.assertEqual(x['weekly']['mon'], {'start': '10時00分', 'end': '10時40分', 'hours': '0時間40分'})
+        self.assertEqual(x['addons'], ['専門的支援実施加算', '送迎加算'])
+        self.assertNotIn('fri', x['weekly'])
+        res = self.client.get(reverse('custom_forms:plan_owl_table', args=[self.plan.pk]) + '?fmt=html')
+        self.assertContains(res, '個別支援計画別表')
+        self.assertContains(res, '10時00分〜10時40分')
+        self.assertContains(res, 'class="on">・専門的支援実施加算')
+        self.assertContains(res, '時間枠の案内')
+        res = self.client.get(reverse('custom_forms:plan_owl', args=[self.plan.pk]) + '?fmt=html')
+        self.assertContains(res, '1234567890')
+        self.assertContains(res, '児童発達支援')
+        self.assertContains(res, '<td class="c">2</td>')
+
+    def test_sheet_editor_uses_owl_cells(self):
+        res = self.client.get(reverse('support_plans:sheet', args=[self.plan.pk]))
+        self.assertContains(res, '項目<br>（本人のニーズ等）')
+        self.assertContains(res, '具体的な達成目標')
+        self.assertContains(res, 'name="f_transport"')
+        self.assertContains(res, 'name="f_long_goal_text"')
+        self.assertContains(res, '優先<br>順位')
+        self.assertContains(res, '別表（提供時間・加算）')
+        g = self.plan.goals.get(content='要求を言葉で伝える')
+        self.assertContains(res, f'name="g{g.pk}_priority" value="1"')
+        # 保存：オウルの欄が form_extra と目標に入る
+        d = self.plan.get_step(2)
+        post = {'f_family_wishes': '意向', 'f_policy': '方針', 'f_long_goal_text': '長期の文', 'f_short_goal_text': '短期の文', 'f_service_hours': '週3回',
+                'f_transport': '迎え：あり', 'f_notes': '備考'}
+        for goal in self.plan.goals.all():
+            p = f'g{goal.pk}_'
+            e = goal.form_extra or {}
+            post.update({p + 'type': goal.goal_type, p + 'content': goal.content, p + 'support_content': goal.support_content, p + 'frequency': '',
+                         p + 'item': e.get('item', ''), p + 'timing': e.get('timing', ''), p + 'staff': e.get('staff', ''), p + 'notes': e.get('notes', ''),
+                         p + 'priority': '3' if goal.content == '要求を言葉で伝える' else e.get('priority', ''), p + 'target_date': '2026-10-22'})
+        res = self.client.post(reverse('support_plans:sheet', args=[self.plan.pk]), post)
+        self.assertEqual(res.status_code, 302)
+        self.plan.refresh_from_db(); d.refresh_from_db(); g.refresh_from_db()
+        self.assertEqual((self.plan.form_extra['transport'], self.plan.form_extra['long_goal_text'], d.notes, g.form_extra['priority']), ('迎え：あり', '長期の文', '備考', '3'))
+        res = self.client.get(reverse('custom_forms:plan_owl', args=[self.plan.pk]) + '?fmt=html')
+        self.assertContains(res, '長期の文')
+        self.assertContains(res, '迎え：あり')

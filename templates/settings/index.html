@@ -37,13 +37,48 @@
   .tag-sub  { font-size: 0.75rem; color: #888; }
   .btn-tag-action { padding: 2px 8px; font-size: 0.75rem; border-radius: 6px; }
   .modal-content { border-radius: 16px; border: none; }
+  /* 項目ごとのタブ（長い設定画面を分ける。選んだタブはこの端末に覚える） */
+  .settings-tabs { position: sticky; top: var(--settings-tabs-top, 64px); z-index: 50; display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; padding: 8px 0 10px;
+                   margin-bottom: 1rem; background: var(--paper, #f6f3ee); scrollbar-width: none; }
+  .settings-tabs::-webkit-scrollbar { display: none; }
+  .settings-tab { flex: none; border: 1px solid var(--line-dark, #cfc8bb); background: #fff; color: var(--ink-soft); border-radius: 999px;
+                  padding: 6px 14px; font-size: .88rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .settings-tab.active { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+  .settings-tab .badge { font-size: .65rem; vertical-align: 1px; }
+  .settings-pane { display: none; }
+  .settings-pane.active { display: block; }
+  /* カードの中の折りたたみ */
+  details.settings-fold { border: 1px solid var(--line, #e4ded3); border-radius: 10px; padding: 0 14px; margin-top: 14px; background: rgba(255,255,255,.5); }
+  details.settings-fold > summary { cursor: pointer; list-style: none; padding: 10px 0; font-weight: 700; color: var(--lake-text); font-size: .95rem; display: flex; align-items: center; gap: 8px; }
+  details.settings-fold > summary::-webkit-details-marker { display: none; }
+  details.settings-fold > summary::before { content: '▸'; font-size: .8rem; color: var(--ink-soft); transition: transform .15s; }
+  details.settings-fold[open] > summary::before { transform: rotate(90deg); }
+  details.settings-fold > summary .text-muted { font-weight: 400; font-size: .8rem; }
+  details.settings-fold > .row { padding-bottom: 14px; }
+  .addon-table { min-width: 640px; }
+  .addon-table td:nth-child(2) { min-width: 16em; }
+  details.addon-desc { display: inline-block; margin-top: 2px; }
+  details.addon-desc > summary { cursor: pointer; list-style: none; font-size: .72rem; color: var(--ink-soft, #6b7b7d); display: inline-flex; align-items: center; gap: 4px; user-select: none; }
+  details.addon-desc > summary::-webkit-details-marker { display: none; }
+  details.addon-desc > summary::before { content: '▸'; font-size: .7rem; transition: transform .15s; }
+  details.addon-desc[open] > summary::before { transform: rotate(90deg); }
+  details.addon-desc > div { font-size: .72rem; color: #6b7b7d; margin-top: 2px; max-width: 48em; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div style="max-width: 900px; margin: 0 auto;" class="px-2">
 
+  <nav class="settings-tabs" id="settings-tabs" aria-label="設定の項目">
+    <button type="button" class="settings-tab" data-pane="basic">施設基本情報</button>
+    <button type="button" class="settings-tab" data-pane="features">使う機能・日誌</button>
+    <button type="button" class="settings-tab" data-pane="tags">タグ</button>
+    {% if features.billing %}<button type="button" class="settings-tab" data-pane="billing">加算（請求）</button>{% endif %}
+    <button type="button" class="settings-tab" data-pane="ai">AI の資料</button>
+  </nav>
+
   <!-- ===== 施設基本情報 ===== -->
+  <section class="settings-pane" id="pane-basic">
   <div class="settings-card">
     <div class="settings-section-title">施設基本情報</div>
     <form method="post" action="{% url 'facilities:facility_update' %}" enctype="multipart/form-data" data-concurrency="facility:{{ facility.pk }}">
@@ -86,23 +121,118 @@
           </label>
           {{ facility_form.standard_close_time }}
         </div>
+      </div>
+      <details class="settings-fold" {% if not facility.use_billing or not facility.capacity_class %}open{% endif %}>
+        <summary>基本報酬{% if facility.use_billing %}（請求）<span class="text-muted">定員区分・時間区分・サービスコード</span>{% else %}<span class="text-muted">1 日あたりの単位数</span>{% endif %}</summary>
+        <div class="row g-3">
+        {% if facility.use_billing %}
+        <div class="col-12"><div class="form-text">定員区分を選ぶと、時間区分（区分1〜3）ごとの単位数は令和6年度改定の表から決まります（医療的ケア区分なし）。請求マトリックスで日ごとに区分を選べます（初期値は下の設定）。表に無い事業所（主として重症心身障害児・医療的ケア児の区分）は「1日あたり基本報酬単位数」に手で入れてください。</div></div>
         <div class="col-md-4">
-          <label class="form-label small fw-semibold">1日あたり基本報酬単位数（普通用）</label>
+          <label class="form-label small fw-semibold">定員区分（基本報酬）</label>
+          {{ facility_form.capacity_class }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">平日の時間区分の初期値</label>
+          {{ facility_form.time_kubun_weekday }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">学校休業日（土日祝）の時間区分の初期値</label>
+          {{ facility_form.time_kubun_holiday }}
+        </div>
+        <div class="col-12">
+          <div class="table-responsive">
+            <table class="table table-sm small mb-1" style="max-width:560px;">
+              <thead><tr><th>定員区分</th><th class="text-end">区分1</th><th class="text-end">区分2</th><th class="text-end">区分3（学校休業日）</th></tr></thead>
+              <tbody>
+              {% for row in base_units_table %}
+              <tr{% if row.current %} class="table-primary"{% endif %}><td>{{ row.label }}</td>{% for c in row.cells %}<td class="text-end">{{ c.1 }} 単位<br><span class="text-muted font-monospace" style="font-size:.72rem;">{{ c.0 }}</span></td>{% endfor %}</tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="form-text">1 単位 {{ unit_price }} 円（{{ facility.get_region_category_display }}）。令和6年4月施行の単位数とサービスコード（医療的ケア区分なし）。医療的ケア児（利用者情報の「医療的ケア区分」）はその区分のコード・単位数になります。</div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">基本報酬のサービスコード（区分1）<span class="text-muted fw-normal">（空ならコード表の {{ base_codes_auto.1|default:'—' }}）</span></label>
+          {{ facility_form.base_code_1 }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">サービスコード（区分2）<span class="text-muted fw-normal">（空なら {{ base_codes_auto.2|default:'—' }}）</span></label>
+          {{ facility_form.base_code_2 }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">サービスコード（区分3）<span class="text-muted fw-normal">（空なら {{ base_codes_auto.3|default:'—' }}）</span></label>
+          {{ facility_form.base_code_3 }}
+          <div class="form-text">定員区分を選べば令和6年4月のコード表の値が自動で入ります。違うコード表を使うときだけここに入れてください。</div>
+        </div>
+        {% endif %}
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">1日あたり基本報酬単位数{% if facility.use_billing %}<span class="text-muted fw-normal">（定員区分が空のとき）</span>{% else %}（普通用）{% endif %}</label>
           {{ facility_form.base_unit_count }}
         </div>
         <div class="col-md-4">
-          <label class="form-label small fw-semibold">重身の基本報酬単位数
-            <span class="text-muted fw-normal">（重症心身障害児）</span>
+          <label class="form-label small fw-semibold">重心型の定員 <span class="text-muted fw-normal">（主として重症心身障害児の事業所）</span></label>
+          {{ facility_form.severe_capacity }}
+          <div class="form-text">選ぶと重身の基本報酬（5〜7 人 1,771／2,056、8〜10 人 1,118／1,299、11 人以上 692／817 単位）と看護職員加配加算Ⅰ・Ⅱの単位数が自動で決まります（令和 6 年度改定の解説の値。8 人以上は告示で要確認）。下の単位数を入れればそちらが優先</div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">重身の基本報酬単位数（授業終了後）
+            <span class="text-muted fw-normal">（重症心身障害児の利用者）</span>
           </label>
           {{ facility_form.base_unit_count_severe }}
         </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">重身の基本報酬単位数（学校休業日）</label>
+          {{ facility_form.base_unit_count_severe_holiday }}
+          <div class="form-text">重心型の基本報酬は時間区分が無く、授業終了後／学校休業日（請求マトリックスの区分 3）の 2 つ。空なら授業終了後と同じ。参考：定員 5〜7 人は 1,771／2,056 単位（令和 6 年 4 月）</div>
+        </div>
+        {% if facility.use_billing %}
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">重身のサービスコード（授業終了後）</label>
+          {{ facility_form.base_code_severe }}
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small fw-semibold">重身のサービスコード（学校休業日）</label>
+          {{ facility_form.base_code_severe_holiday }}
+          <div class="form-text">重心の利用者の請求書・CSV に出ます。空なら授業終了後のコード</div>
+        </div>
+        {% endif %}
         <div class="col-md-4 d-flex align-items-end">
-          <div class="form-check mb-2">
-            {{ facility_form.is_new_facility_r8 }}
-            <label class="form-check-label small">令和8年6月以降新規指定事業所</label>
+          <div>
+            <div class="form-check mb-1">
+              {{ facility_form.is_new_facility_r8 }}
+              <label class="form-check-label small">令和8年6月以降新規指定事業所（×982/1000）</label>
+            </div>
+            <div class="form-check mb-2">
+              {{ facility_form.is_severe_facility }}
+              <label class="form-check-label small">主として重症心身障害児を通わせる事業所（単価が変わる）</label>
+            </div>
           </div>
         </div>
+        <div class="col-12">
+          <div class="fw-semibold small mb-1">減算（当てはまる月だけ印を付ける。基本報酬に掛けます）</div>
+          <div class="d-flex flex-wrap gap-3 align-items-center">
+            <div class="form-check">
+              {{ facility_form.reduce_self_eval }}
+              <label class="form-check-label small" for="{{ facility_form.reduce_self_eval.id_for_label }}">自己評価結果等未公表減算（85%）</label>
+            </div>
+            <div class="form-check">
+              {{ facility_form.reduce_program }}
+              <label class="form-check-label small" for="{{ facility_form.reduce_program.id_for_label }}">支援プログラム未公表減算（85%）</label>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <label class="small mb-0" for="{{ facility_form.reduce_hours.id_for_label }}">開所時間減算</label>
+              <div style="min-width: 260px;">{{ facility_form.reduce_hours }}</div>
+            </div>
+          </div>
+          <div class="form-text">開所時間減算は学校休業日（時間区分 3）の日だけに掛けます。個別支援計画未作成減算は利用者ごとに「請求書・領収書」の一覧で選びます。割合は令和6年度改定の解説によるもので、告示・通知の原本で確かめてください</div>
+        </div>
+        </div>
+      </details>
         {% if features.line %}
+      <details class="settings-fold" {% if not facility.line_channel_access_token %}open{% endif %}>
+        <summary>LINE 公式アカウント<span class="text-muted">{% if facility.line_channel_access_token and facility.line_channel_secret %}設定済み{% else %}未設定{% endif %}</span></summary>
+        <div class="row g-3">
         {% if is_admin %}
         <div class="col-md-6">
           <label class="form-label small fw-semibold">LINEチャネルアクセストークン</label>
@@ -123,9 +253,47 @@
           <input type="text" class="form-control form-control-sm font-monospace" readonly value="{{ request.scheme }}://{{ request.get_host }}{% url 'line_integration:webhook_facility' facility.pk %}">
           <div class="form-text">事業所ごとに URL が違います。LINE 公式アカウントのチャネル設定で「Webhook URL」に貼り、「Webhookの利用」をオン、「応答メッセージ」をオフにしてください。</div>
         </div>
+        </div>
+      </details>
         {% endif %}
-
-        <div class="col-12"><hr class="my-1"><div class="small fw-bold" style="color:var(--lake-text);">呼び方・ロゴ・配色（画面のメニューと見出しに反映されます）</div></div>
+      <details class="settings-fold">
+        <summary>不正アクセスの通知<span class="text-muted">{% if facility.security_notify %}送る{% else %}送らない{% endif %}</span></summary>
+        <div class="row g-3">
+        <div class="col-md-6">
+          <div class="form-check mt-2">
+            {{ facility_form.security_notify }}
+            <label class="form-check-label small fw-semibold">ログインのロック・初めての場所や深夜のログイン・管理者の操作（職員の追加や権限の変更、利用者の削除、予定表のリセット）を知らせる</label>
+          </div>
+          <div class="form-text">送り先：予約の「増減を知らせる LINE グループ」{% if features.reservation %}（予約 → LINE で設定）{% endif %}と、管理者・児発管のメール（サーバーにメールの設定があるとき）。記録は「職員・運用管理 → ログインの記録」にも残ります。</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">通知のメール宛先（任意）</label>
+          {{ facility_form.security_notify_email }}
+          <div class="form-text">空なら管理者・児発管のメールと代表者メールへ</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">送信用の Gmail アドレス</label>
+          {{ facility_form.mail_from }}
+          <div class="form-text">この Gmail から通知を送ります（期限のお知らせメールも）。空ならサーバーの設定{% if not mail_server_ok %}（この環境では無し）{% endif %}を使います</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label small fw-semibold">Gmail のアプリ パスワード
+            <span class="text-muted fw-normal">{% if facility.mail_app_password %}（設定済み）{% else %}（未設定）{% endif %}</span></label>
+          {{ facility_form.mail_app_password_new }}
+          <div class="form-text">Google アカウント → セキュリティ → 2 段階認証をオン → 「アプリ パスワード」で作った 16 桁。ふだんのパスワードではありません</div>
+          {% if facility.mail_app_password %}
+          <div class="form-check mt-1">{{ facility_form.mail_app_password_clear }}<label class="form-check-label small">アプリ パスワードを消す</label></div>
+          {% endif %}
+        </div>
+        <div class="col-12 small text-muted">
+          {% if mail_source %}いまの送信元：{{ mail_source }}。{% else %}いまはメールを送れません（送信用の Gmail を入れてください）。{% endif %}
+          保存したら「<a href="{% url 'accounts:login_log' %}">ログインの記録</a>」の「テスト送信」で届くことを確かめてください。
+        </div>
+        </div>
+      </details>
+      <details class="settings-fold">
+        <summary>呼び方・ロゴ・配色<span class="text-muted">画面のメニューと見出しに反映</span></summary>
+        <div class="row g-3">
         <div class="col-md-3">
           <label class="form-label small fw-semibold">職員の呼び方</label>
           {{ facility_form.term_staff }}
@@ -155,7 +323,8 @@
           </div>
           {% endif %}
         </div>
-      </div>
+        </div>
+      </details>
       <div class="mt-3 text-end">
         {% if is_admin %}<button type="submit" class="btn btn-primary">
           <i class="bi bi-check-lg me-1"></i>施設情報を保存
@@ -163,9 +332,10 @@
       </div>
     </form>
   </div>
-
+  </section>
 
   <!-- ===== 使う機能・日誌の項目 ===== -->
+  <section class="settings-pane" id="pane-features">
   <div class="settings-card">
     <div class="settings-section-title">使う機能と、日誌で AI が作る項目</div>
     <form method="post" action="{% url 'facilities:feature_settings' %}" id="featureForm" data-concurrency="facility:{{ facility.pk }}">
@@ -241,6 +411,16 @@
             <input type="checkbox" class="form-check-input" name="use_daily_ops" id="use_daily_ops" {% if facility.use_daily_ops %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_daily_ops">毎日の運営（クラスの週間の活動計画と記録・健康と生活の記録と引き渡しカード・発達検査の推移）</label>
           </div>
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="use_consultation" id="use_consultation" {% if facility.use_consultation %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="use_consultation">相談支援の計画（申請者の現状・サービス等利用計画／障害児支援利用計画・週間計画表。書類の読み取りからの取り込みと AI の下書き、A4 で印刷）</label>
+          </div>
+          {% if facility.is_ryoiku %}
+          <div class="form-check mb-1">
+            <input type="checkbox" class="form-check-input" name="use_reports" id="use_reports" {% if facility.use_reports %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+            <label class="form-check-label" for="use_reports">帳票出力（利用者ごとのサービス提供実績記録票・療育記録一覧、出欠・利用実績一覧、業務日誌、名簿、個別支援計画一覧を PDF・CSV で）</label>
+          </div>
+          {% endif %}
           <div class="form-text">使わない機能はメニューやボタンから消えます。記録は消えないので、あとから戻せます。</div>
           {% if trial_ai.limit and not is_developer %}
           <div class="alert alert-info small py-1 px-2 mt-2 mb-0">「お試し」の機能の AI は <b>{{ trial_ai.limit }} 回</b>まで使えます（使った回数 {{ trial_ai.used }}・あと {{ trial_ai.remaining }} 回）。</div>
@@ -314,6 +494,25 @@
         </div>
         <div class="form-text">新人の職員でも書き漏れが無いように、日誌を「確定」で保存するときに足りない項目があれば下書きのまま保存して知らせます（入力の画面にも「確定の前のチェック」を出します）。何も選ばなければ、これまでどおり確定できます。良い記録の例は<a href="{% url 'records:examples' %}">記録の例</a>の画面で見られます。</div>
       </div>
+      <div class="mt-3" id="journal-questions">
+        <input type="hidden" name="question_form" value="1">
+        <div class="small fw-semibold mb-1"><i class="bi bi-ui-checks me-1"></i>日誌の質問（共通の質問・個別の質問）</div>
+        <label class="form-check small mb-1"><input type="checkbox" class="form-check-input" name="question_enabled" {% if question_setting.enabled %}checked{% endif %} {% if not is_admin %}disabled{% endif %}> 日誌で、全員に同じ「共通の質問」と、利用者ごとの「個別の質問」に「はい／どちらでもない／いいえ」で答える（AI が活動ごとに作る観点は出さない）</label>
+        <div class="row g-2">
+          <div class="col-md-6">
+            <textarea name="question_common" class="form-control form-control-sm" rows="4" maxlength="600" {% if not is_admin %}disabled{% endif %}
+                      placeholder="空なら標準の 4 問">{{ question_setting.common_questions }}</textarea>
+            <div class="form-text">共通の質問（1 行に 1 問・8 問まで）。空なら標準の 4 問（{{ question_default|join:'・' }}）。</div>
+          </div>
+          <div class="col-md-6 small">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span>直近</span><input type="number" name="question_window" class="form-control form-control-sm" style="width:80px;" min="1" max="50" value="{{ question_setting.window|default:10 }}" {% if not is_admin %}disabled{% endif %}>
+              <span>回の記録で、個別の質問の「はい」が</span><input type="number" name="question_rate" class="form-control form-control-sm" style="width:80px;" min="1" max="100" value="{{ question_setting.rate|default:80 }}" {% if not is_admin %}disabled{% endif %}><span>% 以上なら、次のレベルへ上げる</span>
+            </div>
+            <div class="form-text">個別の質問は利用者情報の画面で、レベルごとに入れます（日誌と個別支援計画の目標から AI が案を出せます）。</div>
+          </div>
+        </div>
+      </div>
       {% if is_admin %}
       <div class="text-end mt-3"><button class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>保存する</button></div>
       {% else %}
@@ -322,7 +521,10 @@
     </form>
   </div>
 
+  </section>
+
   <!-- ===== 活動タグ管理 ===== -->
+  <section class="settings-pane" id="pane-tags">
   <div class="settings-card">
     <div class="d-flex justify-content-between align-items-center mb-1">
       <div class="settings-section-title mb-0">活動タグ</div>
@@ -416,7 +618,10 @@
     {% endif %}
   </div>
 
+  </section>
+
   <!-- ===== 算定要件資料（AI加算提案・チャット用） ===== -->
+  <section class="settings-pane" id="pane-ai">
   <div class="settings-card" id="reference-docs">
     <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
       <div class="settings-section-title mb-0">算定要件資料（AI加算提案・チャットボット用）</div>
@@ -463,8 +668,11 @@
     {% endif %}
   </div>
 
+  </section>
+
   {% if features.billing %}
   <!-- ===== 加算設定（コード・単位数・料金） ===== -->
+  <section class="settings-pane" id="pane-billing">
   <div class="settings-card">
     <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
       <div class="settings-section-title mb-0">加算設定（サービスコード・単位数・料金）</div>
@@ -477,11 +685,15 @@
       </form>
       {% endif %}
     </div>
-    <p class="text-muted small mb-3">
-      放課後等デイサービスの加算のコードと単位数・料金の一覧です。料金は「単位数 × {{ facility.get_region_category_display }}の単価 {{ unit_price }}円」で計算しています。<br>
-      サービスコードは国保連の請求で使う番号です。マスタが空の加算や、区分によって変わる加算は、この事業所の値を入力してください（空にするとマスタの値に戻ります）。<br>
-      ※ 個別加算で「算定する」にしたものが日誌の「加算の入力」に出ます（1つも選んでいないときは全部出ます）。体制加算は施設全体の月単位の加算です。
-    </p>
+    <details class="settings-fold mt-2">
+      <summary>この画面の使い方 <span class="text-muted">料金は「単位数 × {{ facility.get_region_category_display }}の単価 {{ unit_price }}円」</span></summary>
+      <p class="text-muted small mb-3">
+        放課後等デイサービスの加算のコードと単位数・料金の一覧です。料金は「単位数 × {{ facility.get_region_category_display }}の単価 {{ unit_price }}円」で計算しています。<br>
+        サービスコードは国保連の請求で使う番号です。マスタが空の加算や、区分によって変わる加算は、この事業所の値を入力してください（空にするとマスタの値に戻ります）。<br>
+        ※ 個別加算で「算定する」にしたものが日誌の「加算の入力」に出ます（1つも選んでいないときは全部出ます）。体制加算は施設全体の月単位の加算です。<br>
+        各加算の「説明」は折りたたんであります。加算名の下の「▸ 説明」を押すと開きます（「すべての説明を開く」でまとめて開けます）。
+      </p>
+    </details>
 
     {% if no_addons %}
     <div class="text-center py-4" style="color:#a0b0b2;border:1px dashed #d0dadb;border-radius:10px;">
@@ -490,7 +702,12 @@
       <span class="small">「標準加算マスタを読み込む」ボタンで放課後等デイの加算を一括登録できます。</span>
     </div>
     {% else %}
-    <form method="post" action="{% url 'facilities:addon_setting' %}">
+    <div class="d-flex justify-content-end mt-3">
+      <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" id="addon-desc-toggle" data-open-label="すべての説明を開く" data-close-label="すべての説明を閉じる">
+        <i class="bi bi-chevron-expand me-1"></i>すべての説明を開く
+      </button>
+    </div>
+    <form method="post" action="{% url 'facilities:addon_setting' %}" id="addon-form">
       {% csrf_token %}
       {% for group_label, group in addon_groups %}
       <div class="fw-semibold small mt-3 mb-1" style="color:var(--color-primary-dark);">{{ group_label }}</div>
@@ -516,7 +733,10 @@
               <td>
                 <label class="fw-semibold mb-0" for="addon_{{ item.pk }}">{{ item.name }}</label>
                 {% if item.addon.description %}
-                <div class="text-muted" style="font-size:0.72rem;">{{ item.addon.description }}</div>
+                <details class="addon-desc">
+                  <summary>説明</summary>
+                  <div>{{ item.addon.description }}</div>
+                </details>
                 {% endif %}
               </td>
               <td>
@@ -524,11 +744,22 @@
                        value="{{ item.code }}" placeholder="{{ item.addon.code|default:'未入力' }}" maxlength="10"
                        {% if not is_admin %}readonly{% endif %}>
               </td>
+              {% if item.is_rate %}
+              <td>
+                <div class="input-group input-group-sm">
+                  <input type="text" inputmode="decimal" name="rate_{{ item.pk }}" class="form-control form-control-sm text-end"
+                         value="{{ item.rate|default_if_none:'' }}" {% if not is_admin %}readonly{% endif %} aria-label="加算率">
+                  <span class="input-group-text">%</span>
+                </div>
+              </td>
+              <td class="text-end small text-muted">{% if item.override_rate is not None %}事業所の率{% else %}今月の標準の率{% endif %}</td>
+              {% else %}
               <td>
                 <input type="number" name="units_{{ item.pk }}" class="form-control form-control-sm text-end"
                        value="{{ item.unit_count }}" min="0" {% if not is_admin %}readonly{% endif %}>
               </td>
               <td class="text-end">{% if item.price_yen %}{{ item.price_yen }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+              {% endif %}
             </tr>
             {% endfor %}
           </tbody>
@@ -543,9 +774,10 @@
     </form>
     {% endif %}
   </div>
+  </section>
+  {% endif %}
 
 </div>
-  {% endif %}
 
 <!-- ===== 活動タグ追加モーダル ===== -->
 <div class="modal fade" id="addActivityTagModal" tabindex="-1">
@@ -736,6 +968,40 @@
 
 {% block extra_js %}
 <script>
+// 設定の項目をタブで分ける：#tab-xxx か、この端末で最後に開いたタブを開く。保存して戻ってきても同じタブ
+(function () {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('#settings-tabs .settings-tab'));
+  if (!tabs.length) return;
+  function show(name, push) {
+    if (!document.getElementById('pane-' + name)) name = tabs[0].dataset.pane;
+    tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.pane === name); });
+    document.querySelectorAll('.settings-pane').forEach(function (p) { p.classList.toggle('active', p.id === 'pane-' + name); });
+    try { localStorage.setItem('settingsTab', name); } catch (e) {}
+    if (push && history.replaceState) history.replaceState(null, '', '#tab-' + name);
+  }
+  var fromHash = (location.hash || '').replace('#tab-', '');
+  var saved = '';
+  try { saved = localStorage.getItem('settingsTab') || ''; } catch (e) {}
+  // 画面の中のアンカー（#reference-docs など）は、その要素のあるタブを開く
+  if (!fromHash && location.hash) {
+    var el = document.querySelector(location.hash), pane = el && el.closest('.settings-pane');
+    if (pane) fromHash = pane.id.replace('pane-', '');
+  }
+  // トップバー（画面上部に固定）の下に止まるように、タブの固定位置をトップバーの高さに合わせる（スマホは高さが変わる）
+  var topbar = document.querySelector('.topbar');
+  function placeTabs() {
+    var h = topbar ? topbar.getBoundingClientRect().height : 0;
+    document.documentElement.style.setProperty('--settings-tabs-top', Math.round(h) + 'px');
+  }
+  placeTabs();
+  window.addEventListener('resize', placeTabs);
+  if (window.ResizeObserver && topbar) new ResizeObserver(placeTabs).observe(topbar);
+  show(fromHash || saved || tabs[0].dataset.pane, false);
+  tabs.forEach(function (t) { t.addEventListener('click', function () { show(t.dataset.pane, true); window.scrollTo({top: 0}); }); });
+  window.addEventListener('hashchange', function () { var h = (location.hash || '').replace('#tab-', ''); if (h) show(h, false); });
+})();
+</script>
+<script>
 document.querySelectorAll('#sectionList .js-up, #sectionList .js-down').forEach(function (b) {
   b.addEventListener('click', function () {
     var li = b.closest('li'), list = li.parentNode;
@@ -767,5 +1033,25 @@ document.getElementById('editSupportTagModal').addEventListener('show.bs.modal',
   document.getElementById('edit_support_price').value = btn.dataset.price || 0;
   document.getElementById('edit_support_active').checked = btn.dataset.active === 'true';
 });
+
+  (function () {
+    var btn = document.getElementById('addon-desc-toggle');
+    var form = document.getElementById('addon-form');
+    if (!btn || !form) return;
+    var folds = form.querySelectorAll('details.addon-desc');
+    if (!folds.length) { btn.style.display = 'none'; return; }
+    function allOpen() { for (var i = 0; i < folds.length; i++) { if (!folds[i].open) return false; } return true; }
+    function label() {
+      var open = allOpen();
+      btn.innerHTML = '<i class="bi bi-chevron-' + (open ? 'contract' : 'expand') + ' me-1"></i>' + btn.dataset[open ? 'closeLabel' : 'openLabel'];
+    }
+    btn.addEventListener('click', function () {
+      var to = !allOpen();
+      for (var i = 0; i < folds.length; i++) folds[i].open = to;
+      label();
+    });
+    form.addEventListener('toggle', label, true);
+    label();
+  })();
 </script>
 {% endblock %}

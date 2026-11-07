@@ -32,6 +32,11 @@ class BillingMatrixEntry(models.Model):
         max_length=20, choices=STATUS_CHOICES, default=STATUS_ATTENDED, verbose_name='状態'
     )
     is_finalized = models.BooleanField(default=False, verbose_name='請求確定済み')
+    # 基本報酬の時間区分（1〜3。billing/codes.py）。空なら施設設定の初期値（平日／学校休業日）
+    time_kubun   = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name='時間区分')
+    # 保存したときの基本報酬（請求前の差分チェック用の控え。billing/readiness.py month_diff）
+    base_code    = models.CharField(max_length=10, blank=True, verbose_name='基本報酬サービスコード（保存時）')
+    base_units   = models.IntegerField(null=True, blank=True, verbose_name='基本報酬単位数（保存時）')
     created_at   = models.DateTimeField(auto_now_add=True)
     updated_at   = models.DateTimeField(auto_now=True)
 
@@ -159,3 +164,22 @@ class CopaymentOfficeRecord(models.Model):
 
     def __str__(self):
         return f'{self.management} - {self.office_name}'
+
+
+class MonthlyReduction(models.Model):
+    """利用者ごと・月ごとの減算（個別支援計画未作成減算）。請求書・領収書の一覧で選ぶ"""
+    NO_PLAN_CHOICES = [('', 'なし'), ('70', '個別支援計画未作成（1〜2 か月目・70%）'), ('50', '個別支援計画未作成（3 か月目以降・50%）')]
+
+    facility    = models.ForeignKey('facilities.Facility', on_delete=models.CASCADE, verbose_name='施設')
+    beneficiary = models.ForeignKey('beneficiaries.Beneficiary', on_delete=models.CASCADE, verbose_name='利用者')
+    year_month  = models.CharField(max_length=7, verbose_name='対象年月（YYYY-MM）')
+    no_plan     = models.CharField(max_length=2, blank=True, default='', choices=NO_PLAN_CHOICES, verbose_name='個別支援計画未作成減算')
+    updated_at  = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name        = '月の減算'
+        verbose_name_plural = '月の減算'
+        unique_together     = [['facility', 'beneficiary', 'year_month']]
+
+    def __str__(self):
+        return f'{self.year_month} {self.beneficiary} {self.get_no_plan_display()}'

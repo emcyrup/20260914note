@@ -43,6 +43,17 @@ Manage (kaigodemo) → `task=create_facility`。事業所名「介護老人保�
 
 デモの相手には、アドレスとユーザー名 `kaigodemo`・パスワードをメールで送る（このリポジトリ・Notion には書かない）。
 
+## 4-2. 放デイ デモの同居（2026-11-07 特別対応）
+
+放課後等デイサービスのデモ事業所「放デイ　デモ」（`docs/DEPLOY_AWS_HOUDEIDEMO.md`）は、別の環境（アドレス・DB）を用意できなかったため、**この環境に同居**させている（同じアドレス・同じ DB の事業所 ID 2）。
+
+- コード：`yasuragi` に作業ブランチを取り込み、`create_facility --preset houdei` が使えるようにした（2026-11-07）
+- 作り方：Manage (kaigodemo) → `task=create_facility`、事業所名「放デイ　デモ」、法人名は空、管理者 `houdeidemo`、`preset=houdei`、`with_demo` に印（日誌などの 6 人と請求デモ 40 人が入る）、**`password_secret=houdeidemo`**（Secrets の `HOUDEIDEMO_ADMIN_PASSWORD`）
+- サンプルの入れ直し・削除：`task=demo_add`／`demo_remove`、`scenario=houdei`、`facility_id` に放デイ デモの ID
+- ログイン前の画面は、型の違う事業所が同居するため「みちノート 業務支援」（介護施設・放デイのどちらの名前も出さない）
+- 老健デモと放デイ デモは同じ DB だが、事業所ごとにデータは分かれる（ログインした職員の事業所のものしか見えない）。相手にはそれぞれのユーザー名とパスワードだけを伝える
+- 放デイ デモの環境が別に用意できたら、`Deploy (houdeidemo)` で作り直し、この環境の事業所は `delete_facility` で消す
+
 ## 5. 架空のサンプルデータ（`nursing_demo --scenario roken`）
 
 - **通所リハ 36 人**（要支援 1〜要介護 5。週 2〜3 回の曜日。1 日 15〜20 人が送迎）と**入所 8 人**（曜日なし。朝夕の検温と毎日の介護記録）

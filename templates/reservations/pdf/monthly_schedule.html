@@ -26,6 +26,8 @@
   table.u th, table.u td { padding: {{ sz.upad }}; font-size: {{ sz.user }}px; white-space: nowrap; overflow: hidden; }
   table.u th:first-child { width: {% if facility.is_ryoiku %}48%{% else %}46%{% endif %}; }
   table.u td.n { text-align: right; }
+  table.u tr.sum td { font-weight: 700; border-top: 1.5px solid #333; background: #f3f0e8; }
+  .sum-note { font-size: {{ sz.user }}px; font-weight: 700; margin-top: 3px; }
   {% if not pdf %}@media print { body { zoom: {% if paper == 'a4' %}0.94{% else %}0.66{% endif %}; } }{% endif %}
 </style>
 <div class="ms-title">{{ year }}年 {{ month }}月 月間予定表</div>

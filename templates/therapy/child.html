@@ -10,6 +10,14 @@
   .th-card-title { font-weight: 700; display: flex; align-items: center; gap: 6px; }
   .th-tools { display: flex; gap: 6px; flex-wrap: wrap; }
   .th-tools .btn { white-space: nowrap; }
+  details.th-source { margin-top: 6px; font-size: .8rem; }
+  details.th-source > summary { cursor: pointer; color: var(--ink-soft, #6b7b7d); list-style: none; }
+  details.th-source > summary::-webkit-details-marker { display: none; }
+  details.th-source > summary::before { content: '▸ '; }
+  details.th-source[open] > summary::before { content: '▾ '; }
+  .th-source-body { border: 1px dashed var(--line, #d8d2c6); border-radius: 8px; padding: 6px 10px; margin-top: 4px; }
+  .th-source-body > div { margin-bottom: 4px; }
+  .th-source-text { white-space: pre-wrap; color: #555; }
   .th-voice.recording { color: #fff; background: var(--color-danger); border-color: var(--color-danger); animation: voice-rec 1s infinite; }
   @keyframes voice-rec { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
   #cautions { line-height: 1.7; }
@@ -25,6 +33,27 @@
   .th-chip { font-size: 0.8rem; padding: 2px 9px; border-radius: 999px; background: var(--color-primary-bg); color: var(--lake-text); border: 1px solid rgba(0,0,0,0.06); }
   .th-body { white-space: pre-wrap; line-height: 1.7; }
   .th-edit { background: rgba(243,239,231,0.55); border-radius: 8px; padding: 12px; margin-top: 10px; }
+  .th-edit.th-edit-inline { background: transparent; padding: 2px 0 0; margin-top: 4px; }   /* ゆあーず：修正を押さずにそのまま直す */
+  /* ゆあーず：そのまま直す欄をコンパクトに（見出しは見た目だけ消して読み上げには残す・日付〜担当は横に詰める・記録の欄は文の長さに合わせる） */
+  #records.th-compact .th-rec { padding: 8px 14px; }
+  .th-edit-inline .form-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .th-edit-inline .row.g-2, .th-edit-inline.row.g-2, .th-edit-inline form.row { --bs-gutter-y: .3rem; }
+  .th-edit-inline .th-top { flex: 0 0 auto; width: auto; max-width: 100%; }
+  .th-edit-inline .th-top input[type=date] { width: 9.5em; }
+  .th-edit-inline .th-top input[name=staff_name] { width: 9em; }
+  .th-edit-inline .form-text, .th-edit-inline .th-save-hint { display: none; }
+  .th-edit-inline textarea { min-height: 0; }
+  .th-edit-inline .th-save-btn { padding: 1px 10px; }
+  @media (max-width: 575.98px) { .th-edit-inline .th-acts > div { flex: 0 0 50%; width: 50%; } }   /* スマートフォン：やったことは 2 つずつ */
+  @media (min-width: 992px) {   /* パソコン：日付の見出しと削除を、日付〜担当の欄と同じ行に */
+    #records.th-compact .th-rec { position: relative; }
+    #records.th-compact .th-rec-head { position: absolute; left: 14px; right: 14px; top: 14px; pointer-events: none; }
+    #records.th-compact .th-rec-head .th-rec-btns { pointer-events: auto; }
+    #records.th-compact .th-rec-head .th-rec-meta { display: none; }
+    .th-edit-inline .th-top:not(.th-top ~ .th-top) { margin-left: 218px; }
+    .th-edit-inline .th-top .form-control, .th-edit-inline .th-top .form-select { min-height: 0; height: 32px; padding-top: 2px; padding-bottom: 2px; }
+    .th-edit-inline { margin-top: 0; }
+  }
   .th-list-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
   .th-list-head select { width: auto; }
   .thf-hint { font-size: 0.78rem; color: #8a8378; font-weight: 400; }
@@ -77,8 +106,29 @@
     </div>
     <div id="voice-direct-note" class="alert alert-warning small py-1 px-2 mt-2 mb-0 d-none"></div>
     <textarea id="voice-buffer" class="d-none" style="display:none" hidden aria-hidden="true" tabindex="-1"></textarea>
-    <div id="voice-direct-status" class="small text-muted mt-2" aria-live="polite">押して話し、話し終えたらもう一度押してください。話した内容を書き言葉に整えて、下の「これまでの記録」の<b>今日（{{ today|date:'n/j' }}）の記録</b>のやったこと・事実・様子に入れます。確かめて直してから「保存する」を押してください（自動では保存しません）。</div>
+    <div id="voice-direct-status" class="small text-muted mt-2" aria-live="polite">押して話し、話し終えたらもう一度押してください。話した内容を活動ごとの段落にまとめ、書き言葉に整えて、下の「これまでの記録」の<b>今日（{{ today|date:'n/j' }}）の記録</b>に入れます（内容は足しません・変えません）。確かめて直してから「保存する」を押してください（自動では保存しません）。直した内容は、この事業所の次の整え方の参考になります（名前は伏せて使います）。</div>
     <div id="voice-direct-asis"></div>
+  </div></div>
+  {# 留意点（手で書く・AI は使わない）。2026-11-04 ゆあーず：成長や状況で変わる注意（例：トイレで遊ぶ間は戸を閉める）。要らなくなったら消す #}
+  <div class="card mb-3" id="cautions-card"><div class="card-body">
+    <form method="post" class="th-save-form" data-draft="therapy-cautions:{{ beneficiary.pk }}" data-draft-fields="#cautions" {% if profile %}data-concurrency="therapy_profile:{{ profile.pk }}" data-concurrency-lazy{% endif %}>
+      {% csrf_token %}<input type="hidden" name="action" value="cautions">{% if profile %}{% version_field profile %}{% endif %}
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+        <label class="th-card-title mb-0" for="cautions"><i class="bi bi-exclamation-diamond"></i>留意点（いま気をつけること）</label>
+        {% if profile and profile.cautions %}<span class="small text-muted">{{ profile.updated_at|date:'Y年n月j日' }}{% if profile.updated_by %} {{ profile.updated_by }}{% endif %} に直した内容</span>{% endif %}
+      </div>
+      {% if unsaved_cautions %}
+      <div class="alert alert-warning small py-2 px-2 mb-2">
+        <b>保存できなかった留意点</b>（開いたあとに他の職員が留意点を保存したため）。下の欄は最新の内容です。見比べて、必要なところを写してから保存してください。
+        <textarea class="form-control form-control-sm mt-1" rows="3" readonly>{{ unsaved_cautions.text }}</textarea>
+      </div>
+      {% endif %}
+      <textarea class="form-control" id="cautions" name="cautions" rows="{% if profile and profile.cautions %}{{ cautions_rows }}{% else %}2{% endif %}" placeholder="例：トイレで遊んでしまう間は、戸を閉めるよう声をかける">{{ profile.cautions|default:'' }}</textarea>
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mt-1">
+        <div class="form-text mb-0">この{{ terms.beneficiary }}に<b>いま</b>気をつけることを手で書きます（AI は使いません。音声の記録にも混ぜません）。成長や状況で要らなくなったら、消すか書き直してください。用紙の上の「留意点」に印刷されます。<br>その日だけの連絡や、あとで見たい気づきは、右上の「メモ」へ。</div>
+        <button class="btn btn-sm btn-outline-secondary th-save-btn"><i class="bi bi-check2 me-1"></i>留意点を保存</button>
+      </div>
+    </form>
   </div></div>
   {% else %}
   <div class="card mb-3"><div class="card-body">
@@ -146,7 +196,7 @@
     </form>
   </div></div>
 
-  <div class="card" id="records">
+  <div class="card{% if voice_direct %} th-compact{% endif %}" id="records">
     <div class="card-body pb-2 th-list-head">
       <div class="th-card-title"><i class="bi bi-journal-text"></i>これまでの記録{% if ym %}（{{ ym }}）{% endif %}{% if date_from or date_to %}（{{ date_from|date:'n/j'|default:'' }}〜{{ date_to|date:'n/j'|default:'' }}）{% endif %}<span class="th-rec-meta">{{ records|length }} 件</span></div>
       <form method="get" class="th-filter" aria-label="記録を絞る">
@@ -169,9 +219,8 @@
     <div class="th-rec" id="rec-today">
       <div class="th-rec-head">
         <div><span class="th-rec-date">{{ today|date:'Y年n月j日' }}（{{ today|date:'D' }}）</span><span class="th-rec-meta">今日の記録はまだありません。上の「音声入力」で話すと、ここに入ります（手で書いても保存できます）</span></div>
-        <div class="th-rec-btns"><button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('edit-today').classList.toggle('d-none')"><i class="bi bi-pencil"></i><span class="d-none d-sm-inline ms-1">書く</span></button></div>
       </div>
-      <div class="th-edit d-none" id="edit-today" data-draft-reveal>
+      <div class="th-edit th-edit-inline" id="edit-today" data-draft-reveal>
         <form method="post" id="today-form" class="row g-2 th-save-form" {% if not user.facility.therapy_no_wording %}data-wording{% endif %} data-new="1" data-draft="therapy-today:{{ beneficiary.pk }}:{{ today|date:'Ymd' }}" data-draft-new>
           {% csrf_token %}<input type="hidden" name="action" value="add">
           <div class="col-12" data-draft-banner></div>
@@ -193,6 +242,21 @@
 {% endblock %}
 
 {% block extra_js %}
+{% if voice_direct %}
+<script>
+(function () {
+  // そのまま直す欄（ゆあーず）：記録・様子の欄の高さを文の長さに合わせる（2〜12 行）。書き足すと伸びる
+  function fit(ta) {
+    var lines = ta.value.split('\n').reduce(function (n, l) { return n + Math.max(1, Math.ceil(l.length / 60)); }, 0);
+    ta.rows = Math.max(2, Math.min(12, lines));
+  }
+  document.querySelectorAll('.th-edit-inline textarea').forEach(fit);
+  document.addEventListener('input', function (e) {
+    if (e.target.matches && e.target.matches('.th-edit-inline textarea')) fit(e.target);
+  });
+})();
+</script>
+{% endif %}
 <datalist id="activity-options">{% for a in activity_suggestions %}<option value="{{ a }}">{% endfor %}</datalist>
 <script>
 (function () {
@@ -432,12 +496,55 @@
       ta.rows = Math.max(ta.rows, Math.min(14, ta.value.split('\n').length + Math.ceil(ta.value.length / 45)));
       fire(ta);
     });
+    // 整える前の文字と AI の文（保存で記録に残し、職員の直し方を次の整え方の例にする）
+    if (data.ai_body) {
+      [['spoken_text', data.spoken], ['ai_body', data.ai_body]].forEach(function (pair) {
+        var el = form.querySelector('[name="' + pair[0] + '"]'), text = (pair[1] || '').trim();
+        if (!el || !text) return;
+        before[pair[0]] = el.value;
+        el.value = el.value.trim() ? el.value.replace(/\s+$/, '') + '\n' + text : text;
+        fire(el);
+      });
+    }
     lastBefore = {form: form, values: before};
     var scroll = document.querySelector(tgt.dataset.scroll);
     if (scroll) scroll.scrollIntoView({block: 'start', behavior: 'smooth'});
-    say('書き言葉に整えて、今日の記録に入れました' + (left.length ? '（①〜⑤がいっぱいで入らなかったやったこと：' + left.join('、') + '）' : '') +
+    say('活動ごとにまとめて、今日の記録に入れました' + (left.length ? '（①〜⑤がいっぱいで入らなかったやったこと：' + left.join('、') + '）' : '') +
         '。確かめて直してから「保存する」を押してください。', 'info', [['入れたのを取り消す', undo]]);
     asisBox.textContent = '';
+    var fd = data.fidelity;
+    if (fd) {
+      // 話した言葉と照らして、否定が消えた・肯定に変わったおそれ・短くなりすぎたおそれ（2026-11-04 ゆあーず）
+      var f = document.createElement('div');
+      f.className = 'alert alert-danger small py-1 px-2 mt-2 mb-0';
+      var head = document.createElement('div');
+      head.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1"></i><b>話した内容とちがうところがあるかもしれません。</b>保存の前に確かめてください。';
+      f.appendChild(head);
+      var items = [];
+      if (fd.flips && fd.flips.length) {
+        items.push('話した言葉では「できなかった」などの否定でしたが、記録では肯定（「できた」など）になっているかもしれません：');
+        fd.flips.forEach(function (t) { items.push('　・' + t); });
+      } else if (fd.dropped) {
+        items.push('話した言葉の「〜なかった」「難しかった」などの否定が、記録では ' + fd.dropped + ' か所少なくなっています。消えていないか確かめてください。');
+      }
+      if (fd.long) items.push('記録が話した内容よりずっと長くなっています（話した文字 約 ' + fd.spoken_len + ' 字 → 記録 ' + fd.body_len + ' 字）。話していないことが入っていないか確かめてください。');
+      if (fd.short) items.push('記録が短くなっています（話した文字 約 ' + fd.spoken_len + ' 字 → 記録 ' + fd.body_len + ' 字）。抜けているところがないか確かめてください。');
+      items.forEach(function (t) { var d = document.createElement('div'); d.textContent = t; f.appendChild(d); });
+      asisBox.appendChild(f);
+    }
+    if (data.spoken) {
+      // 話した文字（整える前）を見比べられるようにする。短いときは、聞き取れていない（声が小さい・マイクが遠い）か、AI が省いたかが分かる
+      var det = document.createElement('details');
+      det.className = 'small mt-2';
+      var sum = document.createElement('summary');
+      sum.textContent = '話した文字（整える前）を見る' + (data.spoken_len ? '（約 ' + data.spoken_len + ' 字 → 記録 ' + data.body_len + ' 字）' : '');
+      var pre = document.createElement('div');
+      pre.className = 'border rounded p-2 mt-1 bg-light'; pre.style.whiteSpace = 'pre-wrap';
+      pre.textContent = data.spoken;
+      det.appendChild(sum); det.appendChild(pre);
+      if (fd) det.open = true;
+      asisBox.appendChild(det);
+    }
     if (data.added && data.added.length) {
       var w = document.createElement('div');
       w.className = 'alert alert-warning small py-1 px-2 mt-2 mb-0';
@@ -460,7 +567,7 @@
   }
   function process(text) {
     working = true;
-    say('書き言葉に整えています…', 'light');
+    say('活動ごとにまとめて、書き言葉に整えています…', 'light');
     var body = new FormData();
     body.append('text', text); body.append('mode', 'record'); body.append('csrfmiddlewaretoken', csrf());
     fetch(url, {method: 'POST', body: body, credentials: 'same-origin'})
