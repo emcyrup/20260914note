@@ -57,7 +57,7 @@ class LayoutTests(HomeCareBase):
         other = Facility.objects.create(name='ほか')
         u = StaffAccount.objects.create_user('o', password='pw12345678', facility=other)
         self.client.force_login(u)
-        self.assertEqual(self.client.get(reverse('homecare:day')).status_code, 404)
+        self.assertRedirects(self.client.get(reverse('homecare:day')), '/', fetch_redirect_response=False)
         self.assertNotContains(self.client.get(reverse('facilities:dashboard'), follow=True), 'きょうの訪問')
 
     def test_beneficiary_pages(self):

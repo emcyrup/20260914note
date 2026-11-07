@@ -43,7 +43,8 @@ class KaigoMixin(KyotakuMixin):
     def dispatch(self, request, *args, **kwargs):
         facility = getattr(request.user, 'facility', None)
         if request.user.is_authenticated and not (facility is not None and facility.is_kaigo):
-            raise Http404
+            messages.info(request, 'このアドレスは介護保険の事業所の画面です。あなたの事業所のホームを開きました。')
+            return redirect('/')
         return super(KyotakuMixin, self).dispatch(request, *args, **kwargs)
 
 

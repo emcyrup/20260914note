@@ -36,7 +36,10 @@ class CareMixin(LoginRequiredMixin):
     def dispatch(self, request, *args, **kwargs):
         facility = getattr(request.user, 'facility', None)
         if request.user.is_authenticated and not (facility is not None and facility.is_care):
-            raise Http404
+            # ほかの型の事業所の職員が、保存していたアドレス（スマホのブックマーク・ログインのあとの next）で来たとき。
+            # 404 にすると「ログインできない」に見えるので、ホームへ戻す（2026-11-07 放デイ デモ）
+            messages.info(request, 'このアドレスは介護施設の画面です。あなたの事業所のホームを開きました。')
+            return redirect('/')
         return super().dispatch(request, *args, **kwargs)
 
     @property

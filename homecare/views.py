@@ -34,7 +34,9 @@ class KyotakuMixin(LoginRequiredMixin):
     def dispatch(self, request, *args, **kwargs):
         facility = getattr(request.user, 'facility', None)
         if request.user.is_authenticated and not (facility is not None and facility.is_kyotaku):
-            raise Http404
+            # ほかの型の事業所の職員が、保存していたアドレスで来たとき（404 にすると「ログインできない」に見える）
+            messages.info(request, 'このアドレスは居宅介護の画面です。あなたの事業所のホームを開きました。')
+            return redirect('/')
         return super().dispatch(request, *args, **kwargs)
 
     @property

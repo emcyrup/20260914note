@@ -247,7 +247,7 @@ class ScreenTests(KaigoBase):
         ob = Beneficiary.objects.create(facility=other, last_name='他', first_name='人', date_of_birth=datetime.date(1950, 1, 1))
         self.assertEqual(self.client.get(reverse('kaigo:logs', args=[ob.pk])).status_code, 404)
         self.client.force_login(StaffAccount.objects.create_user('o', password='pw12345678', facility=other))
-        self.assertEqual(self.client.get(reverse('kaigo:providers')).status_code, 404)
+        self.assertRedirects(self.client.get(reverse('kaigo:providers')), '/', fetch_redirect_response=False)
 
 
 class ListSortTests(KaigoBase):

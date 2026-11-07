@@ -50,7 +50,7 @@ class LayoutTests(CareBase):
         other = Facility.objects.create(name='放デイ')
         u = StaffAccount.objects.create_user('other', password='pw12345678', facility=other, role=StaffAccount.ROLE_ADMIN)
         self.client.force_login(u)
-        self.assertEqual(self.client.get(reverse('nursing:home')).status_code, 404)
+        self.assertRedirects(self.client.get(reverse('nursing:home')), '/', fetch_redirect_response=False)
 
     def test_kaigo_insurance_pages_work_for_care(self):
         res = self.client.get(reverse('kaigo:insurance_new', args=[self.b.pk]))
@@ -69,7 +69,7 @@ class LayoutTests(CareBase):
         res = self.client.get(reverse('beneficiaries:detail', args=[b.pk]))
         self.assertContains(res, '支援経過')
         self.assertNotContains(res, '検温板')
-        self.assertEqual(self.client.get(reverse('nursing:home')).status_code, 404)
+        self.assertRedirects(self.client.get(reverse('nursing:home')), '/', fetch_redirect_response=False)
 
 
 class VitalsTests(CareBase):
