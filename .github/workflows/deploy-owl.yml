@@ -2,7 +2,8 @@
 # 「児童発達支援センター　オウル」を AWS 共用サーバー（ゆあーずと同じサーバー）へデプロイ
 #   https://michinote.owl.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 0.0.0.0:8034
 #   置き場所 ~/michinoteowl、DB michinoteowl（ユーザー ai_labo_dbuser）。venv（~/env）はゆあーずと共用
-#   ブランチ ryoiku への push（ゆあーずと同じ push で両方に配備される）、または Actions から手動実行（任意のブランチ）
+#   ブランチ owl への push、または Actions から手動実行（任意のブランチ）。
+#   2026-11-07 までは ryoiku への push でゆあーずと一緒に配備していたが、環境が別なので分けた（オウルの本番は owl ブランチ）
 #   サーバー側は deploy/venv-deploy.sh が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行う
 #   手順は docs/DEPLOY_AWS_OWL.md
 #
@@ -19,7 +20,7 @@ name: Deploy (owl)
 
 on:
   push:
-    branches: [ryoiku]
+    branches: [owl]
   workflow_dispatch:
     inputs:
       ref:
