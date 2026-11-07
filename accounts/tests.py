@@ -841,3 +841,29 @@ class SecurityAlertTests(TestCase):
         self.assertEqual(mail.outbox[-1].from_email, 'alert@gmail.com')
         self.client.post(url, dict(base, mail_app_password_new='', mail_app_password_clear='on'))
         self.assertEqual(Facility.objects.get(pk=self.f.pk).mail_app_password, '')
+
+
+class PhoneLoginTests(TestCase):
+    """スマホはユーザー名の先頭を大文字にしたり空白を入れたりする（2026-11-07 放デイ デモ「スマホではログインできない」）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='テスト')
+        StaffAccount.objects.create_user('houdeidemo', password='pw12345678', facility=self.f)
+
+    def test_username_field_does_not_autocapitalize(self):
+        res = self.client.get(reverse('accounts:login'))
+        self.assertContains(res, 'autocapitalize="none"')
+
+    def test_case_and_spaces_in_username_are_accepted(self):
+        res = self.client.post(reverse('accounts:login'), {'username': ' Houdeidemo ', 'password': 'pw12345678'})
+        self.assertEqual(res.status_code, 302)
+        self.assertTrue(res.wsgi_request.user.is_authenticated)
+
+    def test_exact_username_still_wins_when_two_differ_only_by_case(self):
+        StaffAccount.objects.create_user('Houdeidemo', password='other1234567', facility=self.f)
+        res = self.client.post(reverse('accounts:login'), {'username': 'Houdeidemo', 'password': 'other1234567'})
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(res.wsgi_request.user.username, 'Houdeidemo')
+        self.client.logout()
+        res = self.client.post(reverse('accounts:login'), {'username': 'HOUDEIDEMO', 'password': 'pw12345678'})   # 2 人に当たるので直さない
+        self.assertEqual(res.status_code, 200)
