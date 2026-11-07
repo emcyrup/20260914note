@@ -58,6 +58,13 @@ class SeedDemoCommandTests(TestCase):
         self.assertTrue(rec.activity_name and rec.activity_aim and rec.activity_reflection)
         self.assertEqual(rec.author, self.staff)
         self.assertGreater(rec.activity_tags.count(), 0)
+        # 見本の職員（ログイン不可）と議事録
+        from minutes.models import Minutes
+        samples = StaffAccount.objects.filter(facility=self.facility, username__startswith=f'sample-{self.facility.pk}-')
+        self.assertEqual(samples.count(), 2)
+        self.assertFalse(any(u.has_usable_password() for u in samples))
+        self.assertEqual(Minutes.objects.filter(facility=self.facility, title__startswith='【サンプル】').count(), 3)
+        self.assertIn('見本の職員: 2', out.getvalue())
         self.assertGreater(rec.support_tags.count(), 0)
         # 日誌は来所した日にだけある
         for r in records:
@@ -95,6 +102,9 @@ class SeedDemoCommandTests(TestCase):
         self.assertEqual(DevelopmentTest.objects.filter(beneficiary__facility=self.facility).count(), 4)
         call_command('seed_demo', '--reset', stdout=StringIO())
         self.assertEqual(Vehicle.objects.filter(facility=self.facility).count(), 2)       # 消して入れ直すので同じ数
+        from minutes.models import Minutes
+        self.assertEqual(Minutes.objects.filter(facility=self.facility).count(), 3)       # 議事録・見本の職員も消して入れ直す
+        self.assertEqual(StaffAccount.objects.filter(facility=self.facility, username__startswith='sample-').count(), 2)
         self.assertEqual(DevelopmentAssessment.objects.filter(beneficiary__facility=self.facility).count(), 8)
         self.assertEqual(Survey.objects.filter(facility=self.facility).count(), 2)
         self.assertEqual(ClassGroup.objects.filter(facility=self.facility).count(), 2)
