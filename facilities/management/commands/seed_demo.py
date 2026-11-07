@@ -12,6 +12,7 @@
 - 日誌：直近3週間の来所日（活動・めあて・考察、観察/支援/反応の記録文、タグ、5領域）
 - 請求マトリックス：前月〜今日までの実績
 - スタッフメモ
+- 見本の職員 2 人（名前だけ。ログインはできない）と議事録 3 件
 - 予約（予約管理を使う施設だけ）：顧客台帳・これからの予約とキャンセル待ち・臨時休業日・
   空き状況ページからの申し込み・公式LINEの受信・送信待ちの通知
 """
@@ -126,6 +127,32 @@ PARENT_MESSAGES = [
     '今日は{act}に取り組みました。{name}さんは最後まで集中して参加でき、完成したときにはとても嬉しそうな表情を見せてくれました。',
     '本日は{act}をしました。友だちとやり取りしながら進める場面が増えています。ご家庭でもぜひ今日の話を聞いてみてください。',
 ]
+# 見本の職員（名前だけ。ログインはできない）と議事録。ユーザー名は sample-<施設ID>-… で、--reset で消す
+SAMPLE_STAFF = [
+    ('jihatsukan', '見本 さくら', 'child_dev_manager'),
+    ('shokuin', '見本 たける', 'staff'),
+]
+SAMPLE_MINUTES_PREFIX = '【サンプル】'
+SAMPLE_MINUTES = [
+    (2, '職員会議（今月の活動と来月の行事）',
+     'えーと、今月は工作とおやつ作りが多かったです。来月は秋の公園へ外出したい。送迎の車は2台で、運転は田中さんと伊藤さん。'
+     '雨のときは室内でパラバルーン。保護者には今週中にお知らせを出す。それから避難訓練、月末の金曜に決めました。',
+     '【概要】\n今月の活動のふり返りと、来月の外出・避難訓練について話した。\n\n【今月の活動】\n・工作とおやつ作りが中心だった\n\n【来月の外出】\n'
+     '・秋の公園へ外出する。送迎は 2 台、運転は田中・伊藤\n・雨のときは室内でパラバルーン\n\n【決まったこと】\n・避難訓練は月末の金曜\n\n'
+     '【次にやること】\n・保護者へのお知らせを今週中に出す（担当：児発管）'),
+    (9, '保護者面談（佐藤はるとさん）',
+     '職員：最近は順番を待つことが増えましたね。保護者：家でもカードを使うようになりました。職員：学校のほうはどうですか。'
+     '保護者：先生から、給食の時間に座っていられる時間が長くなったと聞きました。次の計画では友だちとの関わりを増やしたいです。',
+     '【概要】\n佐藤はるとさんの保護者と、事業所と家庭・学校での様子を共有した。\n\n【事業所での様子】\n・職員「順番を待つことが増えた」\n\n'
+     '【家庭・学校】\n・保護者「家でもカードを使うようになった」\n・学校から、給食の時間に座っていられる時間が長くなったと聞いている\n\n'
+     '【次にやること】\n・次の個別支援計画で、友だちとの関わりを増やす目標を入れる（児発管）'),
+    (16, '避難訓練の打ち合わせ',
+     '避難訓練の日は月末の金曜。火災を想定して、玄関から駐車場に出る。車いすの子は職員が2人で。点呼は名簿の順で。'
+     '消火器の場所をもう一度みんなで確かめる。終わったら感想を日誌に書く。',
+     '【概要】\n月末の避難訓練（火災を想定）の段取りを決めた。\n\n【当日の流れ】\n・玄関から駐車場へ避難する\n・車いすの子は職員 2 人で介助\n'
+     '・点呼は名簿の順\n\n【決まったこと】\n・消火器の場所を全員で確かめる\n\n【次にやること】\n・訓練のあと、感想を日誌に書く（全職員）'),
+]
+
 MEMOS = [
     '来週の工作の材料（画用紙・のり）を発注する',
     '佐藤はるとさんの保護者から、送迎時間を10分早めたいとの相談あり',
@@ -204,6 +231,9 @@ class Command(BaseCommand):
         from daily.models import ClassGroup
         ClassGroup.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()      # 健康の記録・注意・発達検査は利用者と一緒に消える
         Survey.objects.filter(facility=facility, intro__contains=SAMPLE_MARK).delete()
+        from minutes.models import Minutes
+        Minutes.objects.filter(facility=facility, title__startswith=SAMPLE_MINUTES_PREFIX).delete()
+        StaffAccount.objects.filter(facility=facility, username__startswith=f'sample-{facility.pk}-').delete()
         self.stdout.write(f'サンプル利用者 {n} 名と関連データを削除しました')
 
     def _reset_reservations(self, facility):
@@ -406,6 +436,9 @@ class Command(BaseCommand):
             StaffMemo.objects.get_or_create(facility=facility, content=content, defaults={'author': staff})
         counts['スタッフメモ'] = len(MEMOS)
 
+        # --- 見本の職員と議事録 ---
+        counts.update(self._create_staff_and_minutes(facility, staff, today))
+
         # --- 事業所様式（はびりす様式の施設だけ）---
         if facility.form_set == Facility.FORM_SET_HAPPINESS:
             counts.update(self._create_custom_forms(facility, beneficiaries, staff, today))
@@ -433,6 +466,25 @@ class Command(BaseCommand):
             counts.update(self._create_daily(facility, beneficiaries, staff, today, rng))
 
         return counts
+
+    # ------------------------------------------------------------------
+    def _create_staff_and_minutes(self, facility, staff, today):
+        """見本の職員 2 人（名前だけ。ログインはできない）と、議事録 3 件（職員会議・保護者面談・避難訓練）"""
+        from minutes.models import Minutes
+        n_staff = 0
+        for key, name, role in SAMPLE_STAFF:
+            _, made = StaffAccount.objects.get_or_create(
+                username=f'sample-{facility.pk}-{key}',
+                defaults={'facility': facility, 'display_name': name, 'role': role, 'password': '!'})   # '!' ＝使えないパスワード
+            n_staff += int(made)
+        n_minutes = 0
+        for days_ago, title, transcript, summary in SAMPLE_MINUTES:
+            _, made = Minutes.objects.get_or_create(
+                facility=facility, title=f'{SAMPLE_MINUTES_PREFIX}{title}',
+                defaults={'held_on': today - datetime.timedelta(days=days_ago), 'transcript': transcript,
+                          'summary': summary, 'created_by': staff})
+            n_minutes += int(made)
+        return {'見本の職員': n_staff, '議事録': n_minutes}
 
     # ------------------------------------------------------------------
     def _create_daily(self, facility, beneficiaries, staff, today, rng):
