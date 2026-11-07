@@ -24,7 +24,7 @@ on:
         type: choice
         required: true
         default: list
-        options: [create_facility, set_password, set_company, list, delete_facility, demo_add, demo_remove, error_log, speech_check, speech_log, set_media_root, status, autostart_check, autostart_install, backup, backup_list, backup_check]
+        options: [create_facility, set_password, set_company, list, delete_facility, demo_add, demo_remove, error_log, login_log, speech_check, speech_log, set_media_root, status, autostart_check, autostart_install, backup, backup_list, backup_check]
       facility_name:
         description: "事業所名（create_facility）"
         type: string
@@ -203,6 +203,14 @@ jobs:
                 python manage.py speech_check --sample --seconds 12
                 python manage.py speech_check --sample
                 python manage.py speech_check --sample --beam 1 ;;
+              login_log)
+                echo "== /accounts/login/ への送信（access.log、直近 7 日。302＝ログインできた・200＝画面に戻った（失敗・ロック）・403＝CSRF）=="
+                since=$(date -d '7 days ago' '+%Y-%m-%d' 2>/dev/null || echo 0000-00-00)
+                { grep -F 'POST /accounts/login/' logs/access.log 2>/dev/null || true; } \
+                  | awk -v s="$since" '{ if ($4 ~ /^\[/) { split($4, a, "[/:\\[]"); m["Jan"]="01";m["Feb"]="02";m["Mar"]="03";m["Apr"]="04";m["May"]="05";m["Jun"]="06";m["Jul"]="07";m["Aug"]="08";m["Sep"]="09";m["Oct"]="10";m["Nov"]="11";m["Dec"]="12"; d=a[4] "-" m[a[3]] "-" a[2]; if (d>=s) print d " " a[5] ":" a[6] " 応答=" $9 " " ($0 ~ /iPhone|iPad/ ? "iPhone/iPad" : $0 ~ /Android/ ? "Android" : $0 ~ /Windows/ ? "Windows" : $0 ~ /Macintosh/ ? "Mac" : "その他") "/" ($0 ~ /Edg/ ? "Edge" : $0 ~ /CriOS|Chrome/ ? "Chrome" : $0 ~ /Firefox/ ? "Firefox" : $0 ~ /Safari/ ? "Safari" : "不明") } }' \
+                  | tail -n 60
+                echo "== ログインの記録（直近 7 日。種類・端末・ユーザー名の違い） =="
+                python manage.py shell -v 0 -c "import datetime; from django.utils import timezone; from accounts.models import LoginEvent, StaffAccount; names = {u.username for u in StaffAccount.objects.all()}; lower = {n.lower(): n for n in names}; [print(timezone.localtime(e.created_at).strftime('%m-%d %H:%M'), e.get_kind_display(), '|', ('iPhone/iPad' if ('iPhone' in e.user_agent or 'iPad' in e.user_agent) else 'Android' if 'Android' in e.user_agent else 'Windows' if 'Windows' in e.user_agent else 'Mac' if 'Macintosh' in e.user_agent else 'その他'), '|', ('ユーザー名は登録どおり' if e.username in names else '大文字小文字・空白だけ違う' if e.username.strip().lower() in lower else '登録のないユーザー名' if e.username else '（ユーザー名なし）')) for e in LoginEvent.objects.filter(created_at__gte=timezone.now() - datetime.timedelta(days=7)).order_by('created_at')[:80]]" ;;
               speech_log)
                 # 音声の送信が届いているか。日時・応答・大きさ・端末の種類（iPhone/Android/Windows/Mac とブラウザ）だけを出す
                 echo "== /ai/transcribe/ への送信（access.log、直近 14 日） =="
