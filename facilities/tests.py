@@ -83,6 +83,14 @@ class SeedDemoCommandTests(TestCase):
         self.assertGreater(TransportProfile.objects.filter(beneficiary__facility=self.facility).count(), 3)
         self.assertEqual(DevelopmentAssessment.objects.filter(beneficiary__facility=self.facility).count(), 8)
         self.assertIn('5領域アセスメント', out.getvalue())
+        from beneficiaries.models import AssessmentSheet, FaceSheet
+        self.assertEqual(FaceSheet.objects.filter(beneficiary__facility=self.facility).count(), 4)
+        self.assertEqual(AssessmentSheet.objects.filter(beneficiary__facility=self.facility).count(), 8)
+        latest = AssessmentSheet.objects.filter(beneficiary__facility=self.facility).order_by('-date', 'pk').first()
+        self.assertTrue(latest.previous())
+        self.assertNotEqual(latest.items, latest.previous().items)   # 先月の用紙は前回から変わっている
+        face = FaceSheet.objects.filter(beneficiary__facility=self.facility).order_by('beneficiary__pk').first()
+        self.assertIn('電車', face.text())
         from surveys.models import SelfEvaluation, Survey, SurveyResponse
         self.assertEqual(Survey.objects.filter(facility=self.facility).count(), 2)
         self.assertEqual(SurveyResponse.objects.filter(survey__facility=self.facility).count(), 11)

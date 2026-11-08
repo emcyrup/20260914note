@@ -1,7 +1,7 @@
 {% extends 'custom_forms/pdf/_base.html' %}
 {% load sheet_extras %}
 {% block title %}アセスメントシート {{ beneficiary.full_name }}{% endblock %}
-{% block back_link %}<a class="outline" href="{% url 'beneficiaries:assessment_sheet_edit' beneficiary.pk sheet.pk %}">用紙の編集へ戻る</a>{% endblock %}
+{% block back_link %}{% if sheet.pk %}<a class="outline" href="{% url 'beneficiaries:assessment_sheet_edit' beneficiary.pk sheet.pk %}">用紙の編集へ戻る</a>{% else %}<a class="outline" href="{% url 'beneficiaries:detail' beneficiary.pk %}#owl-sheets">利用者情報へ戻る</a>{% endif %}{% endblock %}
 {% block body %}
 {# 紙のアセスメントシート（オウル）と同じ形：項目／状況（3 段階。該当に○）／本人の状態 #}
 <style>

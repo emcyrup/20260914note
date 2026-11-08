@@ -10,6 +10,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views import View
 
@@ -31,7 +32,7 @@ class ReportIndexView(LoginRequiredMixin, View):
                       desc=v['desc'].format(beneficiary=terms['beneficiary']), icon=v['icon'], filters=v['filters'])
                  for k, v in report_kinds(facility).items()]
         return render(request, 'reports/index.html', {
-            'kinds': kinds,
+            'kinds': kinds, 'sheets': bool(getattr(facility, 'use_dev_assessment', False)),
             'beneficiaries': Beneficiary.objects.filter(facility=facility).order_by('status', 'last_name_kana', 'first_name_kana'),
             'today': today, 'month_start': today.replace(day=1),
             'range_start': today - timedelta(days=90),
@@ -131,3 +132,30 @@ class ReportExportView(LoginRequiredMixin, View):
         response = HttpResponse(pdf, content_type='application/pdf')
         self._content_disposition(response, f'{report.key}.pdf', f'{report.filename}.pdf')
         return response
+
+
+class SheetPdfRedirectView(LoginRequiredMixin, View):
+    """
+    帳票出力の「用紙（PDF）」：利用者ごとのフェイスシート・アセスメントシートの PDF へ。
+    which=latest は最新の用紙（無ければ案内して戻る）、which=blank は空の用紙
+    """
+    KINDS = {
+        'face': ('face_sheets', 'beneficiaries:face_sheet_pdf', 'beneficiaries:face_sheet_blank_pdf', 'フェイスシート'),
+        'assess': ('assessment_sheets', 'beneficiaries:assessment_sheet_pdf', 'beneficiaries:assessment_sheet_blank_pdf', 'アセスメントシート'),
+    }
+
+    def get(self, request):
+        facility = request.user.facility
+        kind = self.KINDS.get(request.GET.get('sheet', ''))
+        if not kind or not getattr(facility, 'use_dev_assessment', False):
+            messages.error(request, '用紙の種類が正しくありません。')
+            return redirect('reports:index')
+        related, latest_name, blank_name, label = kind
+        b = get_object_or_404(Beneficiary, pk=to_int(request.GET.get('beneficiary'), -1), facility=facility)
+        if request.GET.get('which') == 'blank':
+            return redirect(reverse(blank_name, args=[b.pk]) + '?inline=1')
+        sheet = getattr(b, related).order_by('-date', '-pk').first()
+        if not sheet:
+            messages.info(request, f'{b.full_name} さんの{label}はまだありません。{get_terms(request.user)["beneficiary"]}情報から作るか、「空の用紙」を印刷してください。')
+            return redirect('reports:index')
+        return redirect(reverse(latest_name, args=[b.pk, sheet.pk]) + '?inline=1')

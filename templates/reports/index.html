@@ -74,6 +74,34 @@
     {% endfor %}
   </div>
 
+  {% if sheets %}
+  <div class="card mt-3" id="sheets">
+    <div class="card-body">
+      <div class="fw-bold mb-1"><i class="bi bi-file-earmark-text me-1" style="color:var(--lake-text);"></i>用紙（PDF）：フェイスシート・アセスメントシート</div>
+      <div class="small text-muted mb-3">{{ terms.beneficiary }}ごとの最新の用紙を A4 の PDF で出します。「空の用紙」は氏名などだけ入った用紙で、保護者に書いてもらうときや面談で○を付けるときに。用紙の作成・編集は{{ terms.beneficiary }}情報の画面から。</div>
+      <form method="get" action="{% url 'reports:sheet' %}" target="_blank" class="row g-2 align-items-end">
+        <div class="col-12 col-md-4">
+          <label class="form-label small fw-semibold mb-0">{{ terms.beneficiary }}</label>
+          <select name="beneficiary" class="form-select form-select-sm" required>
+            {% for b in beneficiaries %}<option value="{{ b.pk }}">{{ b.full_name }}{% if b.status != 'active' %}（{{ b.get_status_display }}）{% endif %}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-12 col-md-3">
+          <label class="form-label small fw-semibold mb-0">用紙</label>
+          <select name="sheet" class="form-select form-select-sm">
+            <option value="face">フェイスシート</option>
+            <option value="assess">アセスメントシート</option>
+          </select>
+        </div>
+        <div class="col-12 col-md-5 d-flex flex-wrap gap-1">
+          <button class="btn btn-sm btn-primary" name="which" value="latest"><i class="bi bi-file-earmark-pdf me-1"></i>最新の用紙 PDF</button>
+          <button class="btn btn-sm btn-outline-primary" name="which" value="blank"><i class="bi bi-printer me-1"></i>空の用紙 PDF</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
   <div class="small text-muted mt-3">
     個別支援計画書・モニタリング報告書の PDF は各計画の画面から、請求書・領収書・請求集計 CSV は「請求」メニューから出力できます。
   </div>

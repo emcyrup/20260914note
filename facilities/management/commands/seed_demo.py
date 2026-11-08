@@ -427,6 +427,7 @@ class Command(BaseCommand):
             counts.update(self._create_transport(facility, beneficiaries, today, rng))
         if getattr(facility, 'use_dev_assessment', False):
             counts.update(self._create_dev_assessments(facility, beneficiaries, staff, today, rng))
+            counts.update(self._create_owl_sheets(facility, beneficiaries, staff, today))
         if getattr(facility, 'use_survey', False):
             counts.update(self._create_surveys(facility, staff, today, rng))
         if getattr(facility, 'use_daily_ops', False):
@@ -617,6 +618,88 @@ class Command(BaseCommand):
                 )
                 n += 1
         return {'5領域アセスメント': n}
+
+    # ------------------------------------------------------------------
+    def _create_owl_sheets(self, facility, beneficiaries, staff, today):
+        """
+        オウルの用紙のサンプル（架空）：先頭 4 人にフェイスシート 1 枚（半年前の聞き取り）と
+        アセスメントシート 2 枚（半年前と先月。いくつかの項目が 1 段階良くなる）。PDF・前回との比べ・モニタリングの材料のデモ用
+        """
+        from beneficiaries.models import AssessmentSheet, FaceSheet
+        from beneficiaries.sheets import ASSESS_ITEMS, face_prefill
+        who = str(staff) if staff else '見本 職員'
+        faces = [
+            dict(sleep='21 時ごろ就寝、6 時半起床。寝つきは良い。添い寝は不要。', meal='白いご飯とからあげが好き。野菜は細かく刻めば食べる。スプーンとフォークを使う。',
+                 toilet='日中は自分でトイレに行く。夜はおむつ。自動で流れる便座の音が苦手。', dress='前後を間違えることがある。タグが当たるのを嫌がる。',
+                 grooming='歯磨きは仕上げ磨きが必要。爪切りは寝ている間に。', communication='二語文で要求できる。絵カードがあると理解が早い。',
+                 behavior='電車が好きで、時刻表を眺めている。大きな音が苦手。', problem='思い通りにならないと床に寝転ぶことがある。',
+                 motor='走るのが好き。ボール投げは片手。', social='大人とは関われる。友だちとは並行遊びが中心。',
+                 outing='手をつなげば歩ける。駐車場で急に走り出すことがある。', holiday='電車を見に行く。プラレール。',
+                 environment='初めての場所では固まるが、10 分ほどで動き出す。', strengths='数字と電車に詳しい。', wish_child='電車の運転士になりたい。',
+                 grow='自分の気持ちを言葉で伝える力。', wish_family='集団に慣れてほしい。就学に向けて見通しを持って動けるように。',
+                 other_services='相談支援事業所 サンプル（計画相談）'),
+            dict(sleep='22 時ごろ就寝。朝は起こさないと起きない。', meal='好き嫌いは少ない。食べるのが速く、よく噛まない。', toilet='自立。',
+                 dress='自分でできるが、気が散って途中で止まる。', grooming='手洗いは声かけが必要。', communication='おしゃべりが好き。話が飛ぶことがある。',
+                 behavior='思いついたらすぐ動く。待つのが苦手。', problem='順番を待てずに割り込むことがある。', motor='運動は得意。',
+                 social='友だちと遊びたい気持ちは強いが、トラブルになりやすい。', outing='信号で止まれる。', holiday='公園で走り回る。',
+                 environment='新しい場所でもすぐに動ける。', strengths='明るく元気。歌とダンスが好き。', wish_child='みんなと遊びたい。',
+                 grow='最後まで話を聞く力。', wish_family='友だちと仲良く遊べるようになってほしい。', other_services='放課後等デイサービス（週 1 回）'),
+            dict(sleep='20 時半就寝、6 時起床。', meal='偏食が強い。白いものしか食べない時期がある。箸は練習中。', toilet='自立。拭き残しあり。',
+                 dress='自分でできる。ボタンは時間がかかる。', grooming='歯磨きは一人でできる。', communication='単語と短い文。質問には単語で答える。',
+                 behavior='決まった順番にこだわる。', problem='予定が変わると泣く。', motor='はさみは一回切り。', social='年下の子にやさしい。',
+                 outing='一人で出て行くことはない。', holiday='絵本を読んでもらう。', environment='静かな場所を好む。',
+                 strengths='絵本をよく覚えている。', wish_child='（本人からの言葉はまだ）', grow='困ったときに助けを求める力。',
+                 wish_family='食べられるものが増えてほしい。', other_services='なし'),
+            dict(sleep='21 時就寝。夜中に起きることがある。', meal='何でも食べる。こぼしが多い。', toilet='自立。', dress='左右・裏表を間違える。',
+                 grooming='散髪を嫌がる。', communication='年齢相応に話せる。', behavior='手先を使うことを避けたがる。',
+                 problem='特になし。', motor='転びやすい。階段は手すりを使う。ボールを捕るのが苦手。', social='友だちとよく遊ぶ。',
+                 outing='歩くのが遅く、疲れやすい。', holiday='工作。粘土。', environment='新しい場所も平気。', strengths='工作が得意。絵が上手。',
+                 wish_child='なわとびができるようになりたい。', grow='体を使う自信。', wish_family='体育で困らないようになってほしい。',
+                 other_services='なし'),
+        ]
+        comm = [(['1', '5'], ['3', '5']), (['5'], ['5']), (['2', '5'], ['3', '5']), (['5'], ['5'])]
+        notes = {
+            'greeting': 'おはようは言える。', 'conversation': '二語文・三語文が出てきた。', 'wording': '不明瞭で伝わりにくいことがある。',
+            'cooperation': '集団の活動は見ていることが多い。', 'emotion': '思い通りにいかないと泣く。', 'assert': '伝わらないと手を引いて教える。',
+            'teamwork': '確認できていない。', 'peers': '園では友だちと並んで遊ぶ。', 'adults': '誰にでも話しかける。', 'guardians': '',
+            'rhythm': '夕方に寝ると夜が遅くなる。', 'mood': '切り替えに時間がかかる。', 'meal': '好き嫌いはあるが食べられる。',
+            'toilet': '出たら教えてくれる。', 'grooming': '裏返し・前後逆になる。', 'initiative': 'したいことは自分で持ってくる。',
+            'join_task': '用意された活動には参加できる。', 'prepare': '「片付けて」で箱に入れる。', 'dexterity': 'スプーンを使うが手でつかむことも。',
+            'instruction': '長い指示は 2 つまで。', 'focus': '1、2 日で飽きる。', 'switch': '納得すると切り替えられるが時間がかかる。',
+            'literacy': '線や渦巻きをかける。', 'math': '5 まで数えられる。',
+        }
+        n_face = n_assess = 0
+        for i, b in enumerate(beneficiaries[:4]):
+            data = face_prefill(b)
+            data['items'] = dict(faces[i])
+            data['comm_means'], data['comm_understand'] = comm[i]
+            age = today.year - b.date_of_birth.year - ((today.month, today.day) < (b.date_of_birth.month, b.date_of_birth.day))
+            if not data['head'].get('school'):
+                data['head']['school'] = '見本小学校' if age >= 7 else '見本保育園'
+                data['head']['grade'] = f'{min(age - 6, 6)} 年' if age >= 7 else '年長'
+            data['head'].update({'nickname': b.first_name + ('くん' if b.gender == 'male' else 'ちゃん'), 'blood': ['A', 'O', 'B', 'AB'][i],
+                                 'height': str(105 + i * 4), 'weight': str(17 + i * 2), 'notebook': ['療育手帳 B2', '手帳なし', '療育手帳 B1', '手帳なし'][i],
+                                 'hospital': '見本こども病院　主治医 見本先生', 'temp_normal': '36.5', 'temp_fever': '37.5',
+                                 'medicine': '定期薬なし', 'epilepsy': 'なし', 'allergy': ['なし', '卵（加熱すれば可）', 'なし', 'なし'][i],
+                                 'emergency_work_ok': 'はい', 'emergency_name_ok': 'はい'})
+            g = b.guardians.first()
+            data['family'] = [{'name': f'{g.last_name} {g.first_name}' if g else '', 'relation': '母' if (g and g.relation == 'mother') else '父',
+                               'birth': '（38）', 'job': '会社員', 'note': ''},
+                              {'name': f'{b.last_name} ○○', 'relation': '祖母', 'birth': '（66）', 'job': '', 'note': '同居'}]
+            data['contacts'] = [{'who': '母' if (g and g.relation == 'mother') else '父', 'where': '携帯', 'tel': g.phone if g else ''},
+                                {'who': '祖母', 'where': '自宅', 'tel': '075-000-0000'}]
+            FaceSheet.objects.create(beneficiary=b, date=today - datetime.timedelta(days=180), filled_by=who, data=data, created_by=staff)
+            n_face += 1
+            for when, step in ((today - datetime.timedelta(days=180), 0), (today - datetime.timedelta(days=30), 1)):
+                items = {}
+                for j, (key, _label, _levels, _g, _gl) in enumerate(ASSESS_ITEMS):
+                    level = 1 + ((i + j) % 3)                 # 1〜3 を散らす
+                    if step and (i + j) % 4 == 0 and level > 1:
+                        level -= 1                            # 先月の用紙は 4 項目に 1 つ、1 段階良くなる
+                    items[key] = {'level': level, 'note': notes.get(key, '')}
+                AssessmentSheet.objects.create(beneficiary=b, date=when, filled_by=who, items=items, created_by=staff)
+                n_assess += 1
+        return {'フェイスシート': n_face, 'アセスメントシート': n_assess}
 
     # ------------------------------------------------------------------
     def _create_planbook(self, facility, beneficiaries, staff, today):
