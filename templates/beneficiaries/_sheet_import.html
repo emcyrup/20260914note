@@ -1,0 +1,14 @@
+{# 手書きの用紙（PDF・写真）を AI で読み取って入力画面に流し込む欄。使い方：{% include 'beneficiaries/_sheet_import.html' with import_url=... import_label='フェイスシート' import_id='face' %} #}
+{% if ai_ready %}
+<form method="post" action="{{ import_url }}" enctype="multipart/form-data" class="sheet-import d-flex flex-wrap align-items-center gap-2 mt-2 p-2 rounded" style="background: var(--sand, #f6f3ec); border: 1px dashed var(--line, #d9d3c7);">
+  {% csrf_token %}
+  <span class="small fw-semibold"><i class="bi bi-magic me-1"></i>手書きの{{ import_label }}を読み取る</span>
+  <input type="file" name="files" id="sheet-files-{{ import_id }}" accept=".pdf,image/*" multiple class="form-control form-control-sm" style="max-width: 300px;" required>
+  <label class="btn btn-sm btn-outline-secondary mb-0 d-md-none" for="sheet-camera-{{ import_id }}" title="カメラで撮る"><i class="bi bi-camera"></i></label>
+  <input type="file" name="files" id="sheet-camera-{{ import_id }}" accept="image/*" capture="environment" class="d-none">
+  <button class="btn btn-sm btn-outline-primary" data-busy="読み取り中…"><i class="bi bi-file-earmark-arrow-up me-1"></i>読み取って入力画面へ</button>
+  <span class="small text-muted w-100">PDF 1 つ、または写真を何枚か（用紙の 1 枚目から順に選ぶ）。読み取った内容は入力画面に入るので、確かめてから保存します。</span>
+</form>
+{% else %}
+<p class="small text-muted mt-2 mb-0">手書きの用紙の読み取りは、AI を使う設定がサーバーに無いため使えません。</p>
+{% endif %}

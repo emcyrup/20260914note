@@ -23,7 +23,15 @@
 <div class="px-2" style="max-width: 1000px;">
   <nav class="small mb-2"><a href="{% url 'beneficiaries:list' %}">{{ terms.beneficiary }}情報</a> › <a href="{% url 'beneficiaries:detail' beneficiary.pk %}#owl-sheets">{{ beneficiary.full_name }}</a> › フェイスシート</nav>
 
-  <form method="post" {% if sheet.pk %}data-concurrency="face_sheet:{{ sheet.pk }}"{% endif %}{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
+  {% if not sheet.pk %}
+  <div class="fs-card">
+    <div class="fs-title" style="font-size:.95rem;">紙の用紙から作る</div>
+    <div class="fs-hint">保護者に手書きしてもらったフェイスシートの PDF や写真を読み取って、下の欄に入れます。{% if imported %}<b>読み取りずみ。</b>内容を確かめて「保存する」を押してください。{% if unreadable %}<br>AI が読めなかった・迷ったところ：{{ unreadable }}{% endif %}{% endif %}</div>
+    {% url 'beneficiaries:face_sheet_import' beneficiary.pk as face_import_url %}
+    {% include 'beneficiaries/_sheet_import.html' with import_url=face_import_url import_label='フェイスシート' import_id='face' %}
+  </div>
+  {% endif %}
+  <form method="post"{% if post_url %} action="{{ post_url }}"{% endif %} {% if sheet.pk %}data-concurrency="face_sheet:{{ sheet.pk }}"{% endif %}{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
     {% csrf_token %}{% if sheet.pk %}{% version_field sheet %}{% endif %}
     <div class="fs-card">
       <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
