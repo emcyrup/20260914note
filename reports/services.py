@@ -409,6 +409,33 @@ def _beneficiary_records_ryoiku(facility, beneficiary, start, end):
     )
 
 
+def daily_notes(facility, beneficiary, start, end):
+    """実施記録「本日の様子」（療育の事業所。2026-11-08 オウル：相談支援事業所や保護者に渡す形。
+    1 行 1 回で、支援内容（やったこと・ねらい）→ 本日の様子（記録と様子）→ 記録者）"""
+    from therapy.models import TherapyRecord
+    terms = _terms(facility)
+    records = list(TherapyRecord.objects.filter(facility=facility, beneficiary=beneficiary, date__range=(start, end))
+                   .select_related('staff').order_by('date', 'time', 'pk'))
+    rows = []
+    for r in records:
+        parts = []
+        acts = _activities_text(r.activities)
+        if acts:
+            parts.append('【支援内容】\n' + '\n'.join('・' + a for a in acts.split('・') if a))
+        body = '\n'.join(x for x in (r.body, r.situation) if x)
+        parts.append('【本日の様子】\n' + (body or '（記録なし）'))
+        rows.append([fmt_date(r.date) + (f'\n{fmt_time(r.time)}' if r.time else ''), facility.name, '\n'.join(parts), r.staff_label])
+    return Report(
+        key='daily_notes', title='本日の様子',
+        subtitle=f'利用サービス：児童発達支援　　{terms["beneficiary"]}名（ {beneficiary.full_name} ）',
+        meta=[('期間', f'{fmt_date(start)} 〜 {fmt_date(end)}'), ('件数', f'{len(records)} 件')],
+        columns=['日付', '施設', '本日の様子', '記録者名'],
+        rows=rows, landscape=False,
+        filename=f'実施記録_{beneficiary.full_name}_{start.strftime("%Y%m%d")}-{end.strftime("%Y%m%d")}',
+        widths=[11, 14, 61, 14],
+    )
+
+
 # =============================================
 # 5. 利用者名簿
 # =============================================
@@ -470,7 +497,7 @@ def plan_list(facility, status='all'):
 
 def report_kinds(facility):
     """帳票の一覧（療育の事業所は、日誌 → 療育記録、予定表 → 予約 の言い方に）"""
-    kinds = {k: dict(v) for k, v in REPORT_KINDS.items()}
+    kinds = {k: dict(v) for k, v in REPORT_KINDS.items() if not v.get('therapy_only') or uses_therapy(facility)}
     if uses_therapy(facility):
         kinds['beneficiary_records'].update(title='療育記録一覧', desc='{beneficiary}ごとに、期間内の療育記録（時刻・担当・やったこと・記録・様子）を時系列で並べます。モニタリングや相談支援事業所への提出に。')
         kinds['daily_journal'].update(title='業務日誌（日別）', desc='その日の療育記録（時刻・担当・やったこと・記録・様子）を{beneficiary}ごとに 1 枚にまとめます。')
@@ -494,6 +521,7 @@ REPORT_KINDS = {
     'attendance_summary':  {'title': '出欠・利用実績一覧', 'desc': '在籍中の{beneficiary}全員の、その月の予定・来所・欠席・振替・送迎回数・日誌作成数・請求状況を一覧にします。', 'icon': 'bi-table', 'filters': ['month']},
     'daily_journal':       {'title': '業務日誌（日別）', 'desc': 'その日に来所した{beneficiary}の入退室・体調・活動・観察・支援・反応を1枚にまとめます。', 'icon': 'bi-journal-text', 'filters': ['date']},
     'beneficiary_records': {'title': '支援記録（日誌）一覧', 'desc': '{beneficiary}ごとに、期間内の日誌（観点のはい／いいえ、観察・支援・反応・考察）を時系列で並べます。モニタリングや相談支援事業所への提出に。', 'icon': 'bi-journal-richtext', 'filters': ['beneficiary', 'range']},
+    'daily_notes':         {'title': '実施記録（本日の様子）', 'desc': '{beneficiary}ごとに、期間内の療育記録を「支援内容（やったこと・ねらい）」「本日の様子」「記録者」の形で日付順に並べます（相談支援事業所・保護者へ渡す実施記録）。', 'icon': 'bi-card-text', 'filters': ['beneficiary', 'range'], 'therapy_only': True},
     'beneficiary_roster':  {'title': '{beneficiary}名簿', 'desc': '基本情報・利用曜日・保護者連絡先・受給者証（番号・有効期間・支給量・上限月額）の一覧です。', 'icon': 'bi-people', 'filters': ['include_inactive']},
     'plan_list':           {'title': '個別支援計画一覧', 'desc': '計画の状態・現在のステップ・計画期間・次回モニタリング期限の一覧です。', 'icon': 'bi-diagram-3', 'filters': ['plan_status']},
 }

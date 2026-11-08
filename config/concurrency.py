@@ -40,6 +40,8 @@ KINDS = {
     'therapy_profile':  ('therapy.TherapyProfile', 'beneficiary__facility'),
     'therapy_record':   ('therapy.TherapyRecord', 'facility'),
     'minutes':          ('minutes.Minutes', 'facility'),
+    'face_sheet':       ('beneficiaries.FaceSheet', 'beneficiary__facility'),
+    'assessment_sheet': ('beneficiaries.AssessmentSheet', 'beneficiary__facility'),
     'monthly_request':  ('reservations.MonthlyRequest', 'facility'),
     'staff_shift':      ('reservations.StaffShift', 'facility'),
     'beneficiary_assessment': ('beneficiaries.BeneficiaryAssessment', 'beneficiary__facility'),
