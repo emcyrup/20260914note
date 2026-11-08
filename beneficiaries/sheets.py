@@ -7,6 +7,7 @@
 
 どちらも値は JSON に入れる（用紙の項目の増減で移行が要らないように）。項目の定義はここにまとめ、画面・PDF・AI の材料で共有する。
 """
+import re
 
 # ---------------------------------------------------------------- フェイスシート
 # 聞き取りの項目（key, 見出し, 用紙のかっこ書き）
@@ -91,13 +92,26 @@ def face_prefill(beneficiary):
     return {'head': head, 'items': {}, 'family': [], 'contacts': [], 'comm_means': [], 'comm_understand': []}
 
 
-def face_text(sheet):
-    """AI の材料・検索に使う「項目：値」の文（空の項目は出さない）"""
+# AI の材料には出さない項目（連絡先・住所・氏名。計画やモニタリングの要約に要らないので渡さない）
+FACE_PRIVATE_KEYS = {'guardian', 'postal', 'address', 'tel', 'emergency_work_ok', 'emergency_name_ok'}
+_TEL_RE = re.compile(r'(?:TEL|℡|電話)?[\s：:]*\d{2,5}[-－‐]\d{1,4}[-－‐]\d{3,4}')
+
+
+def face_text(sheet, for_ai=False):
+    """
+    「項目：値」の文（空の項目は出さない）。for_ai=True は AI の材料用：連絡先・住所・保護者氏名を省き、文中の電話番号も消す
+    """
     d = sheet.data or {}
     out = []
     for k, label in FACE_HEAD:
+        if for_ai and k in FACE_PRIVATE_KEYS:
+            continue
         v = (d.get('head') or {}).get(k)
         if v:
+            if for_ai:
+                v = _TEL_RE.sub('', str(v)).strip(' 　')
+                if not v:
+                    continue
             out.append(f'{label}：{v}')
     means = [l for v, l in COMM_MEANS if v in (d.get('comm_means') or [])]
     under = [l for v, l in COMM_UNDERSTAND if v in (d.get('comm_understand') or [])]
@@ -173,3 +187,23 @@ def assess_text(sheet):
         word = dict(r['levels']).get(r['level'], '')
         out.append(f'{r["group_label"]}・{r["label"]}：{word}' + (f'／{r["note"]}' if r['note'] else ''))
     return '\n'.join(out)
+
+
+def assess_changes(sheet, previous):
+    """
+    前回のシートからの変化（AI のモニタリングの材料・画面用）。戻り値 (良くなった項目の一覧, 下がった項目の一覧)。
+    各要素は '対人関係・会話：あまり出来ない → 状況に応じて出来る' の形
+    """
+    if previous is None:
+        return [], []
+    better, worse = [], []
+    for r in assess_rows(sheet, previous):
+        cur, prev = r['level'], r['prev_level']
+        if cur is None or prev is None or cur == prev:
+            continue
+        words = dict(r['levels'])
+        line = f'{r["group_label"]}・{r["label"]}：{words.get(prev, prev)} → {words.get(cur, cur)}'
+        if r['note']:
+            line += f'（{r["note"]}）'
+        (better if cur < prev else worse).append(line)
+    return better, worse

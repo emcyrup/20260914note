@@ -684,9 +684,9 @@ class FaceSheet(models.Model):
     def __str__(self):
         return f'{self.beneficiary} フェイスシート {self.date}'
 
-    def text(self):
+    def text(self, for_ai=False):
         from . import sheets
-        return sheets.face_text(self)
+        return sheets.face_text(self, for_ai=for_ai)
 
     def previous(self):
         return FaceSheet.objects.filter(beneficiary=self.beneficiary, date__lte=self.date).exclude(pk=self.pk).order_by('-date', '-pk').first()
