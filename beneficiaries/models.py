@@ -666,6 +666,66 @@ class DevelopmentAssessment(models.Model):
                 .order_by('-date', '-pk').first())
 
 
+class FaceSheet(models.Model):
+    """フェイスシート（児童発達支援・保育所等訪問支援。オウル。紙の用紙と同じ項目。中身は beneficiaries/sheets.py）"""
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='face_sheets', verbose_name='利用者')
+    date = models.DateField(verbose_name='記入日')
+    filled_by = models.CharField(max_length=50, blank=True, verbose_name='記入者')
+    data = models.JSONField(default=dict, blank=True, verbose_name='内容')   # {'head': {...}, 'items': {...}, 'family': [...], 'contacts': [...], 'comm_means': [...], 'comm_understand': [...]}
+    created_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'フェイスシート'
+        verbose_name_plural = 'フェイスシート'
+        ordering = ['-date', '-pk']
+
+    def __str__(self):
+        return f'{self.beneficiary} フェイスシート {self.date}'
+
+    def text(self):
+        from . import sheets
+        return sheets.face_text(self)
+
+    def previous(self):
+        return FaceSheet.objects.filter(beneficiary=self.beneficiary, date__lte=self.date).exclude(pk=self.pk).order_by('-date', '-pk').first()
+
+
+class AssessmentSheet(models.Model):
+    """アセスメントシート（オウル。対人関係・生活面・学習面を 3 段階と本人の状態で。中身は beneficiaries/sheets.py）"""
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='assessment_sheets', verbose_name='利用者')
+    date = models.DateField(verbose_name='記入日')
+    filled_by = models.CharField(max_length=50, blank=True, verbose_name='記入者')
+    items = models.JSONField(default=dict, blank=True, verbose_name='項目')   # {key: {'level': 1〜3 か None, 'note': 本人の状態}}
+    created_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'アセスメントシート'
+        verbose_name_plural = 'アセスメントシート'
+        ordering = ['-date', '-pk']
+
+    def __str__(self):
+        return f'{self.beneficiary} アセスメントシート {self.date}'
+
+    def text(self):
+        from . import sheets
+        return sheets.assess_text(self)
+
+    def previous(self):
+        return AssessmentSheet.objects.filter(beneficiary=self.beneficiary, date__lte=self.date).exclude(pk=self.pk).order_by('-date', '-pk').first()
+
+    def marks(self):
+        """一覧に出す印：段階ごとの数（1／2／3）"""
+        counts = {1: 0, 2: 0, 3: 0}
+        for v in (self.items or {}).values():
+            if v.get('level') in counts:
+                counts[v['level']] += 1
+        return counts
+
+
 class DevelopmentTest(models.Model):
     """
     発達検査・知能検査の結果（新版K式・遠城寺式・KIDS・WISC など）。

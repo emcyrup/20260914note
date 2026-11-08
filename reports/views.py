@@ -82,6 +82,12 @@ class ReportExportView(LoginRequiredMixin, View):
             if start > end:
                 start, end = end, start
             report = services.beneficiary_records(facility, beneficiary, start, end)
+        elif kind == 'daily_notes':
+            start = _parse_date(p.get('start'), today - timedelta(days=90))
+            end = _parse_date(p.get('end'), today)
+            if start > end:
+                start, end = end, start
+            report = services.daily_notes(facility, beneficiary, start, end)
         elif kind == 'beneficiary_roster':
             report = services.beneficiary_roster(facility, include_inactive=p.get('include_inactive') == '1')
         else:

@@ -131,6 +131,14 @@ def ledger_text(beneficiary):
         if sheet.wishes_child or sheet.wishes_family:
             parts.append('■ 5領域アセスメントの希望\n' + '\n'.join(x for x in (f'本人：{sheet.wishes_child}' if sheet.wishes_child else '',
                                                                            f'家族：{sheet.wishes_family}' if sheet.wishes_family else '') if x))
+    # オウルの用紙（フェイスシート・アセスメントシート。最新 1 枚ずつ）
+    from beneficiaries.models import AssessmentSheet, FaceSheet
+    face = FaceSheet.objects.filter(beneficiary=beneficiary).order_by('-date', '-pk').first()
+    if face and face.text():
+        parts.append(f'■ フェイスシート {_ymd(face.date)}\n{face.text()[:2500]}')
+    asheet = AssessmentSheet.objects.filter(beneficiary=beneficiary).order_by('-date', '-pk').first()
+    if asheet and asheet.text():
+        parts.append(f'■ アセスメントシート {_ymd(asheet.date)}（出来る／あまり出来ない／ほとんど出来ない と本人の状態）\n{asheet.text()[:2500]}')
     if uses_therapy(beneficiary):
         from therapy.models import TherapyProfile
         profile = TherapyProfile.objects.filter(beneficiary=beneficiary).first()
@@ -151,7 +159,7 @@ def collect(beneficiary, start, end, limit=RECORDS_MAX, exclude_consultation=Non
     ledger = ledger_text(b)
     sources = []
     if ledger:
-        sources.append('アセスメント・5領域・留意点')
+        sources.append('アセスメント・5領域・フェイスシート・アセスメントシート・留意点')
     if service_plan:
         sources.append('サービス等利用計画')
     if documents:
