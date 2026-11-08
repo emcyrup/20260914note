@@ -7,4 +7,5 @@ app_name = 'reports'
 urlpatterns = [
     path('', views.ReportIndexView.as_view(), name='index'),
     path('export/', views.ReportExportView.as_view(), name='export'),
+    path('sheet/', views.SheetPdfRedirectView.as_view(), name='sheet'),
 ]
