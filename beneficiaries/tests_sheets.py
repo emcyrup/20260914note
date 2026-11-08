@@ -134,6 +134,35 @@ class OwlSheetsTests(TestCase):
         self.assertIn('アセスメントシートの前回からの変化', m['sources'])
         self.assertIn('【アセスメントシートの変化', material.prompt_blocks(m))
 
+    def test_blank_pdfs_and_report_links(self):
+        # 空の用紙（氏名・所属は台帳から）
+        res = self.client.get(reverse('beneficiaries:face_sheet_blank_pdf', args=[self.kid.pk]), {'fmt': 'html'})
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, '見本 太郎')
+        self.assertContains(res, '見本保育園')
+        self.assertContains(res, '利用者情報へ戻る')
+        res = self.client.get(reverse('beneficiaries:assessment_sheet_blank_pdf', args=[self.kid.pk]), {'fmt': 'html'})
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, '挨拶')
+        self.assertNotContains(res, 'class="on"')
+        res = self.client.get(reverse('beneficiaries:face_sheet_blank_pdf', args=[self.kid.pk]))
+        self.assertEqual(res['Content-Type'], 'application/pdf')
+        # 帳票出力の「用紙（PDF）」：まだ無ければ案内、空の用紙へ、あれば最新へ
+        self.f.use_reports = True
+        self.f.save()
+        res = self.client.get(reverse('reports:index'))
+        self.assertContains(res, '用紙（PDF）：フェイスシート・アセスメントシート')
+        res = self.client.get(reverse('reports:sheet'), {'beneficiary': self.kid.pk, 'sheet': 'face', 'which': 'latest'})
+        self.assertRedirects(res, reverse('reports:index'))
+        res = self.client.get(reverse('reports:sheet'), {'beneficiary': self.kid.pk, 'sheet': 'assess', 'which': 'blank'})
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(res['Location'], reverse('beneficiaries:assessment_sheet_blank_pdf', args=[self.kid.pk]) + '?inline=1')
+        sheet = FaceSheet.objects.create(beneficiary=self.kid, date=datetime.date(2026, 7, 3), data={'head': {}, 'items': {}})
+        res = self.client.get(reverse('reports:sheet'), {'beneficiary': self.kid.pk, 'sheet': 'face', 'which': 'latest'})
+        self.assertEqual(res['Location'], reverse('beneficiaries:face_sheet_pdf', args=[self.kid.pk, sheet.pk]) + '?inline=1')
+        res = self.client.get(reverse('reports:sheet'), {'beneficiary': self.kid.pk, 'sheet': 'xxx'})
+        self.assertRedirects(res, reverse('reports:index'))
+
     def test_hidden_when_feature_off(self):
         self.f.use_dev_assessment = False
         self.f.save(update_fields=['use_dev_assessment'])

@@ -1,7 +1,7 @@
 {% extends 'custom_forms/pdf/_base.html' %}
 {% load sheet_extras %}
 {% block title %}フェイスシート {{ beneficiary.full_name }}{% endblock %}
-{% block back_link %}<a class="outline" href="{% url 'beneficiaries:face_sheet_edit' beneficiary.pk sheet.pk %}">用紙の編集へ戻る</a>{% endblock %}
+{% block back_link %}{% if sheet.pk %}<a class="outline" href="{% url 'beneficiaries:face_sheet_edit' beneficiary.pk sheet.pk %}">用紙の編集へ戻る</a>{% else %}<a class="outline" href="{% url 'beneficiaries:detail' beneficiary.pk %}#owl-sheets">利用者情報へ戻る</a>{% endif %}{% endblock %}
 {% block body %}
 {# 紙のフェイスシート（児童発達支援・保育所等訪問支援）と同じ並び。1 枚目：基本情報、2〜4 枚目：聞き取りの項目 #}
 <style>

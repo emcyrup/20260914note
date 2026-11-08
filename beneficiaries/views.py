@@ -1601,20 +1601,35 @@ class FaceSheetFormView(DevAssessmentMixin, View):
         return redirect('beneficiaries:face_sheet_edit', beneficiary_pk, a.pk)
 
 
+def _face_pdf(request, b, a, filename):
+    """フェイスシートの PDF（保存ずみの用紙でも、空の用紙でも同じ形）"""
+    from . import sheets
+    d = a.data or {}
+    return pdf_or_html(request, 'beneficiaries/pdf/face_sheet.html', {
+        'facility': request.user.facility, 'beneficiary': b, 'sheet': a, 'd': d, 'h': d.get('head') or {}, 'it': d.get('items') or {},
+        'head_labels': sheets.FACE_HEAD_LABELS, 'items': sheets.FACE_ITEMS,
+        'family': (d.get('family') or []) + [{}] * max(0, sheets.FAMILY_ROWS - len(d.get('family') or [])),
+        'contacts': (d.get('contacts') or []) + [{}] * max(0, sheets.CONTACT_ROWS - len(d.get('contacts') or [])),
+        'comm_means': [(v, l, v in (d.get('comm_means') or [])) for v, l in sheets.COMM_MEANS],
+        'comm_understand': [(v, l, v in (d.get('comm_understand') or [])) for v, l in sheets.COMM_UNDERSTAND],
+        'age': _age_on(b.date_of_birth, a.date),
+    }, filename)
+
+
 class FaceSheetPdfView(DevAssessmentMixin, View):
     def get(self, request, beneficiary_pk, sheet_pk):
-        from . import sheets
         b, a = _face_or_404(request, beneficiary_pk, sheet_pk)
-        d = a.data or {}
-        return pdf_or_html(request, 'beneficiaries/pdf/face_sheet.html', {
-            'facility': request.user.facility, 'beneficiary': b, 'sheet': a, 'd': d, 'h': d.get('head') or {}, 'it': d.get('items') or {},
-            'head_labels': sheets.FACE_HEAD_LABELS, 'items': sheets.FACE_ITEMS,
-            'family': (d.get('family') or []) + [{}] * max(0, sheets.FAMILY_ROWS - len(d.get('family') or [])),
-            'contacts': (d.get('contacts') or []) + [{}] * max(0, sheets.CONTACT_ROWS - len(d.get('contacts') or [])),
-            'comm_means': [(v, l, v in (d.get('comm_means') or [])) for v, l in sheets.COMM_MEANS],
-            'comm_understand': [(v, l, v in (d.get('comm_understand') or [])) for v, l in sheets.COMM_UNDERSTAND],
-            'age': _age_on(b.date_of_birth, a.date),
-        }, f'フェイスシート_{b.full_name}_{a.date:%Y%m%d}')
+        return _face_pdf(request, b, a, f'フェイスシート_{b.full_name}_{a.date:%Y%m%d}')
+
+
+class FaceSheetBlankPdfView(DevAssessmentMixin, View):
+    """空のフェイスシート（氏名・所属・住所などは台帳から入る。保護者に手書きしてもらう・面談で書き込む用）"""
+
+    def get(self, request, beneficiary_pk):
+        from . import sheets
+        b = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        a = FaceSheet(beneficiary=b, date=datetime.date.today(), filled_by='', data=sheets.face_prefill(b))
+        return _face_pdf(request, b, a, f'フェイスシート_空欄_{b.full_name}')
 
 
 class FaceSheetDeleteView(DevAssessmentMixin, View):
@@ -1676,21 +1691,35 @@ class AssessmentSheetFormView(DevAssessmentMixin, View):
         return redirect('beneficiaries:assessment_sheet_edit', beneficiary_pk, a.pk)
 
 
+def _assess_pdf(request, b, a, filename):
+    """アセスメントシートの PDF（保存ずみの用紙でも、空の用紙でも同じ形）"""
+    from . import sheets
+    previous = a.previous() if a.pk else None
+    rows = sheets.assess_rows(a, previous)
+    # 紙と同じく 2 枚：1 枚目は対人関係、2 枚目は生活面・学習面。グループの縦見出しの行数をページごとに数える
+    parts = [[r for r in rows if r['group'] == 'social'], [r for r in rows if r['group'] != 'social']]
+    for part in parts:
+        for r in part:
+            r['group_count'] = sum(1 for x in part if x['group'] == r['group'])
+    return pdf_or_html(request, 'beneficiaries/pdf/assessment_sheet.html', {
+        'facility': request.user.facility, 'beneficiary': b, 'sheet': a, 'previous': previous,
+        'parts': parts, 'age': _age_on(b.date_of_birth, a.date),
+    }, filename)
+
+
 class AssessmentSheetPdfView(DevAssessmentMixin, View):
     def get(self, request, beneficiary_pk, sheet_pk):
-        from . import sheets
         b, a = _asheet_or_404(request, beneficiary_pk, sheet_pk)
-        previous = a.previous()
-        rows = sheets.assess_rows(a, previous)
-        # 紙と同じく 2 枚：1 枚目は対人関係、2 枚目は生活面・学習面。グループの縦見出しの行数をページごとに数える
-        parts = [[r for r in rows if r['group'] == 'social'], [r for r in rows if r['group'] != 'social']]
-        for part in parts:
-            for r in part:
-                r['group_count'] = sum(1 for x in part if x['group'] == r['group'])
-        return pdf_or_html(request, 'beneficiaries/pdf/assessment_sheet.html', {
-            'facility': request.user.facility, 'beneficiary': b, 'sheet': a, 'previous': previous,
-            'parts': parts, 'age': _age_on(b.date_of_birth, a.date),
-        }, f'アセスメントシート_{b.full_name}_{a.date:%Y%m%d}')
+        return _assess_pdf(request, b, a, f'アセスメントシート_{b.full_name}_{a.date:%Y%m%d}')
+
+
+class AssessmentSheetBlankPdfView(DevAssessmentMixin, View):
+    """空のアセスメントシート（項目と 3 段階の言い方だけ。面談で○を付けて書き込む用）"""
+
+    def get(self, request, beneficiary_pk):
+        b = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        a = AssessmentSheet(beneficiary=b, date=datetime.date.today(), filled_by='', items={})
+        return _assess_pdf(request, b, a, f'アセスメントシート_空欄_{b.full_name}')
 
 
 class AssessmentSheetDeleteView(DevAssessmentMixin, View):
