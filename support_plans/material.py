@@ -134,8 +134,8 @@ def ledger_text(beneficiary):
     # オウルの用紙（フェイスシート・アセスメントシート。最新 1 枚ずつ）
     from beneficiaries.models import AssessmentSheet, FaceSheet
     face = FaceSheet.objects.filter(beneficiary=beneficiary).order_by('-date', '-pk').first()
-    if face and face.text():
-        parts.append(f'■ フェイスシート {_ymd(face.date)}\n{face.text()[:2500]}')
+    if face and face.text(for_ai=True):
+        parts.append(f'■ フェイスシート {_ymd(face.date)}（連絡先・住所は省く）\n{face.text(for_ai=True)[:2500]}')
     asheet = AssessmentSheet.objects.filter(beneficiary=beneficiary).order_by('-date', '-pk').first()
     if asheet and asheet.text():
         parts.append(f'■ アセスメントシート {_ymd(asheet.date)}（出来る／あまり出来ない／ほとんど出来ない と本人の状態）\n{asheet.text()[:2500]}')
@@ -147,19 +147,47 @@ def ledger_text(beneficiary):
     return '\n\n'.join(parts)
 
 
+def sheet_changes_text(beneficiary, start, end):
+    """
+    期間内に記入したアセスメントシートの、前回からの変化（モニタリングの材料）。
+    '■ アセスメントシートの変化 前回 2026/4/1 → 今回 2026/10/1' に続けて、良くなった項目・下がった項目を並べる。無ければ ''
+    """
+    from beneficiaries.models import AssessmentSheet
+    from beneficiaries.sheets import assess_changes
+    sheet = AssessmentSheet.objects.filter(beneficiary=beneficiary, date__range=(start, end)).order_by('-date', '-pk').first()
+    if not sheet:
+        return ''
+    prev = sheet.previous()
+    if not prev:
+        return ''
+    better, worse = assess_changes(sheet, prev)
+    if not (better or worse):
+        return f'■ アセスメントシートの変化 前回 {_ymd(prev.date)} → 今回 {_ymd(sheet.date)}\n3 段階の評価に変わった項目はありません'
+    lines = [f'■ アセスメントシートの変化 前回 {_ymd(prev.date)} → 今回 {_ymd(sheet.date)}']
+    if better:
+        lines.append('良くなった項目：\n' + '\n'.join('- ' + x for x in better[:20]))
+    if worse:
+        lines.append('下がった項目：\n' + '\n'.join('- ' + x for x in worse[:20]))
+    return '\n'.join(lines)
+
+
 def collect(beneficiary, start, end, limit=RECORDS_MAX, exclude_consultation=None):
     """
     材料をまとめる。戻り値 dict：
       head（利用者の 1 行）、ledger（アセスメント・5領域・留意点）、service_plan（相談支援のサービス等利用計画）、
-      documents（そのほかの書類）、lines（記録の Line の一覧）、kind（記録の種類名）、sources（使ったものの一覧。画面の文に）
+      documents（そのほかの書類）、lines（記録の Line の一覧）、kind（記録の種類名）、
+      changes（期間内のアセスメントシートの前回からの変化。モニタリング用）、sources（使ったものの一覧。画面の文に）
     """
     b = beneficiary
     lines, kind = record_lines(b, start, end, limit)
     service_plan, documents = documents_text(b, exclude_consultation)
     ledger = ledger_text(b)
+    changes = sheet_changes_text(b, start, end)
     sources = []
     if ledger:
         sources.append('アセスメント・5領域・フェイスシート・アセスメントシート・留意点')
+    if changes:
+        sources.append('アセスメントシートの前回からの変化')
     if service_plan:
         sources.append('サービス等利用計画')
     if documents:
@@ -172,7 +200,7 @@ def collect(beneficiary, start, end, limit=RECORDS_MAX, exclude_consultation=Non
         age = f'{today.year - b.date_of_birth.year - ((today.month, today.day) < (b.date_of_birth.month, b.date_of_birth.day))} 歳'
     head = f'{b.full_name}（{b.date_of_birth} 生 {age}、{b.disability_type or "障害種別未記入"}）'
     return {'head': head, 'ledger': ledger, 'service_plan': service_plan, 'documents': documents,
-            'lines': lines, 'kind': kind, 'sources': sources}
+            'lines': lines, 'kind': kind, 'changes': changes, 'sources': sources}
 
 
 def prompt_blocks(m, start=None, end=None):
@@ -184,6 +212,8 @@ def prompt_blocks(m, start=None, end=None):
         parts.append('【相談支援事業所のサービス等利用計画（個別支援計画はこれに沿う）】\n' + m['service_plan'])
     if m['documents']:
         parts.append('【書類から分かっていること】\n' + m['documents'])
+    if m.get('changes'):
+        parts.append('【アセスメントシートの変化（3 段階の評価が前回から変わった項目）】\n' + m['changes'])
     if m['lines']:
         period = f'{start} 〜 {end}' if start and end else ''
         parts.append(f'【{m["kind"]}】{period}（{len(m["lines"])} 件、新しい順）\n' + '\n'.join(x.line() for x in m['lines']))
