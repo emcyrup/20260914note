@@ -496,6 +496,59 @@
     </div>
     {% endif %}
 
+    {% if features.dev_assessment %}
+    <!-- オウルの用紙：フェイスシート・アセスメントシート（2026-11-08） -->
+    <div class="col-12" id="owl-sheets">
+      <div class="info-card">
+        <div class="row g-3">
+          <div class="col-12 col-lg-6">
+            <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
+              <div>
+                <div class="section-title mb-0">フェイスシート</div>
+                <div class="small text-muted">児童発達支援・保育所等訪問支援の聞き取り用紙（基本情報・家族・緊急連絡先・診断・医療・睡眠〜家族の願い）。A4 で印刷できます。</div>
+              </div>
+              <div class="d-flex gap-2">
+                {% if face_sheets %}<a href="{% url 'beneficiaries:face_sheet_create' beneficiary.pk %}?copy=1" class="btn btn-sm btn-outline-primary" title="前回の内容を写した状態で新しい用紙を始めます"><i class="bi bi-files me-1"></i>前回を写して作る</a>{% endif %}
+                <a href="{% url 'beneficiaries:face_sheet_create' beneficiary.pk %}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>新しく作る</a>
+              </div>
+            </div>
+            {% for a in face_sheets %}
+            <div class="d-flex justify-content-between align-items-center gap-2 py-2 {% if not forloop.first %}border-top{% endif %}">
+              <div><a href="{% url 'beneficiaries:face_sheet_edit' beneficiary.pk a.pk %}" class="fw-semibold text-decoration-none">{{ a.date|date:'Y年n月j日' }}</a>{% if a.filled_by %}<span class="small text-muted ms-1">{{ a.filled_by }}</span>{% endif %}</div>
+              <div class="d-flex gap-1 flex-shrink-0">
+                <a href="{% url 'beneficiaries:face_sheet_edit' beneficiary.pk a.pk %}" class="btn btn-sm btn-outline-secondary" title="開く・直す"><i class="bi bi-pencil"></i></a>
+                <a href="{% url 'beneficiaries:face_sheet_pdf' beneficiary.pk a.pk %}?inline=1" target="_blank" class="btn btn-sm btn-outline-secondary" title="A4 の用紙（PDF）"><i class="bi bi-printer"></i></a>
+              </div>
+            </div>
+            {% empty %}<p class="text-muted small mb-0">まだありません。「新しく作る」と、住所・電話・所属・保護者は{{ terms.beneficiary }}情報から入ります。</p>{% endfor %}
+          </div>
+          <div class="col-12 col-lg-6">
+            <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
+              <div>
+                <div class="section-title mb-0">アセスメントシート</div>
+                <div class="small text-muted">対人関係・生活面・学習面を 3 段階（出来る／あまり出来ない／ほとんど出来ない）と「本人の状態」で。A4 で印刷できます。</div>
+              </div>
+              <div class="d-flex gap-2">
+                {% if assessment_sheets %}<a href="{% url 'beneficiaries:assessment_sheet_create' beneficiary.pk %}?copy=1" class="btn btn-sm btn-outline-primary" title="前回の段階と文章を写した状態で新しい用紙を始めます"><i class="bi bi-files me-1"></i>前回を写して作る</a>{% endif %}
+                <a href="{% url 'beneficiaries:assessment_sheet_create' beneficiary.pk %}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>新しく作る</a>
+              </div>
+            </div>
+            {% for a in assessment_sheets %}
+            <div class="d-flex justify-content-between align-items-center gap-2 py-2 {% if not forloop.first %}border-top{% endif %}">
+              <div><a href="{% url 'beneficiaries:assessment_sheet_edit' beneficiary.pk a.pk %}" class="fw-semibold text-decoration-none">{{ a.date|date:'Y年n月j日' }}</a>{% if a.filled_by %}<span class="small text-muted ms-1">{{ a.filled_by }}</span>{% endif %}
+                {% with m=a.marks %}<span class="small text-muted ms-2">出来る {{ m.1 }}・あまり {{ m.2 }}・ほとんど {{ m.3 }}</span>{% endwith %}</div>
+              <div class="d-flex gap-1 flex-shrink-0">
+                <a href="{% url 'beneficiaries:assessment_sheet_edit' beneficiary.pk a.pk %}" class="btn btn-sm btn-outline-secondary" title="開く・直す"><i class="bi bi-pencil"></i></a>
+                <a href="{% url 'beneficiaries:assessment_sheet_pdf' beneficiary.pk a.pk %}?inline=1" target="_blank" class="btn btn-sm btn-outline-secondary" title="A4 の用紙（PDF）"><i class="bi bi-printer"></i></a>
+              </div>
+            </div>
+            {% empty %}<p class="text-muted small mb-0">まだありません。</p>{% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     <!-- アセスメント・資料 -->
     <div class="col-12" id="assessments">
       <div class="info-card">

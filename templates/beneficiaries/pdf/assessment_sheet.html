@@ -1,0 +1,46 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% load sheet_extras %}
+{% block title %}アセスメントシート {{ beneficiary.full_name }}{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'beneficiaries:assessment_sheet_edit' beneficiary.pk sheet.pk %}">用紙の編集へ戻る</a>{% endblock %}
+{% block body %}
+{# 紙のアセスメントシート（オウル）と同じ形：項目／状況（3 段階。該当に○）／本人の状態 #}
+<style>
+  .as-head { display: flex; justify-content: space-between; align-items: flex-end; margin: 2px 0 6px; font-size: 10.5px; }
+  .as-head h1 { font-size: 17px; letter-spacing: .2em; margin: 0; text-align: center; flex: 1; }
+  .as-head .l, .as-head .r { width: 30%; }
+  .as-head .r { text-align: right; }
+  .as-name .ul { display: inline-block; min-width: 140px; border-bottom: 1px solid #333; text-align: center; }
+  table.as { width: 100%; border-collapse: collapse; }
+  table.as th, table.as td { border: 1px solid #333; font-size: 9.5px; padding: 3px 5px; vertical-align: middle; }
+  table.as th { background: #f3f3f3; text-align: center; font-weight: 600; }
+  table.as td.grp { writing-mode: vertical-rl; text-align: center; width: 1.6em; padding: 2px; letter-spacing: .2em; }
+  table.as td.item { width: 86px; }
+  table.as td.lv { width: 118px; line-height: 1.75; }
+  table.as td.lv span { display: block; white-space: nowrap; }
+  table.as td.lv span.on { position: relative; }
+  table.as td.lv span.on::before { content: ''; position: absolute; left: -4px; top: 1px; width: 1.1em; height: 1.1em; border: 1.5px solid #333; border-radius: 50%; }
+  table.as td.note { white-space: pre-wrap; }
+  .pb { page-break-before: always; }
+</style>
+{% for part in parts %}
+{% if not forloop.first %}<div class="pb"></div>{% endif %}
+<div class="as-head">
+  <div class="l as-name">利用者氏名：<span class="ul">{{ beneficiary.full_name }}</span> 様</div>
+  <h1>アセスメントシート</h1>
+  <div class="r">{{ facility.name }}<br>記入日：{{ sheet.date|date:'Y.n.j' }}{% if sheet.filled_by %}　記入者：{{ sheet.filled_by }}{% endif %}</div>
+</div>
+<table class="as">
+  <thead><tr><th colspan="2">項目</th><th>状況</th><th>本人の状態</th></tr></thead>
+  <tbody>
+  {% for r in part %}
+  <tr>
+    {% ifchanged r.group %}<td class="grp" rowspan="{{ r.group_count }}">{{ r.group_label }}</td>{% endifchanged %}
+    <td class="item">{{ r.label }}</td>
+    <td class="lv">{% for v, word in r.levels %}<span class="{% if r.level == v %}on{% endif %}">{{ word }}</span>{% endfor %}</td>
+    <td class="note">{{ r.note }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endfor %}
+{% endblock %}

@@ -13,7 +13,7 @@ from django.conf import settings
 from django.utils import timezone
 import anthropic
 
-from .models import TRASH_DAYS, DeletedBeneficiary, Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guardian, RecipientCertificate, BeneficiaryDocument, DOCUMENT_EXTENSIONS, DOCUMENT_MAX_BYTES, KANA_ROWS, DevelopmentAssessment, RecordDigest
+from .models import TRASH_DAYS, DeletedBeneficiary, Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guardian, RecipientCertificate, BeneficiaryDocument, DOCUMENT_EXTENSIONS, DOCUMENT_MAX_BYTES, KANA_ROWS, DevelopmentAssessment, RecordDigest, FaceSheet, AssessmentSheet
 from .forms import BeneficiaryForm, BeneficiaryOfficeForm, GuardianForm, RecipientCertificateForm
 from facilities.context_processors import get_terms
 from config.concurrency import check_conflict
@@ -488,6 +488,10 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
         # 5領域アセスメント（評価シート）と送迎の設定（施設設定で使うにした事業所だけ。オウル）
         ctx['dev_assessments'] = (list(b.development_assessments.select_related('assessed_by'))
                                   if self.request.user.facility.use_dev_assessment else [])
+        # オウルの用紙（フェイスシート・アセスメントシート）も同じ設定で
+        if self.request.user.facility.use_dev_assessment:
+            ctx['face_sheets'] = list(b.face_sheets.all()[:5])
+            ctx['assessment_sheets'] = list(b.assessment_sheets.all()[:5])
         if self.request.user.facility.use_transport:
             from transport.views import profile_context
             ctx.update(profile_context(b))
@@ -1543,3 +1547,156 @@ class DigestDetailView(LoginRequiredMixin, View):
         item.save(update_fields=['summary', 'purpose', 'updated_at'])
         messages.success(request, '面談資料を保存しました。')
         return redirect('beneficiaries:digest_detail', pk=pk, digest_pk=item.pk)
+
+
+# =============================================
+# オウルの用紙：フェイスシート・アセスメントシート（2026-11-08。5領域アセスメントと同じ設定で使う）
+# =============================================
+def _face_or_404(request, beneficiary_pk, sheet_pk):
+    b = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+    a = get_object_or_404(b.face_sheets, pk=sheet_pk) if sheet_pk else None
+    return b, a
+
+
+class FaceSheetFormView(DevAssessmentMixin, View):
+    """フェイスシートを新しく作る・直す。新しく作るときは台帳の住所・電話・所属・保護者を写す。?copy=1 で前回の内容を写す"""
+    template_name = 'beneficiaries/face_sheet_form.html'
+
+    def get(self, request, beneficiary_pk, sheet_pk=None):
+        from . import sheets
+        b, a = _face_or_404(request, beneficiary_pk, sheet_pk)
+        latest = b.face_sheets.order_by('-date', '-pk').first()
+        if a is None:
+            a = FaceSheet(beneficiary=b, date=datetime.date.today(), filled_by=str(request.user))
+            a.data = (latest.data if request.GET.get('copy') and latest else sheets.face_prefill(b))
+        return render(request, self.template_name, {
+            'beneficiary': b, 'sheet': a, 'd': a.data or {}, 'head': sheets.FACE_HEAD, 'items': sheets.FACE_ITEMS,
+            'family_rows': range(sheets.FAMILY_ROWS), 'family_cols': sheets.FAMILY_COLS,
+            'contact_rows': range(sheets.CONTACT_ROWS), 'contact_cols': sheets.CONTACT_COLS,
+            'comm_means': sheets.COMM_MEANS, 'comm_understand': sheets.COMM_UNDERSTAND,
+            'age': _age_on(b.date_of_birth, a.date), 'has_previous': bool(latest and latest.pk != a.pk),
+        })
+
+    def post(self, request, beneficiary_pk, sheet_pk=None):
+        from . import sheets
+        b, a = _face_or_404(request, beneficiary_pk, sheet_pk)
+        p = request.POST
+        if a is not None:
+            conflict = check_conflict(request, a)
+            if conflict:
+                messages.error(request, conflict)
+                return redirect('beneficiaries:face_sheet_edit', beneficiary_pk, a.pk)
+        try:
+            day = datetime.date.fromisoformat(p.get('date') or '')
+        except ValueError:
+            messages.error(request, '記入日を入れてください。')
+            return redirect(request.get_full_path())
+        if a is None:
+            a = FaceSheet(beneficiary=b, created_by=request.user)
+        a.date = day
+        a.filled_by = (p.get('filled_by') or '').strip()[:50]
+        a.data = sheets.face_from_post(p)
+        a.save()
+        messages.success(request, f'{b.full_name} さんのフェイスシート（{a.date:%-m月%-d日}）を保存しました。')
+        return redirect('beneficiaries:face_sheet_edit', beneficiary_pk, a.pk)
+
+
+class FaceSheetPdfView(DevAssessmentMixin, View):
+    def get(self, request, beneficiary_pk, sheet_pk):
+        from . import sheets
+        b, a = _face_or_404(request, beneficiary_pk, sheet_pk)
+        d = a.data or {}
+        return pdf_or_html(request, 'beneficiaries/pdf/face_sheet.html', {
+            'facility': request.user.facility, 'beneficiary': b, 'sheet': a, 'd': d, 'h': d.get('head') or {}, 'it': d.get('items') or {},
+            'head_labels': sheets.FACE_HEAD_LABELS, 'items': sheets.FACE_ITEMS,
+            'family': (d.get('family') or []) + [{}] * max(0, sheets.FAMILY_ROWS - len(d.get('family') or [])),
+            'contacts': (d.get('contacts') or []) + [{}] * max(0, sheets.CONTACT_ROWS - len(d.get('contacts') or [])),
+            'comm_means': [(v, l, v in (d.get('comm_means') or [])) for v, l in sheets.COMM_MEANS],
+            'comm_understand': [(v, l, v in (d.get('comm_understand') or [])) for v, l in sheets.COMM_UNDERSTAND],
+            'age': _age_on(b.date_of_birth, a.date),
+        }, f'フェイスシート_{b.full_name}_{a.date:%Y%m%d}')
+
+
+class FaceSheetDeleteView(DevAssessmentMixin, View):
+    def post(self, request, beneficiary_pk, sheet_pk):
+        b, a = _face_or_404(request, beneficiary_pk, sheet_pk)
+        label = f'{a.date:%-m月%-d日}'
+        a.delete()
+        messages.success(request, f'{b.full_name} さんのフェイスシート（{label}）を削除しました。')
+        return redirect(f"{reverse('beneficiaries:detail', args=[b.pk])}#owl-sheets")
+
+
+def _asheet_or_404(request, beneficiary_pk, sheet_pk):
+    b = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+    a = get_object_or_404(b.assessment_sheets, pk=sheet_pk) if sheet_pk else None
+    return b, a
+
+
+class AssessmentSheetFormView(DevAssessmentMixin, View):
+    """アセスメントシート（3 段階と本人の状態）を新しく作る・直す。?copy=1 で前回を写す"""
+    template_name = 'beneficiaries/assessment_sheet_form.html'
+
+    def get(self, request, beneficiary_pk, sheet_pk=None):
+        from . import sheets
+        b, a = _asheet_or_404(request, beneficiary_pk, sheet_pk)
+        latest = b.assessment_sheets.order_by('-date', '-pk').first()
+        if a is None:
+            a = AssessmentSheet(beneficiary=b, date=datetime.date.today(), filled_by=str(request.user))
+            if request.GET.get('copy') and latest:
+                a.items = latest.items
+            previous = latest
+        else:
+            previous = a.previous()
+        return render(request, self.template_name, {
+            'beneficiary': b, 'sheet': a, 'previous': previous, 'rows': sheets.assess_rows(a, previous),
+            'groups': sheets.ASSESS_GROUPS, 'age': _age_on(b.date_of_birth, a.date), 'has_previous': bool(latest and latest.pk != a.pk),
+        })
+
+    def post(self, request, beneficiary_pk, sheet_pk=None):
+        from . import sheets
+        b, a = _asheet_or_404(request, beneficiary_pk, sheet_pk)
+        p = request.POST
+        if a is not None:
+            conflict = check_conflict(request, a)
+            if conflict:
+                messages.error(request, conflict)
+                return redirect('beneficiaries:assessment_sheet_edit', beneficiary_pk, a.pk)
+        try:
+            day = datetime.date.fromisoformat(p.get('date') or '')
+        except ValueError:
+            messages.error(request, '記入日を入れてください。')
+            return redirect(request.get_full_path())
+        if a is None:
+            a = AssessmentSheet(beneficiary=b, created_by=request.user)
+        a.date = day
+        a.filled_by = (p.get('filled_by') or '').strip()[:50]
+        a.items = sheets.assess_from_post(p)
+        a.save()
+        messages.success(request, f'{b.full_name} さんのアセスメントシート（{a.date:%-m月%-d日}）を保存しました。')
+        return redirect('beneficiaries:assessment_sheet_edit', beneficiary_pk, a.pk)
+
+
+class AssessmentSheetPdfView(DevAssessmentMixin, View):
+    def get(self, request, beneficiary_pk, sheet_pk):
+        from . import sheets
+        b, a = _asheet_or_404(request, beneficiary_pk, sheet_pk)
+        previous = a.previous()
+        rows = sheets.assess_rows(a, previous)
+        # 紙と同じく 2 枚：1 枚目は対人関係、2 枚目は生活面・学習面。グループの縦見出しの行数をページごとに数える
+        parts = [[r for r in rows if r['group'] == 'social'], [r for r in rows if r['group'] != 'social']]
+        for part in parts:
+            for r in part:
+                r['group_count'] = sum(1 for x in part if x['group'] == r['group'])
+        return pdf_or_html(request, 'beneficiaries/pdf/assessment_sheet.html', {
+            'facility': request.user.facility, 'beneficiary': b, 'sheet': a, 'previous': previous,
+            'parts': parts, 'age': _age_on(b.date_of_birth, a.date),
+        }, f'アセスメントシート_{b.full_name}_{a.date:%Y%m%d}')
+
+
+class AssessmentSheetDeleteView(DevAssessmentMixin, View):
+    def post(self, request, beneficiary_pk, sheet_pk):
+        b, a = _asheet_or_404(request, beneficiary_pk, sheet_pk)
+        label = f'{a.date:%-m月%-d日}'
+        a.delete()
+        messages.success(request, f'{b.full_name} さんのアセスメントシート（{label}）を削除しました。')
+        return redirect(f"{reverse('beneficiaries:detail', args=[b.pk])}#owl-sheets")
