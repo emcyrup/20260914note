@@ -1574,7 +1574,7 @@ class FaceSheetFormView(DevAssessmentMixin, View):
             'family_rows': range(sheets.FAMILY_ROWS), 'family_cols': sheets.FAMILY_COLS,
             'contact_rows': range(sheets.CONTACT_ROWS), 'contact_cols': sheets.CONTACT_COLS,
             'comm_means': sheets.COMM_MEANS, 'comm_understand': sheets.COMM_UNDERSTAND,
-            'age': _age_on(b.date_of_birth, a.date), 'has_previous': bool(latest and latest.pk != a.pk),
+            'age': _age_on(b.date_of_birth, a.date), 'has_previous': bool(latest and latest.pk != a.pk), 'ai_ready': bool(settings.ANTHROPIC_API_KEY),
         })
 
     def post(self, request, beneficiary_pk, sheet_pk=None):
@@ -1599,6 +1599,31 @@ class FaceSheetFormView(DevAssessmentMixin, View):
         a.save()
         messages.success(request, f'{b.full_name} さんのフェイスシート（{a.date:%-m月%-d日}）を保存しました。')
         return redirect('beneficiaries:face_sheet_edit', beneficiary_pk, a.pk)
+
+
+class FaceSheetImportView(DevAssessmentMixin, View):
+    """手書きのフェイスシート（PDF・写真）を AI で読み取り、入力画面に流し込む（保存は職員が確かめてから）"""
+
+    def post(self, request, beneficiary_pk):
+        from . import sheet_reader, sheets
+        b = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        back = redirect(f"{reverse('beneficiaries:detail', args=[b.pk])}#owl-sheets")
+        try:
+            got = sheet_reader.read_face(b, request.FILES.getlist('files'))
+        except sheet_reader.ReadError as e:
+            messages.error(request, str(e))
+            return back
+        a = FaceSheet(beneficiary=b, date=got['date'] or datetime.date.today(), filled_by=got['filled_by'] or str(request.user), data=got['data'])
+        latest = b.face_sheets.order_by('-date', '-pk').first()
+        messages.success(request, '用紙を読み取りました。内容を確かめて「保存する」を押してください。')
+        return render(request, FaceSheetFormView.template_name, {
+            'beneficiary': b, 'sheet': a, 'd': a.data, 'head': sheets.FACE_HEAD, 'items': sheets.FACE_ITEMS,
+            'family_rows': range(sheets.FAMILY_ROWS), 'family_cols': sheets.FAMILY_COLS,
+            'contact_rows': range(sheets.CONTACT_ROWS), 'contact_cols': sheets.CONTACT_COLS,
+            'comm_means': sheets.COMM_MEANS, 'comm_understand': sheets.COMM_UNDERSTAND,
+            'age': _age_on(b.date_of_birth, a.date), 'has_previous': bool(latest), 'imported': True, 'unreadable': got['unreadable'],
+            'post_url': reverse('beneficiaries:face_sheet_create', args=[b.pk]), 'ai_ready': True,
+        })
 
 
 def _face_pdf(request, b, a, filename):
@@ -1665,6 +1690,7 @@ class AssessmentSheetFormView(DevAssessmentMixin, View):
         return render(request, self.template_name, {
             'beneficiary': b, 'sheet': a, 'previous': previous, 'rows': sheets.assess_rows(a, previous),
             'groups': sheets.ASSESS_GROUPS, 'age': _age_on(b.date_of_birth, a.date), 'has_previous': bool(latest and latest.pk != a.pk),
+            'ai_ready': bool(settings.ANTHROPIC_API_KEY),
         })
 
     def post(self, request, beneficiary_pk, sheet_pk=None):
@@ -1689,6 +1715,28 @@ class AssessmentSheetFormView(DevAssessmentMixin, View):
         a.save()
         messages.success(request, f'{b.full_name} さんのアセスメントシート（{a.date:%-m月%-d日}）を保存しました。')
         return redirect('beneficiaries:assessment_sheet_edit', beneficiary_pk, a.pk)
+
+
+class AssessmentSheetImportView(DevAssessmentMixin, View):
+    """手書きのアセスメントシート（PDF・写真）を AI で読み取り、入力画面に流し込む（保存は職員が確かめてから）"""
+
+    def post(self, request, beneficiary_pk):
+        from . import sheet_reader, sheets
+        b = get_object_or_404(Beneficiary, pk=beneficiary_pk, facility=request.user.facility)
+        back = redirect(f"{reverse('beneficiaries:detail', args=[b.pk])}#owl-sheets")
+        try:
+            got = sheet_reader.read_assess(b, request.FILES.getlist('files'))
+        except sheet_reader.ReadError as e:
+            messages.error(request, str(e))
+            return back
+        a = AssessmentSheet(beneficiary=b, date=got['date'] or datetime.date.today(), filled_by=got['filled_by'] or str(request.user), items=got['items'])
+        previous = b.assessment_sheets.order_by('-date', '-pk').first()
+        messages.success(request, '用紙を読み取りました。○の段階と文を確かめて「保存する」を押してください。')
+        return render(request, AssessmentSheetFormView.template_name, {
+            'beneficiary': b, 'sheet': a, 'previous': previous, 'rows': sheets.assess_rows(a, previous),
+            'groups': sheets.ASSESS_GROUPS, 'age': _age_on(b.date_of_birth, a.date), 'has_previous': bool(previous),
+            'imported': True, 'unreadable': got['unreadable'], 'post_url': reverse('beneficiaries:assessment_sheet_create', args=[b.pk]), 'ai_ready': True,
+        })
 
 
 def _assess_pdf(request, b, a, filename):

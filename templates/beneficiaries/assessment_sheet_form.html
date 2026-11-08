@@ -27,7 +27,15 @@
 <div class="px-2" style="max-width: 1100px;">
   <nav class="small mb-2"><a href="{% url 'beneficiaries:list' %}">{{ terms.beneficiary }}情報</a> › <a href="{% url 'beneficiaries:detail' beneficiary.pk %}#owl-sheets">{{ beneficiary.full_name }}</a> › アセスメントシート</nav>
 
-  <form method="post" {% if sheet.pk %}data-concurrency="assessment_sheet:{{ sheet.pk }}"{% endif %}{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
+  {% if not sheet.pk %}
+  <div class="as-card">
+    <div class="as-title" style="font-size:.95rem;">紙の用紙から作る</div>
+    <div class="as-hint">手書きのアセスメントシート（2 枚）の PDF や写真を読み取って、○の段階と「本人の状態」を下の表に入れます。{% if imported %}<b>読み取りずみ。</b>○の段階と文を確かめて「保存する」を押してください。{% if unreadable %}<br>AI が読めなかった・迷ったところ：{{ unreadable }}{% endif %}{% endif %}</div>
+    {% url 'beneficiaries:assessment_sheet_import' beneficiary.pk as assess_import_url %}
+    {% include 'beneficiaries/_sheet_import.html' with import_url=assess_import_url import_label='アセスメントシート' import_id='assess' %}
+  </div>
+  {% endif %}
+  <form method="post"{% if post_url %} action="{{ post_url }}"{% endif %} {% if sheet.pk %}data-concurrency="assessment_sheet:{{ sheet.pk }}"{% endif %}{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
     {% csrf_token %}{% if sheet.pk %}{% version_field sheet %}{% endif %}
     <div class="as-card">
       <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">

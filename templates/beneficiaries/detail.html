@@ -522,6 +522,8 @@
               </div>
             </div>
             {% empty %}<p class="text-muted small mb-0">まだありません。「新しく作る」と、住所・電話・所属・保護者は{{ terms.beneficiary }}情報から入ります。</p>{% endfor %}
+            {% url 'beneficiaries:face_sheet_import' beneficiary.pk as face_import_url %}
+            {% include 'beneficiaries/_sheet_import.html' with import_url=face_import_url import_label='フェイスシート' import_id='face' %}
           </div>
           <div class="col-12 col-lg-6">
             <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
@@ -545,6 +547,8 @@
               </div>
             </div>
             {% empty %}<p class="text-muted small mb-0">まだありません。</p>{% endfor %}
+            {% url 'beneficiaries:assessment_sheet_import' beneficiary.pk as assess_import_url %}
+            {% include 'beneficiaries/_sheet_import.html' with import_url=assess_import_url import_label='アセスメントシート' import_id='assess' %}
           </div>
         </div>
       </div>

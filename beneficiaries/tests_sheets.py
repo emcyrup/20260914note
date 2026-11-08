@@ -163,6 +163,89 @@ class OwlSheetsTests(TestCase):
         res = self.client.get(reverse('reports:sheet'), {'beneficiary': self.kid.pk, 'sheet': 'xxx'})
         self.assertRedirects(res, reverse('reports:index'))
 
+    def test_import_from_paper(self):
+        from unittest import mock
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from . import sheet_reader
+        # 読み取りそのもの（AI）は差し替え、画面の流れと形を確かめる
+        face = {'data': {'head': {k: '' for k, _ in __import__('beneficiaries.sheets', fromlist=['x']).FACE_HEAD},
+                         'items': {'meal': '白いご飯が好き。', 'sleep': '21 時就寝。'}, 'family': [{'name': '見本 花子', 'relation': '母', 'birth': '', 'job': '', 'note': ''}],
+                         'contacts': [], 'comm_means': ['5'], 'comm_understand': ['3', '5']},
+                'date': datetime.date(2026, 6, 1), 'filled_by': '見本 花子', 'unreadable': '整容の 2 行目'}
+        face['data']['head']['blood'] = 'A'
+        with mock.patch.object(sheet_reader, 'read_face', return_value=face) as m:
+            res = self.client.post(reverse('beneficiaries:face_sheet_import', args=[self.kid.pk]),
+                                   {'files': SimpleUploadedFile('face.pdf', b'%PDF-1.4 test', content_type='application/pdf')})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(m.call_args.args[0], self.kid)
+        self.assertEqual(len(m.call_args.args[1]), 1)
+        self.assertContains(res, '読み取りずみ')
+        self.assertContains(res, '整容の 2 行目')
+        self.assertContains(res, '白いご飯が好き。')
+        self.assertContains(res, 'value="2026-06-01"')
+        self.assertContains(res, 'value="見本 花子"')
+        self.assertContains(res, 'action="%s"' % reverse('beneficiaries:face_sheet_create', args=[self.kid.pk]))
+        self.assertEqual(FaceSheet.objects.count(), 0)          # まだ保存していない
+        # 読めないとき・ファイル無し
+        with mock.patch.object(sheet_reader, 'read_face', side_effect=sheet_reader.ReadError('だめ')):
+            res = self.client.post(reverse('beneficiaries:face_sheet_import', args=[self.kid.pk]), {}, follow=True)
+        self.assertContains(res, 'だめ')
+        # アセスメントシート
+        assess = {'items': {'greeting': {'level': 1, 'note': 'おはようは言える'}, 'focus': {'level': 3, 'note': ''}},
+                  'date': None, 'filled_by': '', 'unreadable': ''}
+        with mock.patch.object(sheet_reader, 'read_assess', return_value=assess):
+            res = self.client.post(reverse('beneficiaries:assessment_sheet_import', args=[self.kid.pk]),
+                                   {'files': SimpleUploadedFile('a.jpg', b'xx', content_type='image/jpeg')})
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, 'おはようは言える')
+        self.assertContains(res, 'name="level_greeting" value="1" checked')
+        self.assertContains(res, 'name="level_focus" value="3" checked')
+        self.assertContains(res, 'action="%s"' % reverse('beneficiaries:assessment_sheet_create', args=[self.kid.pk]))
+
+    def test_sheet_reader_shapes(self):
+        from unittest import mock
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from . import sheet_reader
+        # AI の返事（生の JSON）→ 用紙の形。知らない key や範囲外の値は落とす。台帳で補う
+        raw = {'date': '2026-07-03', 'filled_by': 'ryo', 'head': {'blood': 'O', 'xxx': 'y', 'tel': ''}, 'items': {'meal': ' 何でも食べる '},
+               'family': [{'name': '見本 花子', 'relation': '母', 'birth': '', 'job': '', 'note': ''}, {'name': '', 'relation': '', 'birth': '', 'job': '', 'note': ''}],
+               'contacts': [], 'comm_means': ['5', '9'], 'comm_understand': [], 'unreadable': ''}
+        f = SimpleUploadedFile('face.pdf', b'%PDF-1.4', content_type='application/pdf')
+        with mock.patch.object(sheet_reader, '_ask', return_value=raw), mock.patch.object(sheet_reader, '_blocks', return_value=[]):
+            got = sheet_reader.read_face(self.kid, [f])
+        self.assertEqual(got['date'], datetime.date(2026, 7, 3))
+        self.assertEqual(got['data']['head']['blood'], 'O')
+        self.assertEqual(got['data']['head']['address'], '見本市見本町 1-1')      # 台帳から
+        self.assertEqual(got['data']['head']['tel'], '080-0000-0000')
+        self.assertNotIn('xxx', got['data']['head'])
+        self.assertEqual(got['data']['items']['meal'], '何でも食べる')
+        self.assertEqual(len(got['data']['family']), 1)
+        self.assertEqual(got['data']['comm_means'], ['5'])
+        raw = {'date': 'きょう', 'filled_by': '', 'items': {'greeting': {'level': 2, 'note': 'x'}, 'focus': {'level': 0, 'note': ''}, 'zzz': {'level': 1, 'note': ''}}, 'unreadable': ''}
+        with mock.patch.object(sheet_reader, '_ask', return_value=raw), mock.patch.object(sheet_reader, '_blocks', return_value=[]):
+            got = sheet_reader.read_assess(self.kid, [f])
+        self.assertIsNone(got['date'])
+        self.assertEqual(got['items']['greeting'], {'level': 2, 'note': 'x'})
+        self.assertEqual(got['items']['focus'], {'level': None, 'note': ''})
+        self.assertNotIn('zzz', got['items'])
+        # ファイルの点検
+        with self.assertRaises(sheet_reader.ReadError):
+            sheet_reader._blocks([])
+        with self.assertRaises(sheet_reader.ReadError):
+            sheet_reader._blocks([SimpleUploadedFile('a.docx', b'x')])
+        with self.assertRaises(sheet_reader.ReadError):
+            sheet_reader._blocks([SimpleUploadedFile('a.pdf', b'%PDF'), SimpleUploadedFile('b.pdf', b'%PDF')])
+        # 指示文に用紙の key がすべて入っている
+        from . import sheets
+        prompt = sheet_reader._face_prompt()
+        for k, _ in sheets.FACE_HEAD:
+            self.assertIn(f'- {k}：', prompt)
+        for k, _, _ in sheets.FACE_ITEMS:
+            self.assertIn(f'- {k}：', prompt)
+        prompt = sheet_reader._assess_prompt()
+        for k, _, _, _, _ in sheets.ASSESS_ITEMS:
+            self.assertIn(f'- {k}：', prompt)
+
     def test_hidden_when_feature_off(self):
         self.f.use_dev_assessment = False
         self.f.save(update_fields=['use_dev_assessment'])
