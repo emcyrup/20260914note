@@ -91,6 +91,49 @@ class OwlSheetsTests(TestCase):
         self.assertIn('■ アセスメントシート 2026/10/21', text)
         self.assertIn('挨拶：出来る／おはようは言える', text)
 
+    def test_face_text_for_ai_drops_contacts(self):
+        sheet = FaceSheet.objects.create(beneficiary=self.kid, date=datetime.date(2026, 7, 3), data={
+            'head': {'address': '見本市見本町 1-2-3', 'tel': '080-0000-0000', 'guardian': '見本 花子',
+                     'hospital': '見本小児科 主治医 見本先生 TEL 000-000-0000', 'medicine': '定期薬なし'},
+            'items': {'meal': '何でも食べる'}})
+        full = sheet.text()
+        self.assertIn('住所：見本市見本町 1-2-3', full)
+        self.assertIn('TEL：080-0000-0000', full)
+        ai = sheet.text(for_ai=True)
+        self.assertNotIn('見本町', ai)
+        self.assertNotIn('080-0000-0000', ai)
+        self.assertNotIn('000-000-0000', ai)
+        self.assertNotIn('見本 花子', ai)
+        self.assertIn('医療機関', ai)
+        self.assertIn('見本小児科 主治医 見本先生', ai)
+        self.assertIn('服薬（定期薬名・服薬方法）：定期薬なし', ai)
+        self.assertIn('食事：何でも食べる', ai)
+        # 材料にも連絡先を出さない
+        from support_plans import material
+        self.assertNotIn('080-0000-0000', material.ledger_text(self.kid))
+
+    def test_assessment_changes_feed_monitoring_material(self):
+        from support_plans import material
+        AssessmentSheet.objects.create(beneficiary=self.kid, date=datetime.date(2026, 4, 1), items={
+            'greeting': {'level': 2, 'note': ''}, 'conversation': {'level': 3, 'note': ''}, 'focus': {'level': 2, 'note': ''},
+            'meal': {'level': 1, 'note': ''}})
+        AssessmentSheet.objects.create(beneficiary=self.kid, date=datetime.date(2026, 10, 1), items={
+            'greeting': {'level': 1, 'note': 'おはようは言える'}, 'conversation': {'level': 2, 'note': '2 語文が出る'},
+            'focus': {'level': 3, 'note': ''}, 'meal': {'level': 1, 'note': ''}})
+        text = material.sheet_changes_text(self.kid, datetime.date(2026, 5, 1), datetime.date(2026, 10, 31))
+        self.assertIn('前回 2026/4/1 → 今回 2026/10/1', text)
+        self.assertIn('良くなった項目', text)
+        self.assertIn('対人関係・挨拶：あまり出来ない → 出来る（おはようは言える）', text)
+        self.assertIn('対人関係・会話：ほとんど出来ない → あまり出来ない（2 語文が出る）', text)
+        self.assertIn('下がった項目', text)
+        self.assertIn('生活面・集中力：あまりない → ほとんどない', text)
+        self.assertNotIn('食事', text)
+        # 期間に今回のシートが無ければ出さない。collect() にも入る
+        self.assertEqual(material.sheet_changes_text(self.kid, datetime.date(2026, 5, 1), datetime.date(2026, 9, 30)), '')
+        m = material.collect(self.kid, datetime.date(2026, 5, 1), datetime.date(2026, 10, 31))
+        self.assertIn('アセスメントシートの前回からの変化', m['sources'])
+        self.assertIn('【アセスメントシートの変化', material.prompt_blocks(m))
+
     def test_hidden_when_feature_off(self):
         self.f.use_dev_assessment = False
         self.f.save(update_fields=['use_dev_assessment'])
