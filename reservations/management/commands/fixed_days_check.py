@@ -144,11 +144,14 @@ class Command(BaseCommand):
         if user is None:
             self.ok('職員がいる', False)
         else:
+            from django.conf import settings
             from reservations.views import AttendanceDayView, CalendarView
-            rf = RequestFactory()
+            # サーバーの ALLOWED_HOSTS にある名前で組み立てる（testserver は本番・開発の設定では通らない）
+            host = next((h.lstrip('.') for h in settings.ALLOWED_HOSTS if h and h != '*'), 'localhost')
+            rf = RequestFactory(HTTP_HOST=host)
 
             def call(view, path, **kw):
-                req = rf.get(path)
+                req = rf.get(path, secure=True)
                 req.user = user
                 req.session = SessionStore()
                 req._messages = FallbackStorage(req)

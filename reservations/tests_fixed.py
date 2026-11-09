@@ -158,7 +158,9 @@ class FixedDaysCheckAndSeedTests(TestCase):
         self.assertIn('予定（利用予定曜日から。今月・来月）', out.getvalue())
         self.assertTrue(Reservation.objects.filter(facility=f, status=Reservation.STATUS_CONFIRMED).exists())
         out = StringIO()
-        call_command('fixed_days_check', '--facility', str(f.pk), stdout=out)
+        from django.test import override_settings
+        with override_settings(ALLOWED_HOSTS=['.owl.example.org', 'localhost']):     # 本番と同じく testserver が通らない設定でも開ける
+            call_command('fixed_days_check', '--facility', str(f.pk), stdout=out)
         text = out.getvalue()
         self.assertIn('すべて OK', text)
         self.assertNotIn('[NG]', text)
