@@ -9,6 +9,9 @@ urlpatterns = [
     path('<int:year>/<int:month>/', views.CalendarView.as_view(), name='calendar_month'),
     path('settings/', views.SettingView.as_view(), name='settings'),
     path('<int:year>/<int:month>/<int:day>/', views.DayView.as_view(), name='day'),
+    # 利用予定曜日から予定を作る事業所（オウル）：月の予定をまとめて作る・日ごとの出欠入力
+    path('<int:year>/<int:month>/bulk/', views.FixedBulkCreateView.as_view(), name='bulk_create'),
+    path('<int:year>/<int:month>/<int:day>/shukketsu/', views.AttendanceDayView.as_view(), name='attendance_day'),
     path('today/add/<int:pk>/', views.AddTodayView.as_view(), name='add_today'),
     path('guide/', views.GuideView.as_view(), name='guide'),
     path('<int:year>/<int:month>/csv/', views.CsvView.as_view(), name='csv'),

@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ date|date:'n月j日' }}の出欠入力 — 予定{% endblock %}
+{% block page_title %}出欠入力 — {{ date|date:'n月j日(D)' }}{% endblock %}
+{% block nav_reservations %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* はびりすの出欠入力と同じ形（2026-11-09 オウル）：状態のボタン・迎え送り・備考 */
+  .btn-check:checked + .st-scheduled { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+  .btn-check:checked + .st-attended { background: var(--color-success, #198754); color: #fff; border-color: var(--color-success, #198754); }
+  .btn-check:checked + .st-absent { background: #6c757d; color: #fff; border-color: #6c757d; }
+  .btn-check:checked + .st-cancelled { background: #8a6d1f; color: #fff; border-color: #8a6d1f; }
+  .btn-check:checked + .st-none { background: #dc3545; color: #fff; border-color: #dc3545; }
+  .btn-status { min-height: 40px; min-width: 64px; }
+  .att-row { padding: 10px 14px; border-bottom: 1px solid #f0ece4; }
+  .att-row:last-child { border-bottom: 0; }
+  .att-row.off { background: #faf8f3; }
+  .att-name { font-weight: 700; }
+  .att-sub { font-size: .78rem; color: #8a8378; }
+  .att-tools { background: #faf8f3; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="btn-group">
+      <a href="{% url 'reservations:attendance_day' prev_day.year prev_day.month prev_day.day %}" class="btn btn-outline-secondary btn-sm" title="前の日"><i class="bi bi-chevron-left"></i></a>
+      <a href="{% url 'reservations:calendar_month' date.year date.month %}" class="btn btn-outline-secondary btn-sm">カレンダーへ</a>
+      <a href="{% url 'reservations:attendance_day' next_day.year next_day.month next_day.day %}" class="btn btn-outline-secondary btn-sm" title="次の日"><i class="bi bi-chevron-right"></i></a>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="{% url 'reservations:day' date.year date.month date.day %}" class="btn btn-outline-secondary btn-sm" title="この日の予約の一覧。時刻の変更・取消・臨時休業はこちら"><i class="bi bi-calendar-check me-1"></i>予約の詳細</a>
+      {% if has_transport %}<a href="{% url 'transport:day' %}?d={{ date|date:'Y-m-d' }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-truck me-1"></i>配車表</a>{% endif %}
+      <a href="{% url 'reservations:monthly_schedule' date.year date.month %}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-grid-3x3 me-1"></i>月間予定表</a>
+    </div>
+  </div>
+
+  {% if closed %}<div class="alert alert-secondary small py-2">この日は休業日です。来た人がいれば状態を入れると予定（予約）が作られます。</div>{% endif %}
+
+  <form method="post">
+    {% csrf_token %}
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2" style="background: var(--color-primary-bg); color: var(--color-primary-dark);">
+        <div class="fw-bold small"><i class="bi bi-pencil-square me-1"></i>出欠入力（{{ rows|length }} 人）</div>
+        <div class="small">
+          <span class="badge" style="background: var(--color-primary);">予定 {{ counts.scheduled }}</span>
+          <span class="badge bg-success">来所 {{ counts.attended }}</span>
+          <span class="badge bg-secondary">欠席 {{ counts.absent }}</span>
+          <span class="badge text-bg-light border">キャンセル {{ counts.cancelled }}</span>
+          <span class="ms-2">来る人 {{ present }} 人</span>
+        </div>
+      </div>
+      <div class="px-3 py-2 d-flex align-items-center gap-2 flex-wrap small border-bottom att-tools">
+        <span class="text-muted">まとめて：</span>
+        <button type="button" class="btn btn-outline-success btn-sm py-0" data-all="attended" title="予定の人（来所・欠席・キャンセルがまだの人）を全員「来所」にします">予定の人を全員「来所」に</button>
+        <button type="button" class="btn btn-outline-primary btn-sm py-0" data-all="scheduled" title="来所・欠席・キャンセルを外して「予定」に戻します（予定なしの人はそのまま）">全員「予定」に戻す</button>
+        <span class="text-muted ms-auto">保存するまで確定しません</span>
+      </div>
+      {% for row in rows %}
+      <div class="att-row {% if not row.state %}off{% endif %}" data-row>
+        <input type="hidden" name="b_{{ row.beneficiary.pk }}_state_present" value="1">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+          <div>
+            <a href="{% url 'beneficiaries:detail' row.beneficiary.pk %}" class="att-name text-decoration-none" style="color: inherit;">{{ row.beneficiary.full_name }}</a>
+            <span class="att-sub ms-1">{% if row.weekday_match %}利用予定の曜日{% else %}利用予定の曜日ではない{% endif %}{% if row.time %}・{{ row.time }}{% endif %}{% if row.reservation and row.reservation.status == 'waitlist' %}・キャンセル待ち{% endif %}</span>
+          </div>
+          <div class="d-flex flex-wrap gap-1">
+            {% for value, label in state_choices %}
+            <input type="radio" class="btn-check" autocomplete="off" name="b_{{ row.beneficiary.pk }}_state" id="st_{{ value }}_{{ row.beneficiary.pk }}" value="{{ value }}" {% if row.state == value %}checked{% endif %}>
+            <label class="btn btn-sm btn-outline-secondary btn-status st-{{ value }}" for="st_{{ value }}_{{ row.beneficiary.pk }}">{{ label }}</label>
+            {% endfor %}
+            <input type="radio" class="btn-check" autocomplete="off" name="b_{{ row.beneficiary.pk }}_state" id="st_none_{{ row.beneficiary.pk }}" value="" {% if not row.state %}checked{% endif %}>
+            <label class="btn btn-sm btn-outline-danger btn-status st-none" for="st_none_{{ row.beneficiary.pk }}" title="この日は予定なし（予約を取り消します）"><i class="bi bi-x-lg"></i></label>
+          </div>
+        </div>
+        <div class="d-flex align-items-center flex-wrap gap-3">
+          {% if has_transport %}
+          <label class="form-check mb-0"><input type="checkbox" class="form-check-input" name="b_{{ row.beneficiary.pk }}_pickup" {% if row.has_pickup %}checked{% endif %}> <i class="bi bi-box-arrow-in-right"></i> 迎え</label>
+          <label class="form-check mb-0"><input type="checkbox" class="form-check-input" name="b_{{ row.beneficiary.pk }}_dropoff" {% if row.has_dropoff %}checked{% endif %}> <i class="bi bi-box-arrow-right"></i> 送り</label>
+          {% endif %}
+          <input type="text" class="form-control form-control-sm" style="max-width: 260px;" name="b_{{ row.beneficiary.pk }}_note" value="{{ row.note }}" maxlength="200" placeholder="備考（任意）">
+        </div>
+      </div>
+      {% empty %}
+      <div class="p-4 text-center text-muted">在籍中の{{ terms.beneficiary }}がいません。<a href="{% url 'beneficiaries:list' %}">{{ terms.beneficiary }}情報</a>から登録してください。</div>
+      {% endfor %}
+    </div>
+    <div class="d-flex gap-2 mb-4">
+      <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle-fill me-1"></i>保存</button>
+      <a href="{% url 'reservations:calendar_month' date.year date.month %}" class="btn btn-outline-secondary">カレンダーに戻る</a>
+    </div>
+  </form>
+  <div class="small text-muted">
+    「予定」はまだ出欠を入れていない人、「来所」「欠席」「キャンセル」は実績（月間予定表・業務日誌の印になります）。×は予定なし（予約の取消）。
+    {% if has_transport %}迎え・送りの印は配車表と同じもので、外すとその日は配車表から外れ、付けると「この日だけ」として配車表に入ります。{% endif %}
+    時刻の変更や臨時休業は「予約の詳細」から。
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  // まとめて：予定の人を全員「来所」に／全員「予定」に戻す（保存するまで確定しない）
+  document.querySelectorAll('[data-all]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var to = btn.dataset.all;
+      document.querySelectorAll('[data-row]').forEach(function (row) {
+        var checked = row.querySelector('input[type=radio]:checked');
+        var cur = checked ? checked.value : '';
+        if (!cur) return;                                   // 予定なしの人はそのまま
+        if (to === 'attended' && cur !== 'scheduled') return;   // 来所・欠席・キャンセルが入っている人は触らない
+        var target = row.querySelector('input[type=radio][value="' + to + '"]');
+        if (target) target.checked = true;
+      });
+    });
+  });
+})();
+</script>
+{% endblock %}
