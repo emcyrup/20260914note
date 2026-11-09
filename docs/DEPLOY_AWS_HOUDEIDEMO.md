@@ -2,16 +2,17 @@
 
 2026-11-06 の依頼：はびりすをベースに、見込み客に試用してもらう放課後等デイサービスのデモ事業所を作る。環境（アドレス・ポート・DB）はプロバイダが用意する。
 
-> **2026-11-07 特別対応**：別の環境（アドレス・DB）が用意できなかったため、当面は**介護デモの環境**（`st-kaigonote.demo.ai-labo.cloud`・DB `kaigonotedemo`・ブランチ `yasuragi`）に事業所 ID 2 として同居させている。作り方は `docs/DEPLOY_AWS_KAIGODEMO.md` の「4-2. 放デイ デモの同居」。下の手順は、環境が用意できたときのもの。
+> **2026-11-09**：専用の環境が用意できた（アドレス `st-michinote.sample.ai-labo.cloud` → Gunicorn 8047、DB `michinotesample`、ユーザー `st_ai_labo_dbuser`）。
+> 11/07 の特別対応で**介護デモの環境**（`st-kaigonote.demo.ai-labo.cloud`・DB `kaigonotedemo`・ブランチ `yasuragi`）に同居させた事業所 ID 2 は、専用環境に切り替えたあと `docs/DEPLOY_AWS_KAIGODEMO.md` の手順で消す。
 
 はびりす（検証環境 `st-michinotedemo.ai-labo.cloud` の事業所 ID 2。ブランチ `develop`）と**同じコード・同じサーバー・同じ仕組み**で、置き場所・ポート・DB・`.env` が違うだけです。事業所の型は `create_facility --preset houdei`（標準の型で、はびりす様式・請求・来所予定・LINE を使う。定員区分 11〜20 人、はびりすが算定している標準の加算を「算定する」に）。
 
 | | 検証環境（はびりす ほか） | 放デイ デモ |
 |---|---|---|
-| アドレス | `st-michinotedemo.ai-labo.cloud` | **プロバイダに用意してもらう**（Secrets `HOUDEIDEMO_DOMAIN`） |
+| アドレス | `st-michinotedemo.ai-labo.cloud` | `st-michinote.sample.ai-labo.cloud`（実行時の入力 `domain` の既定値。Secrets `HOUDEIDEMO_DOMAIN` があれば優先） |
 | 置き場所 | `~/michinotedemo` | `~/michinotehoudei` |
-| Gunicorn | `0.0.0.0:8029` | `0.0.0.0:<HOUDEIDEMO_PORT>` |
-| DB | `michinotedemo` | `<HOUDEIDEMO_DB_NAME>`（ユーザー `st_ai_labo_dbuser`） |
+| Gunicorn | `0.0.0.0:8029` | `0.0.0.0:8047`（入力 `port`） |
+| DB | `michinotedemo` | `michinotesample`（入力 `db_name`。ユーザー `st_ai_labo_dbuser`） |
 | ブランチ | `develop` | `develop` |
 | 配備 | Deploy (dev)（push で動く） | **Deploy (houdeidemo)**（Actions から手で。ブランチ `develop` を選ぶ） |
 | 管理 | Manage (dev) | **Manage (houdeidemo)** |
@@ -22,23 +23,21 @@
 
 ## 1. 準備（プロバイダに頼む）
 
-- nginx：`<HOUDEIDEMO_DOMAIN>` → `127.0.0.1:<HOUDEIDEMO_PORT>`（HTTPS。検証環境と同じ設定：`X-Forwarded-Proto`・`client_max_body_size 100m`・`proxy_read_timeout 300s`）
-- PostgreSQL：DB `<HOUDEIDEMO_DB_NAME>`、ユーザー `st_ai_labo_dbuser`（開発環境と同じユーザー）
+- nginx：`st-michinote.sample.ai-labo.cloud` → `127.0.0.1:8047`（HTTPS。検証環境と同じ設定：`X-Forwarded-Proto`・`client_max_body_size 100m`・`proxy_read_timeout 300s`）→ 2026-11-09 に設定ずみ
+- PostgreSQL：DB `michinotesample`、ユーザー `st_ai_labo_dbuser`（開発環境と同じユーザー）→ 設定ずみ
 
 ## 2. GitHub Secrets
 
 | 名前 | 入れるもの |
 |---|---|
-| `HOUDEIDEMO_DOMAIN` | プロバイダが用意したアドレス（必須。無ければ配備しない） |
-| `HOUDEIDEMO_PORT` | Gunicorn のポート（必須） |
-| `HOUDEIDEMO_DB_NAME` | DB 名（必須。`michinotedemo`・`kaigonotekyotaku`・`kaigonotemidorikai`・`kaigonotedemo` などほかの環境の DB 名は拒む） |
+| `HOUDEIDEMO_DOMAIN`・`HOUDEIDEMO_PORT`・`HOUDEIDEMO_DB_NAME` | 任意。アドレス・ポート・DB 名は Deploy (houdeidemo) の実行時の入力（既定値 `st-michinote.sample.ai-labo.cloud`・`8047`・`michinotesample`）で足りる。Secrets に入れればそちらが優先。ほかの環境の DB 名（`michinotedemo`・`kaigonotekyotaku`・`kaigonotemidorikai`・`kaigonotedemo` など）は拒む |
 | `HOUDEIDEMO_ADMIN_PASSWORD` | 管理者 `houdeidemo` のパスワード（Manage (houdeidemo) の `create_facility`・`set_password` で使う。デモの相手に伝える値） |
 
 SSH は同じサーバーなので開発環境の `DEV_DEPLOY_*` をそのまま使います。
 
 ## 3. 配備（Actions から）
 
-1. Actions → **Deploy (houdeidemo)** → Run workflow → ブランチ **`develop`**。テスト → SSH → 初回は `.env` を雛形（`deploy/.env.houdeidemo-aws.example`）から作り（`SECRET_KEY` は生成、DB パスワード・Anthropic キー・音声の設定は `~/michinotedemo/.env` から写す）→ `migrate` → `collectstatic` → Gunicorn 起動 → `https://<HOUDEIDEMO_DOMAIN>/healthz/` で確認。介護のブランチ（`kyotaku`・`yasuragi`）を選ぶと止まる
+1. Actions → **Deploy (houdeidemo)** → Run workflow → ブランチ **`develop`**（入力の domain・port・db_name は既定のまま）。テスト → SSH → 初回は `.env` を雛形（`deploy/.env.houdeidemo-aws.example`）から作り（`SECRET_KEY` は生成、DB パスワード・Anthropic キー・音声の設定は `~/michinotedemo/.env` から写す）→ `migrate` → `collectstatic` → Gunicorn 起動 → `https://st-michinote.sample.ai-labo.cloud/healthz/` で確認。介護のブランチ（`kyotaku`・`yasuragi`）を選ぶと止まる
 2. Manage (houdeidemo) → `task=autostart_install`（サーバーの再起動のあとに自動で上がる・5 分ごとの見回り・毎日 3:15 のバックアップ）
 
 ## 4. 事業所と管理者を作る
