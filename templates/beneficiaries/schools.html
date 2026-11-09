@@ -10,6 +10,11 @@
   .sc-grid { display: grid; grid-template-columns: 1.2fr 0.6fr 2fr 0.8fr 1.4fr auto; gap: 6px; align-items: center; }
   .sc-head { font-size: 0.75rem; color: #8a8378; font-weight: 600; }
   .sc-row { padding: 6px 0; border-top: 1px solid #f0ece4; }
+  .sc-dismiss { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 6px; font-size: 0.8rem; color: #6b6257; }
+  .sc-dismiss label { display: flex; align-items: center; gap: 4px; margin: 0; white-space: nowrap; }
+  .sc-dismiss input[type=time] { width: 96px; }
+  .sc-dl { font-weight: 600; color: #8a8378; font-size: 0.75rem; }
+  .sc-dnote { flex: 1 1 200px; }
   @media (max-width: 900px) { .sc-grid { grid-template-columns: 1fr 1fr; } .sc-head { display: none; } }
 </style>
 {% endblock %}
@@ -21,7 +26,7 @@
     <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
       <div>
         <div class="fw-bold" style="color: var(--lake-text, #2f4f58);"><i class="bi bi-building me-1"></i>学校・園（{{ schools|length }}）</div>
-        <div class="small text-muted">{{ terms.beneficiary }}情報で学校名を入れると、ここに登録され、同じ学校の子には住所・電話が呼び出されます。送迎の「迎えの場所」が空のときは学校の住所が配車表に出ます。</div>
+        <div class="small text-muted">{{ terms.beneficiary }}情報で学校名を入れると、ここに登録され、同じ学校の子には住所・電話が呼び出されます。送迎の「迎えの場所」が空のときは学校の住所が、迎えの時刻が空のときはその曜日の下校時刻が配車表に出ます。</div>
       </div>
     </div>
     <div class="sc-grid sc-head"><div>学校名</div><div>郵便番号</div><div>住所</div><div>電話</div><div>備考（迎えの入口など）</div><div></div></div>
@@ -39,6 +44,16 @@
           {% if not sc.student_count %}<button class="btn btn-sm btn-outline-danger" form="del-{{ sc.pk }}" title="消す" onclick="return confirm('学校「{{ sc.name|escapejs }}」を消します。よろしいですか？');"><i class="bi bi-trash"></i></button>{% endif %}
         </div>
       </div>
+      <div class="sc-dismiss">
+        <span class="sc-dl">下校時刻</span>
+        <label>既定 <input type="time" name="dismissal_time" class="form-control form-control-sm" value="{{ sc.dismissal_time|time:'H:i' }}"></label>
+        <label>月 <input type="time" name="dismissal_mon" class="form-control form-control-sm" value="{{ sc.dismissal_mon|time:'H:i' }}"></label>
+        <label>火 <input type="time" name="dismissal_tue" class="form-control form-control-sm" value="{{ sc.dismissal_tue|time:'H:i' }}"></label>
+        <label>水 <input type="time" name="dismissal_wed" class="form-control form-control-sm" value="{{ sc.dismissal_wed|time:'H:i' }}"></label>
+        <label>木 <input type="time" name="dismissal_thu" class="form-control form-control-sm" value="{{ sc.dismissal_thu|time:'H:i' }}"></label>
+        <label>金 <input type="time" name="dismissal_fri" class="form-control form-control-sm" value="{{ sc.dismissal_fri|time:'H:i' }}"></label>
+        <input type="text" name="dismissal_note" class="form-control form-control-sm sc-dnote" maxlength="200" value="{{ sc.dismissal_note }}" placeholder="下校の備考（1 年生は 14:30 など）" aria-label="下校時刻の備考">
+      </div>
     </form>
     {% empty %}<div class="small text-muted py-2">まだ登録がありません。{{ terms.beneficiary }}情報で学校名と学校の住所を入れると、ここに並びます。</div>{% endfor %}
     <form method="post" class="sc-row" style="border-top: 2px dashed var(--line, #e5e1d8);">
@@ -50,6 +65,16 @@
         <input type="text" name="phone" class="form-control form-control-sm" maxlength="20" placeholder="電話" aria-label="電話">
         <input type="text" name="note" class="form-control form-control-sm" maxlength="200" placeholder="備考" aria-label="備考">
         <button class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>登録</button>
+      </div>
+      <div class="sc-dismiss">
+        <span class="sc-dl">下校時刻</span>
+        <label>既定 <input type="time" name="dismissal_time" class="form-control form-control-sm"></label>
+        <label>月 <input type="time" name="dismissal_mon" class="form-control form-control-sm"></label>
+        <label>火 <input type="time" name="dismissal_tue" class="form-control form-control-sm"></label>
+        <label>水 <input type="time" name="dismissal_wed" class="form-control form-control-sm"></label>
+        <label>木 <input type="time" name="dismissal_thu" class="form-control form-control-sm"></label>
+        <label>金 <input type="time" name="dismissal_fri" class="form-control form-control-sm"></label>
+        <input type="text" name="dismissal_note" class="form-control form-control-sm sc-dnote" maxlength="200" placeholder="下校の備考" aria-label="下校時刻の備考">
       </div>
     </form>
   </div>

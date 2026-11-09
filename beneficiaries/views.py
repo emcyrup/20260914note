@@ -560,7 +560,9 @@ class BeneficiaryUpdateView(LoginRequiredMixin, UpdateView):
                     'line_send_journal'}
     # 住所・連絡先・学校（2026-11-09 オウル：窓にも出した）。窓が送ってきたとき（address が POST にある）だけ POST の値を使う
     ADDRESS_FIELDS = {'postal_code', 'address', 'mobile_phone', 'home_phone', 'school_name', 'grade',
-                      'school_postal_code', 'school_address', 'school_phone'}
+                      'school_postal_code', 'school_address', 'school_phone', 'school_dismissal'}
+    # 学校マスタ側の欄 → School のフィールド名
+    SCHOOL_FIELD_MAP = {'school_postal_code': 'postal_code', 'school_address': 'address', 'school_phone': 'phone', 'school_dismissal': 'dismissal_time'}
 
     def get_form_kwargs(self):
         kwargs = {**super().get_form_kwargs(), 'facility': self.request.user.facility}
@@ -572,9 +574,10 @@ class BeneficiaryUpdateView(LoginRequiredMixin, UpdateView):
             for name, field in BeneficiaryForm.base_fields.items():
                 if name in self.MODAL_FIELDS or (name in self.ADDRESS_FIELDS and has_address):
                     continue
-                if name in self.ADDRESS_FIELDS and not hasattr(obj, name):       # 学校の住所などは学校マスタ側の値
+                if name in self.SCHOOL_FIELD_MAP:       # 学校の住所・下校時刻などは学校マスタ側の値
                     school = obj.school if obj.school_id else None
-                    data[name] = getattr(school, name.replace('school_', ''), '') if school else ''
+                    value = getattr(school, self.SCHOOL_FIELD_MAP[name], '') if school else ''
+                    data[name] = value.strftime('%H:%M') if isinstance(value, datetime.time) else (value or '')
                     continue
                 value = getattr(obj, name)
                 if hasattr(value, 'all'):                  # 多対多
@@ -1801,7 +1804,9 @@ class SchoolLookupView(LoginRequiredMixin, View):
         if not school:
             return JsonResponse({'found': False})
         return JsonResponse({'found': True, 'name': school.name, 'postal_code': school.postal_code, 'address': school.address,
-                             'phone': school.phone, 'note': school.note, 'students': school.students.count()})
+                             'phone': school.phone, 'note': school.note, 'students': school.students.count(),
+                             'dismissal_time': school.dismissal_time.strftime('%H:%M') if school.dismissal_time else '',
+                             'dismissal_display': school.dismissal_display})
 
 
 class SchoolListView(LoginRequiredMixin, View):
@@ -1825,6 +1830,7 @@ class SchoolListView(LoginRequiredMixin, View):
             if p.get('note') is not None:
                 school.note = (p.get('note') or '').strip()[:200]
                 school.save(update_fields=['note', 'updated_at'])
+            school.set_dismissal(p)
             messages.success(request, f'学校「{school.name}」を{"登録" if created else "更新"}しました。')
             return redirect('beneficiaries:schools')
         school = get_object_or_404(School, pk=to_int(p.get('pk'), -1), facility=facility)
@@ -1848,6 +1854,7 @@ class SchoolListView(LoginRequiredMixin, View):
             school.address = (p.get('address') or '').strip()[:200]
             school.phone = (p.get('phone') or '').strip()[:20]
             school.note = (p.get('note') or '').strip()[:200]
+            school.set_dismissal(p, save=False)
             school.save()
             # 名前を変えたら、通っている子の school_name もそろえる
             school.students.exclude(school_name=new_name).update(school_name=new_name)

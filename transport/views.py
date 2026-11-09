@@ -1,6 +1,7 @@
 """送迎・配車の画面：日ごとの配車表（迎え／送り）、車両・運転手の登録、利用者ごとの送迎の設定"""
 import datetime
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
@@ -14,6 +15,7 @@ from config.concurrency import check_conflict
 from config.pdf import pdf_or_html
 from config.utils import to_int
 
+from . import routing
 from .models import (DIRECTION_DROPOFF, DIRECTION_LABELS, DIRECTION_PICKUP, DIRECTIONS, Driver, TransportAssignment,
                      TransportProfile, Vehicle)
 
@@ -92,9 +94,14 @@ def build_board(facility, day):
             vehicle = a.vehicle if a and a.vehicle_id else (profile.default_vehicle if profile and profile.default_vehicle_id else None)
             driver_id = a.driver_id if a and a.driver_id else (vehicle.default_driver_id if vehicle else None)
             driver = drivers.get(driver_id)
+            # 迎えの時刻が設定に無ければ、学校のその曜日の下校時刻（学校マスタ）を既定にする（2026-11-09）
+            school = r.beneficiary.school if r.beneficiary.school_id else None
+            dismissal = school.dismissal_for(day) if (school and direction == DIRECTION_PICKUP) else None
             board[direction].append({
                 'key': row_key(r.pk, direction), 'reservation': r, 'beneficiary': r.beneficiary, 'profile': profile, 'assignment': a,
-                'time': (a.time if a and a.time else (profile.time(direction) if profile else None)),
+                'time': (a.time if a and a.time else ((profile.time(direction) if profile else None) or dismissal)),
+                'dismissal': dismissal,
+                'route_pair': route_pair(facility, r.beneficiary, direction),
                 'place': (a.place if a and a.place else (profile.place(direction) if profile else '')),
                 'default_place': default_place(r.beneficiary, direction),
                 'vehicle_id': vehicle.pk if vehicle else None, 'vehicle': vehicle,
@@ -103,6 +110,14 @@ def build_board(facility, day):
                 'note': a.note if a else '', 'profile_note': profile.note if profile else '',
                 'skip': bool(a and a.skip), 'added': bool(a and a.added),
             })
+    # 所要時間（控えにあるものだけ。外部への問い合わせは「所要時間を計算」ボタンで）
+    board['routes_missing'] = 0
+    for direction, _label in DIRECTIONS:
+        for x in board[direction]:
+            pair = x['route_pair']
+            x['route'] = routing.cached(*pair) if pair else None
+            if pair and not x['route'] and not x['skip']:
+                board['routes_missing'] += 1
     for direction, _label in DIRECTIONS:
         rows = board[direction]
         rows.sort(key=lambda x: (x['skip'], x['time'] is None, x['time'] or datetime.time.min,
@@ -110,9 +125,10 @@ def build_board(facility, day):
         by_vehicle = {}
         for x in rows:
             if not x['skip'] and x['vehicle']:
-                c = by_vehicle.setdefault(x['vehicle'].pk, {'vehicle': x['vehicle'], 'count': 0, 'driver_ng': False})
+                c = by_vehicle.setdefault(x['vehicle'].pk, {'vehicle': x['vehicle'], 'count': 0, 'driver_ng': False, 'minutes': 0})
                 c['count'] += 1
                 c['driver_ng'] = c['driver_ng'] or x['driver_ng']
+                c['minutes'] += x['route'].minutes if x['route'] else 0
         counts = sorted(by_vehicle.values(), key=lambda c: (c['vehicle'].order, c['vehicle'].pk))
         for c in counts:
             c['over'] = bool(c['vehicle'].capacity and c['count'] > c['vehicle'].capacity)
@@ -124,6 +140,31 @@ def build_board(facility, day):
     board = mark_ride_ng(facility, board)
     board['problems'] += sum(board['ride_ng'].values())
     return board
+
+
+def route_pair(facility, beneficiary, direction):
+    """
+    所要時間を求める (出発, 到着) の住所（2026-11-09）。迎え：学校の住所 → 施設の住所、送り：施設の住所 → 自宅の住所。
+    どちらかが無ければ None（学校の住所は学校マスタ、自宅は利用者情報、施設は施設設定の住所）
+    """
+    base = routing.normalize_address(facility.address)
+    if not base:
+        return None
+    if direction == DIRECTION_PICKUP:
+        school = beneficiary.school if beneficiary.school_id else None
+        origin = routing.normalize_address(school.address) if school else ''
+        return (origin, base) if origin else None
+    home = routing.normalize_address(beneficiary.address)
+    return (base, home) if home else None
+
+
+def compute_routes(facility, day, limit=40):
+    """その日の配車表の、まだ控えの無い組の所要時間を外部に問い合わせて控える。(求めた数, 求められなかった数, 残り)"""
+    board = build_board(facility, day)
+    pairs = [x['route_pair'] for d, _l in DIRECTIONS for x in board[d] if x['route_pair'] and not x['route'] and not x['skip']]
+    done, failed = routing.estimate_many(pairs, limit=limit)
+    left = max(0, len({p for p in pairs}) - done - failed)
+    return done, failed, left
 
 
 def default_place(beneficiary, direction):
@@ -274,6 +315,8 @@ def day_context(facility, day):
         'board': build_board(facility, day), 'directions': DIRECTIONS,
         'vehicles': list(Vehicle.objects.filter(facility=facility, is_active=True)),
         'drivers': list(Driver.objects.filter(facility=facility, is_active=True).prefetch_related('vehicles')),
+        'route_source': 'Google マップ' if getattr(settings, 'GOOGLE_MAPS_API_KEY', '') else '国土地理院の住所検索と道路の経路（OSRM）',
+        'facility_has_address': bool(routing.normalize_address(facility.address)),
     }
 
 
@@ -297,6 +340,16 @@ class DayView(TransportEnabledMixin, View):
             if any(ng.values()):
                 messages.warning(request, '同じ車に乗せない組み合わせが同じ車・近い時刻に入っています（' +
                                  '・'.join(f'{DIRECTION_LABELS[d]} {c} 組' for d, c in ng.items() if c) + '）。赤い行を確かめてください。')
+            return back
+        if action == 'routes':
+            done, failed, left = compute_routes(facility, day)
+            if done:
+                messages.success(request, f'所要時間を {done} 件求めました。' + (f'{failed} 件は住所が見つからないか、経路が引けませんでした（住所を番地まで入れてください）。' if failed else '')
+                                 + (f'残り {left} 件は、もう一度押すと続きを求めます。' if left else ''))
+            elif failed:
+                messages.warning(request, f'所要時間を求められませんでした（{failed} 件）。住所が見つからないか、経路のサービスに届いていません。住所を番地まで入れて、しばらくしてからもう一度試してください。')
+            else:
+                messages.info(request, '所要時間を求める行はありません（住所が入っている行は計算済みです）。')
             return back
         if action == 'auto':
             n, left = auto_assign(facility, day)

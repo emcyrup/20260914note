@@ -79,6 +79,12 @@
   </form>
   {% endif %}
 
+  <form method="post" class="mb-3 d-flex align-items-center gap-2 flex-wrap">
+    {% csrf_token %}<input type="hidden" name="action" value="routes"><input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}">
+    <button class="btn btn-outline-secondary btn-sm" {% if not board.routes_missing %}disabled{% endif %}><i class="bi bi-stopwatch me-1"></i>所要時間を計算{% if board.routes_missing %}（未計算 {{ board.routes_missing }} 件）{% endif %}</button>
+    <span class="small text-muted">{% if not facility_has_address %}施設設定に施設の住所を入れると、{% endif %}迎えは「学校の住所 → 施設」、送りは「施設 → 自宅の住所」の車のかかる時間を出します（{{ route_source }}。一度求めた組は控えておきます）。住所は番地まで入れてください。</span>
+  </form>
+
   {% if board.others.pickup or board.others.dropoff %}
   <div class="tr-card">
     <div class="tr-card-h"><div class="t" style="font-size:0.95rem;">この日だけ送迎を足す</div><div class="small text-muted">送迎の設定が無い（またはその向きが無い）人を、この日だけ配車表に入れます</div></div>
@@ -90,6 +96,6 @@
     </div>
   </div>
   {% endif %}
-  <div class="small text-muted mb-4">予約（確定）のある利用者のうち、利用者情報の「送迎」で迎え・送りありにした人が並びます。時刻・場所・車両・運転手の空欄は、送迎の設定といつもの車両の運転手から入ります。場所が空のときは、迎えは学校（利用者情報の学校と学校の住所）、送りは自宅の住所が印刷に出ます。「なし」にするとその日は送迎しない人として印刷からも外れます。</div>
+  <div class="small text-muted mb-4">予約（確定）のある利用者のうち、利用者情報の「送迎」で迎え・送りありにした人が並びます。時刻・場所・車両・運転手の空欄は、送迎の設定といつもの車両の運転手から入ります。場所が空のときは、迎えは学校（利用者情報の学校と学校の住所）、送りは自宅の住所が印刷に出ます。迎えの時刻が空のときは学校のその曜日の下校時刻（学校の一覧で登録）が入ります。「なし」にするとその日は送迎しない人として印刷からも外れます。</div>
 </div>
 {% endblock %}

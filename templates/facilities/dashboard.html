@@ -34,7 +34,7 @@
                 <span class="fw-semibold">{{ x.time|time:'G:i'|default:'--:--' }}</span>　<a href="{% url 'beneficiaries:detail' x.beneficiary.pk %}#transport" class="text-decoration-none fw-semibold">{{ x.beneficiary.full_name }}</a>
                 {% if x.vehicle %}<span class="badge text-bg-light border ms-1">{{ x.vehicle.name }}</span>{% endif %}
                 {% if x.ride_ng %}<span class="badge text-bg-danger ms-1">同乗NG：{{ x.ride_ng|join:'・' }}</span>{% endif %}{% if x.driver_ng %}<span class="badge text-bg-danger ms-1">運転不可</span>{% endif %}
-                <div class="text-muted">{{ x.place_shown|default:'場所未定' }}{% if x.note %}　{{ x.note }}{% endif %}{% if x.profile_note %}　<i class="bi bi-exclamation-triangle"></i>{{ x.profile_note }}{% endif %}</div>
+                <div class="text-muted">{{ x.place_shown|default:'場所未定' }}{% if x.route %}　<i class="bi bi-stopwatch"></i>{{ x.route.label }}{% endif %}{% if x.note %}　{{ x.note }}{% endif %}{% if x.profile_note %}　<i class="bi bi-exclamation-triangle"></i>{{ x.profile_note }}{% endif %}</div>
               </li>
               {% endfor %}
             </ul>
@@ -53,7 +53,7 @@
                 <span class="fw-semibold">{{ x.time|time:'G:i'|default:'--:--' }}</span>　<a href="{% url 'beneficiaries:detail' x.beneficiary.pk %}#transport" class="text-decoration-none fw-semibold">{{ x.beneficiary.full_name }}</a>
                 {% if x.vehicle %}<span class="badge text-bg-light border ms-1">{{ x.vehicle.name }}</span>{% endif %}
                 {% if x.ride_ng %}<span class="badge text-bg-danger ms-1">同乗NG：{{ x.ride_ng|join:'・' }}</span>{% endif %}{% if x.driver_ng %}<span class="badge text-bg-danger ms-1">運転不可</span>{% endif %}
-                <div class="text-muted">{{ x.place_shown|default:'場所未定' }}{% if x.note %}　{{ x.note }}{% endif %}{% if x.profile_note %}　<i class="bi bi-exclamation-triangle"></i>{{ x.profile_note }}{% endif %}</div>
+                <div class="text-muted">{{ x.place_shown|default:'場所未定' }}{% if x.route %}　<i class="bi bi-stopwatch"></i>{{ x.route.label }}{% endif %}{% if x.note %}　{{ x.note }}{% endif %}{% if x.profile_note %}　<i class="bi bi-exclamation-triangle"></i>{{ x.profile_note }}{% endif %}</div>
               </li>
               {% endfor %}
             </ul>

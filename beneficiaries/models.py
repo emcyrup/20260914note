@@ -45,8 +45,20 @@ class School(models.Model):
     address = models.CharField(max_length=200, blank=True, verbose_name='住所')
     phone = models.CharField(max_length=20, blank=True, verbose_name='電話番号')
     note = models.CharField(max_length=200, blank=True, verbose_name='備考', help_text='迎えの入口・待ち合わせの場所など')
+    # 下校（終了）の時刻（2026-11-09）：既定と、曜日ごとの違い（水曜は短縮など）。配車表の迎えの時刻が空のときの既定になる
+    dismissal_time = models.TimeField(null=True, blank=True, verbose_name='下校時刻（既定）')
+    dismissal_mon = models.TimeField(null=True, blank=True, verbose_name='下校時刻（月）')
+    dismissal_tue = models.TimeField(null=True, blank=True, verbose_name='下校時刻（火）')
+    dismissal_wed = models.TimeField(null=True, blank=True, verbose_name='下校時刻（水）')
+    dismissal_thu = models.TimeField(null=True, blank=True, verbose_name='下校時刻（木）')
+    dismissal_fri = models.TimeField(null=True, blank=True, verbose_name='下校時刻（金）')
+    dismissal_note = models.CharField(max_length=200, blank=True, verbose_name='下校時刻の備考', help_text='1 年生は 14:30・行事の日は学校だよりで確認 など')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    WEEKDAY_FIELDS = ['dismissal_mon', 'dismissal_tue', 'dismissal_wed', 'dismissal_thu', 'dismissal_fri']
+    WEEKDAY_LABELS = ['月', '火', '水', '木', '金']
+    DISMISSAL_FIELDS = ['dismissal_time'] + WEEKDAY_FIELDS
 
     class Meta:
         verbose_name = '学校'
@@ -61,6 +73,58 @@ class School(models.Model):
     def full_address(self):
         return (f'〒{self.postal_code} ' if self.postal_code else '') + self.address
 
+    def dismissal_for(self, day):
+        """その日の下校時刻（曜日ごとの設定があればそれ、無ければ既定。土日は既定）"""
+        wd = day.weekday() if day is not None else None
+        if wd is not None and wd < 5:
+            t = getattr(self, self.WEEKDAY_FIELDS[wd])
+            if t:
+                return t
+        return self.dismissal_time
+
+    @property
+    def dismissal_display(self):
+        """「14:30（水 13:30）」のような短い形。何も無ければ空"""
+        parts = []
+        if self.dismissal_time:
+            parts.append(self.dismissal_time.strftime('%H:%M'))
+        diffs = [f'{label} {t.strftime("%H:%M")}' for label, f in zip(self.WEEKDAY_LABELS, self.WEEKDAY_FIELDS)
+                 for t in [getattr(self, f)] if t and t != self.dismissal_time]
+        if diffs:
+            parts.append('（' + '・'.join(diffs) + '）' if parts else '・'.join(diffs))
+        return ''.join(parts)
+
+    @staticmethod
+    def parse_time(value):
+        """'14:30' → time。空・読めない値は None"""
+        if isinstance(value, datetime.time):
+            return value
+        value = (value or '').strip()
+        for fmt in ('%H:%M', '%H:%M:%S', '%H%M'):
+            try:
+                return datetime.datetime.strptime(value, fmt).time()
+            except ValueError:
+                continue
+        return None
+
+    def set_dismissal(self, data, save=True):
+        """学校の一覧・利用者情報の欄から：{'dismissal_time': '14:30', 'dismissal_wed': '13:30', 'dismissal_note': ...}（無いキーは触らない）"""
+        changed = []
+        for f in self.DISMISSAL_FIELDS:
+            if f in data:
+                t = self.parse_time(data.get(f))
+                if getattr(self, f) != t:
+                    setattr(self, f, t)
+                    changed.append(f)
+        if 'dismissal_note' in data:
+            note = (data.get('dismissal_note') or '').strip()[:200]
+            if self.dismissal_note != note:
+                self.dismissal_note = note
+                changed.append('dismissal_note')
+        if changed and save:
+            self.save(update_fields=changed + ['updated_at'])
+        return changed
+
     @classmethod
     def normalize(cls, name):
         return ' '.join((name or '').replace('\u3000', ' ').split())[:100]
@@ -71,7 +135,7 @@ class School(models.Model):
         return cls.objects.filter(facility=facility, name=name).first() if name else None
 
     @classmethod
-    def remember(cls, facility, name, postal_code='', address='', phone=''):
+    def remember(cls, facility, name, postal_code='', address='', phone='', dismissal_time=None):
         """
         学校名から学校を探し、無ければ作る。住所などは「入れた値があれば上書き、空なら今のまま」（同じ学校なら住所を呼び出せる）。
         戻り値 (School か None, 新しく作ったか)
@@ -86,6 +150,10 @@ class School(models.Model):
             if value and getattr(school, field) != value:
                 setattr(school, field, value)
                 changed.append(field)
+        t = cls.parse_time(dismissal_time)
+        if t and school.dismissal_time != t:
+            school.dismissal_time = t
+            changed.append('dismissal_time')
         if changed:
             school.save(update_fields=changed + ['updated_at'])
         return school, created

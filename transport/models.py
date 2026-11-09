@@ -136,3 +136,55 @@ class TransportAssignment(models.Model):
 
     def __str__(self):
         return f'{self.reservation} {self.get_direction_display()}'
+
+
+class GeoPoint(models.Model):
+    """住所→座標の控え（2026-11-09）。国土地理院の住所検索などで一度引いた住所は、ここから返す"""
+    address = models.CharField(max_length=200, unique=True, verbose_name='住所')
+    lat = models.FloatField(verbose_name='緯度')
+    lon = models.FloatField(verbose_name='経度')
+    source = models.CharField(max_length=20, blank=True, verbose_name='出どころ')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = '住所の座標'
+        verbose_name_plural = '住所の座標'
+
+    def __str__(self):
+        return self.address
+
+
+class RouteEstimate(models.Model):
+    """
+    住所から住所までの車の所要時間の控え（2026-11-09 オウル）。配車表の「所要時間を計算」で一度求めた組は、ここから返す。
+    source：google（Distance Matrix）／osrm（国土地理院で座標→OSRM の車の経路）／direct（直線距離からの目安。経路が引けないとき）
+    """
+    SOURCE_LABELS = {'google': 'Google マップ', 'osrm': '道路の経路（OSRM）', 'direct': '直線距離からの目安'}
+    origin = models.CharField(max_length=200, verbose_name='出発の住所')
+    destination = models.CharField(max_length=200, verbose_name='到着の住所')
+    minutes = models.PositiveSmallIntegerField(verbose_name='所要時間（分）')
+    distance_m = models.PositiveIntegerField(default=0, verbose_name='距離（m）')
+    source = models.CharField(max_length=20, blank=True, verbose_name='出どころ')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = '所要時間'
+        verbose_name_plural = '所要時間'
+        unique_together = [('origin', 'destination')]
+
+    def __str__(self):
+        return f'{self.origin} → {self.destination}: 約{self.minutes}分'
+
+    @property
+    def km(self):
+        return round(self.distance_m / 1000, 1)
+
+    @property
+    def label(self):
+        """「約12分・4.1km」。直線距離からの目安なら「約12分・4.1km（目安）」"""
+        s = f'約{self.minutes}分' + (f'・{self.km}km' if self.distance_m else '')
+        return s + ('（目安）' if self.source == 'direct' else '')
+
+    @property
+    def source_label(self):
+        return self.SOURCE_LABELS.get(self.source, self.source)

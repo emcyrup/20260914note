@@ -33,6 +33,7 @@ class BeneficiaryForm(forms.ModelForm):
     school_postal_code = forms.CharField(max_length=8, required=False, label='学校の郵便番号')
     school_address = forms.CharField(max_length=200, required=False, label='学校の住所')
     school_phone = forms.CharField(max_length=20, required=False, label='学校の電話番号')
+    school_dismissal = forms.CharField(max_length=8, required=False, label='下校時刻（既定）')
 
     def __init__(self, *args, facility=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -46,6 +47,7 @@ class BeneficiaryForm(forms.ModelForm):
             self.fields['school_postal_code'].initial = school.postal_code
             self.fields['school_address'].initial = school.address
             self.fields['school_phone'].initial = school.phone
+            self.fields['school_dismissal'].initial = school.dismissal_time.strftime('%H:%M') if school.dismissal_time else ''
         qs = Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE) if facility else Beneficiary.objects.none()
         if self.instance.pk:
             qs = qs.exclude(pk=self.instance.pk)
@@ -70,7 +72,8 @@ class BeneficiaryForm(forms.ModelForm):
         obj.school_name = name
         if facility is not None and name:
             school, _created = School.remember(facility, name, self.cleaned_data.get('school_postal_code'),
-                                               self.cleaned_data.get('school_address'), self.cleaned_data.get('school_phone'))
+                                               self.cleaned_data.get('school_address'), self.cleaned_data.get('school_phone'),
+                                               dismissal_time=self.cleaned_data.get('school_dismissal'))
             obj.school = school
         else:
             obj.school = None

@@ -256,7 +256,7 @@
           <div class="col-12">
             <div class="detail-label">学校・園</div>
             <div class="detail-value">{% if beneficiary.school_name %}{{ beneficiary.school_name }}{% if beneficiary.grade %}（{{ beneficiary.get_grade_display }}）{% endif %}
-              {% if beneficiary.school %}<div class="small text-muted">{% if beneficiary.school.address %}{{ beneficiary.school.full_address }}{% else %}住所は未登録{% endif %}{% if beneficiary.school.phone %}　TEL {{ beneficiary.school.phone }}{% endif %}{% if beneficiary.school.note %}　{{ beneficiary.school.note }}{% endif %}　<a href="{% url 'beneficiaries:schools' %}">学校の一覧</a></div>{% endif %}
+              {% if beneficiary.school %}<div class="small text-muted">{% if beneficiary.school.address %}{{ beneficiary.school.full_address }}{% else %}住所は未登録{% endif %}{% if beneficiary.school.phone %}　TEL {{ beneficiary.school.phone }}{% endif %}{% if beneficiary.school.dismissal_display %}　下校 {{ beneficiary.school.dismissal_display }}{% endif %}{% if beneficiary.school.note %}　{{ beneficiary.school.note }}{% endif %}　<a href="{% url 'beneficiaries:schools' %}">学校の一覧</a></div>{% endif %}
               {% else %}<span class="text-muted">—</span>{% endif %}</div>
           </div>
           {% if pair_names %}
