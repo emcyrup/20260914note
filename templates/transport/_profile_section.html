@@ -48,10 +48,30 @@
       {% if ride_candidates %}
       <div class="col-12">
         <input type="hidden" name="ride_ng_present" value="1">
-        <label class="form-label small mb-0">同じ車に乗せない{{ terms.beneficiary }}（同乗NG）<span class="text-muted">：配車表で同じ車・近い時刻（30 分以内）に入ると赤く知らせます。相手の側にも付きます</span></label>
-        <div class="border rounded p-2" style="max-height:140px;overflow:auto;">
+        <div class="d-flex justify-content-between align-items-end flex-wrap gap-2">
+          <label class="form-label small mb-0">同じ車に乗せない{{ terms.beneficiary }}（同乗NG）<span class="text-muted">：配車表で同じ車・近い時刻（30 分以内）に入ると赤く知らせます。相手の側にも付きます</span></label>
+          <div class="d-flex align-items-center gap-1 small" id="ride-ng-tools">
+            <span class="text-muted me-1"><span id="ride-ng-count">{{ ride_ng_ids|length }}</span> / {{ ride_candidates|length }} 人</span>
+            <button type="button" class="btn btn-outline-secondary btn-sm py-0" data-ride-ng="all" title="表示中の全員に印を付けます（一人だけ乗せる子など）">全員チェック</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm py-0" data-ride-ng="none" title="印をすべて外します">全部外す</button>
+          </div>
+        </div>
+        <div class="border rounded p-2" style="max-height:140px;overflow:auto;" id="ride-ng-box">
           {% for c in ride_candidates %}<label class="form-check form-check-inline small mb-1"><input type="checkbox" class="form-check-input" name="no_ride_with" value="{{ c.pk }}" {% if c.pk in ride_ng_ids %}checked{% endif %}>{{ c.full_name }}</label>{% endfor %}
         </div>
+        <script>
+        (function () {
+          // 同乗NG の一括チェック（2026-11-09）：全員チェック／全部外す。数も合わせて出す。保存するまでは確定しない
+          var box = document.getElementById('ride-ng-box'), tools = document.getElementById('ride-ng-tools'), cnt = document.getElementById('ride-ng-count');
+          if (!box || !tools) return;
+          function boxes() { return box.querySelectorAll('input[name=no_ride_with]'); }
+          function update() { var n = 0; boxes().forEach(function (b) { if (b.checked) n++; }); cnt.textContent = n; }
+          tools.querySelectorAll('[data-ride-ng]').forEach(function (btn) {
+            btn.addEventListener('click', function () { var on = btn.dataset.rideNg === 'all'; boxes().forEach(function (b) { b.checked = on; }); update(); });
+          });
+          box.addEventListener('change', update);
+        })();
+        </script>
       </div>
       {% endif %}
       <div class="col-12 d-flex justify-content-between align-items-center flex-wrap gap-2">
