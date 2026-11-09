@@ -139,3 +139,28 @@ class FixedDaysTests(TestCase):
         self.assertContains(res, '15:00 のように')
         self.s.refresh_from_db()
         self.assertFalse(self.s.fixed_days)
+
+
+class FixedDaysCheckAndSeedTests(TestCase):
+    """seed_demo が予定の見本（利用予定曜日から今月・来月、過ぎた日の出欠）を入れ、fixed_days_check がすべて OK になる"""
+
+    def test_seed_and_check(self):
+        from io import StringIO
+        from django.core.management import call_command
+        f = Facility.objects.create(name='児童発達支援センター　オウル', use_reservation=True, use_therapy_record=True,
+                                    use_transport=True, use_dev_assessment=True, layout=Facility.LAYOUT_RYOIKU)
+        s = services.get_setting(f)
+        s.slot_mode, s.slot_capacity, s.fixed_days = True, 3, True
+        s.save()
+        StaffAccount.objects.create_user('owl', password='pw12345678', facility=f, role=StaffAccount.ROLE_ADMIN)
+        out = StringIO()
+        call_command('seed_demo', '--facility', str(f.pk), stdout=out)
+        self.assertIn('予定（利用予定曜日から。今月・来月）', out.getvalue())
+        self.assertTrue(Reservation.objects.filter(facility=f, status=Reservation.STATUS_CONFIRMED).exists())
+        out = StringIO()
+        call_command('fixed_days_check', '--facility', str(f.pk), stdout=out)
+        text = out.getvalue()
+        self.assertIn('すべて OK', text)
+        self.assertNotIn('[NG]', text)
+        for b in Beneficiary.objects.filter(facility=f):     # 名前はログに出さない
+            self.assertNotIn(b.last_name, text)
