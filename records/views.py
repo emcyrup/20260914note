@@ -104,6 +104,35 @@ def _save_photos(request, record):
 # =============================================
 # 日誌ダッシュボード（週間カレンダー）
 # =============================================
+class ReservationVisit:
+    """予約（確定）を、週間カレンダーが読む「来所予定」と同じ形にしたもの（status：scheduled／absent／canceled）"""
+    __slots__ = ('beneficiary', 'beneficiary_id', 'date', 'status', 'reservation')
+
+    def __init__(self, r):
+        self.beneficiary = r.beneficiary
+        self.beneficiary_id = r.beneficiary_id
+        self.date = r.date
+        self.reservation = r
+        self.status = 'absent' if r.attendance == 'absent' else 'canceled' if r.attendance == 'cancelled' else 'scheduled'
+
+
+def reservation_visits(facility, start, end, exclude=()):
+    """期間の確定した予約（台帳の利用者がいるもの）。exclude にある (利用者, 日) は除く"""
+    from reservations.models import Reservation
+    qs = (Reservation.objects.filter(facility=facility, date__range=(start, end), status=Reservation.STATUS_CONFIRMED,
+                                     beneficiary__isnull=False)
+          .select_related('beneficiary').order_by('date', 'beneficiary__last_name_kana'))
+    seen = set(exclude)
+    out = []
+    for r in qs:
+        key = (r.beneficiary_id, r.date)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(ReservationVisit(r))
+    return out
+
+
 class RecordsDashboardView(LoginRequiredMixin, TemplateView):
     """
     1週間分の来所予定者と日誌ステータスをカレンダー表示する。
@@ -131,11 +160,14 @@ class RecordsDashboardView(LoginRequiredMixin, TemplateView):
 
         week_dates = [week_start + timedelta(days=i) for i in range(7)]
 
-        # 来所予定を取得
-        visits = ScheduledVisit.objects.filter(
+        # 来所予定を取得（予約を使う事業所（オウルなど）は、予定表の代わりに確定した予約から。2026-11-09）
+        visits = list(ScheduledVisit.objects.filter(
             facility=facility,
             date__range=(week_start, week_end),
-        ).select_related('beneficiary').order_by('date', 'beneficiary__last_name_kana')
+        ).select_related('beneficiary').order_by('date', 'beneficiary__last_name_kana'))
+        if getattr(facility, 'use_reservation', False):
+            visits += reservation_visits(facility, week_start, week_end, exclude={(v.beneficiary_id, v.date) for v in visits})
+            visits.sort(key=lambda v: (v.date, v.beneficiary.last_name_kana, v.beneficiary.first_name_kana))
 
         # 日誌を取得
         records = DailyRecord.objects.filter(

@@ -855,3 +855,27 @@ class JournalQualityTests(TestCase):
         self.client.post(reverse('facilities:feature_settings'), {'journal_sections': ['observation']})   # 欄の無い古い画面からの保存では変えない
         self.facility.refresh_from_db()
         self.assertEqual(self.facility.journal_required, ['support'])
+
+
+class ReservationJournalCalendarTests(TestCase):
+    """予約を使う事業所（オウル）の日誌の週間カレンダーは、確定した予約から来所を出す（2026-11-09）"""
+
+    def test_dashboard_lists_confirmed_reservations(self):
+        import datetime
+        from django.urls import reverse
+        from accounts.models import StaffAccount
+        from beneficiaries.models import Beneficiary
+        from facilities.models import Facility
+        from reservations.models import Reservation
+        f = Facility.objects.create(name='児童発達支援センター　テスト', layout=Facility.LAYOUT_RYOIKU, use_reservation=True, use_therapy_record=True)
+        StaffAccount.objects.create_user('owl', password='pw12345678', facility=f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='owl', password='pw12345678')
+        today = datetime.date.today()
+        b = Beneficiary.objects.create(facility=f, last_name='青木', first_name='子', last_name_kana='あおき', date_of_birth=datetime.date(2019, 4, 1))
+        b2 = Beneficiary.objects.create(facility=f, last_name='伊藤', first_name='花', last_name_kana='いとう', date_of_birth=datetime.date(2019, 4, 1))
+        Reservation.objects.create(facility=f, beneficiary=b, date=today, start_time=datetime.time(15, 0))
+        Reservation.objects.create(facility=f, beneficiary=b2, date=today, start_time=datetime.time(15, 0), status=Reservation.STATUS_CANCELLED)
+        res = self.client.get(reverse('records:dashboard'))
+        self.assertContains(res, 'visit-name">青木 子')
+        self.assertNotContains(res, 'visit-name">伊藤 花')      # 取り消した予約は出ない（下の利用者一覧には名前が残る）
+        self.assertContains(res, '日誌：未作成')

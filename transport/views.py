@@ -9,6 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
 
+from accounts.models import StaffAccount
 from config.concurrency import check_conflict
 from config.pdf import pdf_or_html
 from config.utils import to_int
@@ -58,7 +59,7 @@ def day_reservations(facility, day):
     from reservations.models import Reservation
     return list(Reservation.objects.filter(facility=facility, date=day, status=Reservation.STATUS_CONFIRMED,
                                            beneficiary__isnull=False)
-                .select_related('beneficiary', 'beneficiary__transport', 'beneficiary__transport__default_vehicle',
+                .select_related('beneficiary', 'beneficiary__school', 'beneficiary__transport', 'beneficiary__transport__default_vehicle',
                                 'beneficiary__transport__default_vehicle__default_driver')
                 .prefetch_related(Prefetch('transports', queryset=TransportAssignment.objects.select_related(
                     'vehicle', 'vehicle__default_driver', 'driver')))
@@ -78,8 +79,8 @@ def build_board(facility, day):
     row：key・reservation・beneficiary・profile・assignment・time・place・vehicle_id・driver_id・note・skip・added
     """
     reservations = day_reservations(facility, day)
-    drivers = {d.pk: d for d in Driver.objects.filter(facility=facility)}
-    board = {'pickup': [], 'dropoff': [], 'others': {DIRECTION_PICKUP: [], DIRECTION_DROPOFF: []}, 'counts': {}}
+    drivers = {d.pk: d for d in Driver.objects.filter(facility=facility).prefetch_related('vehicles')}
+    board = {'pickup': [], 'dropoff': [], 'others': {DIRECTION_PICKUP: [], DIRECTION_DROPOFF: []}, 'counts': {}, 'problems': 0}
     for r in reservations:
         profile = _profile_of(r)
         asg = {a.direction: a for a in r.transports.all()}
@@ -90,12 +91,15 @@ def build_board(facility, day):
                 continue
             vehicle = a.vehicle if a and a.vehicle_id else (profile.default_vehicle if profile and profile.default_vehicle_id else None)
             driver_id = a.driver_id if a and a.driver_id else (vehicle.default_driver_id if vehicle else None)
+            driver = drivers.get(driver_id)
             board[direction].append({
                 'key': row_key(r.pk, direction), 'reservation': r, 'beneficiary': r.beneficiary, 'profile': profile, 'assignment': a,
                 'time': (a.time if a and a.time else (profile.time(direction) if profile else None)),
                 'place': (a.place if a and a.place else (profile.place(direction) if profile else '')),
+                'default_place': default_place(r.beneficiary, direction),
                 'vehicle_id': vehicle.pk if vehicle else None, 'vehicle': vehicle,
-                'driver_id': driver_id, 'driver': drivers.get(driver_id),
+                'driver_id': driver_id, 'driver': driver,
+                'driver_ng': bool(vehicle and driver and not driver.can_drive(vehicle)),
                 'note': a.note if a else '', 'profile_note': profile.note if profile else '',
                 'skip': bool(a and a.skip), 'added': bool(a and a.added),
             })
@@ -106,13 +110,30 @@ def build_board(facility, day):
         by_vehicle = {}
         for x in rows:
             if not x['skip'] and x['vehicle']:
-                by_vehicle.setdefault(x['vehicle'].pk, {'vehicle': x['vehicle'], 'count': 0})['count'] += 1
+                c = by_vehicle.setdefault(x['vehicle'].pk, {'vehicle': x['vehicle'], 'count': 0, 'driver_ng': False})
+                c['count'] += 1
+                c['driver_ng'] = c['driver_ng'] or x['driver_ng']
         counts = sorted(by_vehicle.values(), key=lambda c: (c['vehicle'].order, c['vehicle'].pk))
         for c in counts:
             c['over'] = bool(c['vehicle'].capacity and c['count'] > c['vehicle'].capacity)
+            c['ng'] = c['over'] or c['driver_ng']
+            board['problems'] += int(c['over']) + int(c['driver_ng'])
         board['counts'][direction] = counts
         board[f'{direction}_active'] = sum(1 for x in rows if not x['skip'])
-    return mark_ride_ng(facility, board)
+        board[f'{direction}_unassigned'] = sum(1 for x in rows if not x['skip'] and not x['vehicle'])
+    board = mark_ride_ng(facility, board)
+    board['problems'] += sum(board['ride_ng'].values())
+    return board
+
+
+def default_place(beneficiary, direction):
+    """場所の欄が空のときに出す既定：迎えは学校（名前と住所）、送りは自宅の住所（利用者情報から）"""
+    if direction == DIRECTION_PICKUP:
+        school = beneficiary.school if beneficiary.school_id else None
+        if school:
+            return school.name + (f'（{school.address}）' if school.address else '')
+        return beneficiary.school_name or ''
+    return beneficiary.address or ''
 
 
 RIDE_WINDOW = datetime.timedelta(minutes=30)    # 同じ車でも、これより時刻が離れていれば別の便とみなす
@@ -154,6 +175,70 @@ def mark_ride_ng(facility, board):
     return board
 
 
+def auto_assign(facility, day):
+    """
+    車両が決まっていない行に、自動で車両と運転手を割り当てる（2026-11-09 オウル）。
+    順番：いつもの車両 → 空きのある車両（定員・同じ便の同乗NG を避ける。車両の並び順）。運転手は車両のいつもの運転手が
+    その車を運転できればその人、できなければ運転できる人から。決められなかった行はそのまま（画面で手で選ぶ）。
+    戻り値 (割り当てた数, 決められなかった数)
+    """
+    from beneficiaries.models import Beneficiary
+    board = build_board(facility, day)
+    vehicles = list(Vehicle.objects.filter(facility=facility, is_active=True).select_related('default_driver').order_by('order', 'pk'))
+    drivers = list(Driver.objects.filter(facility=facility, is_active=True).prefetch_related('vehicles').order_by('order', 'pk'))
+    pairs = {}
+    for a, b in Beneficiary.no_ride_with.through.objects.filter(from_beneficiary__facility=facility).values_list(
+            'from_beneficiary_id', 'to_beneficiary_id'):
+        pairs.setdefault(a, set()).add(b)
+
+    def pick_driver(vehicle):
+        if vehicle.default_driver and vehicle.default_driver.is_active and vehicle.default_driver.can_drive(vehicle):
+            return vehicle.default_driver
+        return next((d for d in drivers if d.can_drive(vehicle)), None)
+
+    assigned = left = 0
+    with transaction.atomic():
+        for direction, _label in DIRECTIONS:
+            rows = [x for x in board[direction] if not x['skip']]
+            # 車両ごとの乗っている人（時刻つき）。同じ便（30 分以内）の人数と同乗NG を見る
+            riding = {}
+            for x in rows:
+                if x['vehicle']:
+                    riding.setdefault(x['vehicle'].pk, []).append(x)
+            for x in rows:
+                if x['vehicle']:
+                    continue
+                chosen = None
+                candidates = []
+                if x['profile'] and x['profile'].default_vehicle_id:
+                    candidates.append(next((v for v in vehicles if v.pk == x['profile'].default_vehicle_id), None))
+                candidates += [v for v in vehicles if v not in candidates]
+                for v in candidates:
+                    if v is None:
+                        continue
+                    same_trip = [y for y in riding.get(v.pk, []) if _near(x['time'], y['time'])]
+                    if v.capacity and len(same_trip) >= v.capacity:
+                        continue
+                    if any(y['beneficiary'].pk in pairs.get(x['beneficiary'].pk, ()) for y in same_trip):
+                        continue
+                    chosen = v
+                    break
+                if chosen is None:
+                    left += 1
+                    continue
+                a = x['assignment'] or TransportAssignment(reservation=x['reservation'], direction=direction)
+                a.vehicle = chosen
+                a.driver = pick_driver(chosen)
+                if a.time is None and x['time']:
+                    a.time = x['time']
+                a.save()
+                x['vehicle'] = chosen
+                x['vehicle_id'] = chosen.pk
+                riding.setdefault(chosen.pk, []).append(x)
+                assigned += 1
+    return assigned, left
+
+
 def save_board(facility, day, post):
     """配車表の一括保存。画面に出ていた行（present_<key>）だけを読み、予約 × 迎え／送り ごとに配車を作る・直す。保存した件数"""
     vehicles = {v.pk: v for v in Vehicle.objects.filter(facility=facility)}
@@ -188,7 +273,7 @@ def day_context(facility, day):
         'prev_day': day - datetime.timedelta(days=1), 'next_day': day + datetime.timedelta(days=1),
         'board': build_board(facility, day), 'directions': DIRECTIONS,
         'vehicles': list(Vehicle.objects.filter(facility=facility, is_active=True)),
-        'drivers': list(Driver.objects.filter(facility=facility, is_active=True)),
+        'drivers': list(Driver.objects.filter(facility=facility, is_active=True).prefetch_related('vehicles')),
     }
 
 
@@ -212,6 +297,13 @@ class DayView(TransportEnabledMixin, View):
             if any(ng.values()):
                 messages.warning(request, '同じ車に乗せない組み合わせが同じ車・近い時刻に入っています（' +
                                  '・'.join(f'{DIRECTION_LABELS[d]} {c} 組' for d, c in ng.items() if c) + '）。赤い行を確かめてください。')
+            return back
+        if action == 'auto':
+            n, left = auto_assign(facility, day)
+            if n:
+                messages.success(request, f'{day:%-m月%-d日}の配車：車両が空いていた {n} 件に車両と運転手を割り当てました。' + (f'{left} 件は空き・同乗の条件で決められなかったので手で選んでください。' if left else ''))
+            else:
+                messages.info(request, '車両が空いている行はありません。' + (f'（{left} 件は空き・同乗の条件で決められませんでした）' if left else ''))
             return back
         if action in ('add', 'remove'):
             from reservations.models import Reservation
@@ -252,7 +344,8 @@ class VehiclesView(TransportEnabledMixin, View):
         return render(request, self.template_name, {
             'facility': facility,
             'vehicles': list(Vehicle.objects.filter(facility=facility).select_related('default_driver')),
-            'drivers': list(Driver.objects.filter(facility=facility)),
+            'drivers': list(Driver.objects.filter(facility=facility).select_related('staff').prefetch_related('vehicles')),
+            'staff_accounts': list(StaffAccount.objects.filter(facility=facility, is_active=True).order_by('display_name', 'username')),
         })
 
     def post(self, request):
@@ -298,7 +391,12 @@ class VehiclesView(TransportEnabledMixin, View):
             d.note = (p.get('note') or '').strip()[:200]
             d.order = max(0, min(999, to_int(p.get('order'), 0)))
             d.is_active = 'is_active' in p if what == 'save' else True
+            if 'staff' in p:        # ログインする職員（配車担当）。同じ事業所の人だけ
+                d.staff = StaffAccount.objects.filter(facility=facility, pk=to_int(p.get('staff'), 0)).first()
             d.save()
+            if 'vehicles_present' in p:     # 運転できる車両（空ならどれでも）
+                ids = [to_int(x, 0) for x in p.getlist('vehicles')]
+                d.vehicles.set(Vehicle.objects.filter(facility=facility, pk__in=ids))
             messages.success(request, f'運転手「{d.name}」を{"保存" if what == "save" else "登録"}しました。')
         return redirect('transport:vehicles')
 
@@ -341,3 +439,28 @@ class ProfileView(TransportEnabledMixin, View):
             b.no_ride_with.set(Beneficiary.objects.filter(facility=b.facility, pk__in=ids).exclude(pk=b.pk))
         messages.success(request, f'{b.full_name} さんの送迎の設定を保存しました。')
         return back
+
+
+def driver_today(user, day=None):
+    """
+    ホームの「きょうの送迎」（2026-11-09 オウル）。ログインした職員が運転手（Driver.staff）に結びついていれば、
+    その人が運転する行（迎え・送り）と、車両ごとの人数・注意を返す。運転手でなければ None
+    """
+    facility = getattr(user, 'facility', None)
+    if facility is None or not getattr(facility, 'use_transport', False):
+        return None
+    my_drivers = list(Driver.objects.filter(facility=facility, staff=user, is_active=True))
+    if not my_drivers:
+        return None
+    day = day or datetime.date.today()
+    board = build_board(facility, day)
+    my_ids = {d.pk for d in my_drivers}
+    out = {'day': day, 'drivers': my_drivers, 'pickup': [], 'dropoff': [], 'problems': 0}
+    for direction, _label in DIRECTIONS:
+        rows = [x for x in board[direction] if not x['skip'] and x['driver_id'] in my_ids]
+        for x in rows:
+            x['place_shown'] = x['place'] or x['default_place']
+            out['problems'] += int(bool(x['ride_ng'])) + int(x['driver_ng'])
+        out[direction] = rows
+    out['total'] = len(out['pickup']) + len(out['dropoff'])
+    return out

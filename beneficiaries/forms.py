@@ -29,11 +29,23 @@ class BeneficiaryForm(forms.ModelForm):
             'last_name_kana': '姓（かな）', 'first_name_kana': '名（かな）',
         }
 
+    # 学校の住所など（学校マスタ School に入る。利用者には school_name と school（FK）が残る）
+    school_postal_code = forms.CharField(max_length=8, required=False, label='学校の郵便番号')
+    school_address = forms.CharField(max_length=200, required=False, label='学校の住所')
+    school_phone = forms.CharField(max_length=20, required=False, label='学校の電話番号')
+
     def __init__(self, *args, facility=None, **kwargs):
         super().__init__(*args, **kwargs)
         # 「同じ時間にできない利用者」は同じ事業所の在籍中の人から（自分は除く）。事業所が分からなければ選べない
         if facility is None and self.instance.pk:
             facility = self.instance.facility
+        self.facility = facility
+        # 学校の住所の初期値：いま結びついている学校から
+        school = self.instance.school if self.instance.pk and self.instance.school_id else None
+        if school and not self.is_bound:
+            self.fields['school_postal_code'].initial = school.postal_code
+            self.fields['school_address'].initial = school.address
+            self.fields['school_phone'].initial = school.phone
         qs = Beneficiary.objects.filter(facility=facility, status=Beneficiary.STATUS_ACTIVE) if facility else Beneficiary.objects.none()
         if self.instance.pk:
             qs = qs.exclude(pk=self.instance.pk)
@@ -48,6 +60,24 @@ class BeneficiaryForm(forms.ModelForm):
         if value in (0, 3, 16, 32):
             return value
         return self.instance.medical_care_level if self.instance.pk else 0
+
+    def save(self, commit=True):
+        """学校名から学校マスタを引き、無ければ作って結びつける（住所などは入れた値があれば学校側を更新）"""
+        from .models import School
+        obj = super().save(commit=False)
+        facility = obj.facility_id and obj.facility or self.facility
+        name = School.normalize(self.cleaned_data.get('school_name'))
+        obj.school_name = name
+        if facility is not None and name:
+            school, _created = School.remember(facility, name, self.cleaned_data.get('school_postal_code'),
+                                               self.cleaned_data.get('school_address'), self.cleaned_data.get('school_phone'))
+            obj.school = school
+        else:
+            obj.school = None
+        if commit:
+            obj.save()
+            self.save_m2m()
+        return obj
 
 
 class GuardianForm(forms.ModelForm):

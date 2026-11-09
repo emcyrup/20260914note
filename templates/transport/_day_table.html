@@ -5,7 +5,8 @@
       <span class="badge text-bg-secondary">{{ active }} 人</span>
     </div>
     <div class="tr-cnt d-flex gap-1 flex-wrap">
-      {% for c in counts %}<span class="badge {% if c.over %}text-bg-danger{% else %}text-bg-light border{% endif %}" title="{% if c.over %}乗れる人数（{{ c.vehicle.capacity }}）を超えています{% elif c.vehicle.capacity %}乗れる人数 {{ c.vehicle.capacity }}{% endif %}">{{ c.vehicle.name }} {{ c.count }}{% if c.vehicle.capacity %}/{{ c.vehicle.capacity }}{% endif %}</span>{% endfor %}
+      {% for c in counts %}<span class="badge {% if c.ng %}text-bg-danger{% else %}text-bg-light border{% endif %}" title="{% if c.over %}乗れる人数（{{ c.vehicle.capacity }}）を超えています{% elif c.vehicle.capacity %}乗れる人数 {{ c.vehicle.capacity }}{% endif %}{% if c.driver_ng %}　運転手がこの車を運転できません{% endif %}">{{ c.vehicle.name }} {{ c.count }}{% if c.vehicle.capacity %}/{{ c.vehicle.capacity }}{% endif %}{% if c.over %} 定員超{% endif %}{% if c.driver_ng %} 運転不可{% endif %}</span>{% endfor %}
+      {% if unassigned %}<span class="badge text-bg-warning" title="車両がまだ決まっていない人。「自動で割り当てる」か、行ごとに選んでください">車両未定 {{ unassigned }}</span>{% endif %}
     </div>
   </div>
   {% if rows %}
@@ -14,16 +15,17 @@
     <thead><tr><th style="width:120px;">時刻</th><th>利用者</th><th>場所</th><th style="width:150px;">車両</th><th style="width:150px;">運転手</th><th>備考</th><th style="width:56px;">なし</th></tr></thead>
     <tbody>
     {% for x in rows %}
-    <tr class="{% if x.skip %}skip{% endif %}{% if x.ride_ng %} ride-ng{% endif %}">
+    <tr class="{% if x.skip %}skip{% endif %}{% if x.ride_ng or x.driver_ng %} ride-ng{% endif %}">
       <td><input type="hidden" name="present_{{ x.key }}" value="1"><input type="time" name="time_{{ x.key }}" class="form-control" value="{{ x.time|time:'H:i' }}" aria-label="時刻"></td>
       <td class="tr-who">
         <a href="{% url 'beneficiaries:detail' x.beneficiary.pk %}#transport" class="tr-name">{{ x.beneficiary.full_name }}</a>
         {% if x.reservation.start_time %}<span class="small text-muted ms-1">予約 {{ x.reservation.time_label }}</span>{% endif %}
         {% if x.added %}<span class="badge text-bg-info ms-1">この日だけ</span>{% endif %}
         {% if x.ride_ng %}<span class="badge text-bg-danger ms-1" title="同じ車・近い時刻に、同じ車に乗せない利用者がいます">同乗NG：{{ x.ride_ng|join:'・' }}</span>{% endif %}
+        {% if x.driver_ng %}<span class="badge text-bg-danger ms-1" title="この運転手は「運転できる車両」にこの車が入っていません">運転不可</span>{% endif %}
         {% if x.profile_note %}<div class="tr-pnote"><i class="bi bi-exclamation-triangle me-1"></i>{{ x.profile_note }}</div>{% endif %}
       </td>
-      <td><input type="text" name="place_{{ x.key }}" class="form-control" maxlength="200" value="{{ x.place }}" placeholder="場所"></td>
+      <td><input type="text" name="place_{{ x.key }}" class="form-control" maxlength="200" value="{{ x.place }}" placeholder="{{ x.default_place|default:'場所' }}" title="{% if x.default_place %}空のままなら {{ x.default_place }}{% endif %}">{% if not x.place and x.default_place %}<div class="small text-muted" style="font-size:.72rem;">{{ x.default_place }}</div>{% endif %}</td>
       <td>
         <select name="vehicle_{{ x.key }}" class="form-select" aria-label="車両">
           <option value="">－</option>

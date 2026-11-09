@@ -13,7 +13,7 @@ from django.conf import settings
 from django.utils import timezone
 import anthropic
 
-from .models import TRASH_DAYS, DeletedBeneficiary, Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guardian, RecipientCertificate, BeneficiaryDocument, DOCUMENT_EXTENSIONS, DOCUMENT_MAX_BYTES, KANA_ROWS, DevelopmentAssessment, RecordDigest, FaceSheet, AssessmentSheet
+from .models import TRASH_DAYS, DeletedBeneficiary, Beneficiary, BeneficiaryAssessment, BeneficiaryOffice, Guardian, RecipientCertificate, BeneficiaryDocument, DOCUMENT_EXTENSIONS, DOCUMENT_MAX_BYTES, KANA_ROWS, DevelopmentAssessment, RecordDigest, FaceSheet, AssessmentSheet, School
 from .forms import BeneficiaryForm, BeneficiaryOfficeForm, GuardianForm, RecipientCertificateForm
 from facilities.context_processors import get_terms
 from config.concurrency import check_conflict
@@ -485,6 +485,7 @@ class BeneficiaryDetailView(LoginRequiredMixin, DetailView):
                 ctx['recent_therapy'] = list(b.therapy_records.filter(date__in=days).select_related('staff')
                                              .order_by('-date', '-time', '-pk'))
             ctx['therapy_total'] = b.therapy_records.count()
+        ctx['schools'] = list(School.objects.filter(facility=self.request.user.facility))
         # 5領域アセスメント（評価シート）と送迎の設定（施設設定で使うにした事業所だけ。オウル）
         ctx['dev_assessments'] = (list(b.development_assessments.select_related('assessed_by'))
                                   if self.request.user.facility.use_dev_assessment else [])
@@ -536,6 +537,7 @@ class BeneficiaryCreateView(LoginRequiredMixin, CreateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['page_title'] = f'{get_terms(self.request.user)["beneficiary"]} 新規登録'
+        ctx['schools'] = list(School.objects.filter(facility=self.request.user.facility))
         return ctx
 
 
@@ -556,6 +558,9 @@ class BeneficiaryUpdateView(LoginRequiredMixin, UpdateView):
                     'disability_class', 'disability_type', 'is_severe', 'medical_care_level', 'notes', 'status', 'cannot_pair', 'siblings',
                     'weekday_mon', 'weekday_tue', 'weekday_wed', 'weekday_thu', 'weekday_fri', 'weekday_sat',
                     'line_send_journal'}
+    # 住所・連絡先・学校（2026-11-09 オウル：窓にも出した）。窓が送ってきたとき（address が POST にある）だけ POST の値を使う
+    ADDRESS_FIELDS = {'postal_code', 'address', 'mobile_phone', 'home_phone', 'school_name', 'grade',
+                      'school_postal_code', 'school_address', 'school_phone'}
 
     def get_form_kwargs(self):
         kwargs = {**super().get_form_kwargs(), 'facility': self.request.user.facility}
@@ -563,8 +568,13 @@ class BeneficiaryUpdateView(LoginRequiredMixin, UpdateView):
         if data is not None and data.get('_partial') == '1':
             data = data.copy()
             obj = self.object
+            has_address = 'address' in data
             for name, field in BeneficiaryForm.base_fields.items():
-                if name in self.MODAL_FIELDS:
+                if name in self.MODAL_FIELDS or (name in self.ADDRESS_FIELDS and has_address):
+                    continue
+                if name in self.ADDRESS_FIELDS and not hasattr(obj, name):       # 学校の住所などは学校マスタ側の値
+                    school = obj.school if obj.school_id else None
+                    data[name] = getattr(school, name.replace('school_', ''), '') if school else ''
                     continue
                 value = getattr(obj, name)
                 if hasattr(value, 'all'):                  # 多対多
@@ -606,6 +616,7 @@ class BeneficiaryUpdateView(LoginRequiredMixin, UpdateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['page_title'] = f'{get_terms(self.request.user)["beneficiary"]}編集 — {self.object.full_name}'
+        ctx['schools'] = list(School.objects.filter(facility=self.request.user.facility))
         return ctx
 
 
@@ -1777,3 +1788,68 @@ class AssessmentSheetDeleteView(DevAssessmentMixin, View):
         a.delete()
         messages.success(request, f'{b.full_name} さんのアセスメントシート（{label}）を削除しました。')
         return redirect(f"{reverse('beneficiaries:detail', args=[b.pk])}#owl-sheets")
+
+
+# =============================================
+# 学校のマスタ（2026-11-09 オウル）：学校名から住所を呼び出す・一覧で直す
+# =============================================
+class SchoolLookupView(LoginRequiredMixin, View):
+    """?name=○○小学校 → その学校の住所など（同じ事業所に登録があれば）。利用者の編集画面が学校名を入れたときに呼ぶ"""
+
+    def get(self, request):
+        school = School.lookup(request.user.facility, request.GET.get('name', ''))
+        if not school:
+            return JsonResponse({'found': False})
+        return JsonResponse({'found': True, 'name': school.name, 'postal_code': school.postal_code, 'address': school.address,
+                             'phone': school.phone, 'note': school.note, 'students': school.students.count()})
+
+
+class SchoolListView(LoginRequiredMixin, View):
+    """学校の一覧：住所・電話・備考を直す、通っている子がいない学校を消す"""
+    template_name = 'beneficiaries/schools.html'
+
+    def get(self, request):
+        schools = list(School.objects.filter(facility=request.user.facility).annotate(student_count=db_models.Count('students')))
+        return render(request, self.template_name, {'schools': schools})
+
+    def post(self, request):
+        facility = request.user.facility
+        p = request.POST
+        action = p.get('action')
+        if action == 'add':
+            name = School.normalize(p.get('name'))
+            if not name:
+                messages.error(request, '学校名を入れてください。')
+                return redirect('beneficiaries:schools')
+            school, created = School.remember(facility, name, p.get('postal_code'), p.get('address'), p.get('phone'))
+            if p.get('note') is not None:
+                school.note = (p.get('note') or '').strip()[:200]
+                school.save(update_fields=['note', 'updated_at'])
+            messages.success(request, f'学校「{school.name}」を{"登録" if created else "更新"}しました。')
+            return redirect('beneficiaries:schools')
+        school = get_object_or_404(School, pk=to_int(p.get('pk'), -1), facility=facility)
+        if action == 'delete':
+            if school.students.exists():
+                messages.error(request, f'「{school.name}」に通っている{get_terms(request.user)["beneficiary"]}がいるため消せません。')
+            else:
+                school.delete()
+                messages.success(request, f'学校「{school.name}」を消しました。')
+            return redirect('beneficiaries:schools')
+        if action == 'save':
+            new_name = School.normalize(p.get('name'))
+            if not new_name:
+                messages.error(request, '学校名を入れてください。')
+                return redirect('beneficiaries:schools')
+            if new_name != school.name and School.objects.filter(facility=facility, name=new_name).exclude(pk=school.pk).exists():
+                messages.error(request, f'「{new_name}」はすでに登録されています。')
+                return redirect('beneficiaries:schools')
+            school.name = new_name
+            school.postal_code = (p.get('postal_code') or '').strip()[:8]
+            school.address = (p.get('address') or '').strip()[:200]
+            school.phone = (p.get('phone') or '').strip()[:20]
+            school.note = (p.get('note') or '').strip()[:200]
+            school.save()
+            # 名前を変えたら、通っている子の school_name もそろえる
+            school.students.exclude(school_name=new_name).update(school_name=new_name)
+            messages.success(request, f'学校「{school.name}」を保存しました。')
+        return redirect('beneficiaries:schools')

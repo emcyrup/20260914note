@@ -46,6 +46,11 @@ class Driver(models.Model):
     name = models.CharField(max_length=50, verbose_name='運転手の名前')
     phone = models.CharField(max_length=20, blank=True, verbose_name='電話番号')
     note = models.CharField(max_length=200, blank=True, verbose_name='備考', help_text='出られる曜日・時間など')
+    # 運転できる車両（空ならどの車両でも。2026-11-09 オウル：職員ごとに運転できる車種が違う。配車表で運転できない車に入ると赤く出る）
+    vehicles = models.ManyToManyField(Vehicle, blank=True, related_name='allowed_drivers', verbose_name='運転できる車両')
+    # この運転手としてログインする職員（配車担当）。結びつけると、その人のホームにきょうの送迎が出る
+    staff = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True, related_name='driver_profiles',
+                              verbose_name='ログインする職員')
     is_active = models.BooleanField(default=True, verbose_name='在籍中')
     order = models.PositiveSmallIntegerField(default=0, verbose_name='並び順')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -58,6 +63,15 @@ class Driver(models.Model):
 
     def __str__(self):
         return self.name
+
+    def can_drive(self, vehicle):
+        """その車両を運転できるか（運転できる車両を 1 つも選んでいなければ、どれでも）"""
+        if vehicle is None:
+            return True
+        allowed = getattr(self, '_allowed_ids', None)
+        if allowed is None:
+            allowed = self._allowed_ids = set(self.vehicles.values_list('pk', flat=True))
+        return not allowed or vehicle.pk in allowed
 
 
 class TransportProfile(models.Model):
