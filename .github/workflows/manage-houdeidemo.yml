@@ -44,6 +44,11 @@ on:
         description: "施設 ID（delete_facility・seed_demo・seed_demo_reset・billing_demo・billing_demo_remove・disable_logins・enable_logins）"
         type: string
         default: ""
+      password_secret:
+        description: "管理者のパスワードに使う Secrets（create_facility・set_password）：houdeidemo＝HOUDEIDEMO_ADMIN_PASSWORD／kaigodemo＝KAIGODEMO_ADMIN_PASSWORD（老健デモと同じ値にするとき）"
+        type: choice
+        default: houdeidemo
+        options: [houdeidemo, kaigodemo]
       copy_from:
         description: "設定を写す元の施設 ID（create_facility。同じ DB の中の事業所だけ。通常は空）"
         type: string
@@ -86,20 +91,25 @@ jobs:
           TASK: ${{ inputs.task }}
           FACILITY_NAME: ${{ inputs.facility_name }}
           ADMIN_USERNAME: ${{ inputs.admin_username }}
-          ADMIN_PASSWORD: ${{ secrets.HOUDEIDEMO_ADMIN_PASSWORD }}
+          PASSWORD_SECRET: ${{ inputs.password_secret }}
+          PW_HOUDEIDEMO: ${{ secrets.HOUDEIDEMO_ADMIN_PASSWORD }}
+          PW_KAIGODEMO: ${{ secrets.KAIGODEMO_ADMIN_PASSWORD }}
           WITH_DEMO: ${{ inputs.with_demo }}
           FACILITY_ID: ${{ inputs.facility_id }}
           COPY_FROM: ${{ inputs.copy_from }}
           REMOTE_APP_DIR: ${{ env.APP_DIR }}
           REMOTE_VENV: ${{ env.VENV }}
         run: |
-          # パスワードは Secrets（HOUDEIDEMO_ADMIN_PASSWORD）から。無ければランダムな仮の値（どちらもログに出さない）
+          # パスワードは Secrets（password_secret で選ぶ。既定は HOUDEIDEMO_ADMIN_PASSWORD）から。無ければランダムな仮の値（どちらもログに出さない）
+          if [ "$PASSWORD_SECRET" = "kaigodemo" ]; then ADMIN_PASSWORD="$PW_KAIGODEMO"; SECRET_NAME=KAIGODEMO_ADMIN_PASSWORD; else ADMIN_PASSWORD="$PW_HOUDEIDEMO"; SECRET_NAME=HOUDEIDEMO_ADMIN_PASSWORD; fi
           if [ "$TASK" = "create_facility" ] && [ -z "$ADMIN_PASSWORD" ]; then
-            echo "注意: Secrets の HOUDEIDEMO_ADMIN_PASSWORD が空なので、管理者のパスワードはランダムな仮の値になります。あとで Secrets を登録して set_password を実行してください"
+            echo "注意: Secrets の $SECRET_NAME が空なので、管理者のパスワードはランダムな仮の値になります。あとで Secrets を登録して set_password を実行してください"
           fi
           if [ "$TASK" = "set_password" ] && [ -z "$ADMIN_PASSWORD" ]; then
-            echo "Secrets の HOUDEIDEMO_ADMIN_PASSWORD が空です。先に Settings → Secrets and variables → Actions で登録してください（入力欄では受け取りません）"; exit 1
+            echo "Secrets の $SECRET_NAME が空です。先に Settings → Secrets and variables → Actions で登録してください（入力欄では受け取りません）"; exit 1
           fi
+          echo "パスワードは Secrets の $SECRET_NAME を使います"
+
           if [ -n "$ADMIN_PASSWORD" ]; then
             echo "::add-mask::$ADMIN_PASSWORD"
           else
