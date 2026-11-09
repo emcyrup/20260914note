@@ -1008,10 +1008,18 @@ class Command(BaseCommand):
                 made_requests += 1
         counts['月予約利用希望（今月・来月）'] = made_requests
 
-        result = monthly.assign_month(facility, today.year, today.month, setting, notify=True)
-        counts['予約（今月の月間予定表）'] = len(result.made)
-        if result.short:
-            counts['希望の枠に空きが足りなかった人'] = len(result.short)
+        if setting.fixed_days:
+            # 利用予定曜日から予定を作る事業所（オウル。2026-11-09）：今月と来月の予定を「まとめて作成」と同じ手順で作る
+            from reservations import fixed
+            made = 0
+            for (y, m) in [(today.year, today.month), (ny, nm)]:
+                made += fixed.bulk_create(facility, y, m, setting)[0]
+            counts['予定（利用予定曜日から。今月・来月）'] = made
+        else:
+            result = monthly.assign_month(facility, today.year, today.month, setting, notify=True)
+            counts['予約（今月の月間予定表）'] = len(result.made)
+            if result.short:
+                counts['希望の枠に空きが足りなかった人'] = len(result.short)
 
         # 職員のシフト（曜日×時間帯）→ その日の担当、過ぎた日の実績（来た・欠席）
         from reservations.models import Reservation, StaffShift
@@ -1024,8 +1032,15 @@ class Command(BaseCommand):
         done = 0
         for res in Reservation.objects.filter(facility=facility, date__lt=today, status=Reservation.STATUS_CONFIRMED,
                                               beneficiary__notes__contains=SAMPLE_MARK):
-            res.attendance = Reservation.ATT_ATTENDED if rng.random() < 0.9 else Reservation.ATT_ABSENT
-            res.save(update_fields=['attendance'])
+            r = rng.random()
+            if setting.fixed_days:          # 出欠入力の見本：来所・欠席・キャンセル（備考つき）
+                res.attendance = (Reservation.ATT_ATTENDED if r < 0.85 else Reservation.ATT_ABSENT if r < 0.95 else Reservation.ATT_CANCELLED)
+                if res.attendance == Reservation.ATT_ABSENT and not res.note:
+                    res.note = rng.choice(['発熱のため', '通院のため', '学校行事のため'])
+                res.save(update_fields=['attendance', 'note'])
+            else:
+                res.attendance = Reservation.ATT_ATTENDED if r < 0.9 else Reservation.ATT_ABSENT
+                res.save(update_fields=['attendance'])
             done += 1
         counts['実績（過ぎた日）'] = done
         keep = list(ReservationNotice.objects.filter(facility=facility)
