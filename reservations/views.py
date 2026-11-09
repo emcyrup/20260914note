@@ -19,7 +19,7 @@ from config.concurrency import check_conflict
 from facilities.context_processors import get_terms
 from config.utils import date_or_404, home_url, month_or_404, reservation_enabled, to_int
 
-from . import monthly, services
+from . import fixed, monthly, services
 from . import scan as scan_mod
 from . import sheet
 from .models import (WEEKDAYS, BookingRequest, ClosedDate, Customer, LineInbox, MonthlyRequest, RequestScan,
@@ -88,8 +88,17 @@ class CalendarView(ReservationEnabledMixin, View):
                                                        status=BookingRequest.STATUS_PENDING).count()
         # 名前で探す（Facility.schedule_tools）：その人のこの月の利用希望と予約の日
         who = monthly.who_index(facility, year, month) if facility.schedule_tools else None
+        # 利用予定曜日から予定を作る事業所（オウル）：日ごとの 予定・来所・欠席・キャンセル の人数と「まとめて作成」
+        if setting.fixed_days:
+            counts = fixed.month_counts(facility, first, last)
+            for row in weeks:
+                for st in row:
+                    if st:
+                        st['fx'] = counts.get(st['date'], {'scheduled': 0, 'attended': 0, 'absent': 0, 'cancelled': 0, 'waiting': 0})
         return render(request, self.template_name, {
             'who': who,
+            'fixed': setting.fixed_days,
+            'month_has_reservations': fixed.month_has_reservations(facility, year, month) if setting.fixed_days else False,
             'year': year, 'month': month, 'weeks': weeks, 'today': today, 'setting': setting,
             'pending_notices': pending, 'pending_inbox': inbox, 'pending_requests': requests_count,
             'weekday_rows': setting.weekday_rows(), 'facility': facility,
@@ -166,6 +175,18 @@ class SettingView(ReservationEnabledMixin, View):
                 messages.error(request, '枠の時間帯は 0〜23 時で、最初の枠が最後の枠より前になるように指定してください。')
                 return redirect('reservations:calendar')
         setting.slot_capacity, setting.slot_minutes = slot_capacity, slot_minutes
+        # 利用予定曜日から予定を作る（オウル。はびりすの「予定」と同じ使い方）
+        if 'fixed_days_present' in request.POST:
+            setting.fixed_days = 'fixed_days' in request.POST
+            raw = (request.POST.get('fixed_days_time') or '').strip()
+            if raw:
+                try:
+                    setting.fixed_days_time = datetime.datetime.strptime(raw, '%H:%M').time()
+                except ValueError:
+                    messages.error(request, 'まとめて作るときの時刻は 15:00 のように入れてください。')
+                    return redirect('reservations:calendar')
+            else:
+                setting.fixed_days_time = None
         # 定員超過の目安（0 は使わない／自動）
         if 'legal_capacity' in request.POST:
             from decimal import Decimal, InvalidOperation
@@ -467,6 +488,63 @@ class DayView(ReservationEnabledMixin, View):
         if sent or failed:
             messages.info(request, f'送信待ちの通知を {sent} 件送りました。'
                                    + (f'{failed} 件は送れませんでした。' if failed else ''))
+
+
+class FixedDaysMixin(ReservationEnabledMixin):
+    """「利用予定曜日から予定を作る」をオンにした事業所だけ（オウル）。オフなら予約カレンダーへ"""
+
+    def dispatch(self, request, *args, **kwargs):
+        facility = getattr(request.user, 'facility', None)
+        if request.user.is_authenticated and facility is not None and facility.use_reservation \
+                and not services.get_setting(facility).fixed_days:
+            messages.info(request, '「利用予定曜日から予定を作る」は予約の設定でオンにすると使えます。')
+            return redirect('reservations:calendar')
+        return super().dispatch(request, *args, **kwargs)
+
+
+class FixedBulkCreateView(FixedDaysMixin, View):
+    """その月の予定を利用予定曜日からまとめて作る（はびりすの「予定をまとめて作成」と同じ）"""
+
+    def post(self, request, year, month):
+        year, month = month_or_404(year, month)
+        facility = request.user.facility
+        made, skipped, no_days = fixed.bulk_create(facility, year, month)
+        term = get_terms(request.user)['beneficiary']
+        if made:
+            messages.success(request, f'{year}年{month}月の予定を {made} 件作りました（休業日と、すでにある予定 {skipped} 件はそのまま）。')
+        else:
+            messages.info(request, f'{year}年{month}月の予定はすでにそろっています（新しく作る日はありませんでした）。')
+        if no_days:
+            messages.warning(request, f'利用予定曜日が入っていない{term}が {no_days} 人います。{term}情報の「利用予定曜日」を入れると、まとめて作成に含まれます。')
+        return redirect('reservations:calendar_month', year=year, month=month)
+
+
+class AttendanceDayView(FixedDaysMixin, View):
+    """日ごとの出欠入力（はびりすの出欠入力と同じ形）：予定／来所／欠席／キャンセル／なし、迎え・送り、備考"""
+    template_name = 'reservations/attendance_day.html'
+
+    def get(self, request, year, month, day):
+        d = date_or_404(year, month, day)
+        facility = request.user.facility
+        rows = fixed.day_rows(facility, d)
+        return render(request, self.template_name, {
+            'date': d, 'rows': rows, 'state_choices': fixed.STATE_CHOICES,
+            'prev_day': d - datetime.timedelta(days=1), 'next_day': d + datetime.timedelta(days=1),
+            'has_transport': getattr(facility, 'use_transport', False),
+            'closed': services.is_closed(facility, d),
+            'counts': {k: sum(1 for x in rows if x['state'] == k) for k, _l in fixed.STATE_CHOICES},
+            'present': sum(1 for x in rows if x['state'] in (fixed.STATE_SCHEDULED, Reservation.ATT_ATTENDED)),
+        })
+
+    def post(self, request, year, month, day):
+        d = date_or_404(year, month, day)
+        facility = request.user.facility
+        n = fixed.save_day(facility, d, request.POST)
+        if n:
+            messages.success(request, f'{services.jp_date(d)} の出欠を保存しました（{n} 件）。')
+        else:
+            messages.info(request, f'{services.jp_date(d)} の出欠は変わっていません。')
+        return redirect('reservations:attendance_day', year=d.year, month=d.month, day=d.day)
 
 
 class CustomerListView(ReservationEnabledMixin, View):

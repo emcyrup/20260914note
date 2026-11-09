@@ -84,6 +84,12 @@ class ReservationSetting(models.Model):
     weekday_last_hour = models.PositiveSmallIntegerField(default=18, verbose_name='平日の最後の枠（時）')
     holiday_first_hour = models.PositiveSmallIntegerField(default=9, verbose_name='土日祝の最初の枠（時）')
     holiday_last_hour = models.PositiveSmallIntegerField(default=17, verbose_name='土日祝の最後の枠（時）')
+    # 利用予定曜日から予定を作る（2026-11-09 オウル。はびりすの「予定」と同じ使い方）：
+    # 月の予定を利用者情報の利用予定曜日からまとめて作り、日ごとに出欠（来所・欠席・キャンセル）を入れる。カレンダーは人数の表示に
+    fixed_days = models.BooleanField(default=False, verbose_name='利用予定曜日から予定を作る',
+                                     help_text='利用者情報の利用予定曜日から月の予定をまとめて作り、日ごとに出欠を入れる（はびりすの「予定」と同じ使い方）')
+    fixed_days_time = models.TimeField(null=True, blank=True, verbose_name='まとめて作るときの時刻',
+                                       help_text='時間枠で予約する設定のとき、まとめて作った予定に付ける開始時刻（空なら 15:00）')
     break_hours = models.JSONField(default=default_break_hours, blank=True, verbose_name='枠を置かない時刻',
                                    help_text='昼休みなど。例：12')
     updated_at = models.DateTimeField(auto_now=True)
@@ -94,6 +100,14 @@ class ReservationSetting(models.Model):
 
     def __str__(self):
         return f'{self.facility} の予約設定（1日{self.capacity}人）'
+
+    @property
+    def bulk_start_time(self):
+        """まとめて作る予定の開始時刻（時間枠で予約する事業所だけ。1日の枠なら None）"""
+        import datetime as _dt
+        if not self.slot_mode:
+            return None
+        return self.fixed_days_time or _dt.time(15, 0)
 
     def closed_weekday_numbers(self):
         return [n for n in (self.closed_weekdays or []) if isinstance(n, int) and 0 <= n <= 6]

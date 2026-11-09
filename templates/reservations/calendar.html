@@ -1,8 +1,8 @@
 {% extends 'base.html' %}
 {% load concurrency %}
 
-{% block title %}予約 {{ year }}年{{ month }}月 — 放課後等デイサービス業務支援{% endblock %}
-{% block page_title %}予約 — {{ year }}年{{ month }}月{% endblock %}
+{% block title %}{% if fixed %}予定{% else %}予約{% endif %} {{ year }}年{{ month }}月 — 放課後等デイサービス業務支援{% endblock %}
+{% block page_title %}{% if fixed %}予定{% else %}予約{% endif %} — {{ year }}年{{ month }}月{% endblock %}
 {% block nav_reservations %}active{% endblock %}
 
 {% block extra_css %}
@@ -26,7 +26,9 @@
   .rz-who-t { font-size: .72rem; font-weight: 700; color: #5a3a22; }
   .rz-find { max-width: 16em; }
   #rz-who .who-pick { margin: 2px 4px 2px 0; }
-  @media (max-width: 768px) { .rz-cell { height: 66px; } .rz-day { font-size: 0.8rem; } .rz-left { font-size: 0.68rem; } }
+  .rz-fx { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
+  .rz-fx .badge { font-size: .68rem; font-weight: 600; width: fit-content; }
+  @media (max-width: 768px) { .rz-cell { height: 66px; } .rz-day { font-size: 0.8rem; } .rz-left { font-size: 0.68rem; } .rz-fx .badge { font-size: .56rem; padding: 1px 4px; } }
 </style>
 {% endblock %}
 
@@ -56,6 +58,17 @@
     </div>
   </div>
 
+  {% if fixed %}
+  <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+    <form method="post" action="{% url 'reservations:bulk_create' year month %}"
+          onsubmit="return confirm('{{ year }}年{{ month }}月の予定を、在籍中の{{ terms.beneficiary|escapejs }}全員の利用予定曜日からまとめて作ります（すでにある日・休業日はそのまま）。よろしいですか？');">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-outline-primary btn-sm"><i class="bi bi-calendar-plus me-1"></i>{{ year }}年{{ month }}月の予定をまとめて作成
+        {% if month_has_reservations %}<span class="badge bg-secondary ms-1">作成済み</span>{% endif %}</button>
+    </form>
+    <span class="small text-muted">{{ terms.beneficiary }}情報の「利用予定曜日」から作ります。日付を押すとその日の出欠入力（予定・来所・欠席・キャンセル・迎え・送り）。予約の追加・取消は出欠入力の「予約の詳細」から。</span>
+  </div>
+  {% endif %}
   {% if who is not None %}
   <div class="card mb-2"><div class="card-body py-2">
     <div class="d-flex align-items-center flex-wrap gap-2">
@@ -74,10 +87,22 @@
         <tr>
           {% for d in week %}
           {% if d %}
-          <td class="rz-cell {% if d.is_today %}today{% endif %} {% if d.closed %}closed{% elif d.full %}full{% endif %}" data-day="{{ d.day }}"
-              onclick="location.href='{% url 'reservations:day' year month d.day %}'">
+          <td class="rz-cell {% if d.is_today %}today{% endif %} {% if d.closed %}closed{% elif d.full and not fixed %}full{% endif %}" data-day="{{ d.day }}"
+              onclick="location.href='{% if fixed %}{% url 'reservations:attendance_day' year month d.day %}{% else %}{% url 'reservations:day' year month d.day %}{% endif %}'">
             <div class="rz-day {% if d.is_sunday %}sun{% elif d.is_saturday %}sat{% endif %}">{{ d.day }}</div>{% if who is not None %}<div class="rz-who-t"></div>{% endif %}
-            {% if d.closed %}
+            {% if fixed %}
+              {% if d.closed %}<div class="rz-left">休</div>{% endif %}
+              {% with fx=d.fx %}
+              <div class="rz-fx">
+                {% if fx.scheduled %}<span class="badge" style="background: var(--color-primary);">予定 {{ fx.scheduled }}</span>{% endif %}
+                {% if fx.attended %}<span class="badge bg-success">来所 {{ fx.attended }}</span>{% endif %}
+                {% if fx.absent %}<span class="badge bg-secondary">欠席 {{ fx.absent }}</span>{% endif %}
+                {% if fx.cancelled %}<span class="badge text-bg-light border">取消 {{ fx.cancelled }}</span>{% endif %}
+                {% if fx.waiting %}<span class="badge text-bg-warning">待 {{ fx.waiting }}</span>{% endif %}
+                {% if d.limit %}<span class="badge {% if d.limit == 'over' %}text-bg-danger{% else %}text-bg-warning{% endif %}" title="欠席・キャンセルを除いた人数が{% if d.limit == 'over' %}1日の上限{% else %}定員{% endif %}を超えています">{% if d.limit == 'over' %}上限超{% else %}定員超{% endif %} {{ d.people }}</span>{% endif %}
+              </div>
+              {% endwith %}
+            {% elif d.closed %}
               <div class="rz-left">休</div>
             {% else %}
               <div class="rz-left {% if d.remaining %}ok{% else %}none{% endif %}">{% if d.remaining %}残 {{ d.remaining }}{% else %}満席{% endif %}</div>
@@ -93,6 +118,16 @@
       </tbody>
     </table>
   </div></div>
+
+  {% if fixed %}
+  <div class="d-flex gap-3 mb-3 small text-muted flex-wrap">
+    <span><span class="badge" style="background: var(--color-primary);">予定 N</span> まだ出欠を入れていない人</span>
+    <span><span class="badge bg-success">来所 N</span> 来た</span>
+    <span><span class="badge bg-secondary">欠席 N</span> 欠席</span>
+    <span><span class="badge text-bg-light border">取消 N</span> キャンセル</span>
+    <span>日付をタップ → 出欠入力</span>
+  </div>
+  {% endif %}
 
   <div class="settings-card">
     <div class="settings-section-title">予約の決まりごと</div>
@@ -162,6 +197,27 @@
             <div class="col-12"><div class="form-text">
               例：平日 10〜18、土日祝 9〜17、12 を除く → 平日は 10:00〜18:00 の8枠、土日祝は 9:00〜17:00 の8枠。祝日は自動で土日祝の時間帯になります。
             </div></div>
+          </div>
+        </div>
+        <div class="col-12">
+          <div class="settings-section-title">利用予定曜日から予定を作る（契約の曜日で通う事業所）</div>
+          <input type="hidden" name="fixed_days_present" value="1">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-7">
+              <div class="form-check mb-1">
+                <input type="checkbox" class="form-check-input" name="fixed_days" id="fixed_days"
+                       {% if setting.fixed_days %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
+                <label class="form-check-label" for="fixed_days"><strong>利用予定曜日から予定を作る</strong>
+                  <div class="form-text mt-0">{{ terms.beneficiary }}情報の利用予定曜日から「○月の予定をまとめて作成」し、日付を押して出欠（予定・来所・欠席・キャンセル）と迎え・送りを入れます。
+                    カレンダーは残枠ではなく人数の表示になり、メニューの名前が「予定」になります（はびりすの「予定」と同じ使い方。LINE・顧客ページの予約もそのまま使えます）。</div></label>
+              </div>
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label small fw-semibold" for="fixed_days_time">まとめて作るときの時刻</label>
+              <input type="time" class="form-control form-control-sm" id="fixed_days_time" name="fixed_days_time"
+                     value="{{ setting.fixed_days_time|time:'H:i' }}" {% if not is_admin %}disabled{% endif %}>
+              <div class="form-text">時間枠で予約する設定のときだけ使います（空なら 15:00）</div>
+            </div>
           </div>
         </div>
         <div class="col-12">
