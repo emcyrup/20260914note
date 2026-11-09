@@ -248,6 +248,17 @@
             <div class="detail-label">利用予定曜日</div>
             <div class="detail-value">{{ beneficiary.scheduled_weekdays_display }}</div>
           </div>
+          <div class="col-12" id="address">
+            <div class="detail-label">住所・連絡先</div>
+            <div class="detail-value">{% if beneficiary.address %}{{ beneficiary.full_address }}{% else %}<span class="text-muted">—</span>{% endif %}
+              {% if beneficiary.mobile_phone or beneficiary.home_phone %}<span class="small text-muted ms-2">{% if beneficiary.mobile_phone %}携帯 {{ beneficiary.mobile_phone }}{% endif %}{% if beneficiary.home_phone %}　自宅 {{ beneficiary.home_phone }}{% endif %}</span>{% endif %}</div>
+          </div>
+          <div class="col-12">
+            <div class="detail-label">学校・園</div>
+            <div class="detail-value">{% if beneficiary.school_name %}{{ beneficiary.school_name }}{% if beneficiary.grade %}（{{ beneficiary.get_grade_display }}）{% endif %}
+              {% if beneficiary.school %}<div class="small text-muted">{% if beneficiary.school.address %}{{ beneficiary.school.full_address }}{% else %}住所は未登録{% endif %}{% if beneficiary.school.phone %}　TEL {{ beneficiary.school.phone }}{% endif %}{% if beneficiary.school.note %}　{{ beneficiary.school.note }}{% endif %}　<a href="{% url 'beneficiaries:schools' %}">学校の一覧</a></div>{% endif %}
+              {% else %}<span class="text-muted">—</span>{% endif %}</div>
+          </div>
           {% if pair_names %}
           <div class="col-12">
             <div class="detail-label">同じ時間にできない{{ terms.beneficiary }}（共演NG）</div>
@@ -919,6 +930,12 @@
                 {% endfor %}
               </select>
             </div>
+          </div>
+
+          <!-- 住所・連絡先・学校 -->
+          <div class="mb-3">
+            <label class="form-label small fw-semibold d-block">住所・連絡先・学校</label>
+            {% include 'beneficiaries/_address_school_fields.html' with f=edit_form prefix='e' %}
           </div>
 
           <!-- 利用予定曜日 -->

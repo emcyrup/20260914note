@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+
+{% block title %}学校の一覧{% endblock %}
+{% block page_title %}学校の一覧{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .sc-card { background: var(--sheet, #fff); border: 1px solid var(--line, #e5e1d8); border-radius: var(--radius, 14px); padding: 14px 16px; margin-bottom: 12px; }
+  .sc-grid { display: grid; grid-template-columns: 1.2fr 0.6fr 2fr 0.8fr 1.4fr auto; gap: 6px; align-items: center; }
+  .sc-head { font-size: 0.75rem; color: #8a8378; font-weight: 600; }
+  .sc-row { padding: 6px 0; border-top: 1px solid #f0ece4; }
+  @media (max-width: 900px) { .sc-grid { grid-template-columns: 1fr 1fr; } .sc-head { display: none; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <nav class="small mb-2"><a href="{% url 'beneficiaries:list' %}">{{ terms.beneficiary }}情報</a> › 学校の一覧</nav>
+  <div class="sc-card">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+      <div>
+        <div class="fw-bold" style="color: var(--lake-text, #2f4f58);"><i class="bi bi-building me-1"></i>学校・園（{{ schools|length }}）</div>
+        <div class="small text-muted">{{ terms.beneficiary }}情報で学校名を入れると、ここに登録され、同じ学校の子には住所・電話が呼び出されます。送迎の「迎えの場所」が空のときは学校の住所が配車表に出ます。</div>
+      </div>
+    </div>
+    <div class="sc-grid sc-head"><div>学校名</div><div>郵便番号</div><div>住所</div><div>電話</div><div>備考（迎えの入口など）</div><div></div></div>
+    {% for sc in schools %}
+    <form method="post" class="sc-row">
+      {% csrf_token %}<input type="hidden" name="action" value="save"><input type="hidden" name="pk" value="{{ sc.pk }}">
+      <div class="sc-grid">
+        <div><input type="text" name="name" class="form-control form-control-sm" maxlength="100" value="{{ sc.name }}" required aria-label="学校名"><div class="small text-muted">{{ sc.student_count }} 人</div></div>
+        <input type="text" name="postal_code" class="form-control form-control-sm" maxlength="8" value="{{ sc.postal_code }}" aria-label="郵便番号">
+        <input type="text" name="address" class="form-control form-control-sm" maxlength="200" value="{{ sc.address }}" aria-label="住所">
+        <input type="text" name="phone" class="form-control form-control-sm" maxlength="20" value="{{ sc.phone }}" aria-label="電話">
+        <input type="text" name="note" class="form-control form-control-sm" maxlength="200" value="{{ sc.note }}" aria-label="備考">
+        <div class="d-flex gap-1">
+          <button class="btn btn-sm btn-outline-primary" title="保存"><i class="bi bi-check2"></i></button>
+          {% if not sc.student_count %}<button class="btn btn-sm btn-outline-danger" form="del-{{ sc.pk }}" title="消す" onclick="return confirm('学校「{{ sc.name|escapejs }}」を消します。よろしいですか？');"><i class="bi bi-trash"></i></button>{% endif %}
+        </div>
+      </div>
+    </form>
+    {% empty %}<div class="small text-muted py-2">まだ登録がありません。{{ terms.beneficiary }}情報で学校名と学校の住所を入れると、ここに並びます。</div>{% endfor %}
+    <form method="post" class="sc-row" style="border-top: 2px dashed var(--line, #e5e1d8);">
+      {% csrf_token %}<input type="hidden" name="action" value="add">
+      <div class="sc-grid">
+        <input type="text" name="name" class="form-control form-control-sm" maxlength="100" placeholder="新しい学校・園の名前" required aria-label="学校名">
+        <input type="text" name="postal_code" class="form-control form-control-sm" maxlength="8" placeholder="郵便番号" aria-label="郵便番号">
+        <input type="text" name="address" class="form-control form-control-sm" maxlength="200" placeholder="住所" aria-label="住所">
+        <input type="text" name="phone" class="form-control form-control-sm" maxlength="20" placeholder="電話" aria-label="電話">
+        <input type="text" name="note" class="form-control form-control-sm" maxlength="200" placeholder="備考" aria-label="備考">
+        <button class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>登録</button>
+      </div>
+    </form>
+  </div>
+  {% for sc in schools %}<form method="post" id="del-{{ sc.pk }}" class="d-none">{% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="pk" value="{{ sc.pk }}"></form>{% endfor %}
+</div>
+{% endblock %}

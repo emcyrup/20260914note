@@ -113,6 +113,10 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         from records import unwritten
         unwritten_rows = unwritten.collect(facility, today) if unwritten.enabled(facility) else []
 
+        # 配車担当（運転手に結びついた職員）には、きょうの送迎（2026-11-09 オウル）
+        from transport.views import driver_today
+        ctx['my_transport'] = driver_today(self.request.user, today)
+
         ctx.update({
             'today':           today,
             'soon':            soon,

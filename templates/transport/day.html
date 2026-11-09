@@ -63,13 +63,21 @@
   <form method="post">
     {% csrf_token %}<input type="hidden" name="action" value="save"><input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}">
     {% for direction, dlabel in directions %}
-    {% if direction == 'pickup' %}{% with rows=board.pickup counts=board.counts.pickup active=board.pickup_active %}{% include 'transport/_day_table.html' %}{% endwith %}
-    {% else %}{% with rows=board.dropoff counts=board.counts.dropoff active=board.dropoff_active %}{% include 'transport/_day_table.html' %}{% endwith %}{% endif %}
+    {% if direction == 'pickup' %}{% with rows=board.pickup counts=board.counts.pickup active=board.pickup_active unassigned=board.pickup_unassigned %}{% include 'transport/_day_table.html' %}{% endwith %}
+    {% else %}{% with rows=board.dropoff counts=board.counts.dropoff active=board.dropoff_active unassigned=board.dropoff_unassigned %}{% include 'transport/_day_table.html' %}{% endwith %}{% endif %}
     {% endfor %}
-    <div class="d-flex justify-content-end gap-2 mb-3">
+    <div class="d-flex justify-content-between align-items-center gap-2 mb-3 flex-wrap">
+      <div class="small text-muted">{% if board.problems %}<i class="bi bi-exclamation-triangle text-danger me-1"></i>定員超・運転不可・同乗NG が {{ board.problems }} 件あります（赤い印）。{% else %}<i class="bi bi-check-circle text-success me-1"></i>定員・運転できる車両・同乗NG のどれにも引っかかっていません。{% endif %}</div>
       <button class="btn btn-primary"><i class="bi bi-check2 me-1"></i>この日の配車を保存</button>
     </div>
   </form>
+  {% if board.pickup_unassigned or board.dropoff_unassigned %}
+  <form method="post" class="mb-3 d-flex align-items-center gap-2 flex-wrap">
+    {% csrf_token %}<input type="hidden" name="action" value="auto"><input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}">
+    <button class="btn btn-outline-primary btn-sm"><i class="bi bi-magic me-1"></i>車両未定の {{ board.pickup_unassigned|add:board.dropoff_unassigned }} 件を自動で割り当てる</button>
+    <span class="small text-muted">いつもの車両 → 空きのある車両の順（定員と、同じ便の同乗NG を避けます）。運転手は車両のいつもの運転手か、その車を運転できる人。あとから行ごとに直せます。</span>
+  </form>
+  {% endif %}
 
   {% if board.others.pickup or board.others.dropoff %}
   <div class="tr-card">
@@ -82,6 +90,6 @@
     </div>
   </div>
   {% endif %}
-  <div class="small text-muted mb-4">予約（確定）のある利用者のうち、利用者情報の「送迎」で迎え・送りありにした人が並びます。時刻・場所・車両・運転手の空欄は、送迎の設定といつもの車両の運転手から入ります。「なし」にするとその日は送迎しない人として印刷からも外れます。</div>
+  <div class="small text-muted mb-4">予約（確定）のある利用者のうち、利用者情報の「送迎」で迎え・送りありにした人が並びます。時刻・場所・車両・運転手の空欄は、送迎の設定といつもの車両の運転手から入ります。場所が空のときは、迎えは学校（利用者情報の学校と学校の住所）、送りは自宅の住所が印刷に出ます。「なし」にするとその日は送迎しない人として印刷からも外れます。</div>
 </div>
 {% endblock %}

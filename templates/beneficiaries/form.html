@@ -136,6 +136,14 @@
       </div>
     </div>
 
+    <!-- 住所・連絡先・学校（2026-11-09 オウル：学校の住所は学校マスタに入り、同じ学校の子に呼び出せる） -->
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="card-title fw-bold mb-3">住所・連絡先・学校</h6>
+        {% include 'beneficiaries/_address_school_fields.html' with f=form prefix='f' %}
+      </div>
+    </div>
+
     <!-- 利用予定曜日 -->
     <div class="card mb-3">
       <div class="card-body">
