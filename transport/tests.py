@@ -174,6 +174,22 @@ class TransportTests(TestCase):
         self.assertContains(res, 'name="use_transport"')
         self.assertContains(res, 'name="use_dev_assessment"')
 
+    def test_ride_ng_bulk_buttons_and_save_all(self):
+        """同乗NG の欄に「全員チェック」「全部外す」と人数。全員を送って保存すれば全員に付き、空で送れば全部外れる"""
+        res = self.client.get(reverse('beneficiaries:detail', args=[self.kid.pk]))
+        self.assertContains(res, '全員チェック')
+        self.assertContains(res, '全部外す')
+        self.assertContains(res, 'id="ride-ng-count"')
+        others = list(Beneficiary.objects.filter(facility=self.f).exclude(pk=self.kid.pk))
+        self.client.post(reverse('transport:profile', args=[self.kid.pk]), {'pickup': '1', 'dropoff': '1', 'pickup_place': '', 'pickup_time': '',
+                                                                              'dropoff_place': '', 'dropoff_time': '', 'default_vehicle': '', 'note': '',
+                                                                              'ride_ng_present': '1', 'no_ride_with': [str(o.pk) for o in others]})
+        self.assertEqual(set(self.kid.no_ride_with.values_list('pk', flat=True)), {o.pk for o in others})
+        self.client.post(reverse('transport:profile', args=[self.kid.pk]), {'pickup': '1', 'dropoff': '1', 'pickup_place': '', 'pickup_time': '',
+                                                                              'dropoff_place': '', 'dropoff_time': '', 'default_vehicle': '', 'note': '',
+                                                                              'ride_ng_present': '1'})
+        self.assertEqual(self.kid.no_ride_with.count(), 0)
+
     def test_ride_ng_pairs_on_board(self):
         """同乗NG：送迎の設定で付け（相手にも付く）、同じ車・近い時刻（30 分以内）なら配車表で赤く知らせる"""
         res = self.client.post(reverse('transport:profile', args=[self.kid2.pk]), {
