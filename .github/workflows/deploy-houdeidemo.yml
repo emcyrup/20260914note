@@ -7,8 +7,8 @@
 #   サーバー側は deploy/venv-deploy.sh が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行う
 #   手順は docs/DEPLOY_AWS_HOUDEIDEMO.md
 #
-# GitHub Secrets（必須。プロバイダに環境を用意してもらってから入れる。既定値は無い＝入っていなければ配備しない）
-#   HOUDEIDEMO_DOMAIN（例 st-michinote.demo.ai-labo.cloud）・HOUDEIDEMO_PORT（例 8047）・HOUDEIDEMO_DB_NAME（例 michinotehoudei）
+# 環境の値（2026-11-09 にプロバイダが用意）：アドレス st-michinote.sample.ai-labo.cloud・Gunicorn 8047・DB michinotesample（ユーザー st_ai_labo_dbuser）
+#   実行時の入力（domain・port・db_name）の既定値に入れてある。Secrets HOUDEIDEMO_DOMAIN／HOUDEIDEMO_PORT／HOUDEIDEMO_DB_NAME があればそちらが優先
 #     （ポート・DB 名は初回に .env を作るときだけ使う）
 #   SSH は同じサーバーなので DEV_*（Deploy (dev) のもの）をそのまま使う。別にしたいときだけ HOUDEIDEMO_DEPLOY_* を登録する
 #   HOUDEIDEMO_APP_DIR（既定 ~/michinotehoudei）、HOUDEIDEMO_VENV（無ければ DEV_VENV、既定 ~/env）
@@ -29,6 +29,18 @@ on:
         description: "配備するコミット（切り戻しのときに前のコミットの番号を入れる。空なら選んだブランチの最新）"
         type: string
         default: ""
+      domain:
+        description: "アドレス（nginx が受けるホスト名。Secrets HOUDEIDEMO_DOMAIN があればそちら）"
+        type: string
+        default: "st-michinote.sample.ai-labo.cloud"
+      port:
+        description: "Gunicorn のポート（初回の .env 作成にだけ使う。Secrets HOUDEIDEMO_PORT があればそちら）"
+        type: string
+        default: "8047"
+      db_name:
+        description: "DB 名（初回の .env 作成にだけ使う。Secrets HOUDEIDEMO_DB_NAME があればそちら）"
+        type: string
+        default: "michinotesample"
 
 permissions:
   contents: read
@@ -37,8 +49,8 @@ env:
   APP_DIR: ${{ secrets.HOUDEIDEMO_APP_DIR || '~/michinotehoudei' }}
   VENV: ${{ secrets.HOUDEIDEMO_VENV || secrets.DEV_VENV || '~/env' }}
   SSH_PORT: ${{ secrets.HOUDEIDEMO_DEPLOY_SSH_PORT || secrets.DEV_DEPLOY_SSH_PORT || '22' }}
-  DOMAIN: ${{ secrets.HOUDEIDEMO_DOMAIN }}
-  HEALTH_URL: ${{ secrets.HOUDEIDEMO_HEALTH_URL || format('https://{0}/healthz/', secrets.HOUDEIDEMO_DOMAIN) }}
+  DOMAIN: ${{ secrets.HOUDEIDEMO_DOMAIN || inputs.domain }}
+  HEALTH_URL: ${{ secrets.HOUDEIDEMO_HEALTH_URL || format('https://{0}/healthz/', secrets.HOUDEIDEMO_DOMAIN || inputs.domain) }}
 
 jobs:
   test:
@@ -104,13 +116,13 @@ jobs:
           REMOTE_VENV: ${{ env.VENV }}
           SRC_APP_DIR: ${{ secrets.DEV_APP_DIR || '~/michinotedemo' }}
           DOMAIN: ${{ env.DOMAIN }}
-          PORT_NUM: ${{ secrets.HOUDEIDEMO_PORT }}
-          DB_NAME_NEW: ${{ secrets.HOUDEIDEMO_DB_NAME }}
+          PORT_NUM: ${{ secrets.HOUDEIDEMO_PORT || inputs.port }}
+          DB_NAME_NEW: ${{ secrets.HOUDEIDEMO_DB_NAME || inputs.db_name }}
         run: |
           # 切り戻しで入れるのはコミットの番号だけ（英数字 7〜40 字）。ほかの文字はサーバーのコマンドに渡さない
           [[ "$SHA" =~ ^[0-9a-fA-F]{7,40}$ ]] || { echo "ref はコミットの番号（7〜40 桁の英数字）で入れてください: $SHA"; exit 1; }
           # 環境ごとの値（アドレス・ポート・DB 名）は Secrets に入っていなければ配備しない（既定値は無い：ほかの環境と取り違えないため）
-          [ -n "$DOMAIN" ] && [ -n "$PORT_NUM" ] && [ -n "$DB_NAME_NEW" ] || { echo "Secrets の HOUDEIDEMO_DOMAIN・HOUDEIDEMO_PORT・HOUDEIDEMO_DB_NAME を先に登録してください（プロバイダが用意したアドレス・ポート・DB 名。docs/DEPLOY_AWS_HOUDEIDEMO.md）"; exit 1; }
+          [ -n "$DOMAIN" ] && [ -n "$PORT_NUM" ] && [ -n "$DB_NAME_NEW" ] || { echo "アドレス・ポート・DB 名が空です（実行時の入力 domain・port・db_name か Secrets HOUDEIDEMO_*。docs/DEPLOY_AWS_HOUDEIDEMO.md）"; exit 1; }
           [[ "$DOMAIN" =~ ^[a-z0-9.-]+$ ]] || { echo "HOUDEIDEMO_DOMAIN はアドレス（英小文字・数字・. と - だけ）で入れてください"; exit 1; }
           case "$DB_NAME_NEW" in kaigonotekyotaku|kaigonotemidorikai|kaigonotedemo|michinotedemo|michinoteyours|michinoteowl) echo "ERROR: HOUDEIDEMO_DB_NAME（$DB_NAME_NEW）はほかの環境の DB です。デモ用に別の DB を用意してください"; exit 1;; esac
           [[ "$PORT_NUM" =~ ^[0-9]{4,5}$ ]] || { echo "HOUDEIDEMO_PORT は 4〜5 桁の数字で入れてください"; exit 1; }
