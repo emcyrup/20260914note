@@ -31,7 +31,7 @@ on:
         type: choice
         required: true
         default: list
-        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, error_log, set_media_root, enable_features, enable_owl_features, status, autostart_check, autostart_install, backup, backup_list, backup_check]
+        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, error_log, set_media_root, enable_features, enable_owl_features, route_check, status, autostart_check, autostart_install, backup, backup_list, backup_check]
       facility_name:
         description: "事業所名（create_facility）"
         type: string
@@ -155,6 +155,9 @@ jobs:
                 # enable_features に加えて、相談支援の計画・帳票出力（フェイスシート・アセスメントシート・実施記録の PDF）をオンにし、帳票様式をオウル様式に
                 [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください"; exit 1; }
                 FACILITY_ID="$FACILITY_ID" python manage.py shell -v 0 -c "import os; from facilities.models import Facility; f = Facility.objects.get(pk=os.environ['FACILITY_ID']); f.use_transport = f.use_dev_assessment = f.use_survey = f.use_daily_ops = f.use_consultation = f.use_reports = True; f.form_set = Facility.FORM_SET_OWL; f.save(update_fields=['use_transport', 'use_dev_assessment', 'use_survey', 'use_daily_ops', 'use_consultation', 'use_reports', 'form_set']); print('オウルの機能をオンにしました（送迎・5領域・アンケート・毎日の運営・相談支援の計画・帳票出力・オウル様式）:', f.pk, f.name)" ;;
+              route_check)
+                # 配車表の所要時間（学校→施設・施設→自宅）がこのサーバーから求められるか。公共の住所 2 か所で試す（個人の住所は出さない）
+                python manage.py route_estimate --no-cache --quiet ;;
               error_log)
                 # 公開リポジトリのログに出るので、日本語（利用者名など）と 6 桁以上の数字は伏せ、技術的な行だけにする
                 for f in logs/error.log logs/gunicorn.out; do

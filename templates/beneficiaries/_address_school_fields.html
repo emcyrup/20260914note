@@ -42,6 +42,11 @@
     <label class="form-label small fw-semibold" for="{{ prefix }}-sphone">学校の電話</label>
     <input type="text" name="school_phone" id="{{ prefix }}-sphone" class="form-control form-control-sm" maxlength="20" value="{{ f.school_phone.value|default:'' }}" inputmode="tel" data-school-field="phone">
   </div>
+  <div class="col-sm-4">
+    <label class="form-label small fw-semibold" for="{{ prefix }}-sdismiss">下校時刻（既定） <span class="text-muted fw-normal">— 迎えの時刻の既定になります</span></label>
+    <input type="time" name="school_dismissal" id="{{ prefix }}-sdismiss" class="form-control form-control-sm" value="{{ f.school_dismissal.value|default:'' }}" data-school-field="dismissal_time">
+    <div class="small text-muted">曜日ごとの違いは <a href="{% url 'beneficiaries:schools' %}" target="_blank">学校の一覧</a> で</div>
+  </div>
 </div>
 <script>
 (function () {
@@ -63,7 +68,7 @@
           if (d.found) {
             var changed = (v !== last);
             Object.keys(fields).forEach(function (k) { if (changed || !fields[k].value) fields[k].value = d[k] || ''; });
-            status.textContent = '登録のある学校です（' + (d.students || 0) + ' 人が通っています）。住所・電話を呼び出しました。';
+            status.textContent = '登録のある学校です（' + (d.students || 0) + ' 人が通っています）。住所・電話・下校時刻を呼び出しました。' + (d.dismissal_display ? '下校 ' + d.dismissal_display : '');
           } else {
             if (v !== last) Object.keys(fields).forEach(function (k) { fields[k].value = ''; });
             status.textContent = 'まだ登録の無い学校です。住所を入れて保存すると、次からほかの子にも呼び出せます。';

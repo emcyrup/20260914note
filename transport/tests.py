@@ -229,6 +229,23 @@ class DriverVehicleAndAutoAssignTests(TestCase):
         self.rs = [Reservation.objects.create(facility=self.f, beneficiary=k, date=self.day, start_time=datetime.time(15, 0)) for k in (self.k1, self.k2, self.k3)]
         self.url = reverse('transport:day') + f'?d={self.day.isoformat()}'
 
+    def test_pickup_time_defaults_to_school_dismissal(self):
+        # 迎えの時刻が設定に無い子は、学校のその曜日の下校時刻が配車表の時刻に入り「下校 ○:○○」が出る
+        self.school.dismissal_time = datetime.time(14, 50)
+        setattr(self.school, self.school.WEEKDAY_FIELDS[self.day.weekday()] if self.day.weekday() < 5 else 'dismissal_time', datetime.time(13, 40))
+        self.school.save()
+        TransportProfile.objects.filter(beneficiary=self.k1).update(pickup_time=None)
+        from .views import build_board
+        board = build_board(self.f, self.day)
+        row = next(x for x in board['pickup'] if x['beneficiary'] == self.k1)
+        self.assertEqual(row['time'], datetime.time(13, 40))
+        self.assertEqual(row['dismissal'], datetime.time(13, 40))
+        res = self.client.get(self.url)
+        self.assertContains(res, '下校 13:40')
+        # 設定に時刻があればそちら
+        TransportProfile.objects.filter(beneficiary=self.k1).update(pickup_time=datetime.time(14, 30))
+        self.assertEqual(next(x for x in build_board(self.f, self.day)['pickup'] if x['beneficiary'] == self.k1)['time'], datetime.time(14, 30))
+
     def test_driver_vehicles_saved_and_flagged(self):
         # 佐藤は軽しか運転できない → ハイエースの運転手になっている行が赤く出る
         self.client.post(reverse('transport:vehicles'), {'action': 'driver_save', 'pk': self.drv.pk, 'name': '佐藤', 'is_active': '1',
@@ -305,3 +322,130 @@ class DriverVehicleAndAutoAssignTests(TestCase):
         self.f.save()
         res = self.client.get(reverse('facilities:dashboard'))
         self.assertNotContains(res, 'きょうの送迎')
+
+
+class RouteEstimateTests(TestCase):
+    """配車表の所要時間（2026-11-09 オウル）：住所→座標→経路、控え、Google への切り替え、画面のボタンとホーム"""
+
+    def setUp(self):
+        from beneficiaries.models import School
+        self.f = Facility.objects.create(name='児童発達支援センター　オウル', layout=Facility.LAYOUT_RYOIKU, use_reservation=True, use_transport=True,
+                                         address='京都市伏見区深草見本町1-1')
+        self.user = StaffAccount.objects.create_user('owl', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='owl', password='pw12345678')
+        self.day = datetime.date.today()
+        self.school = School.objects.create(facility=self.f, name='南小学校', address='〒612-0000 京都市伏見区深草見本町3-1')
+        self.k1 = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', last_name_kana='あおき', date_of_birth=datetime.date(2019, 4, 1),
+                                             school_name='南小学校', school=self.school, address='京都市伏見区深草見本町10-1')
+        self.k2 = Beneficiary.objects.create(facility=self.f, last_name='伊藤', first_name='花', last_name_kana='いとう', date_of_birth=datetime.date(2018, 4, 1))
+        self.van = Vehicle.objects.create(facility=self.f, name='ハイエース', capacity=4)
+        self.drv = Driver.objects.create(facility=self.f, name='佐藤', staff=self.user)
+        self.van.default_driver = self.drv
+        self.van.save()
+        for k in (self.k1, self.k2):
+            TransportProfile.objects.create(beneficiary=k, pickup=True, dropoff=True, pickup_time=datetime.time(14, 30), default_vehicle=self.van)
+        self.rs = [Reservation.objects.create(facility=self.f, beneficiary=k, date=self.day, start_time=datetime.time(15, 0)) for k in (self.k1, self.k2)]
+        self.url = reverse('transport:day') + f'?d={self.day.isoformat()}'
+        self.calls = []
+
+    def fake_get(self, url, params):
+        """国土地理院：住所ごとに少しずつ違う座標。OSRM：距離 4.2km・11 分。Google：9 分・3.9km"""
+        from transport import routing
+        self.calls.append(url)
+        if url == routing.GSI_URL:
+            q = params['q']
+            if '知らない' in q:
+                return []
+            n = sum(ord(c) for c in q) % 50
+            return [{'geometry': {'coordinates': [135.77 + n / 1000, 34.95 + n / 1000]}, 'properties': {'title': q}}]
+        if url.startswith(routing.OSRM_URL):
+            if getattr(self, 'osrm_down', False):
+                raise OSError('osrm down')
+            return {'code': 'Ok', 'routes': [{'duration': 660, 'distance': 4200}]}
+        if url == routing.GOOGLE_URL:
+            return {'rows': [{'elements': [{'status': 'OK', 'duration': {'value': 540}, 'distance': {'value': 3900}}]}]}
+        raise AssertionError(url)
+
+    def test_estimate_caches_and_falls_back(self):
+        from unittest import mock
+        from transport import routing
+        from transport.models import GeoPoint, RouteEstimate
+        with mock.patch.object(routing, '_get', side_effect=self.fake_get):
+            est = routing.estimate('〒612-0000 京都市伏見区深草見本町3-1', '京都市伏見区深草見本町1-1')
+            self.assertEqual((est.minutes, est.distance_m, est.source, est.label), (11, 4200, 'osrm', '約11分・4.2km'))
+            self.assertEqual(est.origin, '京都市伏見区深草見本町3-1')       # 〒と郵便番号は外れる
+            self.assertEqual(GeoPoint.objects.count(), 2)
+            n = len(self.calls)
+            # 2 回目は控えから（外部に出ない）
+            self.assertEqual(routing.estimate('京都市伏見区深草見本町3-1', '京都市伏見区深草見本町1-1').pk, est.pk)
+            self.assertEqual(len(self.calls), n)
+            # 住所が見つからなければ None（控えない）
+            self.assertIsNone(routing.estimate('知らない町 1', '京都市伏見区深草見本町1-1'))
+            self.assertEqual(RouteEstimate.objects.count(), 1)
+            # OSRM に届かなければ直線距離からの目安
+            self.osrm_down = True
+            est2 = routing.estimate('京都市伏見区深草見本町1-1', '京都市伏見区深草見本町10-1')
+            self.assertEqual(est2.source, 'direct')
+            self.assertTrue(est2.label.endswith('（目安）'))
+            self.assertGreaterEqual(est2.minutes, 1)
+        # 同じ住所どうし・空は None
+        self.assertIsNone(routing.estimate('京都市伏見区深草見本町1-1', '京都市伏見区深草見本町1-1'))
+        self.assertIsNone(routing.estimate('', '京都市伏見区深草見本町1-1'))
+
+    def test_google_when_key_is_set(self):
+        from unittest import mock
+        from django.test import override_settings
+        from transport import routing
+        with override_settings(GOOGLE_MAPS_API_KEY='dummy'), mock.patch.object(routing, '_get', side_effect=self.fake_get):
+            est = routing.estimate('京都市伏見区深草見本町3-1', '京都市伏見区深草見本町1-1')
+        self.assertEqual((est.minutes, est.source), (9, 'google'))
+        self.assertEqual(self.calls, [routing.GOOGLE_URL])
+
+    def test_board_button_and_home(self):
+        from unittest import mock
+        from transport import routing
+        from .views import build_board
+        board = build_board(self.f, self.day)
+        rows = {(d, x['beneficiary'].pk): x for d in ('pickup', 'dropoff') for x in board[d]}
+        self.assertEqual(rows[('pickup', self.k1.pk)]['route_pair'], ('京都市伏見区深草見本町3-1', '京都市伏見区深草見本町1-1'))
+        self.assertEqual(rows[('dropoff', self.k1.pk)]['route_pair'], ('京都市伏見区深草見本町1-1', '京都市伏見区深草見本町10-1'))
+        self.assertIsNone(rows[('pickup', self.k2.pk)]['route_pair'])      # 学校・住所が無い子は求めない
+        self.assertEqual(board['routes_missing'], 2)
+        res = self.client.get(self.url)
+        self.assertContains(res, '所要時間を計算（未計算 2 件）')
+        with mock.patch.object(routing, '_get', side_effect=self.fake_get):
+            res = self.client.post(reverse('transport:day'), {'action': 'routes', 'd': self.day.isoformat()}, follow=True)
+        self.assertContains(res, '所要時間を 2 件求めました')
+        self.assertContains(res, '約11分・4.2km')
+        self.assertContains(res, 'この車の行の所要時間の合計')   # 車両の合計（迎え・送りそれぞれ 11 分）
+        self.assertEqual(build_board(self.f, self.day)['routes_missing'], 0)
+        # もう一度押しても外部には出ない
+        n = len(self.calls)
+        res = self.client.post(reverse('transport:day'), {'action': 'routes', 'd': self.day.isoformat()}, follow=True)
+        self.assertContains(res, '所要時間を求める行はありません')
+        self.assertEqual(len(self.calls), n)
+        # ホームの「きょうの送迎」と印刷にも出る
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertContains(res, '約11分・4.2km')
+        res = self.client.get(reverse('transport:day_pdf') + f'?d={self.day.isoformat()}&fmt=html')
+        self.assertContains(res, '約11分・4.2km')
+
+    def test_no_facility_address(self):
+        from .views import build_board
+        self.f.address = ''
+        self.f.save()
+        board = build_board(self.f, self.day)
+        self.assertEqual(board['routes_missing'], 0)
+        res = self.client.get(self.url)
+        self.assertContains(res, '施設設定に施設の住所を入れると')
+
+    def test_command(self):
+        from io import StringIO
+        from unittest import mock
+        from django.core.management import call_command
+        from transport import routing
+        out = StringIO()
+        with mock.patch.object(routing, '_get', side_effect=self.fake_get):
+            call_command('route_estimate', '--quiet', stdout=out)
+        self.assertIn('所要時間: 約11分・4.2km', out.getvalue())
+        self.assertNotIn('京都市', out.getvalue())
