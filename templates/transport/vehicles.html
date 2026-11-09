@@ -61,7 +61,7 @@
 
   <div class="vh-card">
     <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-      <div><div class="vh-title"><i class="bi bi-person-badge me-1"></i>運転手</div><div class="small text-muted">ログインする職員でなくても登録できます。</div></div>
+      <div><div class="vh-title"><i class="bi bi-person-badge me-1"></i>運転手</div><div class="small text-muted">ログインする職員でなくても登録できます。「運転できる車両」に印を付けると、配車表でほかの車の運転手になっている行が赤く出ます（1 つも付けなければどの車でも）。「ログインする職員」を結びつけると、その人のホームにきょうの送迎が出ます。</div></div>
     </div>
     <div class="vh-grid d vh-head"><div>名前</div><div>電話番号</div><div>備考</div><div></div></div>
     {% for d in drivers %}
@@ -74,9 +74,11 @@
         <div class="d-flex gap-1"><button class="btn btn-sm btn-outline-primary" title="保存"><i class="bi bi-check2"></i></button>
           <button class="btn btn-sm btn-outline-danger" form="dd-{{ d.pk }}" title="削除" onclick="return confirm('運転手「{{ d.name|escapejs }}」を削除します。配車表のこの人の欄は空になります。よろしいですか？');"><i class="bi bi-trash"></i></button></div>
       </div>
-      <div class="d-flex gap-3 small">
+      <div class="d-flex gap-3 small flex-wrap align-items-center">
         <label class="form-check mb-0"><input type="checkbox" class="form-check-input" name="is_active" {% if d.is_active %}checked{% endif %}> 在籍中（外すと配車表の選択肢から消える）</label>
         <label class="d-flex align-items-center gap-1 mb-0">並び順 <input type="number" name="order" class="form-control form-control-sm" style="width:70px;" min="0" max="999" value="{{ d.order }}"></label>
+        <label class="d-flex align-items-center gap-1 mb-0">ログインする職員 <select name="staff" class="form-select form-select-sm" style="width:auto;"><option value="">－</option>{% for u in staff_accounts %}<option value="{{ u.pk }}" {% if d.staff_id == u.pk %}selected{% endif %}>{{ u }}</option>{% endfor %}</select></label>
+        {% if vehicles %}<span class="d-flex align-items-center gap-2 flex-wrap"><input type="hidden" name="vehicles_present" value="1">運転できる車両：{% with allowed=d.vehicles.all %}{% for v in vehicles %}<label class="form-check form-check-inline mb-0"><input type="checkbox" class="form-check-input" name="vehicles" value="{{ v.pk }}" {% if v in allowed %}checked{% endif %}>{{ v.name }}</label>{% endfor %}{% endwith %}</span>{% endif %}
       </div>
     </form>
     {% empty %}<div class="small text-muted py-2">まだ登録がありません。</div>{% endfor %}

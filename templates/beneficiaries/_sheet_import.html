@@ -1,4 +1,4 @@
-{# 手書きの用紙（PDF・写真）を AI で読み取って入力画面に流し込む欄。使い方：{% include 'beneficiaries/_sheet_import.html' with import_url=... import_label='フェイスシート' import_id='face' %} #}
+{% comment %} 手書きの用紙（PDF・写真）を AI で読み取って入力画面に流し込む欄。使い方：{% include 'beneficiaries/_sheet_import.html' with import_url=... import_label='フェイスシート' import_id='face' %} {% endcomment %}
 {% if ai_ready %}
 <form method="post" action="{{ import_url }}" enctype="multipart/form-data" class="sheet-import d-flex flex-wrap align-items-center gap-2 mt-2 p-2 rounded" style="background: var(--sand, #f6f3ec); border: 1px dashed var(--line, #d9d3c7);">
   {% csrf_token %}

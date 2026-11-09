@@ -198,3 +198,110 @@ class TransportTests(TestCase):
         van2 = Vehicle.objects.create(facility=self.f, name='軽')
         res = self.client.post(reverse('transport:day'), dict(post, **{f'time_{k2}': '14:30', f'vehicle_{k2}': van2.pk}), follow=True)
         self.assertNotContains(res, '同乗NG：')
+
+
+class DriverVehicleAndAutoAssignTests(TestCase):
+    """運転できる車両・自動の割り当て・学校の住所・配車担当のホーム（2026-11-09 オウル）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='児童発達支援センター　オウル', layout=Facility.LAYOUT_RYOIKU,
+                                         use_reservation=True, use_transport=True)
+        self.user = StaffAccount.objects.create_user('owl', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN, display_name='大和')
+        self.driver_user = StaffAccount.objects.create_user('drv', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF, display_name='佐藤')
+        self.client.login(username='owl', password='pw12345678')
+        self.day = datetime.date.today()
+        from beneficiaries.models import School
+        self.school = School.objects.create(facility=self.f, name='南小学校', address='見本市南町 1-1')
+        self.k1 = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', last_name_kana='あおき', date_of_birth=datetime.date(2019, 4, 1),
+                                             school_name='南小学校', school=self.school, address='見本市北町 9-9')
+        self.k2 = Beneficiary.objects.create(facility=self.f, last_name='伊藤', first_name='花', last_name_kana='いとう', date_of_birth=datetime.date(2018, 4, 1))
+        self.k3 = Beneficiary.objects.create(facility=self.f, last_name='上田', first_name='空', last_name_kana='うえだ', date_of_birth=datetime.date(2018, 4, 1))
+        self.van = Vehicle.objects.create(facility=self.f, name='ハイエース', capacity=2, order=1)
+        self.kei = Vehicle.objects.create(facility=self.f, name='軽', capacity=1, order=2)
+        self.drv = Driver.objects.create(facility=self.f, name='佐藤', staff=self.driver_user)
+        self.drv2 = Driver.objects.create(facility=self.f, name='鈴木')
+        self.van.default_driver = self.drv
+        self.van.save()
+        self.kei.default_driver = self.drv2
+        self.kei.save()
+        for k in (self.k1, self.k2, self.k3):
+            TransportProfile.objects.create(beneficiary=k, pickup=True, dropoff=(k is self.k1), pickup_time=datetime.time(14, 30))
+        self.rs = [Reservation.objects.create(facility=self.f, beneficiary=k, date=self.day, start_time=datetime.time(15, 0)) for k in (self.k1, self.k2, self.k3)]
+        self.url = reverse('transport:day') + f'?d={self.day.isoformat()}'
+
+    def test_driver_vehicles_saved_and_flagged(self):
+        # 佐藤は軽しか運転できない → ハイエースの運転手になっている行が赤く出る
+        self.client.post(reverse('transport:vehicles'), {'action': 'driver_save', 'pk': self.drv.pk, 'name': '佐藤', 'is_active': '1',
+                                                         'vehicles_present': '1', 'vehicles': [str(self.kei.pk)], 'staff': str(self.driver_user.pk)})
+        self.drv.refresh_from_db()
+        self.assertTrue(self.drv.can_drive(self.kei))
+        self.assertFalse(self.drv.can_drive(self.van))
+        self.assertEqual(self.drv.staff, self.driver_user)
+        self.assertTrue(Driver.objects.create(facility=self.f, name='だれでも').can_drive(self.van))
+        page = self.client.get(reverse('transport:vehicles')).content.decode()
+        self.assertIn('運転できる車両', page)
+        self.assertIn('ログインする職員', page)
+        k = f'r{self.rs[0].pk}_pickup'
+        self.client.post(reverse('transport:day'), {'action': 'save', 'd': self.day.isoformat(), f'present_{k}': '1',
+                                                    f'vehicle_{k}': self.van.pk, f'driver_{k}': self.drv.pk, f'time_{k}': '14:30'})
+        res = self.client.get(self.url)
+        self.assertContains(res, '運転不可')
+        self.assertContains(res, 'が 1 件あります')
+        # 印刷にも
+        res = self.client.get(reverse('transport:day_pdf') + f'?d={self.day.isoformat()}&fmt=html')
+        self.assertContains(res, '（運転不可）')
+
+    def test_default_place_from_school_and_home(self):
+        res = self.client.get(self.url)
+        # 迎えの場所が空 → 学校（住所つき）が既定で出る。送りは自宅の住所
+        self.assertContains(res, '南小学校（見本市南町 1-1）')
+        self.assertContains(res, '見本市北町 9-9')
+        res = self.client.get(reverse('transport:day_pdf') + f'?d={self.day.isoformat()}&fmt=html')
+        self.assertContains(res, '南小学校（見本市南町 1-1）')
+
+    def test_auto_assign_respects_capacity_and_ride_ng(self):
+        # 青木と伊藤は同乗NG。車両未定が 3 件（迎え）＋1 件（送り）
+        self.k1.no_ride_with.add(self.k2)
+        res = self.client.get(self.url)
+        self.assertContains(res, '車両未定 3')
+        self.assertContains(res, '自動で割り当てる')
+        res = self.client.post(reverse('transport:day'), {'action': 'auto', 'd': self.day.isoformat()}, follow=True)
+        self.assertContains(res, '割り当てました')
+        a = {(x.reservation.beneficiary_id, x.direction): x for x in TransportAssignment.objects.select_related('reservation')}
+        v1 = a[(self.k1.pk, 'pickup')].vehicle
+        v2 = a[(self.k2.pk, 'pickup')].vehicle
+        v3 = a[(self.k3.pk, 'pickup')].vehicle
+        self.assertEqual(v1, self.van)                    # 並び順の先頭
+        self.assertEqual(v2, self.kei)                    # 青木と同じ車に乗せない → 軽
+        self.assertEqual(v3, self.van)                    # ハイエースは 2 人まで
+        self.assertEqual(a[(self.k1.pk, 'pickup')].driver, self.drv)     # いつもの運転手
+        self.assertEqual(a[(self.k1.pk, 'dropoff')].vehicle, self.van)
+        res = self.client.get(self.url)
+        self.assertNotContains(res, '車両未定')
+        self.assertNotContains(res, '同乗NG：')
+        # 4 人目（迎え）は 2 台とも満席で決められない
+        k4 = Beneficiary.objects.create(facility=self.f, last_name='江口', first_name='海', last_name_kana='えぐち', date_of_birth=datetime.date(2018, 4, 1))
+        TransportProfile.objects.create(beneficiary=k4, pickup=True, pickup_time=datetime.time(14, 30))
+        Reservation.objects.create(facility=self.f, beneficiary=k4, date=self.day, start_time=datetime.time(15, 0))
+        res = self.client.post(reverse('transport:day'), {'action': 'auto', 'd': self.day.isoformat()}, follow=True)
+        self.assertContains(res, '決められ')
+
+    def test_driver_home_card(self):
+        # 配車担当（運転手に結びついた職員）のホームには、きょうの自分の送迎が出る。ほかの人には出ない
+        k = f'r{self.rs[0].pk}_pickup'
+        self.client.post(reverse('transport:day'), {'action': 'save', 'd': self.day.isoformat(), f'present_{k}': '1',
+                                                    f'vehicle_{k}': self.van.pk, f'driver_{k}': self.drv.pk, f'time_{k}': '14:30'})
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertNotContains(res, 'きょうの送迎')
+        self.client.logout()
+        self.client.login(username='drv', password='pw12345678')
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertContains(res, 'きょうの送迎（佐藤）')
+        self.assertContains(res, '青木 子')
+        self.assertContains(res, '南小学校（見本市南町 1-1）')
+        self.assertContains(res, '14:30')
+        # 送迎を使わない事業所なら出ない
+        self.f.use_transport = False
+        self.f.save()
+        res = self.client.get(reverse('facilities:dashboard'))
+        self.assertNotContains(res, 'きょうの送迎')

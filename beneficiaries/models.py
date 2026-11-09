@@ -34,6 +34,63 @@ KANA_ROWS = [
 ]
 
 
+class School(models.Model):
+    """
+    学校（所属）のマスタ（2026-11-09 オウル）。利用者情報で学校名を入れると、同じ名前の学校があれば住所を呼び出し、
+    無ければ入れた住所で新しく登録する。送迎の「迎えの場所」が空なら学校の住所を出す
+    """
+    facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='schools', verbose_name='施設')
+    name = models.CharField(max_length=100, verbose_name='学校名')
+    postal_code = models.CharField(max_length=8, blank=True, verbose_name='郵便番号')
+    address = models.CharField(max_length=200, blank=True, verbose_name='住所')
+    phone = models.CharField(max_length=20, blank=True, verbose_name='電話番号')
+    note = models.CharField(max_length=200, blank=True, verbose_name='備考', help_text='迎えの入口・待ち合わせの場所など')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '学校'
+        verbose_name_plural = '学校'
+        unique_together = [('facility', 'name')]
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def full_address(self):
+        return (f'〒{self.postal_code} ' if self.postal_code else '') + self.address
+
+    @classmethod
+    def normalize(cls, name):
+        return ' '.join((name or '').replace('\u3000', ' ').split())[:100]
+
+    @classmethod
+    def lookup(cls, facility, name):
+        name = cls.normalize(name)
+        return cls.objects.filter(facility=facility, name=name).first() if name else None
+
+    @classmethod
+    def remember(cls, facility, name, postal_code='', address='', phone=''):
+        """
+        学校名から学校を探し、無ければ作る。住所などは「入れた値があれば上書き、空なら今のまま」（同じ学校なら住所を呼び出せる）。
+        戻り値 (School か None, 新しく作ったか)
+        """
+        name = cls.normalize(name)
+        if not name:
+            return None, False
+        school, created = cls.objects.get_or_create(facility=facility, name=name)
+        changed = []
+        for field, value in (('postal_code', postal_code), ('address', address), ('phone', phone)):
+            value = (value or '').strip()[:200]
+            if value and getattr(school, field) != value:
+                setattr(school, field, value)
+                changed.append(field)
+        if changed:
+            school.save(update_fields=changed + ['updated_at'])
+        return school, created
+
+
 class Beneficiary(models.Model):
     """
     利用者（子ども）の基本情報。
@@ -102,6 +159,8 @@ class Beneficiary(models.Model):
     mobile_phone = models.CharField(max_length=20, blank=True, verbose_name='携帯電話番号')
     home_phone = models.CharField(max_length=20, blank=True, verbose_name='自宅電話番号')
     school_name = models.CharField(max_length=100, blank=True, verbose_name='通学学校名')
+    # 学校のマスタ（住所つき。school_name と同じ名前の School。無ければ None）
+    school = models.ForeignKey('School', on_delete=models.SET_NULL, null=True, blank=True, related_name='students', verbose_name='学校')
     grade = models.CharField(max_length=10, choices=GRADE_CHOICES, blank=True, verbose_name='学年')
     admission_date = models.DateField(null=True, blank=True, verbose_name='入所日')
     discharge_date = models.DateField(null=True, blank=True, verbose_name='退所日')
@@ -175,6 +234,14 @@ class Beneficiary(models.Model):
     def other_offices(self):
         """当施設以外の利用事業所"""
         return self.offices.filter(is_this_office=False)
+
+    @property
+    def full_address(self):
+        return (f'〒{self.postal_code} ' if self.postal_code else '') + self.address
+
+    @property
+    def school_address(self):
+        return self.school.address if self.school_id and self.school else ''
 
     @property
     def scheduled_weekdays_display(self):
