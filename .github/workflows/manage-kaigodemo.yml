@@ -103,8 +103,10 @@ jobs:
           FACILITY_NAME: ${{ inputs.facility_name }}
           COMPANY_NAME: ${{ inputs.company_name }}
           ADMIN_USERNAME: ${{ inputs.admin_username }}
-          ADMIN_PASSWORD: ${{ inputs.password_secret == 'houdeidemo' && secrets.HOUDEIDEMO_ADMIN_PASSWORD || secrets.KAIGODEMO_ADMIN_PASSWORD }}
-          SECRET_NAME: ${{ inputs.password_secret == 'houdeidemo' && 'HOUDEIDEMO_ADMIN_PASSWORD' || 'KAIGODEMO_ADMIN_PASSWORD' }}
+          # 選んだ Secrets が空のとき、もう一方に黙って切り替わらないよう（&& || の書き方だと空なら右側になる）、bash で選ぶ
+          PASSWORD_SECRET: ${{ inputs.password_secret }}
+          PW_HOUDEIDEMO: ${{ secrets.HOUDEIDEMO_ADMIN_PASSWORD }}
+          PW_KAIGODEMO: ${{ secrets.KAIGODEMO_ADMIN_PASSWORD }}
           WITH_DEMO: ${{ inputs.with_demo }}
           PRESET: ${{ inputs.preset }}
           SCENARIO: ${{ inputs.scenario }}
@@ -114,6 +116,10 @@ jobs:
           REMOTE_VENV: ${{ env.VENV }}
         run: |
           # パスワードは Secrets（password_secret で選ぶ）から。無ければランダムな仮の値（どちらもログに出さない）
+          if [ "$PASSWORD_SECRET" = "houdeidemo" ]; then ADMIN_PASSWORD="$PW_HOUDEIDEMO"; SECRET_NAME=HOUDEIDEMO_ADMIN_PASSWORD; else ADMIN_PASSWORD="$PW_KAIGODEMO"; SECRET_NAME=KAIGODEMO_ADMIN_PASSWORD; fi
+          if [ "$TASK" = "create_facility" ] && [ -z "$ADMIN_PASSWORD" ]; then
+            echo "注意: Secrets の $SECRET_NAME が空なので、管理者のパスワードはランダムな仮の値になります。あとで Secrets を登録して set_password を実行してください"
+          fi
           if [ "$TASK" = "set_password" ] && [ -z "$ADMIN_PASSWORD" ]; then
             echo "Secrets の $SECRET_NAME が空です。先に Settings → Secrets and variables → Actions で登録してください（入力欄では受け取りません）"; exit 1
           fi
