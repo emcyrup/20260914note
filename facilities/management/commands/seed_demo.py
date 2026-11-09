@@ -126,6 +126,12 @@ PARENT_MESSAGES = [
     '今日は{act}に取り組みました。{name}さんは最後まで集中して参加でき、完成したときにはとても嬉しそうな表情を見せてくれました。',
     '本日は{act}をしました。友だちとやり取りしながら進める場面が増えています。ご家庭でもぜひ今日の話を聞いてみてください。',
 ]
+# 見本の学校（学校マスタ。架空）：(学校名, 郵便番号, 住所, 電話, 備考)
+SAMPLE_SCHOOLS = [
+    ('見本小学校', '612-0000', '京都市伏見区深草見本町3-1', '075-000-0010', '東門で待つ。下校は 14:30（水曜は 13:30）'),
+    ('見本第二小学校', '612-0001', '京都市伏見区深草見本町8-5', '075-000-0011', '正門前のロータリー'),
+    ('見本こども園', '612-0002', '京都市伏見区深草見本町1-12', '075-000-0012', '職員室で引き取り'),
+]
 MEMOS = [
     '来週の工作の材料（画用紙・のり）を発注する',
     '佐藤はるとさんの保護者から、送迎時間を10分早めたいとの相談あり',
@@ -199,6 +205,8 @@ class Command(BaseCommand):
         from transport.models import Driver, Vehicle
         Vehicle.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()
         Driver.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()
+        from beneficiaries.models import School
+        School.objects.filter(facility=facility, note__contains=SAMPLE_MARK, students__isnull=True).delete()   # 見本の学校（通っている子が残っていれば消さない）
         from surveys.models import SelfEvaluation, Survey
         SelfEvaluation.objects.filter(facility=facility, summary__contains=SAMPLE_MARK).delete()
         from daily.models import ClassGroup
@@ -561,15 +569,49 @@ class Command(BaseCommand):
                                           defaults={'capacity': 3, 'plate': '銀', 'default_driver': drivers[1],
                                                     'note': f'チャイルドシート 1 つ {SAMPLE_MARK}', 'order': 1})[0],
         ]
+        # 運転できる車両（2026-11-09）：佐藤 運転手はどちらも、鈴木 運転手は軽ワゴンだけ。佐藤 運転手を最初の職員（管理者）に結びつけ、
+        # その人のホームに「きょうの送迎」が出るようにする（見本。seed_demo_reset で運転手ごと消える）
+        if not drivers[0].vehicles.exists():
+            drivers[0].vehicles.set(vehicles)
+        if not drivers[1].vehicles.exists():
+            drivers[1].vehicles.set([vehicles[1]])
+        staff = StaffAccount.objects.filter(facility=facility).order_by('pk').first()
+        if staff and not drivers[0].staff_id:
+            drivers[0].staff = staff
+            drivers[0].save(update_fields=['staff', 'updated_at'])
+        # 見本の学校（学校マスタ）と、利用者の住所・学校（迎えの場所が空なら学校の住所、送りは自宅の住所が配車表に出る）
+        from beneficiaries.models import School
+        schools = []
+        for name, postal, addr, phone, note in SAMPLE_SCHOOLS:
+            school, _created = School.remember(facility, name, postal, addr, phone)
+            if not school.note:
+                school.note = f'{note}（{SAMPLE_MARK}）'
+                school.save(update_fields=['note', 'updated_at'])
+            schools.append(school)
+        for i, b in enumerate(beneficiaries):
+            if b.school_id or b.address:
+                continue                 # 入力済みの子（計画書中心の見本など）は触らない
+            age = today.year - b.date_of_birth.year - (1 if (today.month, today.day) < (b.date_of_birth.month, b.date_of_birth.day) else 0)
+            school = schools[2] if age < 6 else schools[i % 2]
+            b.school = school
+            b.school_name = school.name
+            b.grade = b.grade or ('pre' if age < 6 else f'e{max(1, min(6, age - 6))}')
+            b.postal_code = b.postal_code or '612-0003'
+            b.address = f'京都市伏見区深草見本町{10 + i}-{i + 1}'
+            b.save(update_fields=['school', 'school_name', 'grade', 'postal_code', 'address', 'updated_at'])
+        # 同じ車に乗せない組（見本）：毎日来る子と月水金の子
+        if len(beneficiaries) > 2 and not beneficiaries[0].no_ride_with.exists():
+            beneficiaries[0].no_ride_with.add(beneficiaries[2])
         places = ['南小学校', '北小学校', '中央こども園', '自宅']
         n_profiles = 0
         for i, b in enumerate(beneficiaries):
             if i % 5 == 4:          # 5 人に 1 人は送迎なし
                 continue
             TransportProfile.objects.update_or_create(beneficiary=b, defaults={
-                'pickup': True, 'pickup_place': b.school_name or places[i % len(places)],
+                # 学校が結びついていれば場所は空にして、学校マスタの住所が配車表に出るのを見せる
+                'pickup': True, 'pickup_place': '' if b.school_id else (b.school_name or places[i % len(places)]),
                 'pickup_time': datetime.time(14, 30 + 5 * (i % 4)),
-                'dropoff': i % 3 != 2, 'dropoff_place': '自宅', 'dropoff_time': datetime.time(17, 0 + 10 * (i % 3)),
+                'dropoff': i % 3 != 2, 'dropoff_place': '' if b.address else '自宅', 'dropoff_time': datetime.time(17, 0 + 10 * (i % 3)),
                 'default_vehicle': vehicles[i % 2], 'note': 'チャイルドシート' if i % 4 == 0 else '',
             })
             n_profiles += 1
@@ -586,7 +628,7 @@ class Command(BaseCommand):
                 else:
                     TransportAssignment.objects.update_or_create(reservation=r, direction=DIRECTION_DROPOFF, defaults={'skip': True, 'note': '保護者が迎えに来る'})
                 n_assign += 1
-        return {'車両': len(vehicles), '運転手': len(drivers), '送迎の設定': n_profiles, 'きょうの配車の変更': n_assign}
+        return {'車両': len(vehicles), '運転手': len(drivers), '学校': len(schools), '送迎の設定': n_profiles, 'きょうの配車の変更': n_assign}
 
     # ------------------------------------------------------------------
     def _create_dev_assessments(self, facility, beneficiaries, staff, today, rng):
