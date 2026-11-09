@@ -94,6 +94,9 @@ jobs:
           REMOTE_VENV: ${{ env.VENV }}
         run: |
           # パスワードは Secrets（HOUDEIDEMO_ADMIN_PASSWORD）から。無ければランダムな仮の値（どちらもログに出さない）
+          if [ "$TASK" = "create_facility" ] && [ -z "$ADMIN_PASSWORD" ]; then
+            echo "注意: Secrets の HOUDEIDEMO_ADMIN_PASSWORD が空なので、管理者のパスワードはランダムな仮の値になります。あとで Secrets を登録して set_password を実行してください"
+          fi
           if [ "$TASK" = "set_password" ] && [ -z "$ADMIN_PASSWORD" ]; then
             echo "Secrets の HOUDEIDEMO_ADMIN_PASSWORD が空です。先に Settings → Secrets and variables → Actions で登録してください（入力欄では受け取りません）"; exit 1
           fi
