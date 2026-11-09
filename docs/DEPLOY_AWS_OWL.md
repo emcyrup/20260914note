@@ -79,6 +79,13 @@ tail -f logs/error.log                  # アプリのエラー
 - 公式 LINE はオウル用のチャネルを用意し、Webhook URL を `https://michinote.owl.ai-labo.cloud/line/webhook/<施設ID>/`（予約 → 公式LINE の一番上に出る URL）にして、チャネルシークレットとトークンを施設設定に入れます。
 - 音声の文字起こし（Whisper）はゆあーずの設定（`SPEECH_BACKEND=whisper`・`WHISPER_MODEL`・`WHISPER_THREADS`）を写しているので、そのまま使えます。モデルは `~/.cache/huggingface` にあるものを共用します。ゆあーずとオウルで同時に文字起こしが走ると、それぞれの Gunicorn の中で 1 つずつ処理されます（ロックは clone ごと）。
 
+## 7. 配車表の所要時間（2026-11-09）
+
+- 配車表の「所要時間を計算」は、迎え＝学校の住所 → 施設、送り＝施設 → 自宅の車のかかる時間を出す。施設の住所（施設設定）・学校の住所（学校の一覧）・自宅の住所（利用者情報）が要る
+- 既定は無料・キー不要：国土地理院の住所検索で座標にし、OSRM の公開サーバーで車の経路を引く（届かなければ直線距離からの目安）。`.env` に `GOOGLE_MAPS_API_KEY` を入れると Google Distance Matrix を使う（有料。キーは .env だけに置く）
+- サーバーから届くかの確認：Actions「Manage (owl)」→ `route_check`（公共の住所 2 か所で試す。個人の住所は出ない）
+- 一度求めた組は DB（`transport_routeestimate`・`transport_geopoint`）に控え、次からは問い合わせない。住所を直したら新しい組として求め直される
+
 ## つまずきやすい点
 
 | 症状 | 原因と対処 |

@@ -163,6 +163,8 @@ AI_PLAN_MODEL = config('AI_PLAN_MODEL', default='claude-opus-5')
 AI_TEXT_MODEL = config('AI_TEXT_MODEL', default='claude-opus-5')
 # 音声の文字起こし（Google Cloud Speech-to-Text）。iPhone の音声入力で使う（ai_assist/speech.py）。空なら使わない
 GOOGLE_SPEECH_API_KEY = config('GOOGLE_SPEECH_API_KEY', default='')
+# 配車表の所要時間（2026-11-09）：キーがあれば Google Distance Matrix、無ければ国土地理院の住所検索＋OSRM（無料・キー不要）
+GOOGLE_MAPS_API_KEY = config('GOOGLE_MAPS_API_KEY', default='')
 GOOGLE_SPEECH_MODEL = config('GOOGLE_SPEECH_MODEL', default='latest_long')
 # サーバー内の文字起こし（faster-whisper。ai_assist/whisper_local.py）。WHISPER_MODEL を入れると Google の代わりに使う
 # （両方あるときは SPEECH_BACKEND=google / whisper で選ぶ。既定は Google があれば Google）

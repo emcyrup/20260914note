@@ -126,11 +126,13 @@ PARENT_MESSAGES = [
     '今日は{act}に取り組みました。{name}さんは最後まで集中して参加でき、完成したときにはとても嬉しそうな表情を見せてくれました。',
     '本日は{act}をしました。友だちとやり取りしながら進める場面が増えています。ご家庭でもぜひ今日の話を聞いてみてください。',
 ]
-# 見本の学校（学校マスタ。架空）：(学校名, 郵便番号, 住所, 電話, 備考)
+# 見本の学校（学校マスタ。架空）：(学校名, 郵便番号, 住所, 電話, 備考, 下校時刻{既定・曜日・備考})
 SAMPLE_SCHOOLS = [
-    ('見本小学校', '612-0000', '京都市伏見区深草見本町3-1', '075-000-0010', '東門で待つ。下校は 14:30（水曜は 13:30）'),
-    ('見本第二小学校', '612-0001', '京都市伏見区深草見本町8-5', '075-000-0011', '正門前のロータリー'),
-    ('見本こども園', '612-0002', '京都市伏見区深草見本町1-12', '075-000-0012', '職員室で引き取り'),
+    ('見本小学校', '612-0000', '京都市伏見区深草見本町3-1', '075-000-0010', '東門で待つ',
+     {'dismissal_time': '14:30', 'dismissal_wed': '13:30', 'dismissal_note': '1 年生は 14:00。行事の日は学校だよりで確認'}),
+    ('見本第二小学校', '612-0001', '京都市伏見区深草見本町8-5', '075-000-0011', '正門前のロータリー',
+     {'dismissal_time': '15:00', 'dismissal_wed': '14:30'}),
+    ('見本こども園', '612-0002', '京都市伏見区深草見本町1-12', '075-000-0012', '職員室で引き取り', {'dismissal_time': '14:00'}),
 ]
 MEMOS = [
     '来週の工作の材料（画用紙・のり）を発注する',
@@ -582,11 +584,13 @@ class Command(BaseCommand):
         # 見本の学校（学校マスタ）と、利用者の住所・学校（迎えの場所が空なら学校の住所、送りは自宅の住所が配車表に出る）
         from beneficiaries.models import School
         schools = []
-        for name, postal, addr, phone, note in SAMPLE_SCHOOLS:
+        for name, postal, addr, phone, note, dismissal in SAMPLE_SCHOOLS:
             school, _created = School.remember(facility, name, postal, addr, phone)
             if not school.note:
                 school.note = f'{note}（{SAMPLE_MARK}）'
                 school.save(update_fields=['note', 'updated_at'])
+            if not school.dismissal_time:
+                school.set_dismissal(dismissal)
             schools.append(school)
         for i, b in enumerate(beneficiaries):
             if b.school_id or b.address:
