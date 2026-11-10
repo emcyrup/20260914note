@@ -56,7 +56,7 @@
   {% else %}
   <div class="d-flex justify-content-between align-items-end flex-wrap gap-2 mb-1">
     <label class="form-label small fw-semibold mb-0" for="record-body">{% if voice_direct %}記録{% else %}記録（事実：したこと）{% endif %}</label>
-    {% if not voice_direct %}<button type="button" class="btn btn-sm btn-outline-primary" id="record-summary"
+    {% if not voice_direct and show_cautions %}<button type="button" class="btn btn-sm btn-outline-primary" id="record-summary"
             data-url="{% url 'therapy:record_summary' beneficiary.pk %}"
             title="留意点のうち、やったこと（①〜⑤）に関係するところを、留意点の言葉のまま記録の最後に足します"><i class="bi bi-magic"></i> 留意点から記録に追記</button>{% endif %}
   </div>
@@ -65,7 +65,7 @@
     <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline d-none" id="record-undo">追記を取り消す</button>
   </div>
   <textarea name="body" id="record-body" class="form-control form-control-sm" rows="4" placeholder="何を・どのようにしたか（例：ウレタン棒で10回打ち合った。「あと1回」と声をかけた）">{{ default_body }}</textarea>
-  {% if not voice_direct %}<div class="form-text">「やったこと」を入れてから「留意点から記録に追記」を押すと、留意点のうち今日の活動に関係するところを、<b>留意点の言葉のまま</b>（言いかえ・飾りの言葉・AI の見解は足さずに。500字まで）最後に足します。足したあとはそのまま保存します（入れ直したいときは、下の「これまでの記録」の「直す」から）。</div>{% endif %}
+  {% if not voice_direct and show_cautions %}<div class="form-text">「やったこと」を入れてから「留意点から記録に追記」を押すと、留意点のうち今日の活動に関係するところを、<b>留意点の言葉のまま</b>（言いかえ・飾りの言葉・AI の見解は足さずに。500字まで）最後に足します。足したあとはそのまま保存します（入れ直したいときは、下の「これまでの記録」の「直す」から）。</div>{% endif %}
   {% endif %}
 </div>
 {% if voice_direct and not rec.situation %}{# ゆあーず：記録は 1 つ（様子の欄は出さない。前に様子を書いた記録だけ出す） #}{% elif rec %}<div class="col-12">

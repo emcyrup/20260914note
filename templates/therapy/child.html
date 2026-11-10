@@ -110,6 +110,8 @@
     <div id="voice-direct-asis"></div>
   </div></div>
   {# 留意点（手で書く・AI は使わない）。2026-11-04 ゆあーず：成長や状況で変わる注意（例：トイレで遊ぶ間は戸を閉める）。要らなくなったら消す #}
+  {# 2026-11-10 ゆあーず：留意点の欄を使わない設定（therapy_no_cautions）なら出さない #}
+  {% if show_cautions %}
   <div class="card mb-3" id="cautions-card"><div class="card-body">
     <form method="post" class="th-save-form" data-draft="therapy-cautions:{{ beneficiary.pk }}" data-draft-fields="#cautions" {% if profile %}data-concurrency="therapy_profile:{{ profile.pk }}" data-concurrency-lazy{% endif %}>
       {% csrf_token %}<input type="hidden" name="action" value="cautions">{% if profile %}{% version_field profile %}{% endif %}
@@ -130,7 +132,8 @@
       </div>
     </form>
   </div></div>
-  {% else %}
+  {% endif %}
+  {% elif show_cautions %}
   <div class="card mb-3"><div class="card-body">
     <form method="post" class="th-save-form" {% if not user.facility.therapy_no_wording %}data-wording{% endif %} data-draft="therapy-cautions:{{ beneficiary.pk }}" data-draft-fields="#cautions" {% if profile %}data-concurrency="therapy_profile:{{ profile.pk }}" data-concurrency-lazy{% endif %}>
       {% csrf_token %}<input type="hidden" name="action" value="cautions">{% if profile %}{% version_field profile %}{% endif %}

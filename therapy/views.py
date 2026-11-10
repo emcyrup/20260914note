@@ -266,6 +266,7 @@ class ChildView(TherapyEnabledMixin, View):
                        .order_by('start_time').first())
                 today_hour = res.start_time.hour if res else None
         return render(request, self.template_name, {
+            'show_cautions': not facility.therapy_no_cautions,
             'voice_direct': voice_direct, 'today': today, 'today_rec': today_rec, 'today_hour': today_hour, 'keep_days': learning.KEEP_DAYS,
             'today_in_list': bool(today_rec and any(r.pk == today_rec.pk for r in records)),
             'dup': dup, 'day_res': day_res,
@@ -303,6 +304,9 @@ class ChildView(TherapyEnabledMixin, View):
         action = p.get('action', 'add')
 
         if action == 'cautions':
+            if facility.therapy_no_cautions:       # 留意点の欄を使わない事業所（古い画面から送られても変えない）
+                messages.info(request, '留意点の欄は使わない設定です（施設設定で変えられます）。')
+                return back
             profile = TherapyProfile.objects.filter(beneficiary=beneficiary).first()
             text = p.get('cautions', '').strip()[:CAUTIONS_MAX]
             conflict = check_conflict(request, profile)
@@ -405,7 +409,7 @@ class ChildView(TherapyEnabledMixin, View):
             # 「留意点から記録に追記」のあとの自動保存。画面の留意点（保存前のものも）を一緒に保存する
             profile, _ = TherapyProfile.objects.get_or_create(beneficiary=beneficiary)
             cautions = p.get('cautions', '').strip()[:CAUTIONS_MAX]
-            if 'cautions' in p and cautions != profile.cautions:
+            if 'cautions' in p and cautions != profile.cautions and not facility.therapy_no_cautions:
                 profile.cautions = cautions
                 profile.updated_by = request.user
                 profile.save()
@@ -426,6 +430,8 @@ class PdfView(TherapyEnabledMixin, View):
         facility = request.user.facility
         beneficiary = get_object_or_404(Beneficiary, pk=pk, facility=facility)
         profile = TherapyProfile.objects.filter(beneficiary=beneficiary).first()
+        if facility.therapy_no_cautions:
+            profile = None          # 留意点の欄を使わない事業所：用紙の留意点の枠は空にする（文は残っている）
         blank = request.GET.get('blank') == '1'
         records, ym, date_from, date_to = [], '', None, None
         if not blank:
