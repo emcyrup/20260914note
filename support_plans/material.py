@@ -142,7 +142,7 @@ def ledger_text(beneficiary):
     if uses_therapy(beneficiary):
         from therapy.models import TherapyProfile
         profile = TherapyProfile.objects.filter(beneficiary=beneficiary).first()
-        if profile and profile.cautions.strip():
+        if profile and profile.cautions.strip() and not beneficiary.facility.therapy_no_cautions:
             parts.append('■ 療育記録の留意点\n' + profile.cautions.strip()[:800])
     return '\n\n'.join(parts)
 

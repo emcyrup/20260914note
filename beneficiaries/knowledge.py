@@ -233,7 +233,7 @@ def make_draft(beneficiary, data, user=None, document=None, assessment=None):
     notes_new = _new_lines(medical, b.notes)
     if notes_new:
         proposals['notes_add'] = {'text': head + '\n' + '\n'.join(f'・{x}' for x in notes_new), 'checked': True}
-    if getattr(b.facility, 'use_therapy_record', False):
+    if getattr(b.facility, 'use_therapy_record', False) and not getattr(b.facility, 'therapy_no_cautions', False):
         from therapy.models import TherapyProfile
         profile = TherapyProfile.objects.filter(beneficiary=b).first()
         cautions_new = _new_lines(points + [m for m in medical if m not in points], profile.cautions if profile else '')
@@ -501,7 +501,8 @@ def save_reviewed(knowledge, post, user=None):
             applied.append('備考')
         if fields:
             b.save(update_fields=fields + ['updated_at'])
-        if post.get('apply_cautions') and (post.get('cautions_add') or '').strip() and getattr(b.facility, 'use_therapy_record', False):
+        if post.get('apply_cautions') and (post.get('cautions_add') or '').strip() and getattr(b.facility, 'use_therapy_record', False) \
+                and not getattr(b.facility, 'therapy_no_cautions', False):
             profile, _ = TherapyProfile.objects.get_or_create(beneficiary=b)
             profile.cautions = _append(profile.cautions, post['cautions_add'].strip())
             profile.save()

@@ -30,7 +30,7 @@ on:
         type: choice
         required: true
         default: list
-        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, enable_owl_features, route_check, fixed_days_check, error_log, set_media_root, billing_demo, billing_demo_remove, disable_logins, enable_logins, therapy_fidelity_check]
+        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, enable_owl_features, route_check, fixed_days_check, therapy_cautions_off, therapy_cautions_on, error_log, set_media_root, billing_demo, billing_demo_remove, disable_logins, enable_logins, therapy_fidelity_check]
       facility_name:
         description: "事業所名（create_facility）"
         type: string
@@ -147,6 +147,10 @@ jobs:
                 # オウル（児童発達支援センター）のデモ用：送迎・5領域アセスメント（フェイスシート・アセスメントシートも）・アンケート・毎日の運営・相談支援の計画・帳票出力をオンにし、帳票様式をオウル様式に
                 [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください（list で確認）"; exit 1; }
                 FACILITY_ID="$FACILITY_ID" python manage.py shell -v 0 -c "import os; from facilities.models import Facility; f = Facility.objects.get(pk=os.environ['FACILITY_ID']); f.use_transport = f.use_dev_assessment = f.use_survey = f.use_daily_ops = f.use_consultation = f.use_reports = True; f.form_set = Facility.FORM_SET_OWL; f.save(update_fields=['use_transport', 'use_dev_assessment', 'use_survey', 'use_daily_ops', 'use_consultation', 'use_reports', 'form_set']); from reservations.services import get_setting; s = get_setting(f); s.fixed_days = True; s.save(update_fields=['fixed_days', 'updated_at']); print('オウルの機能をオンにしました（送迎・5領域・アンケート・毎日の運営・相談支援の計画・帳票出力・オウル様式・利用予定曜日から予定を作る）:', f.pk, f.name)" ;;
+              therapy_cautions_off|therapy_cautions_on)
+                # 療育記録の「留意点」の欄を使わない／使う（2026-11-10 ゆあーずの依頼）。入っている文は消さない
+                [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください（list で確認）"; exit 1; }
+                FACILITY_ID="$FACILITY_ID" OFF="$([ "$TASK" = therapy_cautions_off ] && echo 1 || echo 0)" python manage.py shell -v 0 -c "import os; from facilities.models import Facility; f = Facility.objects.get(pk=os.environ['FACILITY_ID']); f.therapy_no_cautions = os.environ['OFF'] == '1'; f.save(update_fields=['therapy_no_cautions', 'updated_at']); print('療育記録の留意点の欄:', '使わない（画面に出さず、印刷の枠は空）' if f.therapy_no_cautions else '使う', '/', f.pk, f.name)" ;;
               fixed_days_check)
                 # 予定（利用予定曜日から予定を作る）の動作確認。数だけを出す（名前は出さない）。試しの作成・保存は取り消す
                 [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください"; exit 1; }

@@ -30,7 +30,7 @@ on:
         type: choice
         required: true
         default: list
-        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, error_log, set_media_root, status, autostart_check, autostart_install, backup, backup_list, backup_check, voice_stats]
+        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, error_log, set_media_root, status, autostart_check, autostart_install, backup, backup_list, backup_check, voice_stats, therapy_cautions_off, therapy_cautions_on]
       facility_name:
         description: "事業所名（create_facility）"
         type: string
@@ -143,6 +143,10 @@ jobs:
               delete_facility)
                 [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください"; exit 1; }
                 python manage.py delete_facility "$FACILITY_ID" --yes ;;
+              therapy_cautions_off|therapy_cautions_on)
+                # 療育記録の「留意点」の欄を使わない／使う（2026-11-10 ゆあーずの依頼）。入っている文は消さない（on で元どおり出る）
+                [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください（list で確認）"; exit 1; }
+                FACILITY_ID="$FACILITY_ID" OFF="$([ "$TASK" = therapy_cautions_off ] && echo 1 || echo 0)" python manage.py shell -v 0 -c "import os; from facilities.models import Facility; f = Facility.objects.get(pk=os.environ['FACILITY_ID']); f.therapy_no_cautions = os.environ['OFF'] == '1'; f.save(update_fields=['therapy_no_cautions', 'updated_at']); print('療育記録の留意点の欄:', '使わない（画面に出さず、印刷の枠は空）' if f.therapy_no_cautions else '使う', '/', f.pk, f.name)" ;;
               voice_stats)
                 # 療育記録の音声→AI の長さ・時間・保存の結果（2026-11-04 打ち合わせ：2 行しか出ない・遅い・保存が残らない件の切り分け）。数字だけで中身・名前は出さない
                 python manage.py therapy_voice_stats --days 14
