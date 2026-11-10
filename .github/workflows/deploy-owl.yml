@@ -19,7 +19,7 @@ name: Deploy (owl)
 
 on:
   push:
-    branches: [ryoiku]
+    branches: [owl]   # オウルの本番は owl ブランチへの push で配備する（2026-11-07 に分けた。ryoiku への push ではオウルに配備しない）
   workflow_dispatch:
     inputs:
       ref:
