@@ -11,6 +11,7 @@ urlpatterns = [
     # 検温板
     path('vitals/', views.VitalsDayView.as_view(), name='vitals_day'),
     path('vitals/week/print/', views.VitalsWeekAllPdfView.as_view(), name='vitals_week_all_print'),
+    path('vitals/extra/', views.VitalsExtraView.as_view(), name='vitals_extra'),
     path('users/<int:pk>/vitals/', views.VitalsWeekView.as_view(), name='vitals_week'),
     path('users/<int:pk>/vitals/print/', views.VitalsWeekPdfView.as_view(), name='vitals_week_print'),
     # 介護記録

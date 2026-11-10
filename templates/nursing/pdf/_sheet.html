@@ -10,5 +10,13 @@
     <tr><td class="lbl">記録者</td>{% for l in sheet.logs %}<td class="small">{{ l.recorded_by|default:'' }}</td>{% endfor %}</tr>
   </tbody>
 </table>
+{% if sheet.extras %}
+<table class="vt" style="margin-top:4px;">
+  <tbody>
+    <tr><th style="width:13%;">追加の検温</th><th>日時</th><th>体温</th><th>血圧</th><th>脈拍</th><th>SpO2</th><th>メモ</th><th>記録者</th></tr>
+    {% for e in sheet.extras %}<tr><td>{{ forloop.counter }}</td><td>{{ e.date|date:'n/j' }} {{ e.time|time:'H:i' }}</td><td class="{% if e.fever %}alert{% endif %}">{{ e.temp|default_if_none:'' }}</td><td class="{% if e.bp_alert %}alert{% endif %}">{{ e.bp_text }}</td><td class="{% if e.pulse_alert %}alert{% endif %}">{{ e.pulse|default_if_none:'' }}</td><td class="{% if e.spo2_alert %}alert{% endif %}">{{ e.spo2|default_if_none:'' }}</td><td style="text-align:left;">{{ e.note }}</td><td class="small">{{ e.recorded_by|default:'' }}</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endif %}
 <div class="chart">{{ chart|safe }}</div>
 <div class="small muted">＊赤い値は注意（発熱・血圧・脈拍・SpO2）。医師への報告は主治医の指示の値で判断してください。</div>

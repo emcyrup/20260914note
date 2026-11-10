@@ -22,8 +22,8 @@ from config.pdf import pdf_or_html
 from config.utils import to_int
 
 from .models import (ANSWERS, CHECK_ITEMS, LANGS, PLAN_ROW_KEYS, RECORD_CHARS_CHOICES, STATUS_APPROVED, STATUS_CHOICES, STATUS_DRAFT,
-                     STATUS_REVIEW, WEEK_JP, CarePlan, CareRecord, IncidentReport, Medication, NursingSetting, StaffingDay, VitalsLog,
-                     week_start)
+                     STATUS_REVIEW, WEEK_JP, CarePlan, CareRecord, IncidentReport, Medication, NursingSetting, StaffingDay, VitalsExtra,
+                     VitalsLog, week_start)
 
 logger = logging.getLogger(__name__)
 TEXT_MAX = 6000
@@ -127,7 +127,9 @@ class HomeView(CareMixin, View):
         people = list(self.people())
         n = len(people)
         vitals_done = VitalsLog.objects.filter(facility=f, date=today, slot=VitalsLog.SLOT_AM).exclude(temp__isnull=True).count()
+        self.setting
         fevers = [v for v in VitalsLog.objects.filter(facility=f, date=today).select_related('beneficiary') if v.alerts]
+        fevers += [v for v in VitalsExtra.objects.filter(facility=f, date=today).select_related('beneficiary') if v.alerts]   # 追加の検温も
         records = {r.beneficiary_id: r for r in CareRecord.objects.filter(facility=f, date=today)}
         unwritten = [b for b in people if b.pk not in records or records[b.pk].is_empty]
         review = CareRecord.objects.filter(facility=f, status=STATUS_REVIEW).select_related('beneficiary', 'author').order_by('date')[:30]
@@ -182,7 +184,9 @@ class VitalsDayView(CareMixin, View):
             log.facility = f
             rows.append({'b': b, 'log': log})
         done = sum(1 for r in rows if r['log'].pk and not r['log'].is_empty)
+        extras = list(VitalsExtra.objects.filter(facility=f, date=day).select_related('beneficiary', 'recorded_by'))
         return render(request, self.template_name, {
+            'extras': extras, 'people': people, 'now_time': timezone.localtime().strftime('%H:%M'),
             'day': day, 'day_jp': jp_date(day), 'slot': slot, 'slots': VitalsLog.SLOTS, 'rows': rows, 'done': done, 'today': datetime.date.today(),
             'prev': day - datetime.timedelta(days=1), 'next': day + datetime.timedelta(days=1), 'week': week_start(day),
             'meal_choices': [(n, f'{n}') for n in range(10, -1, -1)], 'fever': self.setting.fever_temp,
@@ -223,6 +227,10 @@ def week_sheet(b, start, setting=None):
         for l in logs:
             l.facility._nursing_setting = setting
     cells = {(l.date, l.slot): l for l in logs}
+    extras = list(VitalsExtra.objects.filter(beneficiary=b, date__range=(days[0], days[-1])).select_related('recorded_by'))
+    if setting is not None:
+        for e in extras:
+            e.facility._nursing_setting = setting
     slots = [VitalsLog.SLOT_AM] + ([VitalsLog.SLOT_PM] if any(k[1] == VitalsLog.SLOT_PM for k in cells) else [])
     cols = [(d, s) for d in days for s in slots]
     col_info = [{'d': d, 's': s, 'wd': WEEK_JP[d.weekday()], 'slot': ('朝' if s == VitalsLog.SLOT_AM else '夕') if len(slots) > 1 else ''} for d, s in cols]
@@ -239,56 +247,123 @@ def week_sheet(b, start, setting=None):
             vals.append({'v': '' if v is None else v, 'alert': bool(l and ((key == 'temp' and l.fever) or (key == 'bp_text' and l.bp_alert)
                                                                              or (key == 'pulse' and l.pulse_alert) or (key == 'spo2' and l.spo2_alert)))})
         rows.append({'label': label, 'key': key, 'vals': vals})
-    return {'days': days, 'slots': slots, 'cols': cols, 'col_info': col_info, 'cells': cells, 'rows': rows, 'logs': [cells.get(c) for c in cols]}
+    return {'days': days, 'slots': slots, 'cols': cols, 'col_info': col_info, 'cells': cells, 'rows': rows, 'logs': [cells.get(c) for c in cols],
+            'extras': extras}
+
+
+# グラフの横軸の時刻：朝・夕の検温板はこの時刻の位置に置く（追加の検温は測った時刻の位置）
+SLOT_HOURS = {VitalsLog.SLOT_AM: 9.0, VitalsLog.SLOT_PM: 16.0}
 
 
 def vitals_chart(sheet, fever):
-    """1 週間の体温・血圧・脈拍の折れ線（SVG の文字列）"""
-    cols = sheet['cols']
-    W, H, L, T, R, B = 760, 230, 44, 14, 44, 40
-    n = max(len(cols), 1)
-    xs = [L + (W - L - R) * (i + 0.5) / n for i in range(n)]
+    """
+    1 週間の体温・血圧・脈拍の折れ線（SVG の文字列）。横軸は 7 日間の時刻（2026-11-10：追加の検温を測った時刻の位置に入れる）。
+    朝・夕の検温板は ● 、追加の検温は ○ で、同じ線につなぐ
+    """
+    days = sheet['days']
+    W, H, L, T, R, B = 760, 250, 44, 14, 44, 48      # 下に日付・曜日と凡例の 3 段
+    day_w = (W - L - R) / 7
+
+    def x_of(d, hour):
+        return L + day_w * ((d - days[0]).days + hour / 24)
+
+    points = []      # (x, 記録, 追加か, ラベル)
+    for (d, slot), l in sheet['cells'].items():
+        points.append((x_of(d, SLOT_HOURS.get(slot, 9.0)), l, False, f'{d.month}/{d.day} {"朝" if slot == VitalsLog.SLOT_AM else "夕"}'))
+    for e in sheet.get('extras', []):
+        points.append((x_of(e.date, e.time.hour + e.time.minute / 60), e, True, f'{e.date.month}/{e.date.day} {e.time:%H:%M}（追加）'))
+    points.sort(key=lambda p: p[0])
 
     def series(key, lo, hi):
         pts = []
-        for i, c in enumerate(cols):
-            l = sheet['cells'].get(c)
-            v = getattr(l, key, None) if l else None
+        for x, rec, extra, label in points:
+            v = getattr(rec, key, None)
             if v is None:
                 continue
             y = T + (H - T - B) * (1 - (float(v) - lo) / (hi - lo))
-            pts.append((xs[i], max(T, min(H - B, y)), v))
+            pts.append((x, max(T, min(H - B, y)), v, extra, label))
         return pts
 
     def path(pts, color, dash=''):
         if not pts:
             return ''
-        d = ' '.join(f'{"M" if i == 0 else "L"}{x:.1f},{y:.1f}' for i, (x, y, _) in enumerate(pts))
-        dots = ''.join(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="{color}"><title>{v}</title></circle>' for x, y, v in pts)
+        d = ' '.join(f'{"M" if i == 0 else "L"}{x:.1f},{y:.1f}' for i, (x, y, *_r) in enumerate(pts))
+        dots = ''.join(
+            (f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.6" fill="#fff" stroke="{color}" stroke-width="1.8"><title>{label}：{v}</title></circle>' if extra
+             else f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="{color}"><title>{label}：{v}</title></circle>')
+            for x, y, v, extra, label in pts)
         return f'<path d="{d}" fill="none" stroke="{color}" stroke-width="2"{f" stroke-dasharray={chr(34)}{dash}{chr(34)}" if dash else ""}/>{dots}'
 
-    out = [f'<svg viewBox="0 0 {W} {H}" width="100%" style="max-height:260px;font-family:sans-serif;font-size:10px;" role="img" aria-label="1 週間の体温・血圧・脈拍">']
+    out = [f'<svg viewBox="0 0 {W} {H}" width="100%" style="max-height:280px;font-family:sans-serif;font-size:10px;" role="img" aria-label="1 週間の体温・血圧・脈拍">']
     # 体温の目盛（左）35〜40、血圧・脈拍の目盛（右）40〜200
     for i in range(6):
         y = T + (H - T - B) * i / 5
         out.append(f'<line x1="{L}" y1="{y:.1f}" x2="{W - R}" y2="{y:.1f}" stroke="#e5e0d6"/>')
         out.append(f'<text x="{L - 6}" y="{y + 3:.1f}" text-anchor="end" fill="#b3261e">{40 - i}</text>')
         out.append(f'<text x="{W - R + 6}" y="{y + 3:.1f}" fill="#2c4a7a">{200 - 32 * i}</text>')
+    for i in range(1, 7):        # 日の区切り
+        x = L + day_w * i
+        out.append(f'<line x1="{x:.1f}" y1="{T}" x2="{x:.1f}" y2="{H - B}" stroke="#efe9df"/>')
     fy = T + (H - T - B) * (1 - (float(fever) - 35) / 5)
     out.append(f'<line x1="{L}" y1="{fy:.1f}" x2="{W - R}" y2="{fy:.1f}" stroke="#b3261e" stroke-dasharray="3 3" opacity=".6"/>')
-    for i, (d, s) in enumerate(cols):
-        label = f'{d.month}/{d.day}' + ('' if len(sheet['slots']) == 1 else ('朝' if s == 'am' else '夕'))
-        out.append(f'<text x="{xs[i]:.1f}" y="{H - B + 14}" text-anchor="middle" fill="#555">{label}</text>')
-        if len(sheet['slots']) == 1:
-            out.append(f'<text x="{xs[i]:.1f}" y="{H - B + 26}" text-anchor="middle" fill="#888">{WEEK_JP[d.weekday()]}</text>')
+    for i, d in enumerate(days):
+        cx = L + day_w * (i + 0.5)
+        out.append(f'<text x="{cx:.1f}" y="{H - B + 14}" text-anchor="middle" fill="#555">{d.month}/{d.day}</text>')
+        out.append(f'<text x="{cx:.1f}" y="{H - B + 26}" text-anchor="middle" fill="#888">{WEEK_JP[d.weekday()]}</text>')
     out.append(path(series('temp', 35, 40), '#b3261e'))
     out.append(path(series('bp_high', 40, 200), '#2c4a7a'))
     out.append(path(series('bp_low', 40, 200), '#2c4a7a', '4 3'))
     out.append(path(series('pulse', 40, 200), '#2f7d4f'))
     out.append(f'<text x="{L}" y="{H - 4}" fill="#b3261e">— 体温</text><text x="{L + 60}" y="{H - 4}" fill="#2c4a7a">— 血圧（上）</text>'
-               f'<text x="{L + 140}" y="{H - 4}" fill="#2c4a7a">- - 血圧（下）</text><text x="{L + 230}" y="{H - 4}" fill="#2f7d4f">— 脈拍</text>')
+               f'<text x="{L + 140}" y="{H - 4}" fill="#2c4a7a">- - 血圧（下）</text><text x="{L + 230}" y="{H - 4}" fill="#2f7d4f">— 脈拍</text>'
+               f'<text x="{L + 290}" y="{H - 4}" fill="#555">● 朝・夕　○ 追加の検温</text>')
     out.append('</svg>')
     return ''.join(out)
+
+
+class VitalsExtraView(CareMixin, View):
+    """
+    追加の検温を足す・消す（2026-11-10 やすらぎの森）。POST：action=add（beneficiary・date・time・temp・bp_high・bp_low・pulse・spo2・note）／
+    action=delete（pk）。back で元の画面（検温板・1 週間の検温板）へ戻る
+    """
+
+    def post(self, request):
+        f = self.facility
+        p = request.POST
+        back = p.get('back') or ''
+        if not back.startswith('/') or back.startswith('//'):
+            back = reverse('nursing:vitals_day')
+        if p.get('action') == 'delete':
+            e = get_object_or_404(VitalsExtra, pk=to_int(p.get('pk'), 0), facility=f)
+            name = e.beneficiary.full_name
+            e.delete()
+            messages.success(request, f'{name} さんの追加の検温（{jp_date(e.date)} {e.time:%H:%M}）を消しました。')
+            return redirect(back)
+        b = self.person_or_404(p.get('beneficiary'))
+        day = parse_date(p.get('date'), datetime.date.today())
+        t = parse_time(p.get('time'))
+        if t is None:
+            messages.error(request, '追加の検温は、測った時刻を入れてください。')
+            return redirect(back)
+        e = VitalsExtra(facility=f, beneficiary=b, date=day, time=t, recorded_by=request.user)
+        e.temp = _dec(p, 'temp')
+        e.bp_high = _int(p, 'bp_high', 40, 300)
+        e.bp_low = _int(p, 'bp_low', 20, 200)
+        e.pulse = _int(p, 'pulse', 20, 250)
+        e.spo2 = _int(p, 'spo2', 50, 100)
+        e.note = _text(p, 'note', 200)
+        if e.is_empty:
+            messages.error(request, '体温・血圧・脈拍・SpO2 のどれかを入れてください（体温は 30〜45℃）。')
+            return redirect(back)
+        e.save()
+        self.setting
+        e.facility = f
+        msg = f'{b.full_name} さんの追加の検温（{jp_date(day)} {t:%H:%M}）を入れました。'
+        if e.alerts:
+            messages.warning(request, msg + '注意：' + '・'.join(e.alerts))
+        else:
+            messages.success(request, msg)
+        return redirect(back)
 
 
 class VitalsWeekView(CareMixin, View):
@@ -303,6 +378,9 @@ class VitalsWeekView(CareMixin, View):
             'b': b, 'tab': 'vitals', 'start': start, 'end': start + datetime.timedelta(days=6), 'sheet': sheet, 'chart': vitals_chart(sheet, self.setting.fever_temp),
             'prev': start - datetime.timedelta(days=7), 'next': start + datetime.timedelta(days=7), 'insurance': latest_insurance_of(b),
             'today': datetime.date.today(), 'week_jp': WEEK_JP, 'fever': self.setting.fever_temp,
+            # 追加の検温の日付：この週にきょうがあればきょう、なければ週の初め
+            'extra_day': datetime.date.today() if start <= datetime.date.today() <= start + datetime.timedelta(days=6) else start,
+            'now_time': timezone.localtime().strftime('%H:%M'),
         })
 
 

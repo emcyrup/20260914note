@@ -28,7 +28,52 @@ def week_start(d):
 
 
 # ---------------------------------------------------------------- 検温板
-class VitalsLog(models.Model):
+class VitalsAlertMixin:
+    """体温・血圧・脈拍・SpO2 の注意（検温板と追加の検温で同じ判定）"""
+    FEVER = Decimal('37.5')
+
+    def fever_limit(self):
+        setting = getattr(self.facility, '_nursing_setting', None)
+        return setting.fever_temp if setting is not None else self.FEVER
+
+    @property
+    def fever(self):
+        return self.temp is not None and self.temp >= self.fever_limit()
+
+    @property
+    def bp_alert(self):
+        """血圧の注意（上 160 以上・下 100 以上・上 90 未満）。医師の指示がある人はその値で見るので、画面では「注意」とだけ出す"""
+        return (self.bp_high is not None and (self.bp_high >= 160 or self.bp_high < 90)) or (self.bp_low is not None and self.bp_low >= 100)
+
+    @property
+    def pulse_alert(self):
+        return self.pulse is not None and (self.pulse < 50 or self.pulse > 100)
+
+    @property
+    def spo2_alert(self):
+        return self.spo2 is not None and self.spo2 < 95
+
+    @property
+    def alerts(self):
+        out = []
+        if self.fever:
+            out.append(f'発熱 {self.temp}℃')
+        if self.bp_alert:
+            out.append(f'血圧 {self.bp_high or "—"}/{self.bp_low or "—"}')
+        if self.pulse_alert:
+            out.append(f'脈拍 {self.pulse}')
+        if self.spo2_alert:
+            out.append(f'SpO2 {self.spo2}%')
+        return out
+
+    @property
+    def bp_text(self):
+        if self.bp_high is None and self.bp_low is None:
+            return ''
+        return f'{self.bp_high if self.bp_high is not None else "—"}/{self.bp_low if self.bp_low is not None else "—"}'
+
+
+class VitalsLog(VitalsAlertMixin, models.Model):
     SLOT_AM, SLOT_PM = 'am', 'pm'
     SLOTS = [(SLOT_AM, '朝'), (SLOT_PM, '夕')]
     MEAL_CHOICES = [(None, '—')] + [(n, f'{n}割') for n in range(10, -1, -1)]
@@ -68,51 +113,49 @@ class VitalsLog(models.Model):
     def is_empty(self):
         return not (any(getattr(self, f) is not None for f in self.FIELDS) or self.bath or self.note.strip())
 
-    def fever_limit(self):
-        setting = getattr(self.facility, '_nursing_setting', None)
-        return setting.fever_temp if setting is not None else self.FEVER
-
-    @property
-    def fever(self):
-        return self.temp is not None and self.temp >= self.fever_limit()
-
-    @property
-    def bp_alert(self):
-        """血圧の注意（上 160 以上・下 100 以上・上 90 未満）。医師の指示がある人はその値で見るので、画面では「注意」とだけ出す"""
-        return (self.bp_high is not None and (self.bp_high >= 160 or self.bp_high < 90)) or (self.bp_low is not None and self.bp_low >= 100)
-
-    @property
-    def pulse_alert(self):
-        return self.pulse is not None and (self.pulse < 50 or self.pulse > 100)
-
-    @property
-    def spo2_alert(self):
-        return self.spo2 is not None and self.spo2 < 95
-
-    @property
-    def alerts(self):
-        out = []
-        if self.fever:
-            out.append(f'発熱 {self.temp}℃')
-        if self.bp_alert:
-            out.append(f'血圧 {self.bp_high or "—"}/{self.bp_low or "—"}')
-        if self.pulse_alert:
-            out.append(f'脈拍 {self.pulse}')
-        if self.spo2_alert:
-            out.append(f'SpO2 {self.spo2}%')
-        return out
-
     @property
     def meal_text(self):
         if self.meal_main is None and self.meal_side is None:
             return ''
         return f'{self.meal_main if self.meal_main is not None else "—"}/{self.meal_side if self.meal_side is not None else "—"}'
 
+
+
+class VitalsExtra(VitalsAlertMixin, models.Model):
+    """
+    追加の検温（2026-11-10 やすらぎの森）：朝・夕の検温板のほかに測ったとき（熱が上がった・様子が気になる・受診の前など）。
+    時刻つきで 1 日に何回でも入れられ、1 週間の検温板の下の一覧と、グラフ（その時刻の位置）に出る
+    """
+    facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='vitals_extras')
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='vitals_extras', verbose_name='利用者')
+    date = models.DateField(verbose_name='日付')
+    time = models.TimeField(verbose_name='時刻')
+    temp = models.DecimalField(max_digits=3, decimal_places=1, null=True, blank=True, verbose_name='体温')
+    bp_high = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name='血圧（上）')
+    bp_low = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name='血圧（下）')
+    pulse = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name='脈拍')
+    spo2 = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name='SpO2')
+    note = models.CharField(max_length=200, blank=True, verbose_name='メモ', help_text='測った理由・様子・対応（例：顔が赤い。冷やした）')
+    recorded_by = models.ForeignKey(StaffAccount, on_delete=models.SET_NULL, null=True, blank=True, related_name='+', verbose_name='記録した人')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    FIELDS = ('temp', 'bp_high', 'bp_low', 'pulse', 'spo2')
+
+    class Meta:
+        verbose_name = '追加の検温'
+        verbose_name_plural = '追加の検温'
+        ordering = ['date', 'time', 'pk']
+
+    def __str__(self):
+        return f'{self.date} {self.time:%H:%M} {self.beneficiary} 追加の検温'
+
     @property
-    def bp_text(self):
-        if self.bp_high is None and self.bp_low is None:
-            return ''
-        return f'{self.bp_high if self.bp_high is not None else "—"}/{self.bp_low if self.bp_low is not None else "—"}'
+    def is_empty(self):
+        return all(getattr(self, f) is None for f in self.FIELDS)
+
+    def get_slot_display(self):
+        """ホームの「注意」の一覧で、検温板の「朝／夕」の代わりに時刻を出す"""
+        return f'追加 {self.time:%H:%M}'
 
 
 # ---------------------------------------------------------------- 介護記録

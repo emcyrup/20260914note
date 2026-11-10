@@ -11,7 +11,7 @@ from facilities.models import Facility
 from kaigo.models import CareInsurance
 
 from . import demo
-from .models import STATUS_APPROVED, STATUS_DRAFT, STATUS_REVIEW, CarePlan, CareRecord, IncidentReport, Medication, StaffingDay, VitalsLog
+from .models import STATUS_APPROVED, STATUS_DRAFT, STATUS_REVIEW, CarePlan, CareRecord, IncidentReport, Medication, StaffingDay, VitalsExtra, VitalsLog
 from .staffing import judge, required_care_staff
 
 
@@ -103,6 +103,64 @@ class VitalsTests(CareBase):
         self.assertContains(res, '検温板（1 週間）')
         res = self.client.get(reverse('nursing:vitals_week_all_print') + '?fmt=html')
         self.assertContains(res, self.b.full_name)
+
+
+class VitalsExtraTests(CareBase):
+    """追加の検温（2026-11-10）：時刻つきで足す・消す、1 週間の検温板の一覧・グラフ（その時刻の位置）・印刷・ホームの注意"""
+
+    def test_add_show_chart_and_delete(self):
+        d = self.today
+        VitalsLog.objects.create(facility=self.f, beneficiary=self.b, date=d, slot='am', temp=Decimal('36.6'))
+        week_url = reverse('nursing:vitals_week', args=[self.b.pk])
+        res = self.client.get(week_url)
+        self.assertContains(res, '検温を追加')
+        # 足す（発熱）→ 注意つきで知らせる
+        res = self.client.post(reverse('nursing:vitals_extra'), {'action': 'add', 'beneficiary': self.b.pk, 'date': d.isoformat(), 'time': '14:30',
+                                                                 'temp': '38.1', 'pulse': '96', 'note': '顔が赤い', 'back': week_url}, follow=True)
+        self.assertRedirects(res, week_url)
+        self.assertContains(res, '注意：発熱 38.1℃')
+        e = VitalsExtra.objects.get(beneficiary=self.b)
+        self.assertEqual((e.time, e.temp, e.pulse, e.recorded_by), (datetime.time(14, 30), Decimal('38.1'), 96, self.admin))
+        # 1 週間の検温板：一覧とグラフ（○ の点・時刻のラベル）
+        res = self.client.get(week_url)
+        self.assertContains(res, '顔が赤い')
+        self.assertContains(res, '14:30')
+        self.assertContains(res, '（追加）：38.1')
+        self.assertContains(res, '○ 追加の検温')
+        # グラフで追加の検温は朝（9 時）より右（14:30 の位置）
+        from .views import vitals_chart, week_sheet
+        from .models import NursingSetting, week_start
+        sheet = week_sheet(self.b, week_start(d), NursingSetting.of(self.f))
+        svg = vitals_chart(sheet, Decimal('37.5'))
+        import re
+        xs = {m.group(2): float(m.group(1)) for m in re.finditer(r'<circle cx="([\d.]+)"[^>]*><title>[^<]*?(朝|（追加）)', svg)}
+        self.assertLess(xs['朝'], xs['（追加）'])
+        # 日の検温板にも出る。ホームの注意にも出る
+        res = self.client.get(reverse('nursing:vitals_day') + f'?d={d.isoformat()}')
+        self.assertContains(res, '追加の検温（1 件）')
+        res = self.client.get(reverse('nursing:home'))
+        self.assertContains(res, '追加 14:30：発熱 38.1℃')
+        # 印刷にも
+        res = self.client.get(reverse('nursing:vitals_week_print', args=[self.b.pk]) + '?fmt=html')
+        self.assertContains(res, '追加の検温')
+        self.assertContains(res, '顔が赤い')
+        # 時刻なし・値なしは入れない。範囲外の体温は捨てる
+        self.client.post(reverse('nursing:vitals_extra'), {'action': 'add', 'beneficiary': self.b.pk, 'date': d.isoformat(), 'time': '', 'temp': '37.0'})
+        self.client.post(reverse('nursing:vitals_extra'), {'action': 'add', 'beneficiary': self.b.pk, 'date': d.isoformat(), 'time': '15:00', 'temp': '99'})
+        self.assertEqual(VitalsExtra.objects.count(), 1)
+        # 消す
+        self.client.post(reverse('nursing:vitals_extra'), {'action': 'delete', 'pk': e.pk, 'back': week_url})
+        self.assertFalse(VitalsExtra.objects.exists())
+
+    def test_other_facility_and_bad_back(self):
+        other = Facility.objects.create(name='別の施設')
+        apply_care_preset(other)
+        ob = Beneficiary.objects.create(facility=other, last_name='他', first_name='人', date_of_birth=datetime.date(1940, 1, 1))
+        res = self.client.post(reverse('nursing:vitals_extra'), {'action': 'add', 'beneficiary': ob.pk, 'date': self.today.isoformat(), 'time': '10:00', 'temp': '37.0'})
+        self.assertEqual(res.status_code, 404)
+        res = self.client.post(reverse('nursing:vitals_extra'), {'action': 'add', 'beneficiary': self.b.pk, 'date': self.today.isoformat(), 'time': '10:00',
+                                                                 'temp': '37.0', 'back': 'https://example.com/'})
+        self.assertRedirects(res, reverse('nursing:vitals_day'), fetch_redirect_response=False)
 
 
 class RecordTests(CareBase):

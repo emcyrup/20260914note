@@ -22,9 +22,10 @@
   </div>
   <div class="small text-muted mt-2">数値は検温板の画面で入れます（この表は見るだけ）。発熱 {{ fever }}℃以上、血圧 上 160 以上・下 100 以上・上 90 未満、脈拍 50 未満・100 超、SpO2 95% 未満は赤。</div>
 </div>
+{% with back=request.get_full_path %}{% include 'nursing/_vitals_extra.html' with extras=sheet.extras person=b day=extra_day back=back now_time=now_time %}{% endwith %}
 <div class="nr-card">
   <div class="nr-h mb-1">1 週間の推移</div>
   {{ chart|safe }}
-  <div class="small text-muted">左の目盛：体温（℃）。右の目盛：血圧・脈拍。点線は発熱の線。</div>
+  <div class="small text-muted">左の目盛：体温（℃）。右の目盛：血圧・脈拍。点線は発熱の線。● は朝・夕の検温板、○ は追加の検温（測った時刻の位置）。</div>
 </div>
 {% endblock %}

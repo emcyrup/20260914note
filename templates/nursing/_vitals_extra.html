@@ -1,0 +1,45 @@
+{% comment %} 追加の検温（2026-11-10 やすらぎの森）。朝・夕のほかに測ったときに、時刻つきで足す。グラフにはその時刻の位置で入る。
+  使い方：{% include 'nursing/_vitals_extra.html' with extras=... people=...（または person=b） day=... back=... now_time=... %} {% endcomment %}
+<div class="nr-card" id="vitals-extra">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+    <div class="nr-h mb-0"><i class="bi bi-thermometer-half me-1"></i>追加の検温{% if extras %}（{{ extras|length }} 件）{% endif %}</div>
+    <div class="small text-muted">朝・夕のほかに測ったとき（熱が上がった・様子が気になる・受診の前など）に、測った時刻で入れます。グラフにその時刻で入ります。</div>
+  </div>
+  <form method="post" action="{% url 'nursing:vitals_extra' %}" class="nr-extra-form">
+    {% csrf_token %}<input type="hidden" name="action" value="add"><input type="hidden" name="back" value="{{ back }}">
+    <div class="d-flex flex-wrap align-items-end gap-2">
+      {% if person %}<input type="hidden" name="beneficiary" value="{{ person.pk }}">
+      {% else %}<div><div class="nr-lbl">{{ terms.beneficiary }}</div><select name="beneficiary" class="form-select form-select-sm" required aria-label="{{ terms.beneficiary }}"><option value="">選ぶ</option>{% for b in people %}<option value="{{ b.pk }}">{{ b.full_name }}</option>{% endfor %}</select></div>{% endif %}
+      <div><div class="nr-lbl">日付</div><input type="date" name="date" class="form-control form-control-sm" value="{{ day|date:'Y-m-d' }}" required></div>
+      <div><div class="nr-lbl">時刻</div><input type="time" name="time" class="form-control form-control-sm" value="{{ now_time }}" required></div>
+      <div><div class="nr-lbl">体温（℃）</div><input type="text" inputmode="decimal" name="temp" class="form-control form-control-sm" style="width:6.5em;" placeholder="例 37.8"></div>
+      <div><div class="nr-lbl">血圧（上／下）</div><div class="d-flex gap-1 align-items-center"><input type="number" min="40" max="300" name="bp_high" class="form-control form-control-sm" style="width:5em;" aria-label="血圧（上）"><span>/</span><input type="number" min="20" max="200" name="bp_low" class="form-control form-control-sm" style="width:5em;" aria-label="血圧（下）"></div></div>
+      <div><div class="nr-lbl">脈拍</div><input type="number" min="20" max="250" name="pulse" class="form-control form-control-sm" style="width:5em;"></div>
+      <div><div class="nr-lbl">SpO2（%）</div><input type="number" min="50" max="100" name="spo2" class="form-control form-control-sm" style="width:5em;"></div>
+      <div class="flex-grow-1" style="min-width:12em;"><div class="nr-lbl">メモ</div><input type="text" name="note" class="form-control form-control-sm text-start" maxlength="200" placeholder="例：顔が赤い。冷やした"></div>
+      <button class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>検温を追加</button>
+    </div>
+  </form>
+  {% if extras %}
+  <div class="table-responsive mt-2">
+    <table class="table table-sm align-middle mb-0 small">
+      <thead><tr>{% if not person %}<th>{{ terms.beneficiary }}</th>{% endif %}<th>日時</th><th>体温</th><th>血圧</th><th>脈拍</th><th>SpO2</th><th>メモ</th><th>記録</th><th></th></tr></thead>
+      <tbody>
+      {% for e in extras %}
+      <tr>
+        {% if not person %}<td><a href="{% url 'nursing:vitals_week' e.beneficiary.pk %}?w={{ e.date|date:'Y-m-d' }}" class="text-decoration-none fw-semibold">{{ e.beneficiary.full_name }}</a></td>{% endif %}
+        <td class="text-nowrap">{{ e.date|date:'n/j' }} {{ e.time|time:'H:i' }}</td>
+        <td class="{% if e.fever %}text-danger fw-bold{% endif %}">{{ e.temp|default_if_none:'' }}</td>
+        <td class="{% if e.bp_alert %}text-danger fw-bold{% endif %}">{{ e.bp_text }}</td>
+        <td class="{% if e.pulse_alert %}text-danger fw-bold{% endif %}">{{ e.pulse|default_if_none:'' }}</td>
+        <td class="{% if e.spo2_alert %}text-danger fw-bold{% endif %}">{{ e.spo2|default_if_none:'' }}</td>
+        <td>{{ e.note }}</td>
+        <td class="text-muted text-nowrap">{{ e.recorded_by|default:'' }}</td>
+        <td class="text-end"><form method="post" action="{% url 'nursing:vitals_extra' %}" onsubmit="return confirm('この追加の検温を消します。よろしいですか？');">{% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="pk" value="{{ e.pk }}"><input type="hidden" name="back" value="{{ back }}"><button class="btn btn-sm btn-outline-danger py-0" title="消す"><i class="bi bi-trash"></i></button></form></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>

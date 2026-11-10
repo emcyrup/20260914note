@@ -50,5 +50,6 @@
     <div class="d-flex justify-content-end mt-3"><button class="btn btn-primary"><i class="bi bi-check2 me-1"></i>まとめて保存</button></div>
   </form>
   {% else %}<div class="nr-card text-muted">在籍中の{{ terms.beneficiary }}がいません。先に「{{ terms.beneficiary }}情報」で登録してください。</div>{% endif %}
+  {% if people %}{% with back=request.get_full_path %}{% include 'nursing/_vitals_extra.html' with extras=extras people=people day=day back=back now_time=now_time %}{% endwith %}{% endif %}
 </div>
 {% endblock %}
