@@ -30,7 +30,7 @@ on:
         type: choice
         required: true
         default: list
-        options: [create_facility, set_password, list, delete_facility, demo_add, demo_remove, error_log, speech_check, speech_log, set_media_root, status, autostart_check, autostart_install, backup, backup_list, backup_check]
+        options: [create_facility, set_password, list, delete_facility, demo_add, demo_remove, error_log, speech_check, speech_log, set_media_root, status, autostart_check, autostart_install, backup, backup_list, backup_check, purge_user_data_check, purge_user_data]
       facility_name:
         description: "事業所名（create_facility）"
         type: string
@@ -67,6 +67,8 @@ jobs:
       group: deploy-yours
       cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v4      # purge_user_data で kaigo/purge_user_data.py をサーバーへ送るため
+
       - name: Check secrets
         env:
           HOST: ${{ secrets.KOTO_DEPLOY_HOST || secrets.YOURS_DEPLOY_HOST }}
@@ -110,6 +112,7 @@ jobs:
           {
             printf 'TASK=%q\nFACILITY_NAME=%q\nADMIN_USERNAME=%q\nADMIN_PASSWORD=%q\nWITH_DEMO=%q\nFACILITY_ID=%q\nCOPY_FROM=%q\nAPP_DIR_IN=%q\nVENV_IN=%q\n' \
               "$TASK" "$FACILITY_NAME" "$ADMIN_USERNAME" "$ADMIN_PASSWORD" "$WITH_DEMO" "$FACILITY_ID" "$COPY_FROM" "$REMOTE_APP_DIR" "$REMOTE_VENV"
+            printf 'PURGE_B64=%q\n' "$(base64 -w0 kaigo/purge_user_data.py)"
             cat <<'REMOTE'
             set -euo pipefail
             export ADMIN_USERNAME ADMIN_PASSWORD
@@ -182,6 +185,12 @@ jobs:
                 APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --autostart check ;;
               autostart_install)
                 APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --autostart install ;;
+              purge_user_data_check|purge_user_data)
+                # 失注した事業所の利用者に関するデータを消す（2026-11-10 コト）。check は数えるだけ。数だけを出し、名前は出さない
+                # 消す：利用者とその記録・書類（ファイルも）・ごみ箱・議事録・スタッフメモ・職員（admin_username 以外）と招待。残す：事業所と設定・admin_username・取引先
+                [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください（list で確認）"; exit 1; }
+                APPLY=$([ "$TASK" = purge_user_data ] && echo 1 || echo 0)
+                printf '%s' "$PURGE_B64" | base64 -d | FACILITY_ID="$FACILITY_ID" APPLY="$APPLY" KEEP_ADMIN="$ADMIN_USERNAME" python manage.py shell -v 0 ;;
               backup)
                 APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --backup run ;;
               backup_list)
