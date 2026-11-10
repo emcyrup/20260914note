@@ -1159,8 +1159,12 @@ class NoCautionsTests(TestCase):
     def test_hidden_everywhere_and_text_kept(self):
         # 初めは出る（画面・計画の材料）
         self.assertContains(self.client.get(self.url), 'id="cautions-card"')
-        from support_plans.material import ledger_text
-        self.assertIn('戸を閉めるよう声をかける', ledger_text(self.kid))
+        from support_plans.sources import assessment_material
+        today = datetime.date.today()
+
+        def material():
+            return ' '.join(str(v) for v in assessment_material(self.kid, today - datetime.timedelta(days=90), today).values())
+        self.assertIn('戸を閉めるよう声をかける', material())
         # 施設設定でオンにする
         self.f.therapy_no_cautions = True
         self.f.save()
@@ -1184,7 +1188,7 @@ class NoCautionsTests(TestCase):
         self.assertNotContains(res, '戸を閉めるよう声をかける')
         # 計画の材料にも入れない
         self.kid.refresh_from_db()
-        self.assertNotIn('戸を閉めるよう声をかける', ledger_text(self.kid))
+        self.assertNotIn('戸を閉めるよう声をかける', material())
         # 外せば元どおり
         self.f.therapy_no_cautions = False
         self.f.save()
