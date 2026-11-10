@@ -1142,3 +1142,55 @@ class RecordRunawayTests(TestCase):
         client_cls.return_value.messages.create.return_value = SimpleNamespace(content=[SimpleNamespace(type='text', text='{"activities": [], "body": "ブロックを積んだ。"}')])
         self.client.post(self.ai_url, {'mode': 'record', 'text': 'ブロック積んだ'})
         self.assertIn('\nuser', client_cls.return_value.messages.create.call_args.kwargs['stop_sequences'])
+
+
+class NoCautionsTests(TestCase):
+    """留意点の欄を使わない設定（2026-11-10 ゆあーずの依頼）：画面・印刷・保存・計画の材料・書類からの追記から外し、文は残す"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず', use_therapy_record=True, therapy_voice_direct=True)
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.login(username='ryo', password='pw12345678')
+        self.kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', last_name_kana='あおき',
+                                              date_of_birth=datetime.date(2019, 4, 1))
+        TherapyProfile.objects.create(beneficiary=self.kid, cautions='戸を閉めるよう声をかける')
+        self.url = reverse('therapy:child', args=[self.kid.pk])
+
+    def test_hidden_everywhere_and_text_kept(self):
+        # 初めは出る（画面・計画の材料）
+        self.assertContains(self.client.get(self.url), 'id="cautions-card"')
+        from support_plans.material import ledger_text
+        self.assertIn('戸を閉めるよう声をかける', ledger_text(self.kid))
+        # 施設設定でオンにする
+        self.f.therapy_no_cautions = True
+        self.f.save()
+        res = self.client.get(self.url)
+        self.assertNotContains(res, 'id="cautions-card"')
+        self.assertNotContains(res, '戸を閉めるよう声をかける')
+        self.assertNotContains(res, '留意点を保存')
+        # 音声を直接入れない事業所（AI のボタンのある方）でも出ない
+        self.f.therapy_voice_direct = False
+        self.f.save()
+        res = self.client.get(self.url)
+        self.assertNotContains(res, 'id="cautions"')
+        self.assertNotContains(res, '留意点から記録に追記')
+        # 古い画面から送られても変えない
+        res = self.client.post(self.url, {'action': 'cautions', 'cautions': '書き換え'}, follow=True)
+        self.assertContains(res, '留意点の欄は使わない設定です')
+        self.assertEqual(TherapyProfile.objects.get(beneficiary=self.kid).cautions, '戸を閉めるよう声をかける')
+        # 印刷：枠はあるが中は空
+        res = self.client.get(reverse('therapy:pdf', args=[self.kid.pk]) + '?fmt=html')
+        self.assertContains(res, '留意点')
+        self.assertNotContains(res, '戸を閉めるよう声をかける')
+        # 計画の材料にも入れない
+        self.kid.refresh_from_db()
+        self.assertNotIn('戸を閉めるよう声をかける', ledger_text(self.kid))
+        # 外せば元どおり
+        self.f.therapy_no_cautions = False
+        self.f.save()
+        self.assertContains(self.client.get(self.url), '戸を閉めるよう声をかける')
+
+    def test_settings_checkbox(self):
+        res = self.client.get(reverse('facilities:settings'))
+        self.assertContains(res, 'name="therapy_no_cautions"')
+        self.assertContains(res, '療育記録の「留意点」の欄を使わない')

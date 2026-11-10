@@ -72,7 +72,7 @@ def assessment_material(beneficiary, start, end):
         wishes = _join(_block('本人の希望', sheet.wishes_child), _block('家族の希望', sheet.wishes_family))
         sources.append(f'5領域アセスメント（{_ymd(sheet.date)}）')
     profile = TherapyProfile.objects.filter(beneficiary=beneficiary).first()
-    cautions = _block('療育記録の留意点', profile.cautions) if profile else ''
+    cautions = _block('療育記録の留意点', profile.cautions) if profile and not beneficiary.facility.therapy_no_cautions else ''
     if cautions:
         sources.append('療育記録の留意点')
     known = []
