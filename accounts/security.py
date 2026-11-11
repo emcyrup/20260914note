@@ -28,10 +28,22 @@ KEEP_DAYS = 180
 
 
 def client_ip(request):
+    """
+    相手の IP アドレス。X-Forwarded-For の先頭は相手が自由に書けるので使わない（2026-11-11 IP 制限に合わせて見直し）。
+    CLIENT_IP_SOURCE（.env）：real-ip（既定。nginx が付ける X-Real-IP ＝ $remote_addr）／ xff-last（X-Forwarded-For の最後＝nginx が足した値）／ remote（REMOTE_ADDR）。
+    サーバーで正しく取れているかは Manage の ip_check で確かめる（偽の値を付けて送り、使っていないことを見る）
+    """
     if request is None:
         return ''
-    return (request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip()
-            or request.META.get('REMOTE_ADDR', '') or '')[:64]
+    meta = request.META
+    src = getattr(settings, 'CLIENT_IP_SOURCE', 'real-ip')
+    ip = ''
+    if src == 'real-ip':
+        ip = (meta.get('HTTP_X_REAL_IP') or '').strip()
+    if not ip and src in ('real-ip', 'xff-last'):
+        parts = [p.strip() for p in (meta.get('HTTP_X_FORWARDED_FOR') or '').split(',') if p.strip()]
+        ip = parts[-1] if parts else ''
+    return (ip or meta.get('REMOTE_ADDR', '') or '')[:64]
 
 
 def record(kind, request=None, username='', user=None):

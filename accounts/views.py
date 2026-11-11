@@ -66,6 +66,18 @@ class StaffLoginView(LoginView):
         found = list(StaffAccount.objects.filter(username__iexact=username).values_list('username', flat=True)[:2])
         return found[0] if len(found) == 1 else username
 
+    def form_valid(self, form):
+        # 事業所の「使える場所（IP アドレス）」に入っていない場所からはログインさせない（facilities/ip_rules.py）
+        from facilities import ip_rules
+
+        from . import security
+        user = form.get_user()
+        ip = security.client_ip(self.request)
+        if not ip_rules.allowed(getattr(user, 'facility', None), user, ip):
+            security.record(LoginEvent.KIND_IP, self.request, user.get_username(), user)
+            return self.render_to_response(self.get_context_data(form=form, ip_blocked=ip or '不明'))
+        return super().form_valid(form)
+
     def form_invalid(self, form):
         # 承認待ちの人には、パスワード違いではなく承認待ちであることを伝える
         u = StaffAccount.objects.filter(username__iexact=(form.data.get('username') or '').strip(), signup_pending=True).first()

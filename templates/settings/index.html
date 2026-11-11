@@ -331,6 +331,25 @@
         </button>{% else %}<span class="text-muted small">施設基本情報を変えられるのは管理者だけです。</span>{% endif %}
       </div>
     </form>
+    {% if is_admin %}
+    <details class="settings-fold mt-2" id="ip-restriction" {% if facility.allowed_ips %}open{% endif %}>
+      <summary>使える場所（IP アドレスの制限）<span class="text-muted">{% if facility.allowed_ips %}制限あり{% else %}どこからでも使える{% endif %}</span></summary>
+      <form method="post" action="{% url 'facilities:ip_restriction' %}" class="row g-3">
+        {% csrf_token %}
+        <div class="col-md-7">
+          <label class="form-label small fw-semibold" for="allowed_ips">使える場所（1 行に 1 つ）</label>
+          <textarea name="allowed_ips" id="allowed_ips" class="form-control form-control-sm" rows="4" placeholder="例：&#10;203.0.113.10   # 事業所の回線&#10;198.51.100.0/24">{{ facility.allowed_ips }}</textarea>
+          <div class="form-text">事業所のインターネット回線の IP アドレス（固定）を入れると、ほかの場所（自宅・外出先など）からはログインも操作もできなくなります。空ならどこからでも使えます。# から後ろはメモ。</div>
+        </div>
+        <div class="col-md-5 small">
+          <div class="mb-2">いまの場所（あなたの IP アドレス）：<code>{{ current_ip|default:'不明' }}</code></div>
+          <div class="form-check"><input type="checkbox" name="ip_admin_exempt" value="1" id="ip_admin_exempt" class="form-check-input" {% if facility.ip_admin_exempt %}checked{% endif %}><label class="form-check-label" for="ip_admin_exempt">管理者は場所を制限しない（管理者は自宅などからも使える）</label></div>
+          <div class="form-text">締め出しを防ぐため、いまの場所が入っていないと保存しません。回線の IP アドレスが変わった・分からないときは、開発側で制限を外せます。止めた記録は「ログインの記録」に残ります。</div>
+        </div>
+        <div class="col-12 text-end"><button class="btn btn-sm btn-primary">使える場所を保存</button></div>
+      </form>
+    </details>
+    {% endif %}
   </div>
   </section>
 

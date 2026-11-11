@@ -7,6 +7,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import OuterRef, Subquery
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views import View
 from django.views.generic import TemplateView
 
@@ -155,6 +156,8 @@ class SettingsView(LoginRequiredMixin, TemplateView):
         from ai_assist.models import ReferenceDocument
         ctx['reference_documents'] = ReferenceDocument.objects.filter(facility=facility)
         ctx['is_admin'] = self.request.user.is_admin or self.request.user.is_superuser
+        from accounts.security import client_ip
+        ctx['current_ip'] = client_ip(self.request)
         ctx['ai_enabled'] = bool(settings.ANTHROPIC_API_KEY)
         from records import quality
         ctx['journal_rule_choices'] = [(k, label, section) for k, label, section, _t, _n in quality.RULES]
@@ -524,3 +527,35 @@ class EditingView(LoginRequiredMixin, View):
             return JsonResponse({'ok': True})
         concurrency.touch(request.user.facility, kind, obj.pk, request.user)
         return JsonResponse({'ok': True, 'others': concurrency.others_editing(request.user.facility, kind, obj.pk, request.user)})
+
+
+
+class IpRestrictionView(AdminOnlyMixin, View):
+    """使える場所（IP アドレスの制限）を保存する。保存する人のいまの場所が入っていなければ保存しない（締め出し防止）"""
+
+    def post(self, request):
+        from accounts import security
+
+        from . import ip_rules
+        facility = request.user.facility
+        text = (request.POST.get('allowed_ips') or '').strip()[:4000]
+        exempt = request.POST.get('ip_admin_exempt') == '1'
+        nets, bad = ip_rules.parse(text)
+        back = reverse('facilities:settings') + '#ip-restriction'
+        if bad:
+            messages.error(request, '読めない行があります：' + '、'.join(bad[:5]) + '（例：192.0.2.10 や 192.0.2.0/24）')
+            return redirect(back)
+        ip = security.client_ip(request)
+        me_exempt = request.user.is_superuser or getattr(request.user, 'is_developer', False) or (exempt and request.user.is_admin)
+        if nets and not me_exempt and not ip_rules.ip_in(nets, ip):
+            messages.error(request, f'いまの場所（{ip or "不明"}）が入っていないので保存しませんでした。保存するとあなたも使えなくなります。'
+                                    'いまの場所を足すか、「管理者は場所を制限しない」に印を付けてください。')
+            return redirect(back)
+        before = facility.allowed_ips
+        facility.allowed_ips = '\n'.join(x.strip() for x in text.splitlines() if x.strip())
+        facility.ip_admin_exempt = exempt
+        facility.save(update_fields=['allowed_ips', 'ip_admin_exempt'])
+        if (before or '') != facility.allowed_ips:
+            security.admin_action(request, '使える場所（IP アドレスの制限）を' + (f'{len(nets)} 件に変えました' if nets else '外しました（どこからでも使える）'))
+        messages.success(request, f'使える場所を保存しました（{len(nets)} 件）。' if nets else '使える場所の制限を外しました（どこからでも使えます）。')
+        return redirect(back)

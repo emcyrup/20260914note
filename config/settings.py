@@ -59,6 +59,7 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'accounts.middleware.DevFacilityMiddleware',  # 開発向けユーザーの事業所切り替え
+    'accounts.middleware.IpRestrictionMiddleware',  # 事業所ごとの使える場所（IP アドレスの制限）
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -134,6 +135,8 @@ MEDIA_ROOT = choose_media_root(config('MEDIA_ROOT', default=''), BASE_DIR)
 
 # リバースプロキシ（Caddy/Nginx）越しの HTTPS で POST を受けるために必要（例: https://app.example.com）
 CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
+# 相手の IP の取り方（accounts/security.client_ip）：real-ip（nginx の X-Real-IP）／ xff-last ／ remote
+CLIENT_IP_SOURCE = config('CLIENT_IP_SOURCE', default='real-ip')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

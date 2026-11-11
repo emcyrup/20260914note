@@ -126,6 +126,10 @@ class Facility(models.Model):
     mail_app_password = models.CharField(max_length=64, blank=True, verbose_name='Gmail のアプリ パスワード')
     security_notify_email = models.EmailField(blank=True, verbose_name='通知のメール宛先',
                                               help_text='空なら管理者・児発管のメールと代表者メール')
+    # 使える場所（IP アドレスの制限。facilities/ip_rules.py。2026-11-11 やすらぎの森の打ち合わせ）。空なら制限しない
+    allowed_ips = models.TextField(blank=True, verbose_name='使える場所（IP アドレス）',
+                                   help_text='1 行に 1 つ。192.0.2.10 や 192.0.2.0/24 の形。空ならどこからでも使える')
+    ip_admin_exempt = models.BooleanField(default=False, verbose_name='管理者は場所を制限しない')
     line_channel_access_token = models.TextField(blank=True, verbose_name='LINEチャネルアクセストークン')
     line_channel_secret = models.CharField(max_length=100, blank=True, verbose_name='LINEチャネルシークレット')
     # 使う機能（事業所によっては請求・LINE を使わない）

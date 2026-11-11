@@ -234,7 +234,9 @@ class LoginEvent(models.Model):
     KIND_FAIL = 'fail'
     KIND_LOCK = 'lock'
     KIND_LOGOUT = 'logout'
-    KIND_CHOICES = [(KIND_OK, 'ログイン'), (KIND_FAIL, '失敗'), (KIND_LOCK, 'ロック中に試行'), (KIND_LOGOUT, 'ログアウト')]
+    KIND_IP = 'ip_block'
+    KIND_CHOICES = [(KIND_OK, 'ログイン'), (KIND_FAIL, '失敗'), (KIND_LOCK, 'ロック中に試行'), (KIND_LOGOUT, 'ログアウト'),
+                    (KIND_IP, '許可していない場所から')]
 
     facility = models.ForeignKey('facilities.Facility', on_delete=models.CASCADE, null=True, blank=True, related_name='login_events')
     user = models.ForeignKey('StaffAccount', on_delete=models.SET_NULL, null=True, blank=True, related_name='login_events')

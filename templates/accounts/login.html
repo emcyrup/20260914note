@@ -22,6 +22,11 @@
         <i class="bi bi-lock me-1"></i>
         ログインの失敗が続いたため、しばらく受け付けられません。{{ locked_until|date:'H:i' }} 以降にもう一度お試しください。心当たりが無ければ管理者に知らせてください。
       </div>
+      {% elif ip_blocked %}
+      <div class="alert alert-danger py-2 small">
+        <i class="bi bi-geo-alt me-1"></i>
+        この場所からはログインできません（事業所で使える場所を決めています。いまの IP アドレス：{{ ip_blocked }}）。事業所のネットワークから使うか、管理者に確かめてください。
+      </div>
       {% elif signup_pending %}
       <div class="alert alert-warning py-2 small">
         <i class="bi bi-hourglass-split me-1"></i>

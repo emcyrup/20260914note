@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>この場所からは使えません</title>
+<style>body{font-family:"Noto Sans JP","Hiragino Kaku Gothic ProN",sans-serif;background:#f4f1ec;color:#222;margin:0;padding:24px;}
+.box{max-width:520px;margin:40px auto;background:#fff;border-radius:12px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,.08);}
+h1{font-size:1.2rem;margin:0 0 12px;} p{line-height:1.7;} .ip{font-family:monospace;background:#f2f2f2;padding:2px 6px;border-radius:4px;}
+a{color:#4e7d89;}</style></head>
+<body><div class="box">
+<h1>この場所からは使えません</h1>
+<p>{{ facility.name }} では、決めた場所（事業所のネットワークなど）からだけ使えるように設定されています。いまの場所からは使えないため、ログアウトしました。</p>
+<p>いまの場所の IP アドレス：<span class="ip">{{ ip|default:'不明' }}</span></p>
+<p>事業所で使う場合は、管理者に「施設設定 → 使える場所（IP アドレス）」を確かめてもらってください。</p>
+<p><a href="/accounts/login/">ログインの画面へ</a></p>
+</div></body></html>

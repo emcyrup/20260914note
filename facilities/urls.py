@@ -10,6 +10,7 @@ urlpatterns = [
     path('settings/', views.SettingsView.as_view(), name='settings'),
     path('editing/', views.EditingView.as_view(), name='editing'),
     path('settings/facility/update/', views.FacilityUpdateView.as_view(), name='facility_update'),
+    path('settings/ip-restriction/', views.IpRestrictionView.as_view(), name='ip_restriction'),
     path('settings/features/', views.FeatureSettingsView.as_view(), name='feature_settings'),
 
     # 活動タグ管理

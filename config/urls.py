@@ -10,8 +10,15 @@ def healthz(request):
     return HttpResponse('ok', content_type='text/plain')
 
 
+def healthz_ip(request):
+    """IP の取り方の確認用（認証なし）：サーバーから見たこのリクエストの送り主の IP だけを返す"""
+    from accounts.security import client_ip
+    return HttpResponse(client_ip(request) or '-', content_type='text/plain')
+
+
 urlpatterns = [
     path('healthz/', healthz, name='healthz'),
+    path('healthz/ip/', healthz_ip, name='healthz_ip'),
     path('admin/', admin.site.urls),
     path('accounts/', include('accounts.urls')),
     path('', include('facilities.urls')),
