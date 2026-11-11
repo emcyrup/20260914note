@@ -21,7 +21,7 @@ jobs:
       - name: Install system libraries
         run: |
           # パッケージの配布元に一時的につながらないことがある（2026-11-11 DNS の失敗）。3 回まで試し、
-          # それでも入らなければ、ランナーにもともと入っている PDF 用のライブラリで続ける（無ければ止める）
+          # それでも入らなければ、ランナーにもともと入っている PDF 用のライブラリで続ける（無ければ本番イメージの中でテスト）
           libs="libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0"
           for i in 1 2 3; do
             sudo apt-get update && sudo apt-get install -y --no-install-recommends $libs && exit 0
@@ -37,14 +37,19 @@ jobs:
           done
           ldconfig -p > "$RUNNER_TEMP/libs.txt"
           for l in libpango-1.0.so.0 libpangoft2-1.0.so.0 libharfbuzz-subset.so.0; do
-            grep -q "$l" "$RUNNER_TEMP/libs.txt" || { echo "ERROR: $l がありません（apt にもつながりません）"; exit 1; }
+            if ! grep -q "$l" "$RUNNER_TEMP/libs.txt"; then
+              echo "$l がランナーに無く、apt にもつながりません → 本番イメージ（ライブラリ入り）の中でテストします"
+              echo "IN_DOCKER=1" >> "$GITHUB_ENV"; exit 0
+            fi
           done
           echo "apt にはつながりませんが、必要なライブラリはランナーに入っているので続けます"
 
       - name: Install dependencies
+        if: env.IN_DOCKER != '1'
         run: pip install -r requirements.txt
 
       - name: Django check & tests
+        if: env.IN_DOCKER != '1'
         env:
           SECRET_KEY: ci-only-secret-key
           DEBUG: "True"
@@ -52,6 +57,25 @@ jobs:
         run: |
           python manage.py check
           python manage.py test --noinput
+      # ランナーに PDF 用のライブラリが入らなかったとき：キャッシュ済みの本番イメージ（ライブラリ入り）の中で同じテストをする
+      - name: Set up Docker Buildx（イメージの中でテストするとき）
+        if: env.IN_DOCKER == '1'
+        uses: docker/setup-buildx-action@v3
+      - name: Build the image（イメージの中でテストするとき）
+        if: env.IN_DOCKER == '1'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: dayservice:test
+          cache-from: type=gha
+      - name: Django check & tests（イメージの中で）
+        if: env.IN_DOCKER == '1'
+        run: |
+          docker run --rm -u root -e SECRET_KEY=ci-only-secret-key -e DEBUG=True -e DJANGO_ALLOWED_HOSTS=localhost \
+            dayservice:test sh -c "python manage.py check && python manage.py test --noinput"
 
   # 本番イメージがビルドできることを確認する（レジストリには push しない）
   build:
