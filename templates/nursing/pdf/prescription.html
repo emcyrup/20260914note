@@ -1,0 +1,32 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}処方箋 {{ b.full_name }}{% endblock %}
+{% block page_margin %}14mm{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .rx { width: 172mm; margin: 0 auto; }
+  .ttl { width: 92mm; margin: 0 auto -1px; border: 1.2px solid #222; border-bottom: none; text-align: center; font-size: 22px; letter-spacing: .9em; padding: 4px 0 2px .9em; }
+  .rx table { border: 1.2px solid #222; }
+  .rx td { border-left: none; border-right: none; font-size: 13px; padding: 5px 8px; white-space: normal; }
+  .kind { text-align: center; font-size: 15px; letter-spacing: .6em; }
+  .date { text-align: right; }
+  .date span { display: inline-block; min-width: 2em; text-align: center; }
+  .body { height: 150mm; vertical-align: top; }
+  .rp { font-size: 12.5px; line-height: 2; padding-left: 4mm; }
+  .sex .on { border: 1.2px solid #222; border-radius: 50%; padding: 0 3px; }
+  .addr { text-align: right; font-size: 11px; margin-top: 3px; letter-spacing: .1em; }
+</style>
+<div class="rx">
+  <div class="ttl">処方箋</div>
+  <table>
+    <tr><td class="kind">{{ label }}</td></tr>
+    <tr><td class="date">令和 <span>{{ wareki|default:'' }}</span> 年 <span>{{ day.month }}</span> 月 <span>{{ day.day }}</span> 日</td></tr>
+    <tr><td><div style="display:flex;justify-content:space-between;"><span>入所者氏名　<b style="font-size:15px;">{{ b.full_name }}</b>　殿</span><span class="sex">年令　{{ age|default_if_none:'' }}　歳　<span class="{% if b.gender == 'male' %}on{% endif %}">男</span>・<span class="{% if b.gender == 'female' %}on{% endif %}">女</span></span></div></td></tr>
+    <tr><td class="body">Rp
+      <div class="rp">{% for m in meds %}<div>{{ forloop.counter }}）{{ m.name }}{% if m.dose %}　{{ m.dose }}{% endif %}{% if m.timing_text %}　{{ m.timing_text }}{% endif %}{% if m.route == 'inj' %}（注射）{% elif m.route == 'ext' %}（外用）{% endif %}{% if m.days and not days %}　{{ m.days }}日分{% endif %}</div>{% empty %}<div class="muted">（薬がありません）</div>{% endfor %}
+      {% if days %}<div style="text-align:right;margin-top:8mm;padding-right:10mm;">{{ days }}日分</div>{% endif %}</div></td></tr>
+    <tr><td><div style="display:flex;"><span style="width:50%;">医　師：　{{ doctor }}</span><span>薬　剤　師：</span></div></td></tr>
+  </table>
+  <div class="addr">{{ facility.address }}{% if facility.address2 %} {{ facility.address2 }}{% endif %}　{{ facility.name }}</div>
+</div>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}送迎予定表 {{ day|date:'Y-m-d' }}{% endblock %}
+{% block page_orientation %}{% if span == 'day' %}portrait{% else %}landscape{% endif %}{% endblock %}
+{% block page_margin %}8mm{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  body { font-size: 9px; }
+  .ttl { font-size: 14px; font-weight: 700; margin-bottom: 3mm; }
+  .cols { display: flex; gap: 2mm; align-items: flex-start; }
+  .col { flex: 1; min-width: 0; }
+  .dh { text-align: center; font-weight: 700; border: 1px solid #333; padding: 2px; margin-bottom: 1.5mm; font-size: 10px; }
+  .run { font-size: 8.5px; color: #555; margin: 1mm 0 .5mm; }
+  .bx { border: 1px solid #333; margin-bottom: 1.5mm; }
+  .bx .h { background: #e6e6e6; border-bottom: 1px solid #333; padding: 1px 3px; font-size: 8.5px; }
+  .bx table { border: none; }
+  .bx td { border: none; border-bottom: 1px dotted #aaa; padding: 1px 3px; font-size: 9px; white-space: nowrap; overflow: hidden; }
+  .bx td.t { text-align: right; width: 32%; }
+  .bx tr:last-child td { border-bottom: none; }
+</style>
+<div class="ttl">{% if span == 'day' %}送迎表　{{ day|date:'n月j日' }}{% else %}週間送迎予定表　令和{{ wareki }}年　{{ cols.0.d|date:'n月j日' }}〜{{ end|date:'n月j日' }}{% endif %}　<span class="small muted">{{ facility.org_label }}</span></div>
+<div class="cols">
+{% for c in cols %}
+  <div class="col">
+    <div class="dh">{{ c.d.day }} 日（{{ c.week }}）</div>
+    {% regroup c.runs by run as groups %}
+    {% for g in groups %}
+      <div class="run">{% for k, v in run_labels.items %}{% if k == g.grouper %}{{ v }}{% endif %}{% endfor %}</div>
+      {% for r in g.list %}
+      <div class="bx"><div class="h">{{ r.vehicle.name }}{% if r.driver or r.escort %} {{ r.driver }}{% if r.escort %}:{{ r.escort }}{% endif %}{% endif %}{% if r.depart %}（{{ r.depart|time:'G:i' }}）{% endif %}</div>
+        <table>{% for s in r.stops.all %}<tr><td>{{ s.beneficiary.full_name }}様</td><td class="t">{{ s.time|time:'G:i'|default:'' }}</td></tr>{% empty %}<tr><td colspan="2">&nbsp;</td></tr>{% endfor %}</table></div>
+      {% endfor %}
+    {% empty %}<div class="small muted">（未作成）</div>{% endfor %}
+  </div>
+{% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}所見・処方処置 {{ b.full_name }}{% endblock %}
+{% block page_margin %}10mm{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .dn { border: 1.5px solid #222; }
+  .dn th { background: #fff; font-size: 11px; letter-spacing: .4em; border-bottom: 1.5px solid #222; }
+  .dn td { border-top: 1px dotted #777; border-bottom: 1px dotted #777; height: 6.4mm; padding: 1px 5px; line-height: 6mm; }
+  .dn td.d { text-align: center; }
+  .w-reha { color: #1f5fbf; } .w-sw { color: #c0392b; } .w-ns { color: #2e7d32; }
+  .nm { text-align: right; font-size: 12px; margin-bottom: 3px; }
+  .nm span { display: inline-block; min-width: 14em; border-bottom: 1px solid #333; text-align: left; padding-left: 4px; }
+</style>
+<div class="nm">名前 <span>{{ b.full_name }}</span></div>
+<table class="dn">
+  <thead><tr><th style="width:13%;">月　日</th><th style="width:43.5%;">所　　見</th><th>処　方　処　置</th></tr></thead>
+  <tbody>
+  {% for n in notes %}<tr class="w-{{ n.writer }}"><td class="d">{{ n.date|date:'n/j' }}</td><td>{{ n.finding }}</td><td>{{ n.treatment }}{% if n.doctor %}（{{ n.doctor }}）{% endif %}</td></tr>{% endfor %}
+  {% for _ in blank_rows %}<tr><td></td><td></td><td></td></tr>{% endfor %}
+  </tbody>
+</table>
+<div class="small" style="margin-top:3px;">Dr（黒字）・リハ（<span class="w-reha">青字</span>）・SW（<span class="w-sw">赤字</span>）にて記入</div>
+{% endblock %}

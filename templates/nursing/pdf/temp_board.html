@@ -1,0 +1,43 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}温度板 {{ b.full_name }}{% endblock %}
+{% block page_orientation %}landscape{% endblock %}
+{% block page_margin %}8mm{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  body { font-size: 9px; }
+  .hd { width: auto; margin-bottom: 4mm; }
+  .hd th { background: #fff; font-weight: 500; width: 7mm; padding: 1px; font-size: 8px; }
+  .hd td { min-width: 30mm; font-size: 11px; font-weight: 700; }
+  .tb th, .tb td { padding: 1px 2px; font-size: 8.5px; line-height: 1.25; }
+  .tb th { background: #fff; font-weight: 500; }
+  .tb th.l { width: 7%; text-align: center; }
+  .tb .day { text-align: center; font-size: 9.5px; }
+  .tb .sun { color: #c0392b; } .tb .sat { color: #1f5fbf; }
+  .graph { position: relative; height: 62mm; padding: 0; }
+  .scale { position: relative; height: 62mm; padding: 0; }
+  .scale div { position: absolute; left: 2px; right: 2px; font-size: 8px; transform: translateY(-50%); white-space: nowrap; }
+  .tb td.v { text-align: center; height: 5mm; }
+  .tb td.big { height: 30mm; white-space: pre-wrap; font-size: 8px; }
+  .hot { color: #c0392b; font-weight: 700; }
+  .lg { font-size: 8px; color: #555; margin-top: 2px; }
+</style>
+<table class="hd"><tr><th>名前</th><td>{{ b.full_name }}</td><th>年齢</th><td style="min-width:12mm;">{{ age|default_if_none:'' }}</td><th>部屋</th><td style="min-width:18mm;">{{ room }}</td></tr></table>
+<table class="tb">
+  <tr><th class="l">月／日</th>{% for d in days %}<th class="day {% if d.date.weekday == 6 %}sun{% elif d.date.weekday == 5 %}sat{% endif %}">{{ d.date|date:'n/j' }}({{ d.week }})</th>{% endfor %}</tr>
+  <tr><th class="l" style="padding:0;"><div class="scale"><div style="top:3.2%;display:flex;justify-content:space-around;">T　P</div>{% for s in scale %}<div style="top:{{ s.top }}%;">{{ s.t }} {{ s.p }}</div>{% endfor %}</div></th>
+      <td colspan="{{ days|length }}" class="graph">{{ svg|safe }}</td></tr>
+  <tr><th class="l">血　圧</th>{% for d in days %}<td class="v">{% if d.am.bp_text %}{{ d.am.bp_text }}{% endif %}{% if d.pm.bp_text %}<br>{{ d.pm.bp_text }}{% endif %}{% for e in d.extras %}{% if e.bp_text %}<br>{{ e.bp_text }}{% endif %}{% endfor %}</td>{% endfor %}</tr>
+  <tr><th class="l">尿</th>{% for d in days %}<td class="v">{{ d.urine|default_if_none:'' }}</td>{% endfor %}</tr>
+  <tr><th class="l">便</th>{% for d in days %}<td class="v">{{ d.stool|default_if_none:'' }}</td>{% endfor %}</tr>
+  <tr><th class="l">食事 主/副</th>{% for d in days %}<td class="v">{% if d.am.meal_main is not None or d.am.meal_side is not None %}{{ d.am.meal_main|default_if_none:'-' }}/{{ d.am.meal_side|default_if_none:'-' }}{% endif %}{% if d.pm.meal_main is not None or d.pm.meal_side is not None %}<br>{{ d.pm.meal_main|default_if_none:'-' }}/{{ d.pm.meal_side|default_if_none:'-' }}{% endif %}</td>{% endfor %}</tr>
+  <tr><th class="l">水分量/日</th>{% for d in days %}<td class="v">{% if d.water %}{{ d.water }}ml{% endif %}</td>{% endfor %}</tr>
+  <tr><th class="l">注　射</th>{% for d in days %}<td class="big">{% for m in d.inj %}{{ m.rx_line }}{% if m.prescriber %}（{{ m.prescriber }}）{% endif %}
+{% endfor %}</td>{% endfor %}</tr>
+  <tr><th class="l">内　服</th>{% for d in days %}<td class="big">{% if d.oral %}{% if d.carried %}<span class="muted">（服用中）</span>
+{% else %}Rp)
+{% endif %}{% for m in d.oral %}{{ forloop.counter }} {{ m.rx_line }}
+{% endfor %}{% endif %}</td>{% endfor %}</tr>
+</table>
+<div class="lg">● 体温（朝・夕。<span class="hot">赤</span>は発熱）　○ 追加の検温　赤い線：脈拍　点線：発熱とみなす体温　{{ facility.org_label }}</div>
+{% endblock %}

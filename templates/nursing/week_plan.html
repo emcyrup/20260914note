@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block title %}週間通所予定表 — {{ app_label }}{% endblock %}
+{% block page_title %}週間通所予定表{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}
+<style>
+  .wp { font-size: .82rem; }
+  .wp th, .wp td { border: 1px solid #ccc; padding: 3px 5px; vertical-align: top; }
+  .wp th.l { background: #eef5f7; white-space: nowrap; width: 7em; }
+  .wp .cnt { text-align: right; color: #4e7d89; font-weight: 600; }
+  .wp .over { color: #c0392b; }
+  .wp .nm { white-space: nowrap; }
+</style>{% endblock %}
+{% block content %}
+<div class="px-2">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+    <div class="d-flex align-items-center gap-2">
+      <div class="btn-group"><a href="?d={{ prev|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary" aria-label="前の週"><i class="bi bi-chevron-left"></i></a><a href="?" class="btn btn-sm btn-outline-secondary">今週</a><a href="?d={{ next|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary" aria-label="次の週"><i class="bi bi-chevron-right"></i></a></div>
+      <div class="fw-bold">{{ start|date:'Y年n月j日' }}（月）〜</div>
+    </div>
+    <div class="d-flex gap-2"><a href="{% url 'nursing:day_month' %}?y={{ start.year }}&m={{ start.month }}" class="btn btn-sm btn-outline-secondary">利用予定・実績表</a>
+      <a href="{% url 'nursing:week_plan_print' %}?d={{ start|date:'Y-m-d' }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>印刷</a></div>
+  </div>
+  <div class="small text-muted mb-2">利用予定・実績表（提供票から読んだ予定）から、曜日ごとに<b>介護・予防</b>（介護保険証の要介護度）と<b>半日</b>に自動で振り分けます。半日・ショートの送迎は送迎表の画面で付けます。</div>
+  <form method="post">{% csrf_token %}<input type="hidden" name="d" value="{{ start|date:'Y-m-d' }}">
+  <div class="table-responsive nr-card p-1"><table class="wp w-100">
+    <tr><th class="l"></th>{% for c in cols %}<th class="text-center"><a href="{% url 'nursing:transport_board' %}?d={{ c.d|date:'Y-m-d' }}" class="text-reset">{{ c.d.day }}日（{{ c.week }}）</a></th>{% endfor %}</tr>
+    <tr><th class="l">《介護》</th>{% for c in cols %}<td>{% for u in c.groups.care %}<div class="nm">{{ u.beneficiary.full_name }}</div>{% endfor %}<div class="cnt">{{ c.groups.care|length }}</div></td>{% endfor %}</tr>
+    <tr><th class="l">《予防》</th>{% for c in cols %}<td>{% for u in c.groups.prev %}<div class="nm">{{ u.beneficiary.full_name }}</div>{% endfor %}<div class="cnt">{{ c.groups.prev|length }}</div></td>{% endfor %}</tr>
+    <tr><th class="l">介護（半日）</th>{% for c in cols %}<td>{% for u in c.groups.care_half %}<div class="nm">{{ u.beneficiary.full_name }}</div>{% endfor %}<div class="cnt">{{ c.groups.care_half|length }}</div></td>{% endfor %}</tr>
+    <tr><th class="l">予防（半日）</th>{% for c in cols %}<td>{% for u in c.groups.prev_half %}<div class="nm">{{ u.beneficiary.full_name }}</div>{% endfor %}<div class="cnt">{{ c.groups.prev_half|length }}</div></td>{% endfor %}</tr>
+    <tr><th class="l">総人数</th>{% for c in cols %}<td class="cnt {% if c.over %}over{% endif %}">{{ c.total }}{% if c.cap %}/{{ c.cap }}{% endif %}</td>{% endfor %}</tr>
+    <tr><th class="l">ショート送迎</th>{% for c in cols %}<td>{% for u in c.short %}<div class="nm">{{ u.beneficiary.full_name }}</div>{% endfor %}</td>{% endfor %}</tr>
+    <tr><th class="l">勤務</th>{% for c in cols %}<td><textarea name="note_{{ c.d|date:'Y-m-d' }}" rows="2" class="form-control form-control-sm" maxlength="200" placeholder="例：〇〇半日" aria-label="{{ c.d|date:'n/j' }} の勤務">{{ c.note }}</textarea></td>{% endfor %}</tr>
+  </table></div>
+  <div class="text-end"><button class="btn btn-sm btn-outline-primary">勤務を保存</button></div>
+  </form>
+</div>
+{% endblock %}

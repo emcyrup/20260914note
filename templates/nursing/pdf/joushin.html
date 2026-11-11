@@ -1,0 +1,30 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}上申書 {{ day|date:'Y-m-d' }}{% endblock %}
+{% block page_margin %}10mm{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .ttl { text-align: center; font-size: 15px; margin-bottom: 6px; }
+  .ttl span { display: inline-block; min-width: 2.2em; }
+  .drs th { background: #fff; font-weight: 500; font-size: 11px; }
+  .drs td { height: 74mm; font-size: 10px; }
+  .ex th { background: #fff; font-weight: 500; }
+  .ex td { height: 8mm; }
+  .sec { font-size: 11px; margin: 6px 0 2px; }
+  .other { border: 1px solid #333; border-radius: 14px; height: 62mm; padding: 6px 10px; white-space: pre-wrap; overflow: hidden; }
+</style>
+<div class="ttl"><span>{{ day.month }}</span>月<span>{{ day.day }}</span>日（{{ week }}）</div>
+<table class="drs">
+  <tr>{% for c in columns %}<th>{{ c.doctor }}</th>{% endfor %}</tr>
+  <tr>{% for c in columns %}<td>{% for it in c.items %}{% if it.beneficiary %}{{ it.beneficiary.full_name }}：{% endif %}{{ it.content }}
+{% endfor %}</td>{% endfor %}</tr>
+</table>
+<div class="sec">【検査・採血・他科受診　等】</div>
+<table class="ex">
+  <tr><th style="width:17%;">氏名</th><th>内容</th><th style="width:8%;">紹介状</th><th style="width:8%;">食事箋</th><th style="width:7%;">内服</th></tr>
+  {% for it in exams %}<tr><td>{{ it.beneficiary.full_name|default:'' }}</td><td>{{ it.content }}</td><td class="c">{% if it.referral %}○{% endif %}</td><td class="c">{% if it.meal_slip %}○{% endif %}</td><td class="c">{% if it.oral %}○{% endif %}</td></tr>{% endfor %}
+  {% for _ in exam_blank %}<tr><td></td><td></td><td></td><td></td><td></td></tr>{% endfor %}
+</table>
+<div class="sec">【その他】</div>
+<div class="other">{{ other }}</div>
+{% endblock %}

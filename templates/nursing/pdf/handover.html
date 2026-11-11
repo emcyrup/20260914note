@@ -1,0 +1,33 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}申し送り {{ day|date:'Y-m-d' }}{% endblock %}
+{% block page_margin %}10mm{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .ttl { text-align: center; font-size: 15px; font-weight: 700; margin-bottom: 6px; letter-spacing: .05em; }
+  .ttl span { display: inline-block; min-width: 2.5em; text-align: center; }
+  .top td { height: 46mm; }
+  .top th { font-size: 11px; }
+  .rec { border: 1px solid #333; float: right; width: 40%; padding: 2px 5px; font-size: 10px; margin-top: 4px; }
+  .main td { height: 178mm; }
+  .grp { margin-bottom: 6px; }
+  .grp .who { font-weight: 700; border-bottom: 1px solid #999; margin-bottom: 2px; }
+  .ln { display: flex; gap: 6px; }
+  .ln .t { width: 3.2em; flex-shrink: 0; }
+  .seal td { height: 9mm; }
+</style>
+<div class="ttl">令和 <span>{{ wareki|default:'' }}</span> 年 <span>{{ day.month }}</span> 月 <span>{{ day.day }}</span> 日（{{ week }}）　リーダー：<span style="min-width:8em;border-bottom:1px solid #333;">{{ hd.leader|default:'' }}</span></div>
+<table class="top">
+  <tr><th style="width:42%;">明日の予定</th><th style="width:22%;">便対応者</th><th>2階での決定・周知事項</th></tr>
+  <tr><td>{{ hd.tomorrow|default:'' }}</td>
+      <td>テレミン：{{ hd.telemin|default:'' }}
+
+下剤対応：{{ hd.laxative|default:'' }}</td>
+      <td>{{ hd.decisions|default:'' }}<div class="rec">☆本日のレク人数☆<br>AM：{{ hd.rec_am|default_if_none:'' }}<br>PM：{{ hd.rec_pm|default_if_none:'' }}<br><span class="small">※レク室記入!!</span></div></td></tr>
+</table>
+<table class="main" style="margin-top:-1px;">
+  <tr><th>日勤帯の申し送り</th></tr>
+  <tr><td style="white-space:normal;">{% for g in groups %}<div class="grp"><div class="who">{{ g.giver }}</div>{% for e in g.entries %}<div class="ln"><div class="t">{{ e.time|time:'H:i' }}</div><div style="white-space:pre-wrap;">{% if e.beneficiary %}【{{ e.beneficiary.full_name }}】{% endif %}{{ e.content }}</div></div>{% endfor %}</div>{% endfor %}</td></tr>
+</table>
+<table class="seal" style="margin-top:-1px;"><tr><th style="width:8%;">印</th><td></td></tr></table>
+{% endblock %}

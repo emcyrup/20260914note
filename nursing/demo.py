@@ -300,6 +300,7 @@ def add(facility, user=None, days=14, stdout=None, scenario='care'):
     today = datetime.date.today()
     have = {(b.last_name, b.first_name): b for b in Beneficiary.objects.filter(facility=facility, notes__startswith=MARK)}
     if all((row['ln'], row['fn']) in have for row in rows) and IncidentReport.objects.filter(facility=facility, situation=incidents[-1]['situation']).exists():
+        add_forms(facility, user)
         return 0
     with transaction.atomic():
         vehicles = _vehicles(facility, sc) if facility.use_transport else []
@@ -341,7 +342,81 @@ def add(facility, user=None, days=14, stdout=None, scenario='care'):
                 for k, v in vals.items():
                     setattr(row, k, v)
                 row.save()
+    add_forms(facility, user)
     return added
+
+
+SAMPLE_DOCTORS = '一ノ瀬 Dr\n二階堂 Dr\n三上 Dr'
+SAMPLE_LEADER = '見本 主任'
+HANDOVERS = [('08:50', '見本 看護A', 0, '朝の検温 37.6℃。クーリングして 10 時に再検。水分を多めに。'),
+             ('09:30', '見本 介護B', 1, '入浴は午後に変更（家族の希望）。'),
+             ('10:15', '見本 看護A', 0, '再検 37.1℃。昼食は様子を見て全量で可。'),
+             ('11:40', '見本 介護B', 2, '昼食 8 割。むせ込みなし。'),
+             ('13:20', '見本 相談員C', None, '明日の送迎、ハイエースの添乗が 1 名少ない。調整中。')]
+
+
+def add_forms(facility, user=None):
+    """2026-11-11 の様式（申し送り・所見／処方処置・上申書・利用予定・送迎表）の見本。足りない分だけ足す"""
+    from .models import DayUse, DoctorNote, HandoverDay, HandoverEntry, JoushinItem, NursingSetting
+    from .views_forms import copy_medication_to_note
+    today = datetime.date.today()
+    rnd = random.Random(20261111)
+    people = list(Beneficiary.objects.filter(facility=facility, notes__startswith=MARK).order_by('pk'))
+    if not people:
+        return
+    with transaction.atomic():
+        s = NursingSetting.of(facility)
+        if not s.doctors:
+            s.doctors = SAMPLE_DOCTORS
+            s.save()
+        doctors = s.doctor_list()
+        # 薬 → 所見・処方処置（処方処置へ写す）と、所見の例
+        for m in Medication.objects.filter(beneficiary__in=people):
+            if not m.days:
+                m.days = 14
+                m.save(update_fields=['days'])
+            if not DoctorNote.objects.filter(medication=m).exists():
+                copy_medication_to_note(m, user)
+        for i, b in enumerate(people[:4]):
+            if not DoctorNote.objects.filter(beneficiary=b, finding__startswith='（見本）').exists():
+                DoctorNote.objects.create(facility=facility, beneficiary=b, date=today - datetime.timedelta(days=7 - i), writer='dr', doctor=doctors[i % len(doctors)],
+                                          finding='（見本）胸部聴診で異常なし。食欲あり。', treatment='経過観察', created_by=user)
+                DoctorNote.objects.create(facility=facility, beneficiary=b, date=today - datetime.timedelta(days=5 - i), writer='reha',
+                                          finding='（見本）平行棒内歩行 10 m を 2 往復。ふらつきなし。', created_by=user)
+        # 申し送り（きょう・きのう）
+        for day in (today - datetime.timedelta(days=1), today):
+            if HandoverEntry.objects.filter(facility=facility, date=day, beneficiary__in=people).exists():
+                continue
+            for tm, giver, who, content in HANDOVERS:
+                HandoverEntry.objects.create(facility=facility, date=day, time=datetime.time(*map(int, tm.split(':'))), giver=giver,
+                                             beneficiary=people[who] if who is not None and who < len(people) else people[0], content=content, created_by=user)
+            HandoverDay.objects.get_or_create(facility=facility, date=day, defaults={
+                'leader': SAMPLE_LEADER, 'tomorrow': '午前：健康診断（3 名）\n午後：誕生日会', 'telemin': '見本 看護A', 'laxative': '見本 介護B',
+                'decisions': '感染対策のため、面会は予約制を続ける。', 'rec_am': 12, 'rec_pm': 9})
+        # 上申書（きょう）
+        if not JoushinItem.objects.filter(facility=facility, date=today, beneficiary__in=people).exists():
+            JoushinItem.objects.create(facility=facility, date=today, kind='dr', doctor=doctors[0], beneficiary=people[0], content='37.6℃の発熱。咳なし。様子を見てよいか。', created_by=user)
+            if len(doctors) > 1 and len(people) > 1:
+                JoushinItem.objects.create(facility=facility, date=today, kind='dr', doctor=doctors[1], beneficiary=people[1], content='便秘 3 日目。下剤の調整を相談したい。', created_by=user)
+            JoushinItem.objects.create(facility=facility, date=today, kind='exam', beneficiary=people[-1], content='定期採血（来週火曜）', oral=True, created_by=user)
+        # 利用日（今月・来月）：利用の曜日から。過ぎた日は来た 9 割・休み 1 割。1 人は半日、1 人はショートの送迎
+        fields = ('weekday_mon', 'weekday_tue', 'weekday_wed', 'weekday_thu', 'weekday_fri', 'weekday_sat')
+        for y, mo in ((today.year, today.month), ((today.year + (today.month == 12)), today.month % 12 + 1)):
+            for i, b in enumerate(people):
+                if DayUse.objects.filter(beneficiary=b, date__year=y, date__month=mo).exists():
+                    continue
+                d = datetime.date(y, mo, 1)
+                while d.month == mo:
+                    if d.weekday() < 6 and getattr(b, fields[d.weekday()]):
+                        att = (rnd.random() > 0.1) if d < today else None
+                        DayUse.objects.create(facility=facility, beneficiary=b, date=d, planned=True, attended=att, source='weekday',
+                                              half=(i == 2), short=(i == 5))
+                    d += datetime.timedelta(days=1)
+        # 送迎表（きょう・あした）：いつもの車両で並べる
+        if facility.use_transport:
+            from .views_days import auto_place
+            for d in (today, today + datetime.timedelta(days=1)):
+                auto_place(facility, d)
 
 
 def remove(facility):
@@ -349,8 +424,13 @@ def remove(facility):
     from transport.models import Driver, Vehicle
     qs = Beneficiary.objects.filter(facility=facility, notes__startswith=MARK)
     n = qs.count()
+    from .models import HandoverDay, HandoverEntry, JoushinItem, TransportRun
     with transaction.atomic():
         IncidentReport.objects.filter(facility=facility, beneficiary__in=qs).delete()
+        HandoverEntry.objects.filter(facility=facility, beneficiary__in=qs).delete()
+        HandoverDay.objects.filter(facility=facility, leader=SAMPLE_LEADER).delete()
+        JoushinItem.objects.filter(facility=facility, beneficiary__in=qs).delete()
+        TransportRun.objects.filter(facility=facility, stops__beneficiary__in=qs).delete()
         qs.delete()
         StaffingDay.objects.filter(facility=facility, note=MARK).delete()
         Vehicle.objects.filter(facility=facility, note=MARK).delete()

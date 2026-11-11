@@ -1,0 +1,29 @@
+{% extends 'nursing/_person_base.html' %}
+{% block title %}{{ b.full_name }} 所見・処方処置 — {{ app_label }}{% endblock %}
+{% block person_css %}<style>.wr-dr{color:#111}.wr-reha{color:#1f5fbf}.wr-sw{color:#c0392b}.wr-ns{color:#2e7d32}</style>{% endblock %}
+{% block person_actions %}<a href="{% url 'nursing:person_notes_print' b.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>所見・処方処置を印刷</a>{% endblock %}
+{% block tab_content %}
+<details class="nr-card" {% if edit or not notes %}open{% endif %}>
+  <summary class="fw-bold" style="cursor:pointer;"><i class="bi bi-plus-lg me-1"></i>{% if edit %}直す（{{ edit.date|date:'n/j' }}）{% else %}所見・処方処置を足す{% endif %}</summary>
+  <form method="post" class="row g-2 mt-1">{% csrf_token %}{% if edit %}<input type="hidden" name="note" value="{{ edit.pk }}">{% endif %}
+    <div class="col-6 col-md-3"><label class="nr-lbl" for="date">月日</label><input type="date" name="date" id="date" class="form-control form-control-sm" value="{% if edit %}{{ edit.date|date:'Y-m-d' }}{% else %}{{ today|date:'Y-m-d' }}{% endif %}"></div>
+    <div class="col-6 col-md-3"><label class="nr-lbl" for="writer">書いた人</label><select name="writer" id="writer" class="form-select form-select-sm">{% for k, l in writers %}<option value="{{ k }}" {% if edit.writer == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+    <div class="col-md-6"><label class="nr-lbl" for="doctor">医師・担当者</label><input type="text" name="doctor" id="doctor" class="form-control form-control-sm" value="{{ edit.doctor|default:'' }}" maxlength="50" list="doctor-list"><datalist id="doctor-list">{% for d in doctors %}<option value="{{ d }}">{% endfor %}</datalist></div>
+    <div class="col-md-6"><label class="nr-lbl" for="finding">所見</label><textarea name="finding" id="finding" rows="3" class="form-control form-control-sm" maxlength="3000">{{ edit.finding|default:'' }}</textarea></div>
+    <div class="col-md-6"><label class="nr-lbl" for="treatment">処方処置</label><textarea name="treatment" id="treatment" rows="3" class="form-control form-control-sm" maxlength="3000">{{ edit.treatment|default:'' }}</textarea></div>
+    <div class="col-12 d-flex justify-content-between">{% if edit %}<a href="{% url 'nursing:person_notes' b.pk %}" class="btn btn-sm btn-outline-secondary">やめる</a>{% else %}<span class="small text-muted">薬の画面で新しい薬・中身を変えた薬を保存すると、ここの「処方処置」へ医師の名前と一緒に自動で写ります。</span>{% endif %}<button class="btn btn-primary btn-sm"><i class="bi bi-check2 me-1"></i>保存する</button></div>
+  </form>
+</details>
+<div class="nr-card">
+  <div class="small text-muted mb-1">用紙と同じく Dr（黒字）・リハ（<span class="wr-reha">青字</span>）・SW（<span class="wr-sw">赤字</span>）で印刷します。</div>
+  <table class="table table-sm mb-0 align-top">
+    <thead><tr><th style="width:6em;">月日</th><th>所見</th><th>処方処置</th><th style="width:6em;"></th></tr></thead>
+    <tbody>{% for n in notes %}
+      <tr class="wr-{{ n.writer }}"><td>{{ n.date|date:'n/j' }}<div class="small text-muted">{{ n.get_writer_display }}{% if n.doctor %} {{ n.doctor }}{% endif %}</div></td>
+        <td>{{ n.finding|linebreaksbr }}</td><td>{{ n.treatment|linebreaksbr }}{% if n.medication %}<div class="small text-muted"><i class="bi bi-capsule"></i> 薬から写した行</div>{% endif %}</td>
+        <td class="text-end text-nowrap"><a href="?edit={{ n.pk }}" class="btn btn-sm btn-outline-secondary py-0">直す</a>
+          <form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="note" value="{{ n.pk }}"><button name="action" value="delete" class="btn btn-sm btn-outline-danger py-0" onclick="return confirm('この行を消します。よろしいですか？');" aria-label="消す"><i class="bi bi-trash"></i></button></form></td></tr>
+    {% empty %}<tr><td colspan="4" class="small text-muted">まだありません。</td></tr>{% endfor %}</tbody>
+  </table>
+</div>
+{% endblock %}

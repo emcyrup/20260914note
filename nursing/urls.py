@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import views, views_days, views_forms
 
 app_name = 'nursing'
 
@@ -41,6 +41,27 @@ urlpatterns = [
     path('users/<int:pk>/plans/new/', views.PlanEditView.as_view(), name='plan_new'),
     path('users/<int:pk>/plans/<int:plan_pk>/', views.PlanEditView.as_view(), name='plan_edit'),
     path('users/<int:pk>/plans/<int:plan_pk>/print/', views.PlanPdfView.as_view(), name='plan_print'),
+    # やすらぎの森の様式（2026-11-11）：申し送り・所見／処方処置・上申書・温度板・処方箋
+    path('handover/', views_forms.HandoverView.as_view(), name='handover'),
+    path('handover/print/', views_forms.HandoverPdfView.as_view(), name='handover_print'),
+    path('joushin/', views_forms.JoushinView.as_view(), name='joushin'),
+    path('joushin/print/', views_forms.JoushinPdfView.as_view(), name='joushin_print'),
+    path('users/<int:pk>/notes/', views_forms.PersonNotesView.as_view(), name='person_notes'),
+    path('users/<int:pk>/notes/print/', views_forms.PersonNotesPdfView.as_view(), name='person_notes_print'),
+    path('users/<int:pk>/vitals/board/', views_forms.TempBoardPdfView.as_view(), name='temp_board_print'),
+    path('users/<int:pk>/room/', views_forms.PersonRoomView.as_view(), name='person_room'),
+    path('users/<int:pk>/medications/prescription/', views_forms.PrescriptionPdfView.as_view(), name='prescription_print'),
+    # 通所の利用日：提供票の読み取り・利用予定実績表（A）・送迎表（B）・週間通所予定表（C）
+    path('days/', views_days.DayMonthView.as_view(), name='day_month'),
+    path('days/print/', views_days.DayMonthPdfView.as_view(), name='day_month_print'),
+    path('days/toggle/', views_days.DayToggleView.as_view(), name='day_toggle'),
+    path('days/teikyo/', views_days.TeikyoView.as_view(), name='teikyo'),
+    path('days/teikyo/read/', views_days.TeikyoReadView.as_view(), name='teikyo_read'),
+    path('days/teikyo/apply/', views_days.TeikyoApplyView.as_view(), name='teikyo_apply'),
+    path('days/week/', views_days.WeekPlanView.as_view(), name='week_plan'),
+    path('days/week/print/', views_days.WeekPlanPdfView.as_view(), name='week_plan_print'),
+    path('transport/board/', views_days.TransportBoardView.as_view(), name='transport_board'),
+    path('transport/board/print/', views_days.TransportBoardPdfView.as_view(), name='transport_board_print'),
     # 人員配置・送迎表
     path('staffing/', views.StaffingView.as_view(), name='staffing'),
     path('transport/', views.TransportDayView.as_view(), name='transport_day'),

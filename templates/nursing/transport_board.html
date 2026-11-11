@@ -1,0 +1,147 @@
+{% extends 'base.html' %}
+{% block title %}送迎表 {{ day|date:'n/j' }} — {{ app_label }}{% endblock %}
+{% block page_title %}送迎表{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}
+<style>
+  .tb-run { margin-bottom: 1rem; }
+  .tb-run > .nr-h { font-size: 1rem; }
+  .tb-pool { background: #fffbea; border: 1px dashed #d9b84a; border-radius: 8px; padding: 6px; min-height: 44px; display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
+  .tb-lanes { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; margin-top: 8px; }
+  .tb-lane { border: 1px solid #cfd9e0; border-radius: 8px; background: #fff; display: flex; flex-direction: column; }
+  .tb-lane.ng { border-color: #d55; box-shadow: 0 0 0 1px #d55 inset; }
+  .tb-lane-h { background: #eef5f7; border-radius: 8px 8px 0 0; padding: 4px 6px; font-size: .8rem; }
+  .tb-lane-h input { font-size: .78rem; padding: 1px 4px; height: auto; }
+  .tb-list { min-height: 60px; padding: 4px; display: flex; flex-direction: column; gap: 3px; flex-grow: 1; }
+  .tb-chip { display: flex; align-items: center; gap: 4px; background: #fff; border: 1px solid #b9c7cf; border-radius: 6px; padding: 3px 6px; font-size: .85rem; cursor: grab; touch-action: manipulation; }
+  .tb-pool .tb-chip { background: #fff; }
+  .tb-chip.dragging { opacity: .4; }
+  .tb-chip.picked { outline: 3px solid #f0ad4e; }
+  .tb-chip .no { color: #4e7d89; font-weight: 700; width: 1.3em; text-align: right; }
+  .tb-pool .tb-chip .no, .tb-pool .tb-chip input { display: none; }
+  .tb-chip input { width: 6.4em; font-size: .75rem; padding: 0 2px; border: 1px solid #ddd; border-radius: 4px; margin-left: auto; }
+  .tb-chip .ng { color: #c0392b; }
+  .tb-cnt.over { color: #c0392b; font-weight: 700; }
+  .tb-save { position: sticky; bottom: 8px; z-index: 5; }
+</style>{% endblock %}
+{% block content %}
+<div class="px-2">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <div class="btn-group"><a href="?d={{ prev|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary" aria-label="前の日"><i class="bi bi-chevron-left"></i></a><a href="?" class="btn btn-sm btn-outline-secondary">きょう</a><a href="?d={{ next|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary" aria-label="次の日"><i class="bi bi-chevron-right"></i></a></div>
+      <input type="date" class="form-control form-control-sm" style="width:auto;" value="{{ day|date:'Y-m-d' }}" onchange="location.href='?d='+this.value" aria-label="日付">
+      <div class="fw-bold">{{ day_jp }}（{{ state.uses|length }} 人）</div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}"><button name="action" value="auto" class="btn btn-sm btn-outline-secondary" title="まだ組んでいない便に、送迎の設定の「いつもの車両」と時刻の順で並べます">いつもの車両で並べる</button>
+        <button name="action" value="clear" class="btn btn-sm btn-outline-danger" onclick="return confirm('この日の送迎表を空にします。よろしいですか？');">空にする</button></form>
+      {% if use_transport %}<a href="{% url 'transport:vehicles' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-truck me-1"></i>車両・運転手</a>{% endif %}
+      <a href="{% url 'nursing:transport_day' %}?d={{ day|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary" title="いつもの車両・送迎の設定から見た一覧（定員・車いす・同乗NG の確認）">送迎の設定の一覧</a>
+      <a href="{% url 'nursing:transport_board_print' %}?d={{ day|date:'Y-m-d' }}&span=day&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>この日を印刷</a>
+      <a href="{% url 'nursing:transport_board_print' %}?d={{ day|date:'Y-m-d' }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>週間送迎予定表</a>
+    </div>
+  </div>
+  {% if state.fallback %}<div class="alert alert-info small py-2">この月の予定（提供票・利用予定表）がまだ無いので、{{ terms.beneficiary }}情報の「利用の曜日」から候補を出しています。<a href="{% url 'nursing:day_month' %}?y={{ day.year }}&m={{ day.month }}">利用予定・実績表</a>から予定を入れると、その日の予定どおりの候補になります。</div>{% endif %}
+  {% if not state.vehicles %}<div class="alert alert-warning small py-2">車両が登録されていません。「車両・運転手」から車両を足してください。</div>{% endif %}
+  <div class="small text-muted mb-2">黄色い枠の<b>候補</b>から、車両の枠へ<b>ドラッグ</b>して入れます（枠の中でも上下に動かせます）。スマートフォン・タブレットは、名前を<b>押して選び</b>、入れたい車両の枠（または入れたい場所の人）を押します。最後に「保存する」。定員を超えた車両は赤くなります。</div>
+
+  {% for run in state.runs %}
+  <div class="tb-run nr-card" data-run="{{ run.key }}">
+    <div class="nr-h">{% if run.key == 'am' %}<i class="bi bi-box-arrow-in-right me-1"></i>{% else %}<i class="bi bi-box-arrow-right me-1"></i>{% endif %}{{ run.label }}{% if run.problems %} <span class="badge text-bg-danger">確かめる {{ run.problems }}</span>{% endif %}</div>
+    <div class="small text-muted">候補（まだ車両に入っていない人）</div>
+    <div class="tb-pool tb-list" data-run="{{ run.key }}" data-pool="1">
+      {% for u in run.pool %}<div class="tb-chip" draggable="true" data-b="{{ u.beneficiary.pk }}"><span class="no"></span><span class="nm">{{ u.beneficiary.full_name }}</span>{% if u.half %} <span class="badge text-bg-light border">半日</span>{% endif %}<input type="time" aria-label="時刻"></div>{% endfor %}
+    </div>
+    <div class="tb-lanes">
+      {% for l in run.lanes %}
+      <div class="tb-lane {% if l.over or l.wc_over or l.ride_ng or l.driver_ng %}ng{% endif %}" data-vehicle="{{ l.v.pk }}" data-cap="{{ l.v.capacity }}">
+        <div class="tb-lane-h">
+          <div class="d-flex justify-content-between"><b>{{ l.v.name }}</b><span class="tb-cnt">{{ l.stops|length }}{% if l.v.capacity %}/{{ l.v.capacity }}{% endif %}</span></div>
+          <div class="d-flex gap-1 mt-1"><input type="text" class="form-control tb-driver" value="{{ l.driver }}" placeholder="運転手" list="tb-drivers" aria-label="運転手"><input type="text" class="form-control tb-escort" value="{{ l.escort }}" placeholder="添乗" aria-label="添乗"><input type="time" class="form-control tb-depart" value="{{ l.depart|time:'H:i' }}" aria-label="出発" title="出発"></div>
+          {% if l.over %}<div class="text-danger small">定員を超えています</div>{% endif %}{% if l.wc_over %}<div class="text-danger small">車いすの枠を超えています</div>{% endif %}{% if l.ride_ng %}<div class="text-danger small">同じ車に乗せない人がいます</div>{% endif %}{% if l.driver_ng %}<div class="text-danger small">この運転手はこの車を運転できません</div>{% endif %}
+        </div>
+        <div class="tb-list" data-run="{{ run.key }}">
+          {% for s in l.stops %}<div class="tb-chip" draggable="true" data-b="{{ s.b.pk }}"><span class="no"></span><span class="nm">{{ s.b.full_name }}</span>{% if s.wheel %} <i class="bi bi-person-wheelchair" title="車いすのまま"></i>{% endif %}{% if s.ng %} <i class="bi bi-exclamation-triangle-fill ng" title="同じ車に乗せない相手がいます"></i>{% endif %}<input type="time" value="{{ s.time|time:'H:i' }}" aria-label="時刻"></div>{% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if state.uses %}
+  <details class="nr-card"><summary class="fw-bold" style="cursor:pointer;">この日の{{ terms.beneficiary }}（半日・ショートの送迎）</summary>
+    <div class="small text-muted my-1">半日の人は「昼の送り」の候補になります（保存して開き直すと反映）。ショートの送迎は週間通所予定表に出ます。</div>
+    <div class="d-flex flex-wrap gap-3 small" id="tb-flags">{% for u in state.uses %}<span data-b="{{ u.beneficiary.pk }}">{{ u.beneficiary.full_name }} <label><input type="checkbox" class="form-check-input tb-half" {% if u.half %}checked{% endif %} {% if not u.pk %}disabled{% endif %}> 半日</label> <label><input type="checkbox" class="form-check-input tb-short" {% if u.short %}checked{% endif %} {% if not u.pk %}disabled{% endif %}> ショート</label></span>{% endfor %}</div>
+  </details>
+  {% endif %}
+  {% if state.walk %}<div class="small text-muted">送迎なし（送迎の設定で迎え・送りとも無し）：{% for u in state.walk %}{{ u.beneficiary.full_name }}{% if not forloop.last %}・{% endif %}{% endfor %}</div>{% endif %}
+  <datalist id="tb-drivers">{% for d in state.drivers %}<option value="{{ d }}">{% endfor %}</datalist>
+  <div class="tb-save text-end"><span id="tb-dirty" class="small text-danger me-2 d-none">保存していない変更があります</span><button type="button" id="tb-save" class="btn btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button></div>
+</div>
+<script>
+(function () {
+  const CSRF = '{{ csrf_token }}';
+  let drag = null, picked = null, dirty = false;
+  const dirtyEl = document.getElementById('tb-dirty');
+  function setDirty() { dirty = true; dirtyEl.classList.remove('d-none'); renumber(); }
+  function renumber() {
+    document.querySelectorAll('.tb-lane').forEach(lane => {
+      const chips = lane.querySelectorAll('.tb-chip');
+      chips.forEach((c, i) => { c.querySelector('.no').textContent = i + 1; });
+      const cap = parseInt(lane.dataset.cap || '0', 10), cnt = lane.querySelector('.tb-cnt');
+      cnt.textContent = chips.length + (cap ? '/' + cap : '');
+      cnt.classList.toggle('over', !!cap && chips.length > cap);
+    });
+  }
+  function afterEl(list, y) {
+    const els = [...list.querySelectorAll('.tb-chip:not(.dragging)')];
+    let best = null, off = -Infinity;
+    for (const el of els) { const box = el.getBoundingClientRect(), o = y - box.top - box.height / 2; if (o < 0 && o > off) { off = o; best = el; } }
+    return best;
+  }
+  function runOf(el) { return el.closest('.tb-run').dataset.run; }
+  document.querySelectorAll('.tb-chip').forEach(chip => {
+    chip.addEventListener('dragstart', e => { drag = chip; chip.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', chip.dataset.b); });
+    chip.addEventListener('dragend', () => { chip.classList.remove('dragging'); drag = null; setDirty(); });
+    chip.addEventListener('click', e => {
+      if (e.target.tagName === 'INPUT') return;
+      e.stopPropagation();
+      if (picked === chip) { chip.classList.remove('picked'); picked = null; return; }
+      if (picked && runOf(picked) === runOf(chip)) { chip.parentNode.insertBefore(picked, chip); picked.classList.remove('picked'); picked = null; setDirty(); return; }
+      if (picked) picked.classList.remove('picked');
+      picked = chip; chip.classList.add('picked');
+    });
+    chip.querySelector('input').addEventListener('change', setDirty);
+  });
+  document.querySelectorAll('.tb-list').forEach(list => {
+    list.addEventListener('dragover', e => {
+      if (!drag || runOf(drag) !== runOf(list)) return;
+      e.preventDefault();
+      const a = afterEl(list, e.clientY);
+      if (a) list.insertBefore(drag, a); else list.appendChild(drag);
+    });
+    list.addEventListener('drop', e => e.preventDefault());
+    list.addEventListener('click', () => {
+      if (picked && runOf(picked) === runOf(list)) { list.appendChild(picked); picked.classList.remove('picked'); picked = null; setDirty(); }
+    });
+  });
+  document.querySelectorAll('.tb-lane-h input, #tb-flags input').forEach(i => i.addEventListener('change', setDirty));
+  window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+  document.getElementById('tb-save').addEventListener('click', async () => {
+    const lanes = [];
+    document.querySelectorAll('.tb-run').forEach(run => run.querySelectorAll('.tb-lane').forEach(lane => {
+      lanes.push({run: run.dataset.run, vehicle: lane.dataset.vehicle, driver: lane.querySelector('.tb-driver').value, escort: lane.querySelector('.tb-escort').value,
+        depart: lane.querySelector('.tb-depart').value,
+        stops: [...lane.querySelectorAll('.tb-chip')].map(c => ({b: c.dataset.b, time: c.querySelector('input').value}))});
+    }));
+    const flags = [...document.querySelectorAll('#tb-flags > span')].map(s => ({b: s.dataset.b, half: s.querySelector('.tb-half').checked, short: s.querySelector('.tb-short').checked}));
+    const res = await fetch(location.pathname, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+      body: JSON.stringify({d: '{{ day|date:"Y-m-d" }}', lanes: lanes, flags: flags})});
+    const data = await res.json();
+    if (!res.ok || !data.ok) { alert(data.error || '保存できませんでした。'); return; }
+    dirty = false; location.reload();
+  });
+  renumber();
+})();
+</script>
+{% endblock %}

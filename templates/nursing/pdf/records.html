@@ -1,25 +1,32 @@
 {% extends 'custom_forms/pdf/_base.html' %}
 {% block title %}介護記録 {{ b.full_name }}{% endblock %}
-{% block page_margin %}12mm{% endblock %}
+{% block page_margin %}10mm{% endblock %}
 {% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
 {% block body %}
 <style>
-  .hd th { width: 14%; } .hd td { width: 36%; }
-  .rc th { width: 15%; }
-  .rc td.body { white-space: pre-wrap; line-height: 1.6; }
-  .rc td.meta { font-size: 9px; color: #555; }
+  h1 { font-size: 18px; letter-spacing: .8em; margin-bottom: 2px; }
+  .nm { text-align: right; font-size: 12px; margin-bottom: 3px; }
+  .nm span { display: inline-block; min-width: 14em; border-bottom: 1px solid #333; text-align: left; padding-left: 4px; font-weight: 700; }
+  .rc { border: 1.5px solid #222; }
+  .rc th { background: #fff; border-bottom: 1.5px solid #222; }
+  .rc td { border-top: 1px dotted #777; border-bottom: 1px dotted #777; padding: 2px 5px; line-height: 1.55; }
+  .rc td.c { text-align: center; }
+  .rc td.body { white-space: pre-wrap; }
+  .rc td.sg { font-size: 9px; text-align: center; }
+  .rc tr.blank td { height: 6.4mm; }
 </style>
 <h1>介護記録</h1>
-<table class="hd"><tr><th>氏名</th><td style="font-size:13px;font-weight:700;">{{ b.full_name }}</td><th>要介護度</th><td>{{ insurance.care_level|default:'' }}</td></tr>
-  <tr><th>期間</th><td>{% if start %}{{ start|date:'Y年n月j日' }}{% endif %} 〜 {% if end %}{{ end|date:'Y年n月j日' }}{% endif %}</td><th>事業所</th><td>{{ facility.org_label }}</td></tr></table>
-<table class="rc" style="margin-top:8px;">
-  <thead><tr><th>日付</th><th>記録</th><th style="width:18%;">記録者／承認</th></tr></thead>
+<div class="nm">名前 <span>{{ b.full_name }}</span></div>
+<table class="rc">
+  <thead><tr><th style="width:9%;">月　日</th><th style="width:8%;">時　間</th><th>記　　　　　録</th><th style="width:9%;">サイン</th></tr></thead>
   <tbody>
   {% for r in records %}
-  <tr><td class="c">{{ r.date|date:'n/j' }}<br><span class="small">（{{ r.date|date:'D' }}）</span></td>
-      <td class="body">{{ r.body }}{% if r.checks_text %}<div class="small muted" style="margin-top:3px;">{{ r.checks_text }}</div>{% endif %}</td>
-      <td class="meta">{{ r.author|default:'' }}{% if r.approved_by %}<br>承認：{{ r.approved_by }}<br>{{ r.approved_at|date:'n/j H:i' }}{% else %}<br>（{{ r.get_status_display }}）{% endif %}</td></tr>
-  {% empty %}<tr><td colspan="3">記録がありません。</td></tr>{% endfor %}
+  <tr><td class="c">{{ r.date|date:'n/j' }}</td><td class="c">{{ r.print_time|time:'H:i'|default:'' }}</td>
+      <td class="body">{{ r.body }}</td>
+      <td class="sg">{{ r.author|default:'' }}{% if r.approved_by %}<br><span class="muted">承認 {{ r.approved_by }}</span>{% endif %}</td></tr>
+  {% endfor %}
+  {% if records|length < 30 %}{% for _ in '..........'|make_list %}<tr class="blank"><td></td><td></td><td></td><td></td></tr>{% endfor %}{% endif %}
   </tbody>
 </table>
+<div class="small muted" style="margin-top:3px;">{% if start or end %}期間 {% if start %}{{ start|date:'Y/n/j' }}{% endif %} 〜 {% if end %}{{ end|date:'Y/n/j' }}{% endif %}　{% endif %}日付・時間の順に並べています。{{ facility.org_label }}</div>
 {% endblock %}

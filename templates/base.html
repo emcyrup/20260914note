@@ -187,6 +187,16 @@
         </a>
       </li>
       <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':8' == 'handover' %}active{% endif %}" href="{% url 'nursing:handover' %}" title="日勤帯の申し送り（申し送り者ごと・時間順）と明日の予定・便対応者・周知事項。申し送りの用紙で印刷">
+          <i class="bi bi-chat-square-text"></i><span>申し送り</span>
+        </a>
+      </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':7' == 'joushin' %}active{% endif %}" href="{% url 'nursing:joushin' %}" title="医師ごとの上申・検査・採血・他科受診。上申書の用紙で印刷">
+          <i class="bi bi-clipboard2-pulse"></i><span>上申書</span>
+        </a>
+      </li>
+      <li>
         <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':7' == 'renraku' %}active{% endif %}" href="{% url 'nursing:renraku' %}" title="家族向けのメッセージ（連絡帳）。LINE で送る・印刷する">
           <i class="bi bi-envelope-paper"></i><span>連絡帳</span>
         </a>
@@ -201,9 +211,14 @@
           <i class="bi bi-capsule"></i><span>薬の管理</span>
         </a>
       </li>
+      <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':3' == 'day' or rm.url_name == 'teikyo' or rm.url_name|slice:':9' == 'week_plan' %}active{% endif %}" href="{% url 'nursing:day_month' %}" title="サービス提供票の読み取り → 利用予定・実績表・週間通所予定表">
+          <i class="bi bi-calendar3"></i><span>利用予定・実績</span>
+        </a>
+      </li>
       {% if features.transport %}
       <li>
-        <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':9' == 'transport' or rm.app_name == 'transport' %}active{% endif %}" href="{% url 'nursing:transport_day' %}" title="その日の迎え・送りの一覧（送迎表の下書き）。車両・運転手の登録もここから">
+        <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':9' == 'transport' or rm.app_name == 'transport' %}active{% endif %}" href="{% url 'nursing:transport_board' %}" title="日付ごとの利用者を車両の便へドラッグで組む。週間送迎予定表の印刷。車両・運転手の登録もここから">
           <i class="bi bi-bus-front"></i><span>送迎表</span>
         </a>
       </li>

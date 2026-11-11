@@ -1,0 +1,31 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}週間通所予定表 {{ start|date:'Y-m-d' }}{% endblock %}
+{% block page_orientation %}landscape{% endblock %}
+{% block page_margin %}8mm{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  body { font-size: 9px; }
+  .ttl { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 2mm; }
+  .ttl b { letter-spacing: .6em; font-size: 15px; }
+  .wp th, .wp td { padding: 0 3px; height: 4.3mm; font-size: 9px; white-space: nowrap; overflow: hidden; }
+  .wp th { background: #fff; font-weight: 500; }
+  .wp th.l { width: 18mm; }
+  .wp td.cnt { text-align: right; font-size: 8.5px; }
+  .wp tr.sep td, .wp tr.sep th { border-top: 1.5px solid #222; }
+</style>
+<div class="ttl"><span>{{ start|date:'n' }}月</span><b>週間通所予定表</b><span>令和{{ wareki }}年 {{ start|date:'n月j日' }}（月）〜 {{ end|date:'n月j日' }}（土）</span></div>
+<table class="wp">
+  <tr><th class="l"></th>{% for c in cols %}<th>{{ c.d.day }} 日（{{ c.week }}）</th>{% endfor %}</tr>
+  {% for i in care_rows %}<tr>{% if forloop.first %}<th class="l" rowspan="{{ care_rows|length }}">《介護》</th>{% endif %}{% for c in cols %}<td>{% for u in c.groups.care %}{% if forloop.counter0 == i %}{{ u.beneficiary.full_name }}{% endif %}{% endfor %}</td>{% endfor %}</tr>{% endfor %}
+  <tr><th class="l"></th>{% for c in cols %}<td class="cnt">{{ c.groups.care|length }}</td>{% endfor %}</tr>
+  {% for i in prev_rows %}<tr class="{% if forloop.first %}sep{% endif %}">{% if forloop.first %}<th class="l" rowspan="{{ prev_rows|length }}">《予防》</th>{% endif %}{% for c in cols %}<td>{% for u in c.groups.prev %}{% if forloop.counter0 == i %}{{ u.beneficiary.full_name }}{% endif %}{% endfor %}</td>{% endfor %}</tr>{% endfor %}
+  <tr><th class="l"></th>{% for c in cols %}<td class="cnt">{{ c.groups.prev|length }}</td>{% endfor %}</tr>
+  <tr class="sep"><th class="l">介護（半日）</th>{% for c in cols %}<td>{% for u in c.groups.care_half %}{{ u.beneficiary.full_name }}{% if not forloop.last %}・{% endif %}{% endfor %}<span style="float:right;">{{ c.groups.care_half|length }}</span></td>{% endfor %}</tr>
+  <tr><th class="l">予防（半日）</th>{% for c in cols %}<td>{% for u in c.groups.prev_half %}{{ u.beneficiary.full_name }}{% if not forloop.last %}・{% endif %}{% endfor %}<span style="float:right;">{{ c.groups.prev_half|length }}</span></td>{% endfor %}</tr>
+  <tr class="sep"><th class="l">総人数</th>{% for c in cols %}<td class="cnt">{{ c.total }}{% if c.cap %}/{{ c.cap }}{% endif %}</td>{% endfor %}</tr>
+  <tr class="sep"><th class="l">ショート送迎</th>{% for c in cols %}<td>{% for u in c.short %}{{ u.beneficiary.full_name }}{% if not forloop.last %}・{% endif %}{% endfor %}</td>{% endfor %}</tr>
+  <tr class="sep"><th class="l">勤務</th>{% for c in cols %}<td style="white-space:pre-wrap;height:9mm;">{{ c.note }}</td>{% endfor %}</tr>
+</table>
+<div class="small muted" style="margin-top:2px;">{{ facility.org_label }}</div>
+{% endblock %}

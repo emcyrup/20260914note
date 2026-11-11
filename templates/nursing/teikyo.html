@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+{% block title %}提供票の読み取り — {{ app_label }}{% endblock %}
+{% block page_title %}サービス提供票の読み取り{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}
+<style>.tk-days { font-family: monospace; font-size: .85rem; } .tk-row-ng td { background: #fff4f4; }</style>{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <div class="mb-2 small"><a href="{% url 'nursing:day_month' %}?y={{ y }}&m={{ m }}" class="text-muted text-decoration-none"><i class="bi bi-arrow-left me-1"></i>利用予定・実績表へ</a></div>
+  <div class="nr-card">
+    <div class="small mb-2">居宅介護支援事業所から届いた<b>サービス提供票（1 か月分・全員分）</b>の PDF か写真を選ぶと、AI が利用者ごとに「通所リハ（通所介護）」の行の<b>予定の段に 1 が入っている日</b>を読みます。読んだ結果をこの画面で確かめてから、利用予定・実績表へ入れます。<br>
+      <span class="text-muted">提供票のファイルはサーバーに残しません（読んだ名前と日付だけを使います）。何枚・何人分でも、ファイルを 1 つずつ順に読みます。</span></div>
+    {% if not ai_enabled %}<div class="alert alert-warning small py-2">AI を使う設定（ANTHROPIC_API_KEY）がサーバーにありません。管理者に設定を依頼してください。</div>{% endif %}
+    <div class="d-flex flex-wrap gap-2 align-items-end">
+      <div><label class="nr-lbl" for="tk-files">提供票（PDF・写真。いくつでも）</label><input type="file" id="tk-files" class="form-control form-control-sm" accept="application/pdf,image/*" multiple></div>
+      <button type="button" id="tk-read" class="btn btn-primary btn-sm" {% if not ai_enabled %}disabled{% endif %}><i class="bi bi-magic me-1"></i>読み取る</button>
+      <div id="tk-status" class="small text-muted"></div>
+    </div>
+  </div>
+  <div class="nr-card d-none" id="tk-result">
+    <div class="d-flex flex-wrap gap-2 align-items-end mb-2">
+      <div class="nr-h me-auto">読み取った結果</div>
+      <div><label class="nr-lbl" for="tk-y">年</label><input type="number" id="tk-y" class="form-control form-control-sm" style="width:6em;" value="{{ y }}"></div>
+      <div><label class="nr-lbl" for="tk-m">月</label><input type="number" id="tk-m" class="form-control form-control-sm" style="width:4.5em;" min="1" max="12" value="{{ m }}"></div>
+    </div>
+    <div class="small text-muted mb-1">名前が名簿と合わない人は、右の欄で選び直してください。日付はカンマ区切りで直せます。印を外した行は入れません。</div>
+    <div class="table-responsive"><table class="table table-sm align-middle small mb-2">
+      <thead><tr><th></th><th>提供票の名前</th><th>{{ terms.beneficiary }}（名簿）</th><th>通所の日（予定の 1）</th><th>半日</th></tr></thead>
+      <tbody id="tk-body"></tbody></table></div>
+    <div class="text-end"><button type="button" id="tk-apply" class="btn btn-primary btn-sm"><i class="bi bi-check2 me-1"></i>利用予定・実績表に入れる</button></div>
+    <div class="small text-muted mt-1">その月に提供票から入れた予定は置きかえます（実績の付いた日・手で足した予定は残します）。</div>
+  </div>
+</div>
+<select id="tk-people" class="d-none"><option value="">（入れない）</option>{% for p in people %}<option value="{{ p.pk }}">{{ p.full_name }}</option>{% endfor %}</select>
+<script>
+(function () {
+  const CSRF = '{{ csrf_token }}';
+  const body = document.getElementById('tk-body'), status = document.getElementById('tk-status');
+  const tmpl = document.getElementById('tk-people');
+  function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+  function addRow(p) {
+    const tr = document.createElement('tr');
+    if (!p.b) tr.className = 'tk-row-ng';
+    tr.innerHTML = '<td><input type="checkbox" class="form-check-input tk-on" ' + (p.b ? 'checked' : '') + ' aria-label="入れる"></td>' +
+      '<td>' + esc(p.name) + (p.care_level ? ' <span class="text-muted">' + esc(p.care_level) + '</span>' : '') + (p.services && p.services.length ? '<div class="text-muted">' + esc(p.services.join('・')) + '</div>' : '') + '</td>' +
+      '<td></td><td><input type="text" class="form-control form-control-sm tk-days" value="' + (p.days || []).join(',') + '" aria-label="通所の日"></td>' +
+      '<td><input type="checkbox" class="form-check-input tk-half" ' + (p.half ? 'checked' : '') + ' aria-label="半日"></td>';
+    const sel = tmpl.cloneNode(true); sel.classList.remove('d-none'); sel.removeAttribute('id'); sel.className = 'form-select form-select-sm tk-b';
+    sel.value = p.b || ''; sel.addEventListener('change', () => { tr.querySelector('.tk-on').checked = !!sel.value; tr.classList.toggle('tk-row-ng', !sel.value); });
+    tr.children[2].appendChild(sel);
+    body.appendChild(tr);
+  }
+  document.getElementById('tk-read').addEventListener('click', async () => {
+    const files = Array.from(document.getElementById('tk-files').files);
+    if (!files.length) { status.textContent = 'ファイルを選んでください。'; return; }
+    const btn = document.getElementById('tk-read'); btn.disabled = true;
+    let n = 0, people = 0;
+    for (const f of files) {
+      n += 1; status.textContent = `読み取り中… ${n} / ${files.length}（${f.name}）。1 つに 1 分ほどかかることがあります。`;
+      const fd = new FormData(); fd.append('file', f);
+      try {
+        const res = await fetch('{% url "nursing:teikyo_read" %}', {method: 'POST', body: fd, headers: {'X-CSRFToken': CSRF}});
+        const data = await res.json();
+        if (!res.ok || data.error) { status.textContent = `${f.name}：${data.error || '読めませんでした'}`; continue; }
+        if (data.year) document.getElementById('tk-y').value = data.year;
+        if (data.month) document.getElementById('tk-m').value = data.month;
+        (data.people || []).forEach(addRow); people += (data.people || []).length;
+      } catch (e) { status.textContent = `${f.name}：通信できませんでした。`; }
+    }
+    btn.disabled = false;
+    document.getElementById('tk-result').classList.remove('d-none');
+    status.textContent = `${files.length} ファイルから ${people} 人分を読みました。確かめてから「入れる」を押してください。`;
+  });
+  document.getElementById('tk-apply').addEventListener('click', async () => {
+    const rows = [];
+    body.querySelectorAll('tr').forEach(tr => {
+      const b = tr.querySelector('.tk-b').value;
+      if (!tr.querySelector('.tk-on').checked || !b) return;
+      const days = tr.querySelector('.tk-days').value.split(/[,、\s]+/).map(x => parseInt(x, 10)).filter(x => x >= 1 && x <= 31);
+      rows.push({b: b, days: days, half: tr.querySelector('.tk-half').checked});
+    });
+    if (!rows.length) { alert('入れる行がありません。'); return; }
+    const res = await fetch('{% url "nursing:teikyo_apply" %}', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+      body: JSON.stringify({year: document.getElementById('tk-y').value, month: document.getElementById('tk-m').value, rows: rows})});
+    const data = await res.json();
+    if (data.url) location.href = data.url; else alert(data.error || '入れられませんでした。');
+  });
+})();
+</script>
+{% endblock %}

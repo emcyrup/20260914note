@@ -1,0 +1,33 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}デイケアサービス利用予定・実績表 {{ y }}年{{ m }}月{% endblock %}
+{% block page_orientation %}landscape{% endblock %}
+{% block page_margin %}8mm{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  body { font-size: 9px; }
+  .hd { display: flex; align-items: baseline; gap: 20mm; margin-bottom: 3mm; }
+  .hd .t { font-size: 16px; font-weight: 700; letter-spacing: .1em; }
+  .am th, .am td { padding: 0; text-align: center; font-size: 9px; height: 4.6mm; }
+  .am th { background: #fff; font-weight: 500; }
+  .am .nm { width: 22mm; font-size: 10px; text-align: center; vertical-align: middle; }
+  .am .sun { background: #ddd; }
+  .am tr.p td { border-bottom: 1px solid #aaa; }
+  .am tr.a td { border-top: none; }
+  .am .ct { width: 9mm; }
+</style>
+<div class="hd"><span>令和{{ wareki }}.{{ m }}</span><span class="t">デイケアサービス利用予定・実績表　{{ m }}月分</span><span class="small muted">{{ facility.org_label }}</span></div>
+<table class="am">
+  <thead><tr><th class="nm" rowspan="2">氏　名</th>{% for d in days %}<th class="{% if d.weekday == 6 %}sun{% endif %}">{{ d.day }}</th>{% endfor %}{% for _ in blank_days %}<th></th>{% endfor %}<th class="ct" rowspan="2">回数</th></tr>
+    <tr>{% for h in heads %}<th class="{% if h.d.weekday == 6 %}sun{% endif %}">{{ h.w }}</th>{% endfor %}{% for _ in blank_days %}<th></th>{% endfor %}</tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr class="p"><td class="nm" rowspan="2">{{ r.b.full_name }}</td>{% for c in r.cells %}<td class="{% if c.d.weekday == 6 %}sun{% endif %}">{% if c.plan %}○{% endif %}</td>{% endfor %}{% for _ in blank_days %}<td></td>{% endfor %}<td>{{ r.plan_n }}</td></tr>
+    <tr class="a">{% for c in r.cells %}<td class="{% if c.d.weekday == 6 %}sun{% endif %}">{% if c.att %}○{% elif c.att == False %}×{% endif %}</td>{% endfor %}{% for _ in blank_days %}<td></td>{% endfor %}<td>{{ r.att_n }}</td></tr>
+  {% endfor %}
+  {% for _ in pad %}<tr class="p"><td class="nm" rowspan="2"></td>{% for d in days %}<td class="{% if d.weekday == 6 %}sun{% endif %}"></td>{% endfor %}{% for _ in blank_days %}<td></td>{% endfor %}<td></td></tr><tr class="a">{% for d in days %}<td class="{% if d.weekday == 6 %}sun{% endif %}"></td>{% endfor %}{% for _ in blank_days %}<td></td>{% endfor %}<td></td></tr>{% endfor %}
+  <tr><td class="nm">合計（実績人数）</td>{% for t in totals %}<td>{{ t.att|default:'' }}</td>{% endfor %}{% for _ in blank_days %}<td></td>{% endfor %}<td></td></tr>
+  </tbody>
+</table>
+<div class="small muted" style="margin-top:2px;">上の段：予定（○）　下の段：実績（○ 来た・× 休み）</div>
+{% endblock %}

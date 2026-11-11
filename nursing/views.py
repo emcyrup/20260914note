@@ -381,6 +381,7 @@ class VitalsWeekView(CareMixin, View):
             # 追加の検温の日付：この週にきょうがあればきょう、なければ週の初め
             'extra_day': datetime.date.today() if start <= datetime.date.today() <= start + datetime.timedelta(days=6) else start,
             'now_time': timezone.localtime().strftime('%H:%M'),
+            'room': getattr(getattr(b, 'care_profile', None), 'room', ''),
         })
 
 
@@ -510,6 +511,7 @@ class RecordEditView(CareMixin, View):
             return redirect(back)
         if not r.author_id:
             r.author = request.user
+        r.time = parse_time(p.get('time')) or r.time or timezone.localtime().time().replace(second=0, microsecond=0)
         if action == 'review':
             if not r.body.strip():
                 messages.error(request, '介護記録の本文が空です。「AIで下書き」を押すか、本文を書いてから確認へ出してください。')
@@ -571,12 +573,16 @@ class PersonRecordsPdfView(CareMixin, View):
     def get(self, request, pk):
         b = self.person_or_404(pk)
         start, end = parse_date(request.GET.get('from')), parse_date(request.GET.get('to'))
-        qs = CareRecord.objects.filter(beneficiary=b).exclude(body='').select_related('author', 'approved_by').order_by('date')
+        qs = CareRecord.objects.filter(beneficiary=b).exclude(body='').select_related('author', 'approved_by').order_by('date', 'time', 'created_at')
         if start:
             qs = qs.filter(date__gte=start)
         if end:
             qs = qs.filter(date__lte=end)
-        return pdf_or_html(request, 'nursing/pdf/records.html', {'b': b, 'facility': self.facility, 'records': qs[:400], 'start': start, 'end': end,
+        records = list(qs[:400])
+        for r in records:  # 時刻が無い古い記録は、書いた時刻（日本時間）
+            r.print_time = r.time or (timezone.localtime(r.created_at).time() if r.created_at else None)
+        records.sort(key=lambda r: (r.date, r.print_time or datetime.time.min))
+        return pdf_or_html(request, 'nursing/pdf/records.html', {'b': b, 'facility': self.facility, 'records': records, 'start': start, 'end': end,
                                                                  'insurance': latest_insurance_of(b), 'back_url': reverse('nursing:person_records', args=[b.pk])},
                            f'介護記録_{b.full_name}')
 
@@ -857,7 +863,8 @@ class PersonMedicationsView(CareMixin, View):
             m.due = m.due_state(today)
         edit = Medication.objects.filter(pk=to_int(request.GET.get('edit'), 0), beneficiary=b).first() if request.GET.get('edit') else None
         return render(request, self.template_name, {'b': b, 'tab': 'meds', 'meds': meds, 'edit': edit, 'timings': Medication.TIMINGS, 'today': today,
-                                                    'insurance': latest_insurance_of(b)})
+                                                    'insurance': latest_insurance_of(b), 'routes': Medication._meta.get_field('route').choices,
+                                                    'doctors': self.setting.doctor_list()})
 
     def post(self, request, pk):
         b = self.person_or_404(pk)
@@ -880,6 +887,7 @@ class PersonMedicationsView(CareMixin, View):
             return redirect(back)
         if med is None:
             med = Medication(facility=self.facility, beneficiary=b)
+        before = med.rx_key() if med.pk else None
         med.name = name
         med.dose = _text(p, 'dose', 100)
         med.timings = [k for k, _ in Medication.TIMINGS if k in p.getlist('timings')]
@@ -892,9 +900,14 @@ class PersonMedicationsView(CareMixin, View):
         med.review_due = parse_date(p.get('review_due'))
         med.notes = _text(p, 'notes', 300)
         med.is_active = p.get('is_active', '1') == '1'
+        med.route = p.get('route') if p.get('route') in ('oral', 'ext', 'inj') else 'oral'
+        med.days = _int(p, 'days', 1, 365)
         med.updated_by = request.user
         med.save()
-        messages.success(request, f'{b.full_name}さんの薬「{med.name}」を保存しました。')
+        # 新しい処方・処方の中身が変わったときは、所見・処方処置（①の用紙）の処方処置へ写す（医師の名前も。2026-11-11 やすらぎの森）
+        from .views_forms import copy_medication_to_note
+        noted = copy_medication_to_note(med, request.user) if med.rx_key() != before and med.is_active else None
+        messages.success(request, f'{b.full_name}さんの薬「{med.name}」を保存しました。' + ('所見・処方処置の「処方処置」にも写しました。' if noted else ''))
         return redirect(back)
 
 
@@ -1153,6 +1166,10 @@ class SettingView(CareMixin, View):
         if fever is not None:
             s.fever_temp = fever
         s.capacity = _int(p, 'capacity', 0, 500) or 0
+        if 'doctors' in p:
+            s.doctors = '\n'.join(x.strip()[:50] for x in _text(p, 'doctors', 400).splitlines() if x.strip())
+        if 'rx_label' in p:
+            s.rx_label = _text(p, 'rx_label', 20)
         s.save()
         messages.success(request, '介護施設の設定を保存しました。')
         back = p.get('back', '')

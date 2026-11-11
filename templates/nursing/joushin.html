@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block title %}上申書 {{ day|date:'n/j' }} — {{ app_label }}{% endblock %}
+{% block page_title %}上申書{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <div class="btn-group"><a href="?d={{ prev|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary" aria-label="前の日"><i class="bi bi-chevron-left"></i></a><a href="?" class="btn btn-sm btn-outline-secondary">きょう</a><a href="?d={{ next|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary" aria-label="次の日"><i class="bi bi-chevron-right"></i></a></div>
+      <input type="date" class="form-control form-control-sm" style="width:auto;" value="{{ day|date:'Y-m-d' }}" onchange="location.href='?d='+this.value" aria-label="日付">
+      <div class="fw-bold">{{ day_jp }}</div>
+    </div>
+    <div class="d-flex gap-2">{% if can_manage %}<a href="{% url 'nursing:settings' %}?back={{ request.get_full_path|urlencode }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-gear me-1"></i>医師の列を設定</a>{% endif %}
+      <a href="{% url 'nursing:joushin_print' %}?d={{ day|date:'Y-m-d' }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>上申書を印刷</a></div>
+  </div>
+  {% if not doctors %}<div class="alert alert-info small py-2">上申書の医師の列は「介護施設の設定」の「上申書の医師」に 1 行に 1 人ずつ入れます（用紙の左からの順）。</div>{% endif %}
+
+  <div class="nr-card">
+    <div class="nr-h mb-1"><i class="bi bi-plus-lg me-1"></i>上申書に足す</div>
+    <form method="post" class="row g-2 align-items-end">{% csrf_token %}<input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}"><input type="hidden" name="action" value="add">
+      <div class="col-md-3"><label class="nr-lbl" for="js-kind">区分</label><select name="kind" id="js-kind" class="form-select form-select-sm" onchange="document.getElementById('js-dr').classList.toggle('d-none', this.value==='exam');document.getElementById('js-ex').classList.toggle('d-none', this.value!=='exam');"><option value="dr">医師への上申</option><option value="exam">検査・採血・他科受診 等</option></select></div>
+      <div class="col-md-3" id="js-dr"><label class="nr-lbl" for="js-doctor">医師</label><input type="text" name="doctor" id="js-doctor" class="form-control form-control-sm" maxlength="50" list="doctor-list" value="{{ doctors.0|default:'' }}"><datalist id="doctor-list">{% for d in doctors %}<option value="{{ d }}">{% endfor %}</datalist></div>
+      <div class="col-md-3"><label class="nr-lbl" for="js-b">{{ terms.beneficiary }}</label><select name="b" id="js-b" class="form-select form-select-sm"><option value="">—</option>{% for p in people %}<option value="{{ p.pk }}">{{ p.full_name }}</option>{% endfor %}</select></div>
+      <div class="col-md-3 d-none" id="js-ex"><div class="nr-lbl">印</div><div class="d-flex gap-2 small"><label><input type="checkbox" name="referral" value="1" class="form-check-input"> 紹介状</label><label><input type="checkbox" name="meal_slip" value="1" class="form-check-input"> 食事箋</label><label><input type="checkbox" name="oral" value="1" class="form-check-input"> 内服</label></div></div>
+      <div class="col-12"><label class="nr-lbl" for="js-content">内容</label><textarea name="content" id="js-content" rows="2" class="form-control" maxlength="2000" required></textarea></div>
+      <div class="col-12 text-end"><button class="btn btn-primary btn-sm"><i class="bi bi-check2 me-1"></i>足す</button></div>
+    </form>
+  </div>
+
+  <div class="row g-2">
+    {% for c in columns %}
+    <div class="col-md-6 col-lg-3"><div class="nr-card h-100"><div class="nr-h">{{ c.doctor }}</div>
+      {% for it in c.items %}<div class="small border-bottom py-1 d-flex gap-1"><div class="flex-grow-1">{% if it.beneficiary %}<b>{{ it.beneficiary.full_name }}</b>：{% endif %}{{ it.content|linebreaksbr }}</div>
+        <form method="post">{% csrf_token %}<input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}"><input type="hidden" name="item" value="{{ it.pk }}"><button name="action" value="delete" class="btn btn-sm btn-link text-danger p-0" onclick="return confirm('消します。よろしいですか？');" aria-label="消す"><i class="bi bi-x-lg"></i></button></form></div>
+      {% empty %}<div class="small text-muted">なし</div>{% endfor %}
+    </div></div>
+    {% endfor %}
+  </div>
+
+  <div class="nr-card mt-2"><div class="nr-h">【検査・採血・他科受診 等】</div>
+    <table class="table table-sm mb-0 small"><thead><tr><th>氏名</th><th>内容</th><th class="text-center">紹介状</th><th class="text-center">食事箋</th><th class="text-center">内服</th><th></th></tr></thead>
+      <tbody>{% for it in exams %}<tr><td>{{ it.beneficiary.full_name|default:'' }}</td><td>{{ it.content|linebreaksbr }}</td><td class="text-center">{% if it.referral %}○{% endif %}</td><td class="text-center">{% if it.meal_slip %}○{% endif %}</td><td class="text-center">{% if it.oral %}○{% endif %}</td>
+        <td class="text-end"><form method="post">{% csrf_token %}<input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}"><input type="hidden" name="item" value="{{ it.pk }}"><button name="action" value="delete" class="btn btn-sm btn-link text-danger p-0" onclick="return confirm('消します。よろしいですか？');" aria-label="消す"><i class="bi bi-x-lg"></i></button></form></td></tr>
+      {% empty %}<tr><td colspan="6" class="text-muted">なし</td></tr>{% endfor %}</tbody></table>
+  </div>
+
+  <form method="post" class="nr-card">{% csrf_token %}<input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}"><input type="hidden" name="action" value="other">
+    <label class="nr-h" for="js-other">【その他】</label><textarea name="other" id="js-other" rows="3" class="form-control form-control-sm" maxlength="3000">{{ other }}</textarea>
+    <div class="text-end mt-1"><button class="btn btn-outline-primary btn-sm">【その他】を保存</button></div>
+  </form>
+</div>
+{% endblock %}

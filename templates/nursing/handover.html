@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block title %}申し送り {{ day|date:'n/j' }} — {{ app_label }}{% endblock %}
+{% block page_title %}申し送り{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}
+<style>
+  .ho-giver { font-weight: 700; border-bottom: 2px solid #4e7d89; padding-bottom: 2px; margin: 10px 0 4px; }
+  .ho-row { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px dashed #ddd; }
+  .ho-time { width: 3.2em; color: #4e7d89; font-weight: 600; flex-shrink: 0; }
+  .ho-who { color: #555; font-size: .85rem; }
+</style>{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <div class="btn-group"><a href="?d={{ prev|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary" aria-label="前の日"><i class="bi bi-chevron-left"></i></a><a href="?" class="btn btn-sm btn-outline-secondary">きょう</a><a href="?d={{ next|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary" aria-label="次の日"><i class="bi bi-chevron-right"></i></a></div>
+      <input type="date" class="form-control form-control-sm" style="width:auto;" value="{{ day|date:'Y-m-d' }}" onchange="location.href='?d='+this.value" aria-label="日付">
+      <div class="fw-bold">{{ day_jp }}</div>
+    </div>
+    <a href="{% url 'nursing:handover_print' %}?d={{ day|date:'Y-m-d' }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>申し送りの用紙で印刷</a>
+  </div>
+
+  <div class="nr-card">
+    <div class="nr-h mb-1"><i class="bi bi-plus-lg me-1"></i>申し送りを足す</div>
+    <form method="post" class="row g-2 align-items-end">{% csrf_token %}<input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}"><input type="hidden" name="action" value="add">
+      <div class="col-4 col-md-2"><label class="nr-lbl" for="ho-time">時刻</label><input type="time" name="time" id="ho-time" class="form-control form-control-sm" value="{{ now_time }}" required></div>
+      <div class="col-8 col-md-3"><label class="nr-lbl" for="ho-giver">申し送り者</label><input type="text" name="giver" id="ho-giver" class="form-control form-control-sm" value="{{ me }}" maxlength="50" list="giver-list" required><datalist id="giver-list">{% for g in givers %}<option value="{{ g }}">{% endfor %}</datalist></div>
+      <div class="col-md-3"><label class="nr-lbl" for="ho-b">{{ terms.beneficiary }}（あれば）</label><select name="b" id="ho-b" class="form-select form-select-sm"><option value="">—</option>{% for p in people %}<option value="{{ p.pk }}">{{ p.full_name }}</option>{% endfor %}</select></div>
+      <div class="col-12"><label class="nr-lbl" for="ho-content">内容</label>
+        <div class="d-flex gap-2"><textarea name="content" id="ho-content" rows="2" class="form-control" maxlength="2000" required placeholder="例：〇〇様 昼食後に 37.6℃。クーリング中。夕方に再検"></textarea>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-voice-target="ho-content" title="音声で入力"><i class="bi bi-mic"></i></button></div></div>
+      <div class="col-12 text-end"><button class="btn btn-primary btn-sm"><i class="bi bi-check2 me-1"></i>足す</button></div>
+    </form>
+  </div>
+
+  <div class="nr-card">
+    <div class="nr-h">日勤帯の申し送り（{{ count }} 件）<span class="small text-muted fw-normal ms-2">申し送り者ごとにひとかたまり・時間順。用紙にもこの順で出ます</span></div>
+    {% for g in groups %}
+    <div class="ho-giver">{{ g.giver }}</div>
+    {% for e in g.entries %}
+    <div class="ho-row">
+      <div class="ho-time">{{ e.time|time:'H:i' }}</div>
+      <div class="flex-grow-1">{% if e.beneficiary %}<span class="ho-who">【{{ e.beneficiary.full_name }}】</span>{% endif %}{{ e.content|linebreaksbr }}</div>
+      <form method="post" class="flex-shrink-0">{% csrf_token %}<input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}"><input type="hidden" name="entry" value="{{ e.pk }}"><button name="action" value="delete" class="btn btn-sm btn-outline-danger py-0" onclick="return confirm('この申し送りを消します。よろしいですか？');" aria-label="消す"><i class="bi bi-trash"></i></button></form>
+    </div>
+    {% endfor %}
+    {% empty %}<div class="small text-muted">まだ申し送りがありません。</div>{% endfor %}
+  </div>
+
+  <details class="nr-card" {% if hd.pk %}open{% endif %}>
+    <summary class="fw-bold" style="cursor:pointer;">リーダー・明日の予定・便対応者・2階での決定・周知事項・レク人数</summary>
+    <form method="post" class="row g-2 mt-1">{% csrf_token %}<input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}"><input type="hidden" name="action" value="day">
+      <div class="col-md-4"><label class="nr-lbl" for="leader">リーダー</label><input type="text" name="leader" id="leader" class="form-control form-control-sm" value="{{ hd.leader }}" maxlength="50" list="giver-list"></div>
+      <div class="col-6 col-md-2"><label class="nr-lbl" for="rec_am">レク人数 AM</label><input type="number" name="rec_am" id="rec_am" min="0" class="form-control form-control-sm" value="{{ hd.rec_am|default_if_none:'' }}"></div>
+      <div class="col-6 col-md-2"><label class="nr-lbl" for="rec_pm">レク人数 PM</label><input type="number" name="rec_pm" id="rec_pm" min="0" class="form-control form-control-sm" value="{{ hd.rec_pm|default_if_none:'' }}"></div>
+      <div class="col-md-6"><label class="nr-lbl" for="tomorrow">明日の予定</label><textarea name="tomorrow" id="tomorrow" rows="3" class="form-control form-control-sm" maxlength="2000">{{ hd.tomorrow }}</textarea></div>
+      <div class="col-md-6"><label class="nr-lbl" for="decisions">2階での決定・周知事項</label><textarea name="decisions" id="decisions" rows="3" class="form-control form-control-sm" maxlength="2000">{{ hd.decisions }}</textarea></div>
+      <div class="col-md-6"><label class="nr-lbl" for="telemin">便対応者：テレミン</label><input type="text" name="telemin" id="telemin" class="form-control form-control-sm" value="{{ hd.telemin }}" maxlength="200"></div>
+      <div class="col-md-6"><label class="nr-lbl" for="laxative">便対応者：下剤対応</label><input type="text" name="laxative" id="laxative" class="form-control form-control-sm" value="{{ hd.laxative }}" maxlength="200"></div>
+      <div class="col-12 text-end"><button class="btn btn-outline-primary btn-sm"><i class="bi bi-check2 me-1"></i>この欄を保存</button></div>
+    </form>
+  </details>
+</div>
+{% endblock %}

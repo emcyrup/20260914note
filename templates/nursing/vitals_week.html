@@ -1,13 +1,18 @@
 {% extends 'nursing/_person_base.html' %}
 {% block title %}{{ b.full_name }} 検温板 — {{ app_label }}{% endblock %}
-{% block person_actions %}<a href="{% url 'nursing:vitals_week_print' b.pk %}?w={{ start|date:'Y-m-d' }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>この週を印刷</a>{% endblock %}
+{% block person_actions %}<a href="{% url 'nursing:vitals_week_print' b.pk %}?w={{ start|date:'Y-m-d' }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>この週を印刷</a>
+<a href="{% url 'nursing:temp_board_print' b.pk %}?start={{ prev|date:'Y-m-d' }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary" title="前の週とこの週の 2 週間を、温度板の用紙（T・P のグラフ・血圧・尿・便・食事・水分・注射・内服）で"><i class="bi bi-graph-up me-1"></i>温度板（2 週間）</a>{% endblock %}
 {% block tab_content %}
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
   <div class="d-flex align-items-center gap-2">
     <div class="btn-group"><a href="?w={{ prev|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-left"></i></a><a href="?" class="btn btn-sm btn-outline-secondary">今週</a><a href="?w={{ next|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-right"></i></a></div>
     <div class="fw-bold">{{ start|date:'Y年n月j日' }} 〜 {{ end|date:'n月j日' }}</div>
   </div>
-  <a href="{% url 'nursing:vitals_day' %}?d={{ today|date:'Y-m-d' }}" class="small">きょうの検温板（全員）へ</a>
+  <div class="d-flex align-items-center gap-2">
+    <form method="post" action="{% url 'nursing:person_room' b.pk %}" class="d-flex align-items-center gap-1">{% csrf_token %}<input type="hidden" name="back" value="{{ request.get_full_path }}">
+      <label class="small text-muted" for="room">部屋</label><input type="text" name="room" id="room" class="form-control form-control-sm" style="width:6em;" value="{{ room }}" maxlength="20" title="温度板の「部屋」に出します"><button class="btn btn-sm btn-outline-secondary py-0">保存</button></form>
+    <a href="{% url 'nursing:vitals_day' %}?d={{ today|date:'Y-m-d' }}" class="small">きょうの検温板（全員）へ</a>
+  </div>
 </div>
 <div class="nr-card">
   <div class="table-responsive">

@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+{% block title %}利用予定・実績表 {{ y }}年{{ m }}月 — {{ app_label }}{% endblock %}
+{% block page_title %}利用予定・実績表{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}
+<style>
+  .dm { border-collapse: collapse; font-size: .8rem; }
+  .dm th, .dm td { border: 1px solid #ccc; text-align: center; padding: 0; }
+  .dm th.nm, .dm td.nm { text-align: left; padding: 2px 6px; white-space: nowrap; position: sticky; left: 0; background: #fff; z-index: 1; min-width: 7.5em; }
+  .dm .dh { min-width: 1.9em; font-weight: 500; }
+  .dm .sun { background: #f1f1f1; color: #b23b3b; } .dm .sat { color: #2f6f9f; }
+  .dm td.c { height: 1.55em; cursor: pointer; user-select: none; }
+  .dm td.c:hover { background: #eef5f7; }
+  .dm tr.att td.c { border-top: 1px dashed #ccc; }
+  .dm tr.plan td { border-bottom: none; }
+  .dm .x { color: #b23b3b; }
+  .dm .lbl2 { font-size: .7rem; color: #777; width: 2.2em; }
+  .dm tfoot td { background: #f7f9fa; font-weight: 600; }
+</style>{% endblock %}
+{% block content %}
+<div class="px-2">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+    <div class="d-flex align-items-center gap-2">
+      <div class="btn-group"><a href="?y={{ prev.0 }}&m={{ prev.1 }}{% if everyone %}&all=1{% endif %}" class="btn btn-sm btn-outline-secondary" aria-label="前の月"><i class="bi bi-chevron-left"></i></a><a href="?" class="btn btn-sm btn-outline-secondary">今月</a><a href="?y={{ next.0 }}&m={{ next.1 }}{% if everyone %}&all=1{% endif %}" class="btn btn-sm btn-outline-secondary" aria-label="次の月"><i class="bi bi-chevron-right"></i></a></div>
+      <div class="fw-bold">{{ y }}年{{ m }}月分</div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <a href="{% url 'nursing:teikyo' %}?y={{ y }}&m={{ m }}" class="btn btn-sm btn-primary"><i class="bi bi-file-earmark-text me-1"></i>提供票を読む</a>
+      <form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="y" value="{{ y }}"><input type="hidden" name="m" value="{{ m }}"><button name="action" value="weekday" class="btn btn-sm btn-outline-secondary" title="この月に予定が無い人に、{{ terms.beneficiary }}情報の「利用の曜日」から予定を入れます">利用の曜日から予定を作る</button></form>
+      <a href="{% url 'nursing:week_plan' %}?d={{ days.0|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-calendar-week me-1"></i>週間通所予定表</a>
+      <a href="{% url 'nursing:transport_board' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-bus-front me-1"></i>送迎表</a>
+      <a href="{% url 'nursing:day_month_print' %}?y={{ y }}&m={{ m }}{% if everyone %}&all=1{% endif %}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>印刷</a>
+    </div>
+  </div>
+  <div class="small text-muted mb-2">上の段＝<b>予定</b>（○）、下の段＝<b>実績</b>（押すたびに ○ 来た → <span class="x">×</span> 休み → 空）。マスを押すとすぐ保存します。{% if not everyone %}<a href="?y={{ y }}&m={{ m }}&all=1">予定の無い人も出す</a>{% else %}<a href="?y={{ y }}&m={{ m }}">予定のある人だけ</a>{% endif %}</div>
+  <div class="table-responsive nr-card p-1">
+  <table class="dm">
+    <thead><tr><th class="nm">氏名</th><th class="lbl2"></th>{% for h in heads %}<th class="dh {% if h.d.weekday == 6 %}sun{% elif h.d.weekday == 5 %}sat{% endif %}"><a href="{% url 'nursing:transport_board' %}?d={{ h.d|date:'Y-m-d' }}" class="text-reset text-decoration-none" title="この日の送迎表">{{ h.d.day }}<br>{{ h.w }}</a></th>{% endfor %}<th>回数</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr class="plan"><td class="nm" rowspan="2"><a href="{% url 'beneficiaries:detail' r.b.pk %}" class="text-decoration-none">{{ r.b.full_name }}</a></td><td class="lbl2">予定</td>
+        {% for c in r.cells %}<td class="c {% if c.d.weekday == 6 %}sun{% endif %}" data-b="{{ r.b.pk }}" data-d="{{ c.d|date:'Y-m-d' }}" data-part="plan" title="{{ c.d|date:'n/j' }} の予定">{% if c.plan %}○{% endif %}</td>{% endfor %}<td>{{ r.plan_n }}</td></tr>
+      <tr class="att"><td class="lbl2">実績</td>
+        {% for c in r.cells %}<td class="c {% if c.d.weekday == 6 %}sun{% endif %}" data-b="{{ r.b.pk }}" data-d="{{ c.d|date:'Y-m-d' }}" data-part="att" title="{{ c.d|date:'n/j' }} の実績">{% if c.att %}○{% elif c.att == False %}<span class="x">×</span>{% endif %}</td>{% endfor %}<td>{{ r.att_n }}</td></tr>
+    {% empty %}<tr><td class="nm" colspan="{{ days|length|add:3 }}">この月の予定はまだありません。「提供票を読む」か「利用の曜日から予定を作る」から入れてください。</td></tr>{% endfor %}
+    </tbody>
+    <tfoot><tr><td class="nm">合計（予定）</td><td></td>{% for t in totals %}<td>{{ t.plan|default:'' }}</td>{% endfor %}<td></td></tr>
+      <tr><td class="nm">合計（実績人数）</td><td></td>{% for t in totals %}<td>{{ t.att|default:'' }}</td>{% endfor %}<td></td></tr></tfoot>
+  </table>
+  </div>
+  <form method="post" class="nr-card d-flex flex-wrap gap-2 align-items-end mt-2">{% csrf_token %}<input type="hidden" name="y" value="{{ y }}"><input type="hidden" name="m" value="{{ m }}"><input type="hidden" name="action" value="add_person">
+    <div class="small text-muted me-auto">表に無い人の予定を足す</div>
+    <select name="b" class="form-select form-select-sm" style="width:auto;" aria-label="{{ terms.beneficiary }}" required><option value="">{{ terms.beneficiary }}を選ぶ</option>{% for p in people %}<option value="{{ p.pk }}">{{ p.full_name }}</option>{% endfor %}</select>
+    <input type="date" name="d" class="form-control form-control-sm" style="width:auto;" value="{{ days.0|date:'Y-m-d' }}" min="{{ days.0|date:'Y-m-d' }}" max="{{ days|last|date:'Y-m-d' }}" aria-label="日付" required>
+    <button class="btn btn-sm btn-outline-primary">足す</button>
+  </form>
+</div>
+<script>
+(function () {
+  const CSRF = '{{ csrf_token }}';
+  document.querySelectorAll('.dm td.c').forEach(td => td.addEventListener('click', async () => {
+    td.style.opacity = .4;
+    try {
+      const res = await fetch('{% url "nursing:day_toggle" %}', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+        body: JSON.stringify({b: td.dataset.b, d: td.dataset.d, part: td.dataset.part})});
+      const s = await res.json();
+      if (!res.ok) { alert(s.error || '保存できませんでした。'); return; }
+      const sel = `td.c[data-b="${td.dataset.b}"][data-d="${td.dataset.d}"]`;
+      document.querySelector(sel + '[data-part="plan"]').innerHTML = s.plan ? '○' : '';
+      document.querySelector(sel + '[data-part="att"]').innerHTML = s.att === true ? '○' : (s.att === false ? '<span class="x">×</span>' : '');
+    } finally { td.style.opacity = 1; }
+  }));
+})();
+</script>
+{% endblock %}
