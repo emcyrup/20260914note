@@ -43,6 +43,9 @@ urlpatterns = [
     path('users/<int:pk>/plans/<int:plan_pk>/print/', views.PlanPdfView.as_view(), name='plan_print'),
     # やすらぎの森の様式（2026-11-11）：申し送り・所見／処方処置・上申書・温度板・処方箋
     path('handover/', views_forms.HandoverView.as_view(), name='handover'),
+    path('timeline/', views_forms.TimelineDayView.as_view(), name='timeline_day'),
+    path('users/<int:pk>/timeline/', views_forms.PersonTimelineView.as_view(), name='person_timeline'),
+    path('users/<int:pk>/timeline/print/', views_forms.PersonTimelinePdfView.as_view(), name='person_timeline_print'),
     path('handover/print/', views_forms.HandoverPdfView.as_view(), name='handover_print'),
     path('joushin/', views_forms.JoushinView.as_view(), name='joushin'),
     path('joushin/print/', views_forms.JoushinPdfView.as_view(), name='joushin_print'),

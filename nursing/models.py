@@ -332,6 +332,9 @@ class Medication(models.Model):
     is_active = models.BooleanField(default=True, verbose_name='服用中')
     route = models.CharField(max_length=4, choices=[('oral', '内服'), ('ext', '外用'), ('inj', '注射')], default='oral', verbose_name='区分')
     days = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name='日数（○日分）')
+    check_on = models.DateField(null=True, blank=True, verbose_name='確認予定日', help_text='空なら開始日＋日数（7 日分なら 7 日後）')
+    check_doctor = models.CharField(max_length=50, blank=True, verbose_name='確認する医師')
+    checked_at = models.DateTimeField(null=True, blank=True, verbose_name='確認した日時')
     updated_by = models.ForeignKey(StaffAccount, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -362,6 +365,15 @@ class Medication(models.Model):
         if self.days:
             parts.append(f'{self.days}日分')
         return '　'.join(x for x in parts if x)
+
+    def check_state(self, today=None):
+        """確認予定日：'' / 'today'（きょうまで・まだ確認していない）/ 'soon'（3 日以内）"""
+        if not self.check_on or not self.is_active or self.checked_at:
+            return ''
+        today = today or datetime.date.today()
+        if self.check_on <= today:
+            return 'today'
+        return 'soon' if (self.check_on - today).days <= 3 else ''
 
     def rx_key(self):
         """処方処置へ写し直すかを決める中身（名前・量・時間・日数・区分・医師）"""
@@ -468,6 +480,7 @@ class NursingSetting(models.Model):
     capacity = models.PositiveSmallIntegerField(default=0, verbose_name='定員（人員配置の判定に使う。0 なら見ない）')
     doctors = models.TextField(blank=True, verbose_name='上申書の医師（1 行に 1 人）', help_text='上申書の列の順。例：山田 Dr')
     rx_label = models.CharField(max_length=20, blank=True, default='入所', verbose_name='処方箋の区分（入所・通所など）')
+    use_family = models.BooleanField(default=True, verbose_name='家族向けの文（連絡帳）を使う')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -535,9 +548,12 @@ class HandoverEntry(models.Model):
     facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='handover_entries')
     date = models.DateField(verbose_name='日付')
     time = models.TimeField(verbose_name='時刻')
+    SHIFTS = [('day', '日勤'), ('night', '夜勤')]
     giver = models.CharField(max_length=50, verbose_name='申し送り者')
     beneficiary = models.ForeignKey(Beneficiary, on_delete=models.SET_NULL, null=True, blank=True, related_name='handovers', verbose_name='利用者')
     content = models.TextField(verbose_name='内容')
+    shift = models.CharField(max_length=5, choices=SHIFTS, default='day', verbose_name='勤務帯')
+    important = models.BooleanField(default=False, verbose_name='重要（体調の変化など。詳しく確かめる）')
     created_by = models.ForeignKey(StaffAccount, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -663,3 +679,31 @@ class TransportStop(models.Model):
         verbose_name = '送迎の順番'
         verbose_name_plural = '送迎の順番'
         ordering = ['order', 'pk']
+
+
+class ProgressNote(models.Model):
+    """
+    経過記録（2026-11-11 の打ち合わせ）：介護・看護・医師・リハ・SW が、利用者ごとに出来事の時刻で書く。
+    夕方にまとめて入れても、出来事の時刻で並ぶ。担当者・職種を残し、職種で色を分ける。「申し送りに出す」「重要」の印
+    """
+    ROLES = [('care', '介護'), ('nurse', '看護'), ('doctor', '医師'), ('reha', 'リハ'), ('sw', '相談員'), ('other', 'その他')]
+    facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='progress_notes')
+    beneficiary = models.ForeignKey(Beneficiary, on_delete=models.CASCADE, related_name='progress_notes', verbose_name='利用者')
+    date = models.DateField(verbose_name='日付')
+    time = models.TimeField(verbose_name='出来事の時刻')
+    role = models.CharField(max_length=6, choices=ROLES, default='care', verbose_name='職種')
+    author_name = models.CharField(max_length=50, verbose_name='担当者')
+    body = models.TextField(verbose_name='記録')
+    handover = models.BooleanField(default=False, verbose_name='申し送りに出す')
+    important = models.BooleanField(default=False, verbose_name='重要')
+    created_by = models.ForeignKey(StaffAccount, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '経過記録'
+        verbose_name_plural = '経過記録'
+        ordering = ['date', 'time', 'pk']
+
+    def __str__(self):
+        return f'{self.beneficiary} {self.date} {self.time:%H:%M} {self.get_role_display()}'

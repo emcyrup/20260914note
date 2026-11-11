@@ -1,6 +1,7 @@
 {# 介護施設：利用者ごとのタブ。b と tab を渡す #}
 <nav class="nr-tabs mb-3" aria-label="{{ b.full_name }}さんの画面">
   <a href="{% url 'beneficiaries:detail' b.pk %}" class="{% if tab == 'info' %}active{% endif %}"><i class="bi bi-person-vcard"></i>利用者情報</a>
+  <a href="{% url 'nursing:person_timeline' b.pk %}" class="{% if tab == 'timeline' %}active{% endif %}"><i class="bi bi-clock-history"></i>経過記録</a>
   <a href="{% url 'nursing:person_records' b.pk %}" class="{% if tab == 'records' %}active{% endif %}"><i class="bi bi-journal-text"></i>介護記録</a>
   <a href="{% url 'nursing:vitals_week' b.pk %}" class="{% if tab == 'vitals' %}active{% endif %}"><i class="bi bi-thermometer-half"></i>検温板</a>
   <a href="{% url 'nursing:person_meds' b.pk %}" class="{% if tab == 'meds' %}active{% endif %}"><i class="bi bi-capsule"></i>薬</a>

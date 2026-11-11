@@ -1,0 +1,29 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}経過記録 {{ b.full_name }}{% endblock %}
+{% block page_margin %}10mm{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  h1 { font-size: 18px; letter-spacing: .6em; margin-bottom: 2px; }
+  .nm { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 3px; }
+  .nm b { font-size: 13px; border-bottom: 1px solid #333; padding: 0 4px; }
+  .tl { border: 1.5px solid #222; }
+  .tl th { background: #fff; border-bottom: 1.5px solid #222; }
+  .tl td { border-top: 1px dotted #777; border-bottom: 1px dotted #777; padding: 2px 5px; line-height: 1.55; }
+  .tl td.c { text-align: center; }
+  .rl-care { color: #6d4c2f; } .rl-nurse { color: #2e7d32; } .rl-doctor { color: #111; } .rl-reha { color: #1f5fbf; } .rl-sw { color: #c0392b; } .rl-other { color: #666; }
+  .imp { font-weight: 700; }
+  .lg span { margin-right: 10px; }
+</style>
+<h1>経過記録</h1>
+<div class="nm"><span>名前 <b>{{ b.full_name }}</b></span><span>{{ start|date:'Y/n/j' }} 〜 {{ end|date:'Y/n/j' }}{% if role_names %}（{{ role_names }}）{% endif %}</span></div>
+<table class="tl">
+  <thead><tr><th style="width:8%;">月　日</th><th style="width:7%;">時　間</th><th style="width:7%;">職　種</th><th>記　　　　録</th><th style="width:11%;">担当者</th></tr></thead>
+  <tbody>
+  {% for x in items %}<tr class="rl-{{ x.role }} {% if x.important %}imp{% endif %}"><td class="c">{% ifchanged x.date %}{{ x.date|date:'n/j' }}{% endifchanged %}</td><td class="c">{{ x.time|time:'H:i'|default:'' }}</td><td class="c">{{ x.role_label }}</td>
+    <td style="white-space:pre-wrap;">{% if x.important %}★{% endif %}{{ x.body }}</td><td class="c small">{{ x.author }}</td></tr>
+  {% empty %}<tr><td colspan="5">記録がありません。</td></tr>{% endfor %}
+  </tbody>
+</table>
+<div class="small lg" style="margin-top:3px;">{% for k, l in roles %}<span class="rl-{{ k }}">■{{ l }}</span>{% endfor %}　★ 重要　{{ facility.org_label }}</div>
+{% endblock %}

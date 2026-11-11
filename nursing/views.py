@@ -136,6 +136,12 @@ class HomeView(CareMixin, View):
         approved_today = sum(1 for r in records.values() if r.status == STATUS_APPROVED)
         incidents_open = IncidentReport.objects.filter(facility=f).exclude(status=STATUS_APPROVED).select_related('beneficiary')[:10]
         meds = [m for m in Medication.objects.filter(facility=f, is_active=True, review_due__isnull=False).select_related('beneficiary') if m.due_state(today)]
+        med_checks = sorted([m for m in Medication.objects.filter(facility=f, is_active=True, check_on__isnull=False, checked_at__isnull=True,
+                                                                  check_on__lte=today + datetime.timedelta(days=3)).select_related('beneficiary')],
+                            key=lambda m: m.check_on)
+        from .views_forms import handover_entries
+        important = sorted([e for d in (today - datetime.timedelta(days=1), today) for e in handover_entries(f, d) if e.important],
+                           key=lambda e: (e.date, e.time))
         plans = {}
         for p in CarePlan.objects.filter(facility=f, beneficiary__status=Beneficiary.STATUS_ACTIVE).select_related('beneficiary').order_by('beneficiary_id', '-created_on', '-pk'):
             plans.setdefault(p.beneficiary_id, p)
@@ -147,7 +153,8 @@ class HomeView(CareMixin, View):
             'unwritten': unwritten, 'written': n - len(unwritten), 'review': review, 'review_count': CareRecord.objects.filter(facility=f, status=STATUS_REVIEW).count(),
             'approved_today': approved_today, 'incidents_open': incidents_open, 'meds': meds, 'plan_alerts': plan_alerts, 'no_plan': no_plan,
             'staffing': staffing, 'staffing_judge': staffing.judge() if staffing else None, 'can_approve': self.can_approve(),
-            'family_flags': [r for r in records.values() if 'family' in (r.checks or {}) and r.checks.get('family') == 'yes'],
+            'family_flags': [r for r in records.values() if 'family' in (r.checks or {}) and r.checks.get('family') == 'yes'] if self.setting.use_family else [],
+            'med_checks': med_checks, 'important_handovers': important, 'setting': self.setting,
         })
 
 
@@ -503,7 +510,8 @@ class RecordEditView(CareMixin, View):
         r.memo = _text(p, 'memo')
         r.lang = p.get('lang') if p.get('lang') in dict(LANGS) else 'ja'
         r.body = _text(p, 'body')
-        r.family_message = _text(p, 'family_message', 2000)
+        if 'family_message' in p:      # 家族向けの文を使わない事業所では欄が無い（入っている文は残す）
+            r.family_message = _text(p, 'family_message', 2000)
         r.internal_note = _text(p, 'internal_note')
         r.ai_drafted = r.ai_drafted or p.get('ai_drafted') == '1'
         if r.is_empty:
@@ -861,6 +869,7 @@ class PersonMedicationsView(CareMixin, View):
         meds = list(Medication.objects.filter(beneficiary=b))
         for m in meds:
             m.due = m.due_state(today)
+            m.check = m.check_state(today)
         edit = Medication.objects.filter(pk=to_int(request.GET.get('edit'), 0), beneficiary=b).first() if request.GET.get('edit') else None
         return render(request, self.template_name, {'b': b, 'tab': 'meds', 'meds': meds, 'edit': edit, 'timings': Medication.TIMINGS, 'today': today,
                                                     'insurance': latest_insurance_of(b), 'routes': Medication._meta.get_field('route').choices,
@@ -874,6 +883,11 @@ class PersonMedicationsView(CareMixin, View):
         if med and p.get('action') == 'delete':
             med.delete()
             messages.success(request, '薬を 1 件消しました。')
+            return redirect(back)
+        if med and p.get('action') == 'checked':
+            med.checked_at = timezone.now()
+            med.save(update_fields=['checked_at', 'updated_at'])
+            messages.success(request, f'{med.name} の確認（{med.check_doctor or "医師"}）を済みにしました。')
             return redirect(back)
         if med and p.get('action') == 'stop':
             med.is_active = False
@@ -902,6 +916,13 @@ class PersonMedicationsView(CareMixin, View):
         med.is_active = p.get('is_active', '1') == '1'
         med.route = p.get('route') if p.get('route') in ('oral', 'ext', 'inj') else 'oral'
         med.days = _int(p, 'days', 1, 365)
+        check_on = parse_date(p.get('check_on'))
+        if not check_on and med.days and med.start_on:
+            check_on = med.start_on + datetime.timedelta(days=med.days)   # 7 日分なら 7 日後に医師が確認
+        if check_on != med.check_on:
+            med.checked_at = None
+        med.check_on = check_on
+        med.check_doctor = _text(p, 'check_doctor', 50) or (med.prescriber[:50] if check_on else '')
         med.updated_by = request.user
         med.save()
         # 新しい処方・処方の中身が変わったときは、所見・処方処置（①の用紙）の処方処置へ写す（医師の名前も。2026-11-11 やすらぎの森）
@@ -1170,6 +1191,8 @@ class SettingView(CareMixin, View):
             s.doctors = '\n'.join(x.strip()[:50] for x in _text(p, 'doctors', 400).splitlines() if x.strip())
         if 'rx_label' in p:
             s.rx_label = _text(p, 'rx_label', 20)
+        if 'use_family_shown' in p:
+            s.use_family = p.get('use_family') == '1'
         s.save()
         messages.success(request, '介護施設の設定を保存しました。')
         back = p.get('back', '')

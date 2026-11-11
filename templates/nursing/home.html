@@ -45,6 +45,16 @@
       </div>
     </div>
     <div class="col-lg-6">
+      <div class="nr-card" {% if important_handovers %}style="border-left:4px solid #c0392b;"{% endif %}>
+        <div class="d-flex justify-content-between align-items-center mb-2"><div class="nr-h {% if important_handovers %}text-danger{% endif %}"><i class="bi bi-exclamation-circle me-1"></i>重要な申し送り（きのう・きょう）</div><a href="{% url 'nursing:handover' %}" class="small">申し送りへ</a></div>
+        {% for e in important_handovers %}<div class="py-1 border-top small"><b>{{ e.date|date:'n/j' }} {{ e.time|time:'H:i' }}</b> {% if e.beneficiary %}<b>{{ e.beneficiary.full_name }}</b>：{% endif %}{{ e.content|truncatechars:90 }} <span class="text-muted">（{{ e.giver }}）</span></div>
+        {% empty %}<div class="small text-muted">重要の印の付いた申し送りはありません。</div>{% endfor %}
+      </div>
+      <div class="nr-card">
+        <div class="d-flex justify-content-between align-items-center mb-2"><div class="nr-h"><i class="bi bi-person-badge me-1"></i>医師が確認する薬（処方日数から）</div><a href="{% url 'nursing:medications' %}" class="small">薬の管理へ</a></div>
+        {% for m in med_checks %}<div class="d-flex justify-content-between py-1 border-top gap-2"><a href="{% url 'nursing:person_meds' m.beneficiary.pk %}" class="text-decoration-none">{{ m.beneficiary.full_name }}　{{ m.name }}</a><span class="small {% if m.check_on <= today %}text-danger fw-bold{% else %}text-warning-emphasis{% endif %}">{{ m.check_on|date:'n/j' }} {{ m.check_doctor }}</span></div>
+        {% empty %}<div class="small text-muted">3 日以内に確認する薬はありません。</div>{% endfor %}
+      </div>
       <div class="nr-card">
         <div class="d-flex justify-content-between align-items-center mb-2"><div class="nr-h"><i class="bi bi-capsule me-1"></i>薬の更新の期限</div><a href="{% url 'nursing:medications' %}" class="small">薬の管理へ</a></div>
         {% for m in meds %}<div class="d-flex justify-content-between py-1 border-top gap-2"><a href="{% url 'nursing:person_meds' m.beneficiary.pk %}" class="text-decoration-none">{{ m.beneficiary.full_name }}　{{ m.name }}</a><span class="small {% if m.due_state == 'over' %}text-danger fw-bold{% else %}text-warning-emphasis{% endif %}">{{ m.review_due|date:'n/j' }}{% if m.due_state == 'over' %} 過ぎています{% else %} まで{% endif %}</span></div>

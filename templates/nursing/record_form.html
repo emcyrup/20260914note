@@ -56,6 +56,7 @@
       <div id="body-note" class="alert alert-warning small py-1 px-2 mt-1 mb-0 d-none"></div>
     </div>
     <div class="col-md-5">
+      {% if setting.use_family %}
       <label class="nr-lbl" for="family_message">5. 家族向けのメッセージ（連絡帳。LINE・印刷に使う）</label>
       <textarea name="family_message" id="family_message" class="form-control" rows="5">{{ r.family_message }}</textarea>
       <div class="nr-ai-bar mt-1">
@@ -63,6 +64,7 @@
         <button type="button" class="btn btn-sm btn-link nr-undo d-none" data-target="family_message">元に戻す</button>
         {% if guardian %}<span class="small text-muted">宛先：{{ guardian.last_name }} {{ guardian.first_name }}{% if guardian.line_linked %}（LINE 連携ずみ）{% else %}（LINE 未連携）{% endif %}</span>{% else %}<span class="small text-muted">家族の登録なし</span>{% endif %}
       </div>
+      {% endif %}
       <label class="nr-lbl mt-2" for="internal_note">6. 内部の記録（家族には出さない。注意の履歴・申し送り）</label>
       <textarea name="internal_note" id="internal_note" class="form-control" rows="3">{{ r.internal_note }}</textarea>
     </div>

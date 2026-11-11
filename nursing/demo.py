@@ -393,6 +393,26 @@ def add_forms(facility, user=None):
             HandoverDay.objects.get_or_create(facility=facility, date=day, defaults={
                 'leader': SAMPLE_LEADER, 'tomorrow': '午前：健康診断（3 名）\n午後：誕生日会', 'telemin': '見本 看護A', 'laxative': '見本 介護B',
                 'decisions': '感染対策のため、面会は予約制を続ける。', 'rec_am': 12, 'rec_pm': 9})
+        # 経過記録（きのう・きょう。職種ごと。夕方に書いても出来事の時刻で並ぶ例）
+        from .models import ProgressNote
+        notes = [('09:20', 'nurse', '見本 看護A', '朝の血圧 148/86。本人に自覚症状なし。昼に再検。', False, False),
+                 ('10:40', 'reha', '見本 リハD', '平行棒内歩行 10 m × 2 往復。ふらつきなし。', False, False),
+                 ('13:30', 'nurse', '見本 看護A', '再検 152/90。医師へ報告し、夕方にもう一度測る。', True, True),
+                 ('15:10', 'care', '見本 介護B', 'おやつは全量。レクの体操に参加。', False, False),
+                 ('16:00', 'sw', '見本 相談員C', '家族より、来週の通院の付き添いについて電話あり。', True, False)]
+        for day in (today - datetime.timedelta(days=1), today):
+            if ProgressNote.objects.filter(facility=facility, date=day, beneficiary__in=people).exists():
+                continue
+            for i, (tm, role, who, body, ho, imp) in enumerate(notes):
+                ProgressNote.objects.create(facility=facility, beneficiary=people[i % min(3, len(people))], date=day,
+                                            time=datetime.time(*map(int, tm.split(':'))), role=role, author_name=who, body=body,
+                                            handover=ho, important=imp, created_by=user)
+        # 薬の確認予定（処方日数から）
+        for m in Medication.objects.filter(beneficiary__in=people[:3], check_on__isnull=True, is_active=True):
+            m.start_on = today - datetime.timedelta(days=12)
+            m.check_on = m.start_on + datetime.timedelta(days=m.days or 14)
+            m.check_doctor = m.prescriber[:50]
+            m.save(update_fields=['start_on', 'check_on', 'check_doctor'])
         # 上申書（きょう）
         if not JoushinItem.objects.filter(facility=facility, date=today, beneficiary__in=people).exists():
             JoushinItem.objects.create(facility=facility, date=today, kind='dr', doctor=doctors[0], beneficiary=people[0], content='37.6℃の発熱。咳なし。様子を見てよいか。', created_by=user)

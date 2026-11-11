@@ -8,6 +8,7 @@
 """
 import datetime
 from collections import OrderedDict
+from types import SimpleNamespace
 
 from django.contrib import messages
 from django.db.models import Q
@@ -19,8 +20,8 @@ from django.views import View
 from config.pdf import pdf_or_html
 from config.utils import to_int
 
-from .models import (WEEK_JP, CareProfile, DoctorNote, HandoverDay, HandoverEntry, JoushinDay, JoushinItem, Medication, VitalsExtra,
-                     VitalsLog, week_start)
+from .models import (WEEK_JP, CareProfile, CareRecord, DoctorNote, HandoverDay, HandoverEntry, JoushinDay, JoushinItem, Medication,
+                     ProgressNote, VitalsExtra, VitalsLog, week_start)
 from .views import CareMixin, _int, _text, jp_date, latest_insurance_of, parse_date, parse_time
 
 
@@ -50,6 +51,8 @@ def copy_medication_to_note(med, user):
     day = med.start_on or datetime.date.today()
     head = {'inj': '注射', 'ext': '外用'}.get(med.route, 'Rp')
     text = f'{head}）{med.rx_line()}'
+    if med.check_on:
+        text += f'　→ {med.check_on.month}/{med.check_on.day} {med.check_doctor or med.prescriber or ""} 確認'.rstrip()
     doctor = (med.prescriber or '')[:50]
     note = DoctorNote.objects.filter(medication=med, date=day).first()
     if note:
@@ -64,9 +67,32 @@ def copy_medication_to_note(med, user):
 def handover_groups(entries):
     """申し送り者ごとにひとかたまり（最初に申し送った時刻の順）・中は時間順"""
     groups = OrderedDict()
-    for e in sorted(entries, key=lambda x: (x.time, x.pk)):
+    for e in sorted(entries, key=lambda x: (x.time, x.pk or 0)):
         groups.setdefault(e.giver, []).append(e)
     return [{'giver': g, 'entries': es} for g, es in groups.items()]
+
+
+DAY_FROM, DAY_TO = datetime.time(8, 0), datetime.time(17, 0)
+
+
+def shift_of(t):
+    return 'day' if DAY_FROM <= t < DAY_TO else 'night'
+
+
+def handover_entries(facility, day, shift=None):
+    """その日の申し送り：手で足した申し送り＋経過記録で「申し送りに出す」に印を付けたもの（担当者を申し送り者に）"""
+    qs = HandoverEntry.objects.filter(facility=facility, date=day).select_related('beneficiary')
+    if shift:
+        qs = qs.filter(shift=shift)
+    out = list(qs)
+    for e in out:
+        e.from_record = False
+    for n in ProgressNote.objects.filter(facility=facility, date=day, handover=True).select_related('beneficiary'):
+        if shift and shift_of(n.time) != shift:
+            continue
+        out.append(SimpleNamespace(pk=None, date=n.date, time=n.time, giver=n.author_name, beneficiary=n.beneficiary, content=n.body, important=n.important,
+                                   shift=shift_of(n.time), from_record=True, role=n.get_role_display(), note_pk=n.pk))
+    return out
 
 
 class HandoverView(CareMixin, View):
@@ -74,10 +100,13 @@ class HandoverView(CareMixin, View):
 
     def get(self, request):
         day = parse_date(request.GET.get('d'), datetime.date.today())
+        shift = request.GET.get('shift') if request.GET.get('shift') in dict(HandoverEntry.SHIFTS) else ''
         hd = HandoverDay.objects.filter(facility=self.facility, date=day).first() or HandoverDay(facility=self.facility, date=day)
-        entries = list(HandoverEntry.objects.filter(facility=self.facility, date=day).select_related('beneficiary'))
+        entries = handover_entries(self.facility, day, shift or None)
         return render(request, self.template_name, {
             'day': day, 'day_jp': jp_date(day), 'hd': hd, 'groups': handover_groups(entries), 'count': len(entries), 'people': self.people(),
+            'important': sorted([e for e in entries if e.important], key=lambda e: e.time), 'shift': shift, 'shifts': HandoverEntry.SHIFTS,
+            'default_shift': shift or shift_of(now_local().time()),
             'now_time': now_local().strftime('%H:%M'), 'me': staff_name(request.user), 'today': datetime.date.today(),
             'prev': day - datetime.timedelta(days=1), 'next': day + datetime.timedelta(days=1),
             'givers': sorted({e.giver for e in HandoverEntry.objects.filter(facility=self.facility, date__gte=day - datetime.timedelta(days=30))
@@ -119,6 +148,8 @@ class HandoverView(CareMixin, View):
         e.giver = _text(p, 'giver', 50) or staff_name(request.user)
         e.beneficiary = self.people().filter(pk=to_int(p.get('b'), 0)).first()
         e.content = content
+        e.shift = p.get('shift') if p.get('shift') in dict(HandoverEntry.SHIFTS) else shift_of(e.time)
+        e.important = p.get('important') == '1'
         e.save()
         messages.success(request, f'{e.giver}さんの申し送り（{e.time:%H:%M}）を保存しました。')
         return redirect(back)
@@ -128,9 +159,12 @@ class HandoverPdfView(CareMixin, View):
     def get(self, request):
         day = parse_date(request.GET.get('d'), datetime.date.today())
         hd = HandoverDay.objects.filter(facility=self.facility, date=day).first()
-        entries = list(HandoverEntry.objects.filter(facility=self.facility, date=day).select_related('beneficiary'))
+        shift = request.GET.get('shift') if request.GET.get('shift') in dict(HandoverEntry.SHIFTS) else ''
+        entries = handover_entries(self.facility, day, shift or None)
         return pdf_or_html(request, 'nursing/pdf/handover.html', {
             'facility': self.facility, 'day': day, 'wareki': wareki(day), 'week': WEEK_JP[day.weekday()], 'hd': hd, 'groups': handover_groups(entries),
+            'important': sorted([e for e in entries if e.important], key=lambda e: e.time),
+            'shift_label': {'day': '日勤帯', 'night': '夜勤帯'}.get(shift, '日勤帯・夜勤帯' if any(e.shift == 'night' for e in entries) else '日勤帯'),
             'back_url': reverse('nursing:handover') + f'?d={day.isoformat()}'}, f'申し送り_{day:%Y%m%d}')
 
 
@@ -385,3 +419,105 @@ class PrescriptionPdfView(CareMixin, View):
             'facility': self.facility, 'b': b, 'day': day, 'wareki': wareki(day), 'age': age_on(b, day), 'meds': meds,
             'doctor': '・'.join(doctors), 'days': days[0] if len(days) == 1 else None, 'label': self.setting.rx_label or '入所',
             'back_url': reverse('nursing:person_meds', args=[b.pk])}, f'処方箋_{b.full_name}_{day:%Y%m%d}')
+
+
+# ---------------------------------------------------------------- 経過記録（職種横断の時系列）
+ROLE_OF_WRITER = {'dr': 'doctor', 'reha': 'reha', 'sw': 'sw', 'ns': 'nurse'}
+ROLE_LABELS = dict(ProgressNote.ROLES)
+
+
+def timeline(b, start, end, roles=None):
+    """経過記録・所見／処方処置・介護記録を、出来事の時刻の順に 1 本に（時刻の無いものはその日の書いた時刻）"""
+    items = []
+    for n in ProgressNote.objects.filter(beneficiary=b, date__range=(start, end)):
+        items.append({'date': n.date, 'time': n.time, 'role': n.role, 'author': n.author_name, 'body': n.body, 'kind': 'note',
+                      'handover': n.handover, 'important': n.important, 'obj': n})
+    for d in DoctorNote.objects.filter(beneficiary=b, date__range=(start, end)):
+        body = '\n'.join(x for x in ((f'所見：{d.finding}' if d.finding else ''), (f'処方処置：{d.treatment}' if d.treatment else '')) if x)
+        items.append({'date': d.date, 'time': timezone.localtime(d.created_at).time() if d.created_at else None, 'role': ROLE_OF_WRITER.get(d.writer, 'doctor'),
+                      'author': d.doctor or (str(d.created_by) if d.created_by else ''), 'body': body, 'kind': 'doctor', 'handover': False, 'important': False, 'obj': d})
+    for r in CareRecord.objects.filter(beneficiary=b, date__range=(start, end)).exclude(body='').select_related('author'):
+        items.append({'date': r.date, 'time': r.time or (timezone.localtime(r.created_at).time() if r.created_at else None), 'role': 'care',
+                      'author': str(r.author) if r.author else '', 'body': r.body, 'kind': 'record', 'handover': False, 'important': False, 'obj': r})
+    if roles:
+        items = [x for x in items if x['role'] in roles]
+    for x in items:
+        x['role_label'] = ROLE_LABELS.get(x['role'], '')
+    items.sort(key=lambda x: (x['date'], x['time'] or datetime.time.min))
+    return items
+
+
+def timeline_range(request, default_days=7):
+    today = datetime.date.today()
+    end = parse_date(request.GET.get('to'), today)
+    start = parse_date(request.GET.get('from'), end - datetime.timedelta(days=default_days - 1))
+    if start > end:
+        start, end = end, start
+    if (end - start).days > 366:
+        start = end - datetime.timedelta(days=366)
+    return start, end
+
+
+class PersonTimelineView(CareMixin, View):
+    template_name = 'nursing/person_timeline.html'
+
+    def get(self, request, pk):
+        b = self.person_or_404(pk)
+        start, end = timeline_range(request)
+        roles = [r for r in request.GET.getlist('role') if r in ROLE_LABELS]
+        edit = ProgressNote.objects.filter(pk=to_int(request.GET.get('edit'), 0), beneficiary=b).first() if request.GET.get('edit') else None
+        return render(request, self.template_name, {
+            'b': b, 'tab': 'timeline', 'items': timeline(b, start, end, roles), 'start': start, 'end': end, 'roles': ProgressNote.ROLES, 'sel_roles': roles,
+            'edit': edit, 'today': datetime.date.today(), 'now_time': now_local().strftime('%H:%M'), 'me': staff_name(request.user),
+            'my_role': request.session.get('nursing_role', 'care'), 'insurance': latest_insurance_of(b),
+            'query': request.GET.urlencode()})
+
+    def post(self, request, pk):
+        b = self.person_or_404(pk)
+        p = request.POST
+        back = reverse('nursing:person_timeline', args=[b.pk]) + (('?' + p.get('q')) if p.get('q') else '')
+        note = ProgressNote.objects.filter(pk=to_int(p.get('note'), 0), beneficiary=b).first() if p.get('note') else None
+        if note and p.get('action') == 'delete':
+            note.delete()
+            messages.success(request, '経過記録を 1 件消しました。')
+            return redirect(back)
+        body = _text(p, 'body', 4000)
+        if not body:
+            messages.error(request, '記録を入れてください。')
+            return redirect(back)
+        note = note or ProgressNote(facility=self.facility, beneficiary=b, created_by=request.user)
+        note.date = parse_date(p.get('date'), datetime.date.today())
+        note.time = parse_time(p.get('time')) or now_local().time().replace(second=0, microsecond=0)
+        note.role = p.get('role') if p.get('role') in ROLE_LABELS else 'care'
+        note.author_name = _text(p, 'author', 50) or staff_name(request.user)
+        note.body = body
+        note.handover = p.get('handover') == '1'
+        note.important = p.get('important') == '1'
+        note.save()
+        request.session['nursing_role'] = note.role     # 次に書くときの職種の既定
+        messages.success(request, f'{b.full_name}さんの経過記録（{note.date.month}/{note.date.day} {note.time:%H:%M}・{note.get_role_display()}）を保存しました。'
+                         + ('申し送りにも出ます。' if note.handover else ''))
+        return redirect(back)
+
+
+class PersonTimelinePdfView(CareMixin, View):
+    def get(self, request, pk):
+        b = self.person_or_404(pk)
+        start, end = timeline_range(request)
+        roles = [r for r in request.GET.getlist('role') if r in ROLE_LABELS]
+        return pdf_or_html(request, 'nursing/pdf/timeline.html', {
+            'facility': self.facility, 'b': b, 'items': timeline(b, start, end, roles), 'start': start, 'end': end,
+            'role_names': '・'.join(ROLE_LABELS[r] for r in roles), 'roles': ProgressNote.ROLES,
+            'back_url': reverse('nursing:person_timeline', args=[b.pk])}, f'経過記録_{b.full_name}')
+
+
+class TimelineDayView(CareMixin, View):
+    """全員の経過記録（1 日）：朝に前の日の様子をまとめて見る"""
+    template_name = 'nursing/timeline_day.html'
+
+    def get(self, request):
+        day = parse_date(request.GET.get('d'), datetime.date.today() - datetime.timedelta(days=1))
+        notes = list(ProgressNote.objects.filter(facility=self.facility, date=day).select_related('beneficiary').order_by('time', 'pk'))
+        return render(request, self.template_name, {'day': day, 'day_jp': jp_date(day), 'notes': notes, 'roles': ProgressNote.ROLES,
+                                                    'prev': day - datetime.timedelta(days=1), 'next': day + datetime.timedelta(days=1),
+                                                    'important': [n for n in notes if n.important]})

@@ -26,8 +26,8 @@
       <td>{{ hd.decisions|default:'' }}<div class="rec">☆本日のレク人数☆<br>AM：{{ hd.rec_am|default_if_none:'' }}<br>PM：{{ hd.rec_pm|default_if_none:'' }}<br><span class="small">※レク室記入!!</span></div></td></tr>
 </table>
 <table class="main" style="margin-top:-1px;">
-  <tr><th>日勤帯の申し送り</th></tr>
-  <tr><td style="white-space:normal;">{% for g in groups %}<div class="grp"><div class="who">{{ g.giver }}</div>{% for e in g.entries %}<div class="ln"><div class="t">{{ e.time|time:'H:i' }}</div><div style="white-space:pre-wrap;">{% if e.beneficiary %}【{{ e.beneficiary.full_name }}】{% endif %}{{ e.content }}</div></div>{% endfor %}</div>{% endfor %}</td></tr>
+  <tr><th>{{ shift_label }}の申し送り</th></tr>
+  <tr><td style="white-space:normal;">{% if important %}<div class="grp" style="border:1px solid #c0392b;padding:2px 4px;"><div class="who" style="color:#c0392b;">★重要（詳しく確かめる）</div>{% for e in important %}<div class="ln"><div class="t">{{ e.time|time:'H:i' }}</div><div style="white-space:pre-wrap;">{% if e.beneficiary %}【{{ e.beneficiary.full_name }}】{% endif %}{{ e.content }}（{{ e.giver }}）</div></div>{% endfor %}</div>{% endif %}{% for g in groups %}<div class="grp"><div class="who">{{ g.giver }}</div>{% for e in g.entries %}<div class="ln"><div class="t">{{ e.time|time:'H:i' }}</div><div style="white-space:pre-wrap;">{% if e.important %}★{% endif %}{% if e.beneficiary %}【{{ e.beneficiary.full_name }}】{% endif %}{{ e.content }}{% if e.from_record %}（{{ e.role }}）{% endif %}</div></div>{% endfor %}</div>{% endfor %}</td></tr>
 </table>
 <table class="seal" style="margin-top:-1px;"><tr><th style="width:8%;">印</th><td></td></tr></table>
 {% endblock %}

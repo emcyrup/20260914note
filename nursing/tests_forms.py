@@ -379,3 +379,88 @@ class NinteiCsvTests(CareBase):
         ins = CareInsurance.objects.get(beneficiary__first_name='九郎')
         self.assertEqual(ins.care_level, '')
         self.assertIn('要介護状態：経過的要介護', ins.notes)
+
+
+class MeetingFollowupTests(CareBase):
+    """2026-11-11 の打ち合わせ：経過記録（職種横断・出来事の時刻）・申し送りの重要／勤務帯／記録からの抽出・薬の確認予定・家族向けの文"""
+
+    def test_timeline_orders_by_event_time_and_mixes_sources(self):
+        from .models import ProgressNote
+        url = reverse('nursing:person_timeline', args=[self.b.pk])
+        # 夕方にまとめて書いても、出来事の時刻の順
+        self.client.post(url, {'date': '2026-11-10', 'time': '15:40', 'role': 'nurse', 'author': '架空 看護', 'body': '血圧 150/90。再検予定', 'important': '1', 'handover': '1'})
+        self.client.post(url, {'date': '2026-11-10', 'time': '09:10', 'role': 'reha', 'author': '架空 リハ', 'body': '平行棒 2 往復'})
+        DoctorNote.objects.create(facility=self.f, beneficiary=self.b, date=datetime.date(2026, 11, 10), writer='dr', doctor='架空 Dr', finding='聴診で異常なし')
+        CareRecord.objects.create(facility=self.f, beneficiary=self.b, date=datetime.date(2026, 11, 10), time=datetime.time(12, 0), body='昼食は全量')
+        self.assertEqual(ProgressNote.objects.count(), 2)
+        page = self.client.get(url + '?from=2026-11-10&to=2026-11-10')
+        bodies = [x['body'] for x in page.context['items']]
+        self.assertLess(bodies.index('平行棒 2 往復'), bodies.index('昼食は全量'))
+        self.assertLess(bodies.index('昼食は全量'), bodies.index('血圧 150/90。再検予定'))
+        self.assertTrue(any('聴診で異常なし' in x for x in bodies))
+        only = self.client.get(url + '?from=2026-11-10&to=2026-11-10&role=reha').context['items']
+        self.assertEqual([x['body'] for x in only], ['平行棒 2 往復'])
+        html = self.client.get(reverse('nursing:person_timeline_print', args=[self.b.pk]) + '?from=2026-11-10&to=2026-11-10&fmt=html').content.decode()
+        self.assertIn('経過記録', html)
+        self.assertIn('rl-nurse', html)
+        self.assertIn('★血圧 150/90', html)
+        self.assertIn('架空 リハ', html)
+        # 全員・1 日
+        day = self.client.get(reverse('nursing:timeline_day') + '?d=2026-11-10')
+        self.assertEqual(len(day.context['notes']), 2)
+        self.assertEqual(len(day.context['important']), 1)
+
+    def test_handover_important_shift_and_from_records(self):
+        from .models import ProgressNote
+        d = datetime.date.today()
+        url = reverse('nursing:handover')
+        self.client.post(url, {'d': d.isoformat(), 'action': 'add', 'time': '22:10', 'giver': '架空 夜勤', 'shift': 'night', 'content': '夜間に 2 回トイレ', 'important': ''})
+        self.client.post(url, {'d': d.isoformat(), 'action': 'add', 'time': '10:00', 'giver': '架空 日勤', 'shift': 'day', 'content': '38.0℃。受診の相談', 'important': '1'})
+        ProgressNote.objects.create(facility=self.f, beneficiary=self.b, date=d, time=datetime.time(14, 0), role='nurse', author_name='架空 看護',
+                                    body='記録から申し送り', handover=True)
+        ProgressNote.objects.create(facility=self.f, beneficiary=self.b, date=d, time=datetime.time(14, 30), role='care', author_name='架空 介護', body='出さない記録')
+        page = self.client.get(url + f'?d={d}')
+        texts = [e.content for g in page.context['groups'] for e in g['entries']]
+        self.assertIn('記録から申し送り', texts)
+        self.assertNotIn('出さない記録', texts)
+        self.assertEqual([e.content for e in page.context['important']], ['38.0℃。受診の相談'])
+        night = self.client.get(url + f'?d={d}&shift=night').context['groups']
+        self.assertEqual([e.content for g in night for e in g['entries']], ['夜間に 2 回トイレ'])
+        html = self.client.get(reverse('nursing:handover_print') + f'?d={d}&shift=day&fmt=html').content.decode()
+        self.assertIn('日勤帯の申し送り', html)
+        self.assertIn('★重要', html)
+        self.assertIn('記録から申し送り', html)
+        self.assertNotIn('夜間に 2 回トイレ', html)
+        home = self.client.get(reverse('nursing:home'))
+        self.assertEqual([e.content for e in home.context['important_handovers']], ['38.0℃。受診の相談'])
+
+    def test_medication_check_date_from_days(self):
+        url = reverse('nursing:person_meds', args=[self.b.pk])
+        start = datetime.date.today() - datetime.timedelta(days=7)
+        self.client.post(url, {'name': 'テスト錠C', 'dose': '1 錠', 'days': '7', 'start_on': start.isoformat(), 'prescriber': '架空 Dr', 'is_active': '1'})
+        m = Medication.objects.get(name='テスト錠C')
+        self.assertEqual((m.check_on, m.check_doctor), (datetime.date.today(), '架空 Dr'))   # 7 日分 → 7 日後に処方した医師が確認
+        self.assertIn('確認', DoctorNote.objects.get(medication=m).treatment)
+        self.assertEqual([x.name for x in self.client.get(reverse('nursing:home')).context['med_checks']], ['テスト錠C'])
+        self.client.post(url, {'med': m.pk, 'action': 'checked'})
+        m.refresh_from_db()
+        self.assertIsNotNone(m.checked_at)
+        self.assertEqual(self.client.get(reverse('nursing:home')).context['med_checks'], [])
+        # 確認する医師を別の人に（その他の医師）
+        self.client.post(url, {'med': m.pk, 'name': 'テスト錠C', 'dose': '1 錠', 'days': '14', 'start_on': start.isoformat(), 'prescriber': '架空 Dr',
+                               'check_doctor': '臨時 Dr', 'is_active': '1'})
+        m.refresh_from_db()
+        self.assertEqual((m.check_on, m.check_doctor, m.checked_at), (start + datetime.timedelta(days=14), '臨時 Dr', None))
+
+    def test_family_text_can_be_turned_off(self):
+        s = NursingSetting.of(self.f)
+        CareRecord.objects.create(facility=self.f, beneficiary=self.b, date=datetime.date(2026, 11, 10), body='本文', family_message='家族向け')
+        self.client.post(reverse('nursing:settings'), {'record_chars': 250, 'family_chars': 150, 'fever_temp': '37.5', 'capacity': 0, 'use_family_shown': '1'})
+        s.refresh_from_db()
+        self.assertFalse(s.use_family)
+        home = self.client.get(reverse('nursing:home'))
+        self.assertNotContains(home, reverse('nursing:renraku'))
+        form = self.client.get(reverse('nursing:record_edit', args=[self.b.pk]) + '?d=2026-11-10')
+        self.assertNotContains(form, 'name="family_message"')
+        self.client.post(reverse('nursing:record_edit', args=[self.b.pk]), {'d': '2026-11-10', 'action': 'save', 'body': '本文を直した'})
+        self.assertEqual(CareRecord.objects.get(date=datetime.date(2026, 11, 10)).family_message, '家族向け')   # 入っている文は残す

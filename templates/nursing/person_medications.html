@@ -21,6 +21,8 @@
       <div class="col-6 col-md-3"><label class="nr-lbl" for="is_active">状態</label><select name="is_active" id="is_active" class="form-select form-select-sm"><option value="1" {% if not edit or edit.is_active %}selected{% endif %}>服用中</option><option value="0" {% if edit and not edit.is_active %}selected{% endif %}>終了</option></select></div>
       <div class="col-md-6"><label class="nr-lbl" for="prescriber">処方した医師・医療機関</label><input type="text" name="prescriber" id="prescriber" class="form-control form-control-sm" value="{{ edit.prescriber|default:'' }}" maxlength="100" list="doctor-list"><datalist id="doctor-list">{% for d in doctors %}<option value="{{ d }}">{% endfor %}</datalist>
         <div class="form-text">新しい薬・中身を変えた薬は、所見・処方処置の「処方処置」へ医師の名前と一緒に写ります。</div></div>
+      <div class="col-6 col-md-3"><label class="nr-lbl" for="check_on">確認予定日</label><input type="date" name="check_on" id="check_on" class="form-control form-control-sm" value="{{ edit.check_on|date:'Y-m-d' }}" title="空なら開始日＋日数（7 日分なら 7 日後）"></div>
+      <div class="col-6 col-md-3"><label class="nr-lbl" for="check_doctor">確認する医師</label><input type="text" name="check_doctor" id="check_doctor" class="form-control form-control-sm" value="{{ edit.check_doctor|default:'' }}" maxlength="50" list="doctor-list" placeholder="空なら処方した医師"></div>
       <div class="col-md-6"><label class="nr-lbl" for="pharmacy">薬局</label><input type="text" name="pharmacy" id="pharmacy" class="form-control form-control-sm" value="{{ edit.pharmacy|default:'' }}" maxlength="100"></div>
       <div class="col-12"><label class="nr-lbl" for="notes">注意（副作用・のみ方・中止の条件など）</label><input type="text" name="notes" id="notes" class="form-control form-control-sm" value="{{ edit.notes|default:'' }}" maxlength="300"></div>
     </div>
@@ -35,7 +37,7 @@
 </form>
 <div class="nr-card">
   <table class="table table-sm mb-0 align-middle">
-    <thead><tr><th style="width:2em;"></th><th>薬</th><th>量・用法</th><th>のむ時間</th><th class="d-none d-md-table-cell">処方</th><th>更新の期限</th><th></th></tr></thead>
+    <thead><tr><th style="width:2em;"></th><th>薬</th><th>量・用法</th><th>のむ時間</th><th class="d-none d-md-table-cell">処方</th><th>更新の期限・確認</th><th></th></tr></thead>
     <tbody>
       {% for m in meds %}
       <tr class="{% if not m.is_active %}text-muted{% endif %}">
@@ -44,9 +46,10 @@
         <td>{{ m.dose }}{% if m.notes %}<div class="small text-danger">{{ m.notes }}</div>{% endif %}</td>
         <td>{{ m.timing_text }}</td>
         <td class="d-none d-md-table-cell small">{{ m.prescriber }}{% if m.pharmacy %}<br>{{ m.pharmacy }}{% endif %}</td>
-        <td class="{% if m.due == 'over' %}text-danger fw-bold{% elif m.due == 'soon' %}text-warning-emphasis fw-bold{% endif %}">{{ m.review_due|date:'Y/n/j'|default:'' }}</td>
+        <td class="{% if m.due == 'over' %}text-danger fw-bold{% elif m.due == 'soon' %}text-warning-emphasis fw-bold{% endif %}">{{ m.review_due|date:'Y/n/j'|default:'' }}
+          {% if m.check_on %}<div class="small {% if m.check == 'today' %}text-danger fw-bold{% elif m.check == 'soon' %}text-warning-emphasis{% else %}text-muted{% endif %}">確認 {{ m.check_on|date:'n/j' }} {{ m.check_doctor }}{% if m.checked_at %}（済）{% endif %}</div>{% endif %}</td>
         <td class="text-end text-nowrap"><a href="?edit={{ m.pk }}" class="btn btn-sm btn-outline-secondary py-0">直す</a>
-          <form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="med" value="{{ m.pk }}">{% if m.is_active %}<button name="action" value="stop" class="btn btn-sm btn-outline-secondary py-0" title="服用中から外す">終了</button>{% endif %}<button name="action" value="delete" class="btn btn-sm btn-outline-danger py-0" onclick="return confirm('この薬を消します。よろしいですか？');"><i class="bi bi-trash"></i></button></form></td>
+          <form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="med" value="{{ m.pk }}">{% if m.check %}<button name="action" value="checked" class="btn btn-sm btn-outline-success py-0" title="医師の確認が済んだ">確認済</button>{% endif %}{% if m.is_active %}<button name="action" value="stop" class="btn btn-sm btn-outline-secondary py-0" title="服用中から外す">終了</button>{% endif %}<button name="action" value="delete" class="btn btn-sm btn-outline-danger py-0" onclick="return confirm('この薬を消します。よろしいですか？');"><i class="bi bi-trash"></i></button></form></td>
       </tr>
       {% empty %}<tr><td colspan="7" class="text-muted small">まだ薬が登録されていません。</td></tr>{% endfor %}
     </tbody>

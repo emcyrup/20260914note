@@ -16,14 +16,26 @@
       <input type="date" class="form-control form-control-sm" style="width:auto;" value="{{ day|date:'Y-m-d' }}" onchange="location.href='?d='+this.value" aria-label="日付">
       <div class="fw-bold">{{ day_jp }}</div>
     </div>
-    <a href="{% url 'nursing:handover_print' %}?d={{ day|date:'Y-m-d' }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>申し送りの用紙で印刷</a>
+    <div class="d-flex gap-2 flex-wrap">
+      <div class="btn-group" role="group" aria-label="勤務帯"><a href="?d={{ day|date:'Y-m-d' }}" class="btn btn-sm {% if not shift %}btn-secondary{% else %}btn-outline-secondary{% endif %}">すべて</a>{% for k, l in shifts %}<a href="?d={{ day|date:'Y-m-d' }}&shift={{ k }}" class="btn btn-sm {% if shift == k %}btn-secondary{% else %}btn-outline-secondary{% endif %}">{{ l }}</a>{% endfor %}</div>
+      <a href="{% url 'nursing:timeline_day' %}?d={{ day|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary">経過記録（全員）</a>
+      <a href="{% url 'nursing:handover_print' %}?d={{ day|date:'Y-m-d' }}{% if shift %}&shift={{ shift }}{% endif %}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>申し送りの用紙で印刷</a>
+    </div>
   </div>
+  {% if important %}
+  <div class="nr-card" style="border-left:4px solid #c0392b;">
+    <div class="nr-h text-danger"><i class="bi bi-exclamation-circle me-1"></i>重要（詳しく確かめる）{{ important|length }} 件</div>
+    {% for e in important %}<div class="ho-row"><div class="ho-time">{{ e.time|time:'H:i' }}</div><div class="flex-grow-1">{% if e.beneficiary %}<b>{{ e.beneficiary.full_name }}</b>：{% endif %}{{ e.content|linebreaksbr }} <span class="ho-who">（{{ e.giver }}{% if e.from_record %}・{{ e.role }}の記録{% endif %}）</span></div></div>{% endfor %}
+  </div>
+  {% endif %}
 
   <div class="nr-card">
     <div class="nr-h mb-1"><i class="bi bi-plus-lg me-1"></i>申し送りを足す</div>
     <form method="post" class="row g-2 align-items-end">{% csrf_token %}<input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}"><input type="hidden" name="action" value="add">
       <div class="col-4 col-md-2"><label class="nr-lbl" for="ho-time">時刻</label><input type="time" name="time" id="ho-time" class="form-control form-control-sm" value="{{ now_time }}" required></div>
       <div class="col-8 col-md-3"><label class="nr-lbl" for="ho-giver">申し送り者</label><input type="text" name="giver" id="ho-giver" class="form-control form-control-sm" value="{{ me }}" maxlength="50" list="giver-list" required><datalist id="giver-list">{% for g in givers %}<option value="{{ g }}">{% endfor %}</datalist></div>
+      <div class="col-6 col-md-2"><label class="nr-lbl" for="ho-shift">勤務帯</label><select name="shift" id="ho-shift" class="form-select form-select-sm">{% for k, l in shifts %}<option value="{{ k }}" {% if default_shift == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-6 col-md-2 d-flex align-items-end"><label class="text-danger small"><input type="checkbox" name="important" value="1" class="form-check-input"> 重要（体調の変化など）</label></div>
       <div class="col-md-3"><label class="nr-lbl" for="ho-b">{{ terms.beneficiary }}（あれば）</label><select name="b" id="ho-b" class="form-select form-select-sm"><option value="">—</option>{% for p in people %}<option value="{{ p.pk }}">{{ p.full_name }}</option>{% endfor %}</select></div>
       <div class="col-12"><label class="nr-lbl" for="ho-content">内容</label>
         <div class="d-flex gap-2"><textarea name="content" id="ho-content" rows="2" class="form-control" maxlength="2000" required placeholder="例：〇〇様 昼食後に 37.6℃。クーリング中。夕方に再検"></textarea>
@@ -33,14 +45,15 @@
   </div>
 
   <div class="nr-card">
-    <div class="nr-h">日勤帯の申し送り（{{ count }} 件）<span class="small text-muted fw-normal ms-2">申し送り者ごとにひとかたまり・時間順。用紙にもこの順で出ます</span></div>
+    <div class="nr-h">{% if shift == 'night' %}夜勤帯{% elif shift == 'day' %}日勤帯{% endif %}の申し送り（{{ count }} 件）<span class="small text-muted fw-normal ms-2">申し送り者ごとにひとかたまり・時間順。用紙にもこの順で出ます。経過記録で「申し送りに出す」に印を付けたものも入ります</span></div>
     {% for g in groups %}
     <div class="ho-giver">{{ g.giver }}</div>
     {% for e in g.entries %}
     <div class="ho-row">
       <div class="ho-time">{{ e.time|time:'H:i' }}</div>
-      <div class="flex-grow-1">{% if e.beneficiary %}<span class="ho-who">【{{ e.beneficiary.full_name }}】</span>{% endif %}{{ e.content|linebreaksbr }}</div>
-      <form method="post" class="flex-shrink-0">{% csrf_token %}<input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}"><input type="hidden" name="entry" value="{{ e.pk }}"><button name="action" value="delete" class="btn btn-sm btn-outline-danger py-0" onclick="return confirm('この申し送りを消します。よろしいですか？');" aria-label="消す"><i class="bi bi-trash"></i></button></form>
+      <div class="flex-grow-1">{% if e.important %}<span class="text-danger fw-bold">★</span>{% endif %}{% if e.beneficiary %}<span class="ho-who">【{{ e.beneficiary.full_name }}】</span>{% endif %}{{ e.content|linebreaksbr }}{% if e.from_record %} <span class="badge text-bg-light border">{{ e.role }}の経過記録</span>{% elif e.shift == 'night' %} <span class="badge text-bg-light border">夜勤</span>{% endif %}</div>
+      {% if e.from_record %}<a href="{% url 'nursing:person_timeline' e.beneficiary.pk %}?edit={{ e.note_pk }}" class="btn btn-sm btn-outline-secondary py-0 flex-shrink-0">記録へ</a>{% else %}
+      <form method="post" class="flex-shrink-0">{% csrf_token %}<input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}"><input type="hidden" name="entry" value="{{ e.pk }}"><button name="action" value="delete" class="btn btn-sm btn-outline-danger py-0" onclick="return confirm('この申し送りを消します。よろしいですか？');" aria-label="消す"><i class="bi bi-trash"></i></button></form>{% endif %}
     </div>
     {% endfor %}
     {% empty %}<div class="small text-muted">まだ申し送りがありません。</div>{% endfor %}

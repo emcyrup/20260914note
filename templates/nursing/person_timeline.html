@@ -1,0 +1,46 @@
+{% extends 'nursing/_person_base.html' %}
+{% block title %}{{ b.full_name }} 経過記録 — {{ app_label }}{% endblock %}
+{% block person_css %}{% include 'nursing/_role_style.html' %}{% endblock %}
+{% block person_actions %}<a href="{% url 'nursing:person_timeline_print' b.pk %}?{{ query }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>経過記録を印刷</a>{% endblock %}
+{% block tab_content %}
+<details class="nr-card" open>
+  <summary class="fw-bold" style="cursor:pointer;"><i class="bi bi-plus-lg me-1"></i>{% if edit %}直す（{{ edit.date|date:'n/j' }} {{ edit.time|time:'H:i' }}）{% else %}経過記録を書く{% endif %}</summary>
+  <form method="post" class="row g-2 mt-1">{% csrf_token %}{% if edit %}<input type="hidden" name="note" value="{{ edit.pk }}">{% endif %}<input type="hidden" name="q" value="{{ query }}">
+    <div class="col-6 col-md-2"><label class="nr-lbl" for="tl-date">日付</label><input type="date" name="date" id="tl-date" class="form-control form-control-sm" value="{% if edit %}{{ edit.date|date:'Y-m-d' }}{% else %}{{ today|date:'Y-m-d' }}{% endif %}"></div>
+    <div class="col-6 col-md-2"><label class="nr-lbl" for="tl-time">出来事の時刻</label><input type="time" name="time" id="tl-time" class="form-control form-control-sm" value="{% if edit %}{{ edit.time|time:'H:i' }}{% else %}{{ now_time }}{% endif %}" required></div>
+    <div class="col-6 col-md-2"><label class="nr-lbl" for="tl-role">職種</label><select name="role" id="tl-role" class="form-select form-select-sm">{% for k, l in roles %}<option value="{{ k }}" {% if edit %}{% if edit.role == k %}selected{% endif %}{% elif my_role == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+    <div class="col-6 col-md-3"><label class="nr-lbl" for="tl-author">担当者</label><input type="text" name="author" id="tl-author" class="form-control form-control-sm" value="{% if edit %}{{ edit.author_name }}{% else %}{{ me }}{% endif %}" maxlength="50"></div>
+    <div class="col-md-3 d-flex align-items-end gap-3 small">
+      <label><input type="checkbox" name="handover" value="1" class="form-check-input" {% if edit.handover %}checked{% endif %}> 申し送りに出す</label>
+      <label class="text-danger"><input type="checkbox" name="important" value="1" class="form-check-input" {% if edit.important %}checked{% endif %}> 重要</label></div>
+    <div class="col-12"><label class="nr-lbl" for="tl-body">記録</label>
+      <div class="d-flex gap-2"><textarea name="body" id="tl-body" rows="3" class="form-control" maxlength="4000" required placeholder="例：14:30 トイレ誘導時にふらつきあり。看護師に報告し血圧測定（112/64）。">{{ edit.body|default:'' }}</textarea>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-voice-target="tl-body" title="音声で入力"><i class="bi bi-mic"></i></button></div>
+      <div class="form-text">夕方にまとめて書いても、<b>出来事の時刻</b>で並びます。「申し送りに出す」に印を付けると、その日の申し送り（画面・印刷）に担当者の名前で入ります。</div></div>
+    <div class="col-12 d-flex justify-content-between">{% if edit %}<a href="?{{ query }}" class="btn btn-sm btn-outline-secondary">やめる</a>{% else %}<span></span>{% endif %}<button class="btn btn-primary btn-sm"><i class="bi bi-check2 me-1"></i>保存する</button></div>
+  </form>
+</details>
+<form method="get" class="nr-card d-flex flex-wrap gap-2 align-items-end small">
+  <div><label class="nr-lbl" for="f-from">から</label><input type="date" name="from" id="f-from" class="form-control form-control-sm" value="{{ start|date:'Y-m-d' }}"></div>
+  <div><label class="nr-lbl" for="f-to">まで</label><input type="date" name="to" id="f-to" class="form-control form-control-sm" value="{{ end|date:'Y-m-d' }}"></div>
+  <div><div class="nr-lbl">職種（印が無ければすべて）</div><div class="d-flex flex-wrap gap-2">{% for k, l in roles %}<label class="rl-{{ k }}"><input type="checkbox" name="role" value="{{ k }}" class="form-check-input" {% if k in sel_roles %}checked{% endif %}> <span class="rl-text">{{ l }}</span></label>{% endfor %}</div></div>
+  <button class="btn btn-sm btn-outline-secondary">絞り込む</button>
+</form>
+<div class="nr-card">
+  <div class="small text-muted mb-1">経過記録・所見／処方処置・介護記録を、出来事の時刻の順に並べています（職種で色分け）。</div>
+  {% regroup items by date as days %}
+  {% for d in days %}
+  <div class="tl-day">{{ d.grouper|date:'n月j日（D）' }}</div>
+  {% for x in d.list %}
+  <div class="tl-row rl-{{ x.role }} {% if x.important %}tl-imp{% endif %}">
+    <div class="tl-time">{{ x.time|time:'H:i'|default:'' }}</div>
+    <div style="width:4.2em;" class="flex-shrink-0"><span class="rl-badge">{{ x.role_label }}</span></div>
+    <div class="flex-grow-1"><span class="rl-text">{{ x.body|linebreaksbr }}</span>
+      <div class="small text-muted">{{ x.author }}{% if x.kind == 'doctor' %}・所見／処方処置{% elif x.kind == 'record' %}・介護記録{% endif %}{% if x.important %}<span class="tl-mark">重要</span>{% endif %}{% if x.handover %}<span class="tl-mark ho">申し送り</span>{% endif %}</div></div>
+    {% if x.kind == 'note' %}<div class="text-nowrap flex-shrink-0"><a href="?{{ query }}&edit={{ x.obj.pk }}" class="btn btn-sm btn-outline-secondary py-0">直す</a>
+      <form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="note" value="{{ x.obj.pk }}"><input type="hidden" name="q" value="{{ query }}"><button name="action" value="delete" class="btn btn-sm btn-outline-danger py-0" onclick="return confirm('この記録を消します。よろしいですか？');" aria-label="消す"><i class="bi bi-trash"></i></button></form></div>{% endif %}
+  </div>
+  {% endfor %}
+  {% empty %}<div class="small text-muted">この期間の記録はありません。</div>{% endfor %}
+</div>
+{% endblock %}

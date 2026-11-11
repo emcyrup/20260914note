@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}経過記録 {{ day|date:'n/j' }} — {{ app_label }}{% endblock %}
+{% block page_title %}経過記録（全員）{% endblock %}
+{% block extra_css %}{% include 'nursing/_style.html' %}{% include 'nursing/_role_style.html' %}{% endblock %}
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+    <div class="btn-group"><a href="?d={{ prev|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary" aria-label="前の日"><i class="bi bi-chevron-left"></i></a><a href="?" class="btn btn-sm btn-outline-secondary">きのう</a><a href="?d={{ next|date:'Y-m-d' }}" class="btn btn-sm btn-outline-secondary" aria-label="次の日"><i class="bi bi-chevron-right"></i></a></div>
+    <input type="date" class="form-control form-control-sm" style="width:auto;" value="{{ day|date:'Y-m-d' }}" onchange="location.href='?d='+this.value" aria-label="日付">
+    <div class="fw-bold">{{ day_jp }}（{{ notes|length }} 件）</div>
+  </div>
+  <div class="small text-muted mb-2">朝に前の日の様子をまとめて見る画面です。書くのは{{ terms.beneficiary }}ごとの「経過記録」のタブから。</div>
+  {% if important %}<div class="nr-card" style="border-left:4px solid #c0392b;"><div class="nr-h text-danger"><i class="bi bi-exclamation-circle me-1"></i>重要（{{ important|length }} 件）</div>
+    {% for n in important %}<div class="small py-1"><b>{{ n.time|time:'H:i' }}</b> <a href="{% url 'nursing:person_timeline' n.beneficiary.pk %}">{{ n.beneficiary.full_name }}</a>：{{ n.body|truncatechars:120 }}</div>{% endfor %}</div>{% endif %}
+  <div class="nr-card">
+    {% for n in notes %}
+    <div class="tl-row rl-{{ n.role }} {% if n.important %}tl-imp{% endif %}">
+      <div class="tl-time">{{ n.time|time:'H:i' }}</div>
+      <div style="width:4.2em;" class="flex-shrink-0"><span class="rl-badge">{{ n.get_role_display }}</span></div>
+      <div class="flex-grow-1"><a href="{% url 'nursing:person_timeline' n.beneficiary.pk %}?from={{ day|date:'Y-m-d' }}&to={{ day|date:'Y-m-d' }}" class="fw-bold text-decoration-none">{{ n.beneficiary.full_name }}</a> <span class="rl-text">{{ n.body|linebreaksbr }}</span>
+        <div class="small text-muted">{{ n.author_name }}{% if n.handover %}<span class="tl-mark ho">申し送り</span>{% endif %}</div></div>
+    </div>
+    {% empty %}<div class="small text-muted">この日の経過記録はありません。</div>{% endfor %}
+  </div>
+</div>
+{% endblock %}

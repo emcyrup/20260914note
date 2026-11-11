@@ -187,6 +187,11 @@
         </a>
       </li>
       <li>
+        <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':8' == 'timeline' or rm.url_name == 'person_timeline' %}active{% endif %}" href="{% url 'nursing:timeline_day' %}" title="介護・看護・医師・リハ・相談員の記録を、出来事の時刻の順に（全員・1 日）。書くのは利用者ごとの「経過記録」のタブ">
+          <i class="bi bi-clock-history"></i><span>経過記録</span>
+        </a>
+      </li>
+      <li>
         <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':8' == 'handover' %}active{% endif %}" href="{% url 'nursing:handover' %}" title="日勤帯の申し送り（申し送り者ごと・時間順）と明日の予定・便対応者・周知事項。申し送りの用紙で印刷">
           <i class="bi bi-chat-square-text"></i><span>申し送り</span>
         </a>
@@ -196,11 +201,13 @@
           <i class="bi bi-clipboard2-pulse"></i><span>上申書</span>
         </a>
       </li>
+      {% if not user.facility.nursing_setting or user.facility.nursing_setting.use_family %}
       <li>
         <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':7' == 'renraku' %}active{% endif %}" href="{% url 'nursing:renraku' %}" title="家族向けのメッセージ（連絡帳）。LINE で送る・印刷する">
           <i class="bi bi-envelope-paper"></i><span>連絡帳</span>
         </a>
       </li>
+      {% endif %}
       <li>
         <a class="sidebar-nav-item {% if rm.app_name == 'nursing' and rm.url_name|slice:':8' == 'incident' %}active{% endif %}" href="{% url 'nursing:incidents' %}">
           <i class="bi bi-exclamation-triangle"></i><span>ヒヤリハット・事故報告</span>
