@@ -26,6 +26,14 @@ jobs:
           for i in 1 2 3; do
             sudo apt-get update && sudo apt-get install -y --no-install-recommends $libs && exit 0
             echo "apt に失敗（$i 回目）。20 秒後にもう一度"; sleep 20
+            if [ "$i" = 1 ]; then
+              # ランナーの既定の配布元（azure.archive.ubuntu.com）が引けないことがある → Ubuntu の本家の配布元に切り替える
+              echo "配布元を archive.ubuntu.com・security.ubuntu.com に切り替えます"
+              for src in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
+                [ -f "$src" ] && sudo sed -i -e 's#mirror+file:/etc/apt/apt-mirrors.txt#http://archive.ubuntu.com/ubuntu/#g' \
+                  -e 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$src"
+              done
+            fi
           done
           ldconfig -p > "$RUNNER_TEMP/libs.txt"
           for l in libpango-1.0.so.0 libpangoft2-1.0.so.0 libharfbuzz-subset.so.0; do
