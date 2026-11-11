@@ -1,0 +1,45 @@
+{% extends 'nursing/_person_base.html' %}
+{% block title %}{{ b.full_name }} 上申書 — {{ app_label }}{% endblock %}
+{% block person_css %}<style>
+  .js-day { border: 1px solid #b9c7cf; border-radius: 8px; background: #fff; margin-bottom: 12px; padding: 8px 10px; }
+  .js-date { text-align: center; font-weight: 700; font-size: 1.05rem; letter-spacing: .1em; margin-bottom: 6px; }
+  .js-dr { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: .85rem; }
+  .js-dr th, .js-dr td { border: 1px solid #555; padding: 3px 6px; vertical-align: top; }
+  .js-dr th { text-align: center; font-weight: 500; background: #f7f9fa; }
+  .js-dr td { min-height: 3em; height: 3.2em; white-space: pre-wrap; }
+  .js-sec { font-size: .82rem; margin: 6px 0 2px; }
+  .js-other { border: 1px solid #555; border-radius: 12px; padding: 4px 10px; min-height: 2.4em; font-size: .85rem; white-space: pre-wrap; }
+  .js-del { border: none; background: none; color: #c0392b; padding: 0 2px; font-size: .75rem; }
+</style>{% endblock %}
+{% block person_actions %}<a href="{% url 'nursing:person_joushin_print' b.pk %}?{{ query }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>上申書を印刷</a>
+<a href="{% url 'nursing:joushin' %}" class="btn btn-sm btn-outline-secondary">その日の上申書（全員）</a>{% endblock %}
+{% block tab_content %}
+<details class="nr-card" open>
+  <summary class="fw-bold" style="cursor:pointer;"><i class="bi bi-plus-lg me-1"></i>上申書に足す</summary>
+  <form method="post" class="row g-2 mt-1 align-items-end">{% csrf_token %}<input type="hidden" name="q" value="{{ query }}">
+    <div class="col-6 col-md-2"><label class="nr-lbl" for="pj-date">日付</label><input type="date" name="date" id="pj-date" class="form-control form-control-sm" value="{{ today|date:'Y-m-d' }}"></div>
+    <div class="col-6 col-md-3"><label class="nr-lbl" for="pj-kind">欄</label><select name="kind" id="pj-kind" class="form-select form-select-sm" onchange="document.getElementById('pj-dr').classList.toggle('d-none', this.value!=='dr');document.getElementById('pj-ex').classList.toggle('d-none', this.value!=='exam');">{% for k, l in kinds %}<option value="{{ k }}">{% if k == 'dr' %}医師の欄（上申）{% else %}{{ l }}{% endif %}</option>{% endfor %}</select></div>
+    <div class="col-md-3" id="pj-dr"><label class="nr-lbl" for="pj-doctor">医師</label><input type="text" name="doctor" id="pj-doctor" class="form-control form-control-sm" maxlength="50" list="doctor-list" value="{{ doctors.0|default:'' }}"><datalist id="doctor-list">{% for d in doctors %}<option value="{{ d }}">{% endfor %}</datalist></div>
+    <div class="col-md-4 d-none" id="pj-ex"><div class="nr-lbl">印</div><div class="d-flex gap-2 small"><label><input type="checkbox" name="referral" value="1" class="form-check-input"> 紹介状</label><label><input type="checkbox" name="meal_slip" value="1" class="form-check-input"> 食事箋</label><label><input type="checkbox" name="oral" value="1" class="form-check-input"> 内服</label></div></div>
+    <div class="col-12"><label class="nr-lbl" for="pj-content">内容</label><div class="d-flex gap-2"><textarea name="content" id="pj-content" rows="2" class="form-control" maxlength="2000" required></textarea><button type="button" class="btn btn-sm btn-outline-secondary" data-voice-target="pj-content" title="音声で入力"><i class="bi bi-mic"></i></button></div></div>
+    <div class="col-12 text-end"><button class="btn btn-primary btn-sm"><i class="bi bi-check2 me-1"></i>足す</button></div>
+  </form>
+</details>
+<form method="get" class="nr-card d-flex flex-wrap gap-2 align-items-end small">
+  <div><label class="nr-lbl" for="f-from">から</label><input type="date" name="from" id="f-from" class="form-control form-control-sm" value="{{ start|date:'Y-m-d' }}"></div>
+  <div><label class="nr-lbl" for="f-to">まで</label><input type="date" name="to" id="f-to" class="form-control form-control-sm" value="{{ end|date:'Y-m-d' }}"></div>
+  <button class="btn btn-sm btn-outline-secondary">表示</button><span class="text-muted ms-2">日付ごとに、上申書の用紙と同じ形（医師の欄・検査・採血・他科受診・その他）で新しい順に並べます。</span>
+</form>
+{% for d in days %}
+<div class="js-day">
+  <div class="js-date">{{ d.date.month }} 月 {{ d.date.day }} 日（{{ d.week }}）</div>
+  <table class="js-dr"><tr>{% for c in d.columns %}<th>{{ c.doctor }}</th>{% endfor %}</tr>
+    <tr>{% for c in d.columns %}<td>{% for it in c.items %}<div>{{ it.content }}<form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="item" value="{{ it.pk }}"><input type="hidden" name="q" value="{{ query }}"><button name="action" value="delete" class="js-del" onclick="return confirm('消します。よろしいですか？');" aria-label="消す">✕</button></form></div>{% endfor %}</td>{% endfor %}</tr></table>
+  {% if d.exams %}<div class="js-sec">【検査・採血・他科受診　等】</div>
+  <table class="js-dr"><tr><th style="width:18%;">氏名</th><th>内容</th><th style="width:9%;">紹介状</th><th style="width:9%;">食事箋</th><th style="width:8%;">内服</th></tr>
+    {% for it in d.exams %}<tr><td>{{ b.full_name }}</td><td>{{ it.content }}<form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="item" value="{{ it.pk }}"><input type="hidden" name="q" value="{{ query }}"><button name="action" value="delete" class="js-del" onclick="return confirm('消します。よろしいですか？');" aria-label="消す">✕</button></form></td><td class="text-center">{% if it.referral %}○{% endif %}</td><td class="text-center">{% if it.meal_slip %}○{% endif %}</td><td class="text-center">{% if it.oral %}○{% endif %}</td></tr>{% endfor %}</table>{% endif %}
+  {% if d.others %}<div class="js-sec">【その他】</div>
+  <div class="js-other">{% for it in d.others %}<div>{{ it.content }}<form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="item" value="{{ it.pk }}"><input type="hidden" name="q" value="{{ query }}"><button name="action" value="delete" class="js-del" onclick="return confirm('消します。よろしいですか？');" aria-label="消す">✕</button></form></div>{% endfor %}</div>{% endif %}
+</div>
+{% empty %}<div class="nr-card small text-muted">この期間の上申書はありません。上の「上申書に足す」から入れます。</div>{% endfor %}
+{% endblock %}

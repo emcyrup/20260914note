@@ -464,3 +464,40 @@ class MeetingFollowupTests(CareBase):
         self.assertNotContains(form, 'name="family_message"')
         self.client.post(reverse('nursing:record_edit', args=[self.b.pk]), {'d': '2026-11-10', 'action': 'save', 'body': '本文を直した'})
         self.assertEqual(CareRecord.objects.get(date=datetime.date(2026, 11, 10)).family_message, '家族向け')   # 入っている文は残す
+
+
+class PersonJoushinTests(CareBase):
+    """上申書を利用者ごとに：日付ごとに用紙と同じ形（医師の欄・検査・その他）でぶら下げる"""
+
+    def test_add_group_by_date_and_print(self):
+        s = NursingSetting.of(self.f)
+        s.doctors = '一ノ瀬 Dr\n二階堂 Dr'
+        s.save()
+        url = reverse('nursing:person_joushin', args=[self.b.pk])
+        self.client.post(url, {'date': '2026-11-10', 'kind': 'dr', 'doctor': '二階堂 Dr', 'content': '咳が続く'})
+        self.client.post(url, {'date': '2026-11-10', 'kind': 'exam', 'content': '胸部レントゲン', 'referral': '1'})
+        self.client.post(url, {'date': '2026-11-11', 'kind': 'other', 'content': '家族へ連絡ずみ'})
+        self.client.post(url, {'date': '2026-11-11', 'kind': 'dr', 'doctor': '臨時 Dr', 'content': '発熱の相談'})
+        days = self.client.get(url + '?from=2026-11-01&to=2026-11-30').context['days']
+        self.assertEqual([d['date'] for d in days], [datetime.date(2026, 11, 11), datetime.date(2026, 11, 10)])   # 新しい順
+        cols10 = {c['doctor']: [i.content for i in c['items']] for c in days[1]['columns']}
+        self.assertEqual(cols10, {'一ノ瀬 Dr': [], '二階堂 Dr': ['咳が続く']})
+        self.assertEqual([i.content for i in days[1]['exams']], ['胸部レントゲン'])
+        self.assertIn('臨時 Dr', [c['doctor'] for c in days[0]['columns']])     # 設定に無い医師も列に
+        self.assertEqual([i.content for i in days[0]['others']], ['家族へ連絡ずみ'])
+        html = self.client.get(reverse('nursing:person_joushin_print', args=[self.b.pk]) + '?from=2026-11-01&to=2026-11-30&fmt=html').content.decode()
+        self.assertLess(html.find('咳が続く'), html.find('発熱の相談'))   # 印刷は古い日から
+        self.assertIn('【検査・採血・他科受診', html)
+        # 全員の上申書（その日）にも出る。その他は【その他】の欄に名前つきで
+        day = self.client.get(reverse('nursing:joushin') + '?d=2026-11-11')
+        self.assertEqual([i.content for i in day.context['others']], ['家族へ連絡ずみ'])
+        dhtml = self.client.get(reverse('nursing:joushin_print') + '?d=2026-11-11&fmt=html').content.decode()
+        self.assertIn('山本 和子：家族へ連絡ずみ', dhtml)
+        # 消す（ほかの利用者の行は消せない）
+        it = JoushinItem.objects.get(content='咳が続く')
+        other = Beneficiary.objects.create(facility=self.f, last_name='架空', first_name='別人', date_of_birth=datetime.date(1940, 1, 1))
+        self.client.post(reverse('nursing:person_joushin', args=[other.pk]), {'action': 'delete', 'item': it.pk})
+        self.assertTrue(JoushinItem.objects.filter(pk=it.pk).exists())
+        self.client.post(url, {'action': 'delete', 'item': it.pk})
+        self.assertFalse(JoushinItem.objects.filter(pk=it.pk).exists())
+        self.assertContains(self.client.get(url), '上申書')

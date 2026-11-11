@@ -243,6 +243,7 @@ class JoushinView(CareMixin, View):
         jd = JoushinDay.objects.filter(facility=self.facility, date=day).first()
         return render(request, self.template_name, {
             'day': day, 'day_jp': jp_date(day), 'columns': joushin_columns(self.setting, items), 'exams': [i for i in items if i.kind == 'exam'],
+            'others': [i for i in items if i.kind == 'other'],
             'other': jd.other if jd else '', 'people': self.people(), 'doctors': self.setting.doctor_list(), 'today': datetime.date.today(),
             'prev': day - datetime.timedelta(days=1), 'next': day + datetime.timedelta(days=1), 'can_manage': request.user.can_manage_settings,
         })
@@ -266,7 +267,7 @@ class JoushinView(CareMixin, View):
         if not content:
             messages.error(request, '内容を入れてください。')
             return redirect(back)
-        kind = 'exam' if p.get('kind') == 'exam' else 'dr'
+        kind = p.get('kind') if p.get('kind') in ('exam', 'other') else 'dr'
         JoushinItem.objects.create(facility=self.facility, date=day, kind=kind, doctor=_text(p, 'doctor', 50) if kind == 'dr' else '',
                                    beneficiary=self.people().filter(pk=to_int(p.get('b'), 0)).first(), content=content,
                                    referral=p.get('referral') == '1', meal_slip=p.get('meal_slip') == '1', oral=p.get('oral') == '1',
@@ -284,6 +285,7 @@ class JoushinPdfView(CareMixin, View):
         return pdf_or_html(request, 'nursing/pdf/joushin.html', {
             'facility': self.facility, 'day': day, 'week': WEEK_JP[day.weekday()], 'columns': joushin_columns(self.setting, items),
             'exams': exams, 'exam_blank': range(max(0, 8 - len(exams))), 'other': jd.other if jd else '',
+            'others': [i for i in items if i.kind == 'other'],
             'back_url': reverse('nursing:joushin') + f'?d={day.isoformat()}'}, f'上申書_{day:%Y%m%d}')
 
 
@@ -521,3 +523,61 @@ class TimelineDayView(CareMixin, View):
         return render(request, self.template_name, {'day': day, 'day_jp': jp_date(day), 'notes': notes, 'roles': ProgressNote.ROLES,
                                                     'prev': day - datetime.timedelta(days=1), 'next': day + datetime.timedelta(days=1),
                                                     'important': [n for n in notes if n.important]})
+
+
+# ---------------------------------------------------------------- 上申書（利用者ごと）：日付ごとに用紙と同じ形でぶら下げる（2026-11-11 上申書の手書きメモ）
+def joushin_days(setting, items, others_by_day=None):
+    """利用者の上申書の行 → 日付ごと（新しい順）に {date, week, columns, exams, others}"""
+    by_day = OrderedDict()
+    for it in sorted(items, key=lambda i: (i.date, i.pk), reverse=True):
+        by_day.setdefault(it.date, []).append(it)
+    out = []
+    for d, its in by_day.items():
+        its = sorted(its, key=lambda i: i.pk)
+        out.append({'date': d, 'week': WEEK_JP[d.weekday()], 'columns': joushin_columns(setting, its),
+                    'exams': [i for i in its if i.kind == 'exam'], 'others': [i for i in its if i.kind == 'other']})
+    return out
+
+
+class PersonJoushinView(CareMixin, View):
+    template_name = 'nursing/person_joushin.html'
+
+    def get(self, request, pk):
+        b = self.person_or_404(pk)
+        start, end = timeline_range(request, default_days=90)
+        items = list(JoushinItem.objects.filter(beneficiary=b, date__range=(start, end)))
+        return render(request, self.template_name, {
+            'b': b, 'tab': 'joushin', 'days': joushin_days(self.setting, items), 'start': start, 'end': end, 'kinds': JoushinItem.KINDS,
+            'doctors': self.setting.doctor_list(), 'today': datetime.date.today(), 'insurance': latest_insurance_of(b), 'query': request.GET.urlencode()})
+
+    def post(self, request, pk):
+        b = self.person_or_404(pk)
+        p = request.POST
+        back = reverse('nursing:person_joushin', args=[b.pk]) + (('?' + p.get('q')) if p.get('q') else '')
+        if p.get('action') == 'delete':
+            JoushinItem.objects.filter(pk=to_int(p.get('item'), 0), beneficiary=b).delete()
+            messages.success(request, '上申書の行を 1 件消しました。')
+            return redirect(back)
+        content = _text(p, 'content', 2000)
+        if not content:
+            messages.error(request, '内容を入れてください。')
+            return redirect(back)
+        kind = p.get('kind') if p.get('kind') in ('exam', 'other') else 'dr'
+        day = parse_date(p.get('date'), datetime.date.today())
+        JoushinItem.objects.create(facility=self.facility, date=day, kind=kind, doctor=_text(p, 'doctor', 50) if kind == 'dr' else '',
+                                   beneficiary=b, content=content, referral=p.get('referral') == '1', meal_slip=p.get('meal_slip') == '1',
+                                   oral=p.get('oral') == '1', created_by=request.user)
+        messages.success(request, f'{b.full_name}さんの上申書（{day.month}/{day.day}）に足しました。その日の上申書（全員）にも出ます。')
+        return redirect(back)
+
+
+class PersonJoushinPdfView(CareMixin, View):
+    def get(self, request, pk):
+        b = self.person_or_404(pk)
+        start, end = timeline_range(request, default_days=90)
+        items = list(JoushinItem.objects.filter(beneficiary=b, date__range=(start, end)))
+        days = joushin_days(self.setting, items)
+        days.reverse()      # 印刷は古い日から
+        return pdf_or_html(request, 'nursing/pdf/person_joushin.html', {
+            'facility': self.facility, 'b': b, 'days': days, 'start': start, 'end': end,
+            'back_url': reverse('nursing:person_joushin', args=[b.pk])}, f'上申書_{b.full_name}')

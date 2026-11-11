@@ -6,6 +6,7 @@
   <a href="{% url 'nursing:vitals_week' b.pk %}" class="{% if tab == 'vitals' %}active{% endif %}"><i class="bi bi-thermometer-half"></i>検温板</a>
   <a href="{% url 'nursing:person_meds' b.pk %}" class="{% if tab == 'meds' %}active{% endif %}"><i class="bi bi-capsule"></i>薬</a>
   <a href="{% url 'nursing:person_notes' b.pk %}" class="{% if tab == 'notes' %}active{% endif %}"><i class="bi bi-clipboard2-pulse"></i>所見・処方処置</a>
+  <a href="{% url 'nursing:person_joushin' b.pk %}" class="{% if tab == 'joushin' %}active{% endif %}"><i class="bi bi-file-earmark-medical"></i>上申書</a>
   <a href="{% url 'nursing:incidents' %}?b={{ b.pk }}" class="{% if tab == 'incidents' %}active{% endif %}"><i class="bi bi-exclamation-triangle"></i>ヒヤリ・事故</a>
   <a href="{% url 'nursing:person_plans' b.pk %}" class="{% if tab == 'plans' %}active{% endif %}"><i class="bi bi-clipboard2-check"></i>計画書</a>
 </nav>

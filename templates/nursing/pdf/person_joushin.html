@@ -1,0 +1,35 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}上申書 {{ b.full_name }}{% endblock %}
+{% block page_margin %}10mm{% endblock %}
+{% block back_link %}<a class="outline" href="{{ back_url }}">画面に戻る</a>{% endblock %}
+{% block body %}
+<style>
+  .hd { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4mm; }
+  .hd b { font-size: 14px; border-bottom: 1px solid #333; padding: 0 6px; }
+  .day { page-break-inside: avoid; margin-bottom: 6mm; }
+  .ttl { text-align: center; font-size: 14px; margin-bottom: 2mm; }
+  .ttl span { display: inline-block; min-width: 2em; }
+  .drs th { background: #fff; font-weight: 500; font-size: 11px; }
+  .drs td { height: 24mm; font-size: 10px; }
+  .ex th { background: #fff; font-weight: 500; }
+  .ex td { height: 7mm; }
+  .sec { font-size: 10.5px; margin: 2mm 0 1mm; }
+  .other { border: 1px solid #333; border-radius: 12px; min-height: 12mm; padding: 4px 10px; white-space: pre-wrap; }
+</style>
+<div class="hd"><span>氏名 <b>{{ b.full_name }}</b></span><span>{{ start|date:'Y/n/j' }} 〜 {{ end|date:'Y/n/j' }}　{{ facility.org_label }}</span></div>
+{% for d in days %}
+<div class="day">
+  <div class="ttl"><span>{{ d.date.month }}</span>月<span>{{ d.date.day }}</span>日（{{ d.week }}）</div>
+  <table class="drs"><tr>{% for c in d.columns %}<th>{{ c.doctor }}</th>{% endfor %}</tr>
+    <tr>{% for c in d.columns %}<td>{% for it in c.items %}{{ it.content }}
+{% endfor %}</td>{% endfor %}</tr></table>
+  <div class="sec">【検査・採血・他科受診　等】</div>
+  <table class="ex"><tr><th style="width:17%;">氏名</th><th>内容</th><th style="width:8%;">紹介状</th><th style="width:8%;">食事箋</th><th style="width:7%;">内服</th></tr>
+    {% for it in d.exams %}<tr><td>{{ b.full_name }}</td><td>{{ it.content }}</td><td class="c">{% if it.referral %}○{% endif %}</td><td class="c">{% if it.meal_slip %}○{% endif %}</td><td class="c">{% if it.oral %}○{% endif %}</td></tr>
+    {% empty %}<tr><td></td><td></td><td></td><td></td><td></td></tr>{% endfor %}</table>
+  <div class="sec">【その他】</div>
+  <div class="other">{% for it in d.others %}{{ it.content }}
+{% endfor %}</div>
+</div>
+{% empty %}<div>この期間の上申書はありません。</div>{% endfor %}
+{% endblock %}

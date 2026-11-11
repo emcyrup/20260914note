@@ -26,5 +26,6 @@
   {% for _ in exam_blank %}<tr><td></td><td></td><td></td><td></td><td></td></tr>{% endfor %}
 </table>
 <div class="sec">【その他】</div>
-<div class="other">{{ other }}</div>
+<div class="other">{% for it in others %}{% if it.beneficiary %}{{ it.beneficiary.full_name }}：{% endif %}{{ it.content }}
+{% endfor %}{{ other }}</div>
 {% endblock %}

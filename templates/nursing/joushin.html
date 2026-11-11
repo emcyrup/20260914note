@@ -18,7 +18,7 @@
   <div class="nr-card">
     <div class="nr-h mb-1"><i class="bi bi-plus-lg me-1"></i>上申書に足す</div>
     <form method="post" class="row g-2 align-items-end">{% csrf_token %}<input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}"><input type="hidden" name="action" value="add">
-      <div class="col-md-3"><label class="nr-lbl" for="js-kind">区分</label><select name="kind" id="js-kind" class="form-select form-select-sm" onchange="document.getElementById('js-dr').classList.toggle('d-none', this.value==='exam');document.getElementById('js-ex').classList.toggle('d-none', this.value!=='exam');"><option value="dr">医師への上申</option><option value="exam">検査・採血・他科受診 等</option></select></div>
+      <div class="col-md-3"><label class="nr-lbl" for="js-kind">区分</label><select name="kind" id="js-kind" class="form-select form-select-sm" onchange="document.getElementById('js-dr').classList.toggle('d-none', this.value!=='dr');document.getElementById('js-ex').classList.toggle('d-none', this.value!=='exam');"><option value="dr">医師への上申</option><option value="exam">検査・採血・他科受診 等</option><option value="other">その他</option></select></div>
       <div class="col-md-3" id="js-dr"><label class="nr-lbl" for="js-doctor">医師</label><input type="text" name="doctor" id="js-doctor" class="form-control form-control-sm" maxlength="50" list="doctor-list" value="{{ doctors.0|default:'' }}"><datalist id="doctor-list">{% for d in doctors %}<option value="{{ d }}">{% endfor %}</datalist></div>
       <div class="col-md-3"><label class="nr-lbl" for="js-b">{{ terms.beneficiary }}</label><select name="b" id="js-b" class="form-select form-select-sm"><option value="">—</option>{% for p in people %}<option value="{{ p.pk }}">{{ p.full_name }}</option>{% endfor %}</select></div>
       <div class="col-md-3 d-none" id="js-ex"><div class="nr-lbl">印</div><div class="d-flex gap-2 small"><label><input type="checkbox" name="referral" value="1" class="form-check-input"> 紹介状</label><label><input type="checkbox" name="meal_slip" value="1" class="form-check-input"> 食事箋</label><label><input type="checkbox" name="oral" value="1" class="form-check-input"> 内服</label></div></div>
@@ -45,8 +45,10 @@
   </div>
 
   <form method="post" class="nr-card">{% csrf_token %}<input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}"><input type="hidden" name="action" value="other">
-    <label class="nr-h" for="js-other">【その他】</label><textarea name="other" id="js-other" rows="3" class="form-control form-control-sm" maxlength="3000">{{ other }}</textarea>
+    <label class="nr-h" for="js-other">【その他】</label>
+    {% for it in others %}<div class="small border-bottom py-1 d-flex gap-1"><div class="flex-grow-1">{% if it.beneficiary %}<b>{{ it.beneficiary.full_name }}</b>：{% endif %}{{ it.content|linebreaksbr }}</div><button form="del-{{ it.pk }}" name="action" value="delete" class="btn btn-sm btn-link text-danger p-0" onclick="return confirm('消します。よろしいですか？');" aria-label="消す"><i class="bi bi-x-lg"></i></button></div>{% endfor %}<textarea name="other" id="js-other" rows="3" class="form-control form-control-sm" maxlength="3000">{{ other }}</textarea>
     <div class="text-end mt-1"><button class="btn btn-outline-primary btn-sm">【その他】を保存</button></div>
   </form>
+  {% for it in others %}<form method="post" id="del-{{ it.pk }}" class="d-none">{% csrf_token %}<input type="hidden" name="d" value="{{ day|date:'Y-m-d' }}"><input type="hidden" name="item" value="{{ it.pk }}"></form>{% endfor %}
 </div>
 {% endblock %}

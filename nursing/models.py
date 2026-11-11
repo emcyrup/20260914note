@@ -591,10 +591,10 @@ class DoctorNote(models.Model):
 
 class JoushinItem(models.Model):
     """上申書（みどり会②）の 1 行。医師への上申（医師ごとの列）と、検査・採血・他科受診 等"""
-    KINDS = [('dr', '医師への上申'), ('exam', '検査・採血・他科受診 等')]
+    KINDS = [('dr', '医師への上申'), ('exam', '検査・採血・他科受診 等'), ('other', 'その他')]
     facility = models.ForeignKey(Facility, on_delete=models.CASCADE, related_name='joushin_items')
     date = models.DateField(verbose_name='日付')
-    kind = models.CharField(max_length=4, choices=KINDS, default='dr', verbose_name='区分')
+    kind = models.CharField(max_length=6, choices=KINDS, default='dr', verbose_name='区分')
     doctor = models.CharField(max_length=50, blank=True, verbose_name='医師')
     beneficiary = models.ForeignKey(Beneficiary, on_delete=models.SET_NULL, null=True, blank=True, related_name='joushin_items', verbose_name='利用者')
     content = models.TextField(verbose_name='内容')
