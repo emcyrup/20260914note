@@ -478,16 +478,18 @@ class PersonJoushinTests(CareBase):
         self.client.post(url, {'date': '2026-11-10', 'kind': 'exam', 'content': '胸部レントゲン', 'referral': '1'})
         self.client.post(url, {'date': '2026-11-11', 'kind': 'other', 'content': '家族へ連絡ずみ'})
         self.client.post(url, {'date': '2026-11-11', 'kind': 'dr', 'doctor': '臨時 Dr', 'content': '発熱の相談'})
-        days = self.client.get(url + '?from=2026-11-01&to=2026-11-30').context['days']
-        self.assertEqual([d['date'] for d in days], [datetime.date(2026, 11, 11), datetime.date(2026, 11, 10)])   # 新しい順
-        cols10 = {c['doctor']: [i.content for i in c['items']] for c in days[1]['columns']}
-        self.assertEqual(cols10, {'一ノ瀬 Dr': [], '二階堂 Dr': ['咳が続く']})
-        self.assertEqual([i.content for i in days[1]['exams']], ['胸部レントゲン'])
-        self.assertIn('臨時 Dr', [c['doctor'] for c in days[0]['columns']])     # 設定に無い医師も列に
-        self.assertEqual([i.content for i in days[0]['others']], ['家族へ連絡ずみ'])
+        ctx = self.client.get(url + '?from=2026-11-01&to=2026-11-30').context
+        self.assertEqual(ctx['cols'], ['一ノ瀬 Dr', '二階堂 Dr', '臨時 Dr'])          # 設定の医師＋書かれた医師（設定に無い医師も列に）
+        rows = ctx['rows']
+        self.assertEqual([r['date'] for r in rows], [datetime.date(2026, 11, 11), datetime.date(2026, 11, 10)])   # 行＝日付（新しい順）
+        self.assertEqual([[i.content for i in c] for c in rows[1]['cells']], [[], ['咳が続く'], []])
+        self.assertEqual([[i.content for i in c] for c in rows[0]['cells']], [[], [], ['発熱の相談']])
+        self.assertEqual([i.content for i in rows[1]['exams']], ['胸部レントゲン'])
+        self.assertEqual([i.content for i in rows[0]['others']], ['家族へ連絡ずみ'])
         html = self.client.get(reverse('nursing:person_joushin_print', args=[self.b.pk]) + '?from=2026-11-01&to=2026-11-30&fmt=html').content.decode()
         self.assertLess(html.find('咳が続く'), html.find('発熱の相談'))   # 印刷は古い日から
-        self.assertIn('【検査・採血・他科受診', html)
+        self.assertIn('検査・採血・他科受診 等', html)
+        self.assertIn('紹介状', html)
         # 全員の上申書（その日）にも出る。その他は【その他】の欄に名前つきで
         day = self.client.get(reverse('nursing:joushin') + '?d=2026-11-11')
         self.assertEqual([i.content for i in day.context['others']], ['家族へ連絡ずみ'])

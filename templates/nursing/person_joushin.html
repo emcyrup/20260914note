@@ -6,7 +6,7 @@
   .js-dr { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: .85rem; }
   .js-dr th, .js-dr td { border: 1px solid #555; padding: 3px 6px; vertical-align: top; }
   .js-dr th { text-align: center; font-weight: 500; background: #f7f9fa; }
-  .js-dr td { min-height: 3em; height: 3.2em; white-space: pre-wrap; }
+  .js-dr td { height: 2.6em; white-space: pre-wrap; }
   .js-sec { font-size: .82rem; margin: 6px 0 2px; }
   .js-other { border: 1px solid #555; border-radius: 12px; padding: 4px 10px; min-height: 2.4em; font-size: .85rem; white-space: pre-wrap; }
   .js-del { border: none; background: none; color: #c0392b; padding: 0 2px; font-size: .75rem; }
@@ -28,18 +28,18 @@
 <form method="get" class="nr-card d-flex flex-wrap gap-2 align-items-end small">
   <div><label class="nr-lbl" for="f-from">から</label><input type="date" name="from" id="f-from" class="form-control form-control-sm" value="{{ start|date:'Y-m-d' }}"></div>
   <div><label class="nr-lbl" for="f-to">まで</label><input type="date" name="to" id="f-to" class="form-control form-control-sm" value="{{ end|date:'Y-m-d' }}"></div>
-  <button class="btn btn-sm btn-outline-secondary">表示</button><span class="text-muted ms-2">日付ごとに、上申書の用紙と同じ形（医師の欄・検査・採血・他科受診・その他）で新しい順に並べます。</span>
+  <button class="btn btn-sm btn-outline-secondary">表示</button><span class="text-muted ms-2">日付を行に、医師ごとの列・検査・採血・他科受診・その他を並べます（新しい日が上）。</span>
 </form>
-{% for d in days %}
-<div class="js-day">
-  <div class="js-date">{{ d.date.month }} 月 {{ d.date.day }} 日（{{ d.week }}）</div>
-  <table class="js-dr"><tr>{% for c in d.columns %}<th>{{ c.doctor }}</th>{% endfor %}</tr>
-    <tr>{% for c in d.columns %}<td>{% for it in c.items %}<div>{{ it.content }}<form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="item" value="{{ it.pk }}"><input type="hidden" name="q" value="{{ query }}"><button name="action" value="delete" class="js-del" onclick="return confirm('消します。よろしいですか？');" aria-label="消す">✕</button></form></div>{% endfor %}</td>{% endfor %}</tr></table>
-  {% if d.exams %}<div class="js-sec">【検査・採血・他科受診　等】</div>
-  <table class="js-dr"><tr><th style="width:18%;">氏名</th><th>内容</th><th style="width:9%;">紹介状</th><th style="width:9%;">食事箋</th><th style="width:8%;">内服</th></tr>
-    {% for it in d.exams %}<tr><td>{{ b.full_name }}</td><td>{{ it.content }}<form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="item" value="{{ it.pk }}"><input type="hidden" name="q" value="{{ query }}"><button name="action" value="delete" class="js-del" onclick="return confirm('消します。よろしいですか？');" aria-label="消す">✕</button></form></td><td class="text-center">{% if it.referral %}○{% endif %}</td><td class="text-center">{% if it.meal_slip %}○{% endif %}</td><td class="text-center">{% if it.oral %}○{% endif %}</td></tr>{% endfor %}</table>{% endif %}
-  {% if d.others %}<div class="js-sec">【その他】</div>
-  <div class="js-other">{% for it in d.others %}<div>{{ it.content }}<form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="item" value="{{ it.pk }}"><input type="hidden" name="q" value="{{ query }}"><button name="action" value="delete" class="js-del" onclick="return confirm('消します。よろしいですか？');" aria-label="消す">✕</button></form></div>{% endfor %}</div>{% endif %}
-</div>
-{% empty %}<div class="nr-card small text-muted">この期間の上申書はありません。上の「上申書に足す」から入れます。</div>{% endfor %}
+<div class="nr-card p-1"><div class="table-responsive">
+<table class="js-dr" style="min-width:{{ cols|length|add:3 }}00px;">
+  <thead><tr><th style="width:7.5em;">月日</th>{% for c in cols %}<th>{{ c }}</th>{% endfor %}<th>検査・採血・他科受診 等</th><th>その他</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr><td class="text-center text-nowrap"><b>{{ r.date|date:'n/j' }}</b>（{{ r.week }}）</td>
+    {% for cell in r.cells %}<td>{% for it in cell %}<div>{{ it.content }}<form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="item" value="{{ it.pk }}"><input type="hidden" name="q" value="{{ query }}"><button name="action" value="delete" class="js-del" onclick="return confirm('消します。よろしいですか？');" aria-label="消す">✕</button></form></div>{% endfor %}</td>{% endfor %}
+    <td>{% for it in r.exams %}<div>{{ it.content }}{% if it.referral or it.meal_slip or it.oral %} <span class="small text-muted">（{% if it.referral %}紹介状{% endif %}{% if it.meal_slip %}{% if it.referral %}・{% endif %}食事箋{% endif %}{% if it.oral %}{% if it.referral or it.meal_slip %}・{% endif %}内服{% endif %}）</span>{% endif %}<form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="item" value="{{ it.pk }}"><input type="hidden" name="q" value="{{ query }}"><button name="action" value="delete" class="js-del" onclick="return confirm('消します。よろしいですか？');" aria-label="消す">✕</button></form></div>{% endfor %}</td>
+    <td>{% for it in r.others %}<div>{{ it.content }}<form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="item" value="{{ it.pk }}"><input type="hidden" name="q" value="{{ query }}"><button name="action" value="delete" class="js-del" onclick="return confirm('消します。よろしいですか？');" aria-label="消す">✕</button></form></div>{% endfor %}</td></tr>
+  {% empty %}<tr><td colspan="{{ cols|length|add:3 }}" class="small text-muted">この期間の上申書はありません。上の「上申書に足す」から入れます。</td></tr>{% endfor %}
+  </tbody>
+</table></div></div>
 {% endblock %}

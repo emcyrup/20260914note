@@ -526,6 +526,24 @@ class TimelineDayView(CareMixin, View):
 
 
 # ---------------------------------------------------------------- 上申書（利用者ごと）：日付ごとに用紙と同じ形でぶら下げる（2026-11-11 上申書の手書きメモ）
+def joushin_table(setting, items, newest_first=True):
+    """利用者の上申書 → 1 つの表：行＝日付、列＝医師（設定の順＋期間内に書かれた医師）・検査・採血・他科受診・その他"""
+    doctors = setting.doctor_list()
+    for it in sorted(items, key=lambda i: (i.date, i.pk)):
+        if it.kind == 'dr' and (it.doctor or '（医師）') not in doctors:
+            doctors.append(it.doctor or '（医師）')
+    by_day = OrderedDict()
+    for it in sorted(items, key=lambda i: (i.date, i.pk), reverse=newest_first):
+        by_day.setdefault(it.date, []).append(it)
+    rows = []
+    for d, its in by_day.items():
+        its = sorted(its, key=lambda i: i.pk)
+        rows.append({'date': d, 'week': WEEK_JP[d.weekday()],
+                     'cells': [[i for i in its if i.kind == 'dr' and (i.doctor or '（医師）') == doc] for doc in doctors],
+                     'exams': [i for i in its if i.kind == 'exam'], 'others': [i for i in its if i.kind == 'other']})
+    return doctors, rows
+
+
 def joushin_days(setting, items, others_by_day=None):
     """利用者の上申書の行 → 日付ごと（新しい順）に {date, week, columns, exams, others}"""
     by_day = OrderedDict()
@@ -546,8 +564,9 @@ class PersonJoushinView(CareMixin, View):
         b = self.person_or_404(pk)
         start, end = timeline_range(request, default_days=90)
         items = list(JoushinItem.objects.filter(beneficiary=b, date__range=(start, end)))
+        doctors, rows = joushin_table(self.setting, items)
         return render(request, self.template_name, {
-            'b': b, 'tab': 'joushin', 'days': joushin_days(self.setting, items), 'start': start, 'end': end, 'kinds': JoushinItem.KINDS,
+            'b': b, 'tab': 'joushin', 'cols': doctors, 'rows': rows, 'start': start, 'end': end, 'kinds': JoushinItem.KINDS,
             'doctors': self.setting.doctor_list(), 'today': datetime.date.today(), 'insurance': latest_insurance_of(b), 'query': request.GET.urlencode()})
 
     def post(self, request, pk):
@@ -576,8 +595,7 @@ class PersonJoushinPdfView(CareMixin, View):
         b = self.person_or_404(pk)
         start, end = timeline_range(request, default_days=90)
         items = list(JoushinItem.objects.filter(beneficiary=b, date__range=(start, end)))
-        days = joushin_days(self.setting, items)
-        days.reverse()      # 印刷は古い日から
+        doctors, rows = joushin_table(self.setting, items, newest_first=False)     # 印刷は古い日から
         return pdf_or_html(request, 'nursing/pdf/person_joushin.html', {
-            'facility': self.facility, 'b': b, 'days': days, 'start': start, 'end': end,
+            'facility': self.facility, 'b': b, 'cols': doctors, 'rows': rows, 'start': start, 'end': end, 'blank': range(max(0, 12 - len(rows))),
             'back_url': reverse('nursing:person_joushin', args=[b.pk])}, f'上申書_{b.full_name}')
