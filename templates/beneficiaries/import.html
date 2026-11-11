@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
-{% block title %}{{ terms.beneficiary }}を{% if user.facility.is_kaigo %}カイポケの CSV{% else %} Excel・CSV{% endif %} から取り込む — {{ app_label|default:"放課後等デイサービス業務支援" }}{% endblock %}
-{% block page_title %}{{ terms.beneficiary }}を{% if user.facility.is_kaigo %}カイポケの CSV{% else %} Excel・CSV{% endif %} から取り込む{% endblock %}
+{% block title %}{{ terms.beneficiary }}を{% if user.facility.is_kaigo %} CSV（カイポケ・要介護認定の一覧）{% else %} Excel・CSV{% endif %} から取り込む — {{ app_label|default:"放課後等デイサービス業務支援" }}{% endblock %}
+{% block page_title %}{{ terms.beneficiary }}を{% if user.facility.is_kaigo %} CSV（カイポケ・要介護認定の一覧）{% else %} Excel・CSV{% endif %} から取り込む{% endblock %}
 {% block nav_beneficiaries %}active{% endblock %}
 
 {% block extra_css %}
@@ -87,6 +87,17 @@
         <li>同じ<b>姓・名・生年月日</b>の人がすでにいれば、登録のときに「台帳の値を残す」か「取り込んだ値で上書きする」かを選べます。</li>
       </ul>
       <div class="text-muted">ファイルそのものはサーバーに残しません（読んだ内容は「登録する」を押したときに台帳に入ります）。</div>
+    </div>
+  </div>
+  <div class="card mb-3">
+    <div class="card-header fw-bold"><i class="bi bi-file-earmark-text me-1"></i>要介護認定の一覧（CSV）も、そのまま選べます</div>
+    <div class="card-body small">
+      <div>1行目に「個人コード・氏名(漢字)・氏名(カナ)・性別・年齢・生年月日・被保険者番号・申請種別・有効期間開始・有効期間終了・要介護状態・認定区分・作成支援事業者」がある CSV（Shift_JIS のままで構いません）。</div>
+      <ul class="mb-1 mt-1 ps-3 text-muted">
+        <li>氏名は姓と名に分け、半角カナのフリガナはひらがなで登録します。生年月日・有効期間の和暦（昭和・大正・令和など）は西暦に直します。性別・要介護状態は「1:男性」「21:要介護１」の番号を外して読みます。</li>
+        <li>被保険者番号・要介護度・認定の有効期間は「介護保険証」に入れます。申請種別・認定区分・作成支援事業者（居宅介護支援事業所）は介護保険証のメモに、個人コードは{{ terms.beneficiary }}の備考に入れます。認定区分が申請中で要介護度が空の人は「申請中」にします。</li>
+        <li>同じ<b>姓・名・生年月日</b>の人がすでにいれば、その人の介護保険証を書き換えます（同じ被保険者番号・同じ有効期間の開始日なら書き換え、違えば新しい認定として足します）。</li>
+      </ul>
     </div>
   </div>
   {% else %}

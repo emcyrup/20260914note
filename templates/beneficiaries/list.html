@@ -28,7 +28,7 @@
       {% if user.facility.is_kyotaku %}<a href="{% url 'kaigo:monthly_now' %}" class="btn btn-outline-secondary" title="全員の予定・実績（サービス利用票）"><i class="bi bi-calendar3 me-1"></i>予定・実績</a>
       <a href="{% url 'kaigo:providers' %}" class="btn btn-outline-secondary" title="サービス事業所・病院・地域包括など"><i class="bi bi-building me-1"></i>取引先</a>{% endif %}
       {% if user.facility.is_ryoiku %}<a href="{% url 'beneficiaries:import' %}" class="btn btn-outline-primary" title="Excel・CSV から利用者をまとめて登録・書き換え"><i class="bi bi-file-earmark-spreadsheet me-1"></i>Excel・CSV から取り込む</a>
-      {% elif user.facility.is_kaigo %}<a href="{% url 'beneficiaries:import' %}" class="btn btn-outline-primary" title="カイポケの利用者一覧（CSV）から、利用者と介護保険証をまとめて登録・書き換え"><i class="bi bi-file-earmark-spreadsheet me-1"></i>カイポケ CSV から取り込む</a>{% endif %}
+      {% elif user.facility.is_kaigo %}<a href="{% url 'beneficiaries:import' %}" class="btn btn-outline-primary" title="カイポケの利用者一覧・要介護認定の一覧（CSV）から、利用者と介護保険証をまとめて登録・書き換え"><i class="bi bi-file-earmark-spreadsheet me-1"></i>CSV から取り込む</a>{% endif %}
       <a href="{% url 'beneficiaries:create' %}" class="btn btn-primary">
         <i class="bi bi-person-plus-fill me-1"></i>新規登録
       </a>

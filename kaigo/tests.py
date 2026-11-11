@@ -66,7 +66,7 @@ class KaipokeImportTests(KaigoBase):
 
     def test_import_screen_and_commit(self):
         res = self.client.get(reverse('beneficiaries:list'))
-        self.assertContains(res, 'カイポケ CSV から取り込む')
+        self.assertContains(res, 'CSV から取り込む')
         res = self.client.post(reverse('beneficiaries:import'), {'file': kaipoke_csv()})
         self.assertContains(res, '介護保険証（要介護2）')
         self.assertEqual(res.context['counts'], {'create': 2, 'update': 0, 'error': 0})

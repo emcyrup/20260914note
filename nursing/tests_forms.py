@@ -319,3 +319,63 @@ class TransportBoardTests(CareBase):
         res = self.client.get(reverse('nursing:home'))
         for text in ('申し送り', '上申書', '利用予定・実績'):
             self.assertContains(res, text)
+
+
+# 要介護認定の一覧 CSV（やすらぎの森からいただいた形。Shift_JIS。中身は架空）
+NINTEI_HEADER = '"個人コード","氏名(漢字)","氏名(カナ)","性別","年齢","生年月日","被保険者番号","申請種別","有効期間開始","有効期間終了","要介護状態","認定区分","作成支援事業者","作成支援事業者２","作成支援事業者３"'
+NINTEI_ROWS = [
+    '"00000001","架空　一郎","ｶｸｳ ｲﾁﾛｳ","1:男性"," 78歳","昭和23年05月10日","0000000001","2:更新申請","令和07年12月01日","令和11年11月30日","21:要介護１","3:認定済み","","",""',
+    '"00000002","見本　花代","ﾐﾎﾝ ﾊﾅﾖ","2:女性"," 99歳","大正15年11月15日","0000000002","1:新規申請","令和07年07月01日","令和10年06月30日","13:要支援２","3:認定済み","9999999999:架空居宅介護支援事業所","",""',
+    '"00000003","試験　三子","ｼｹﾝ ﾐﾂｺ","2:女性"," 85歳","昭和16年01月02日","0000000003","1:新規申請","","","","1:申請中","","",""',
+]
+
+
+def nintei_csv(rows=None):
+    body = '\r\n'.join([NINTEI_HEADER] + (NINTEI_ROWS if rows is None else rows)) + '\r\n'
+    return SimpleUploadedFile('nintei.csv', body.encode('cp932'), content_type='text/csv')
+
+
+class NinteiCsvTests(CareBase):
+    def test_wareki_dates(self):
+        from beneficiaries.importer import parse_date
+        self.assertEqual(parse_date('昭和23年05月10日'), datetime.date(1948, 5, 10))
+        self.assertEqual(parse_date('令和07年12月01日'), datetime.date(2025, 12, 1))
+        self.assertEqual(parse_date('令和元年5月1日'), datetime.date(2019, 5, 1))
+        self.assertEqual(parse_date('H31.4.30'), datetime.date(2019, 4, 30))
+        self.assertEqual(parse_date('2026-11-11'), datetime.date(2026, 11, 11))
+
+    def test_import_people_and_insurance(self):
+        url = reverse('beneficiaries:import')
+        res = self.client.post(url, {'file': nintei_csv()})
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, '架空 一郎')
+        self.client.post(url, {'action': 'commit', 'mode': 'keep'})
+        a = Beneficiary.objects.get(facility=self.f, last_name='架空', first_name='一郎')
+        self.assertEqual((a.last_name_kana, a.first_name_kana, a.gender, a.date_of_birth), ('かくう', 'いちろう', 'male', datetime.date(1948, 5, 10)))
+        self.assertIn('個人コード：00000001', a.notes)
+        ins = CareInsurance.objects.get(beneficiary=a)
+        self.assertEqual((ins.care_level, ins.insured_number, ins.valid_from, ins.valid_until),
+                         ('要介護1', '0000000001', datetime.date(2025, 12, 1), datetime.date(2029, 11, 30)))
+        self.assertIn('更新申請', ins.notes)
+        b = Beneficiary.objects.get(facility=self.f, last_name='見本', first_name='花代')
+        ins_b = CareInsurance.objects.get(beneficiary=b)
+        self.assertEqual(ins_b.care_level, '要支援2')
+        self.assertIn('架空居宅介護支援事業所（9999999999）', ins_b.notes)
+        self.assertEqual(b.date_of_birth, datetime.date(1926, 11, 15))
+        c = Beneficiary.objects.get(facility=self.f, last_name='試験', first_name='三子')
+        self.assertEqual(CareInsurance.objects.get(beneficiary=c).care_level, '申請中')
+        # もう一度取り込んでも、備考の個人コード・介護保険証は増えない
+        self.client.post(url, {'file': nintei_csv()})
+        self.client.post(url, {'action': 'commit', 'mode': 'overwrite'})
+        a.refresh_from_db()
+        self.assertEqual(a.notes.count('個人コード'), 1)
+        self.assertEqual(CareInsurance.objects.filter(beneficiary=a).count(), 1)
+        self.assertEqual(Beneficiary.objects.filter(facility=self.f, last_name='架空', first_name='一郎').count(), 1)
+
+    def test_unknown_level_goes_to_memo(self):
+        row = '"00000009","架空　九郎","ｶｸｳ ｸﾛｳ","1:男性"," 80歳","昭和21年01月01日","0000000009","1:新規申請","令和08年01月01日","令和09年12月31日","99:経過的要介護","3:認定済み","","",""'
+        self.client.post(reverse('beneficiaries:import'), {'file': nintei_csv([row])})
+        self.client.post(reverse('beneficiaries:import'), {'action': 'commit', 'mode': 'keep'})
+        ins = CareInsurance.objects.get(beneficiary__first_name='九郎')
+        self.assertEqual(ins.care_level, '')
+        self.assertIn('要介護状態：経過的要介護', ins.notes)

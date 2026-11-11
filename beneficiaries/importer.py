@@ -120,6 +120,9 @@ KAIPOKE_CARE = [
 ]
 CARE_DATE_KEYS = ('certified_on', 'issued_on', 'applied_from', 'applied_until', 'valid_from', 'valid_until', 'copay_issued_on', 'copay_from')
 KAIPOKE_STATUS = {'表示': 'active', '非表示': 'inactive'}
+# 要介護認定の一覧 CSV（2026-11-11 やすらぎの森からいただいた形。Shift_JIS）：個人コード・氏名(漢字)・氏名(カナ。半角)・性別「1:男性」・年齢・
+# 生年月日（和暦）・被保険者番号・申請種別「2:更新申請」・有効期間開始／終了（和暦）・要介護状態「21:要介護１」・認定区分「3:認定済み」・作成支援事業者（番号:名前）×3
+NINTEI_MARKS = ['個人コード', '氏名(漢字)', '被保険者番号', '要介護状態']
 
 
 class RowError(Exception):
@@ -167,6 +170,9 @@ def rows_from_file(uploaded):
     head = find_header(rows, KAIPOKE_MARKS)
     if head is not None:
         return _kaipoke_rows([(h or '').strip() for h in rows[head]], rows[head + 1:head + 1 + MAX_ROWS], head + 1)
+    head = find_header(rows, NINTEI_MARKS)
+    if head is not None:
+        return _nintei_rows([(h or '').strip() for h in rows[head]], rows[head + 1:head + 1 + MAX_ROWS], head + 1)
     head = find_header(rows, [CHILDREN_MARK, '生年月日'])
     if head is not None:
         return _children_rows(_children_by_header(rows[head], rows[head + 1:head + 1 + MAX_ROWS]), head + 1, strict=False)
@@ -233,15 +239,66 @@ def _kaipoke_rows(header, body, offset):
     return out
 
 
+def _code_label(v):
+    """「1:男性」「21:要介護１」→ 男性・要介護１（コードの部分を外す）"""
+    v = (v or '').strip()
+    m = re.match(r'^\s*[0-9０-９A-Za-z]+\s*[:：]\s*(.*)$', v)
+    return (m.group(1) if m else v).strip()
+
+
+def _nintei_rows(header, body, offset):
+    """要介護認定の一覧 → 雛形と同じキーの dict（介護保険証は '_care' に。作成支援事業者・申請種別は介護保険証のメモへ、個人コードは備考へ）"""
+    import unicodedata
+    col = {h: i for i, h in reversed(list(enumerate(header)))}
+
+    def get(r, label):
+        i = col.get(label)
+        return _excel_text(r[i]) if i is not None and i < len(r) else ''
+
+    out = []
+    for n, r in enumerate(body):
+        if not any((c or '').strip() for c in r):
+            continue
+        last, first = split_name(get(r, '氏名(漢字)'))
+        kl, kf = split_name(unicodedata.normalize('NFKC', get(r, '氏名(カナ)')))
+        code = get(r, '個人コード')
+        d = {'_format': FORMAT_BENEFICIARY, '_line': offset + n + 1, '_kaipoke': True,
+             'last_name': last, 'first_name': first, 'last_name_kana': _hira(kl), 'first_name_kana': _hira(kf),
+             'date_of_birth': get(r, '生年月日'), 'gender': _code_label(get(r, '性別')),
+             'notes_append': f'個人コード：{code}' if code else ''}
+        if not first:
+            d['_error'] = '氏名を姓と名に分けられません（姓と名のあいだに空白を入れてください）'
+        level = _code_label(get(r, '要介護状態'))
+        status = _code_label(get(r, '認定区分'))
+        if not level and '申請' in status:
+            level = '申請中'
+        offices = [_code_label(get(r, h)) + (f"（{get(r, h).split(':', 1)[0].strip()}）" if ':' in get(r, h) else '')
+                   for h in ('作成支援事業者', '作成支援事業者２', '作成支援事業者３') if get(r, h)]
+        memo = '・'.join(x for x in (_code_label(get(r, '申請種別')), status) if x)
+        if offices:
+            memo += ('　' if memo else '') + '作成：' + '・'.join(offices)
+        care = {'insured_number': get(r, '被保険者番号'), 'care_level': level,
+                'valid_from': get(r, '有効期間開始'), 'valid_until': get(r, '有効期間終了'), 'notes': memo[:200]}
+        if any(v for k, v in care.items() if k != 'notes'):
+            d['_care'] = care
+        out.append(d)
+    return out
+
+
 def parse_care(c):
     """カイポケの被保険者証・負担割合証 → 介護保険証の値。問題があれば RowError"""
     from kaigo.models import CARE_LEVELS
     out = {'insurer_number': re.sub(r'\D', '', c.get('insurer_number', ''))[:8],
            'insured_number': re.sub(r'\s', '', c.get('insured_number', ''))[:12]}
-    level = (c.get('care_level') or '').strip().translate(str.maketrans('１２３４５', '12345'))
+    level = (c.get('care_level') or '').strip().translate(str.maketrans('１２３４５', '12345')).replace(' ', '').replace('　', '')
     if level and level not in CARE_LEVELS:
-        raise RowError(f'要介護度を読み取れません：{level}')
+        if 'notes' not in c:
+            raise RowError(f'要介護度を読み取れません：{level}')
+        c = dict(c, notes=(f'要介護状態：{level}　' + c.get('notes', ''))[:200])
+        level = ''
     out['care_level'] = level
+    if 'notes' in c:
+        out['notes'] = (c.get('notes') or '')[:200]
     for k in CARE_DATE_KEYS:
         out[k] = parse_date(c.get(k))
     ratio = (c.get('copay_ratio') or '').strip().translate(str.maketrans('１２３', '123')).replace('割', '')
@@ -396,6 +453,10 @@ def parse_date(v):
     if not v:
         return None
     v = v.translate(str.maketrans('０１２３４５６７８９／．－', '0123456789/.-'))
+    w = re.match(r'^(明治|大正|昭和|平成|令和|[MTSHR])\s*(\d{1,2}|元)[-/.年](\d{1,2})[-/.月](\d{1,2})日?', v)
+    if w:
+        base = {'明治': 1867, '大正': 1911, '昭和': 1925, '平成': 1988, '令和': 2018, 'M': 1867, 'T': 1911, 'S': 1925, 'H': 1988, 'R': 2018}[w.group(1)]
+        v = f"{base + (1 if w.group(2) == '元' else int(w.group(2)))}-{w.group(3)}-{w.group(4)}"
     m = re.match(r'^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})日?', v)
     if not m:
         raise RowError(f'日付を読み取れません：{v}（例：2019-04-01）')
