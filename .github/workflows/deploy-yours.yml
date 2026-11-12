@@ -1,6 +1,6 @@
 # =============================================
 # 「発達支援ルーム　ゆあーず」を AWS 共用サーバー（sudo なし・Docker なし・venv＋Gunicorn）へデプロイ
-#   https://michinote.yours.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 0.0.0.0:8030
+#   https://michinote.yours.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 127.0.0.1:8030
 #   ブランチ ryoiku への push、または Actions から手動実行（任意のブランチを選べる）
 #   サーバー側は deploy/venv-deploy.sh が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行う
 #   （開発環境の Deploy (dev) と同じ仕組み。置き場所・ポート・DB が違うだけ）
