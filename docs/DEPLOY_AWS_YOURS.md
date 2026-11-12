@@ -1,6 +1,6 @@
 # 「発達支援ルーム　ゆあーず」を AWS 共用サーバーで動かす手順（sudo なし・Docker なし・venv＋Gunicorn）
 
-対象: `https://michinote.yours.ai-labo.cloud/` → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn `0.0.0.0:8030` → プロバイダ管理の PostgreSQL（DB `michinoteyours`、ユーザー `ai_labo_dbuser`）。
+対象: `https://michinote.yours.ai-labo.cloud/` → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn `127.0.0.1:8030` → プロバイダ管理の PostgreSQL（DB `michinoteyours`、ユーザー `ai_labo_dbuser`）。
 
 開発環境（`https://st-michinotedemo.ai-labo.cloud/`、ポート 8029、`docs/DEPLOY_AWS_DEV.md`）と**同じ仕組み**で、置き場所・ポート・DB・`.env` が違うだけです。同じサーバーに置く場合は、開発環境の clone（`~/michinotedemo`）と venv（`~/env`）はそのまま使い、ゆあーずは別の clone（`~/michinoteyours`）で動かします。venv は共用で構いません（同じリポジトリなので必要なパッケージは同じ）。
 
@@ -70,7 +70,7 @@ cd ~/michinoteyours
 bash deploy/venv-deploy.sh
 ```
 
-`venv-deploy.sh` は、自分が置かれている clone（ここでは `~/michinoteyours`）を対象に、`pip install -r requirements.txt` → `migrate` → `collectstatic` → Gunicorn 起動（`0.0.0.0:8030`、PID は `run/gunicorn.pid`、ログは `logs/`）→ `http://127.0.0.1:8030/healthz/` の確認までを行います。成功したらブラウザで `https://michinote.yours.ai-labo.cloud/healthz/` が `ok` になります。
+`venv-deploy.sh` は、自分が置かれている clone（ここでは `~/michinoteyours`）を対象に、`pip install -r requirements.txt` → `migrate` → `collectstatic` → Gunicorn 起動（`127.0.0.1:8030`、PID は `run/gunicorn.pid`、ログは `logs/`）→ `http://127.0.0.1:8030/healthz/` の確認までを行います。成功したらブラウザで `https://michinote.yours.ai-labo.cloud/healthz/` が `ok` になります。
 
 開発環境の Gunicorn（8029）とは PID ファイルもログも別なので、同じサーバーで両方動かせます。
 

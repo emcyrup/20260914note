@@ -1,13 +1,13 @@
 # 「児童発達支援センター　オウル」を AWS 共用サーバーで動かす手順（ゆあーずと同じサーバー・別ポート・別 DB）
 
-対象: `https://michinote.owl.ai-labo.cloud/` → プロバイダ管理の nginx（HTTPS 終端。設定はゆあーずと同じ）→ Gunicorn `0.0.0.0:8034` → プロバイダ管理の PostgreSQL（DB `michinoteowl`、ユーザー `ai_labo_dbuser`）。
+対象: `https://michinote.owl.ai-labo.cloud/` → プロバイダ管理の nginx（HTTPS 終端。設定はゆあーずと同じ）→ Gunicorn `127.0.0.1:8034` → プロバイダ管理の PostgreSQL（DB `michinoteowl`、ユーザー `ai_labo_dbuser`）。
 
 ゆあーず（`docs/DEPLOY_AWS_YOURS.md`。`~/michinoteyours`・ポート 8030・DB `michinoteyours`）と**同じサーバー・同じ仕組み**で、置き場所・ポート・DB・`.env` が違うだけです。venv（`~/env`）は共用します。同じアプリを別々に動かすので、オウルの職員・利用者・予約はゆあーずからは見えません（DB が別）。
 
 | 項目 | ゆあーず | オウル |
 |---|---|---|
 | URL | `https://michinote.yours.ai-labo.cloud/` | `https://michinote.owl.ai-labo.cloud/` |
-| Gunicorn | `0.0.0.0:8030` | `0.0.0.0:8034` |
+| Gunicorn | `127.0.0.1:8030` | `127.0.0.1:8034` |
 | 置き場所 | `~/michinoteyours` | `~/michinoteowl` |
 | DB | `michinoteyours` / `ai_labo_dbuser` | `michinoteowl` / `ai_labo_dbuser`（同じユーザー・同じパスワード） |
 | `.env` の雛形 | `deploy/.env.yours-aws.example` | `deploy/.env.owl-aws.example` |
@@ -36,7 +36,7 @@ Actions → **Deploy (owl)** → Run workflow（ブランチ `ryoiku`）。`ryoi
 - `MEDIA_ROOT=~/michinoteowl/media`（ゆあーずの写真・書類とは別の場所）
 - `EMAIL_*`（期限のお知らせのメール）は写さない。使うときは手順 5
 
-そのあと `deploy/venv-deploy.sh` が `pip install` → `migrate` → `collectstatic` → Gunicorn 起動（`0.0.0.0:8034`、PID は `~/michinoteowl/run/gunicorn.pid`、ログは `~/michinoteowl/logs/`）→ `https://michinote.owl.ai-labo.cloud/healthz/` の確認まで行います。2 回目以降は `.env` を上書きしません。
+そのあと `deploy/venv-deploy.sh` が `pip install` → `migrate` → `collectstatic` → Gunicorn 起動（`127.0.0.1:8034`、PID は `~/michinoteowl/run/gunicorn.pid`、ログは `~/michinoteowl/logs/`）→ `https://michinote.owl.ai-labo.cloud/healthz/` の確認まで行います。2 回目以降は `.env` を上書きしません。
 
 ゆあーずの Deploy (yours)・Manage (yours) と同じ列（concurrency `deploy-yours`）に並ぶので、同じ venv で `pip` が同時に動くことはありません。
 

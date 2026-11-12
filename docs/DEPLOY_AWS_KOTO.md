@@ -1,6 +1,6 @@
 # 居宅介護の事業所「居宅介護支援事業所コト」の本番環境（ゆあーず・オウルと同じサーバー・別ポート・別 DB）
 
-対象: `https://kaigonote.koto.ai-labo.cloud/` → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn `0.0.0.0:8043` → プロバイダ管理の PostgreSQL（DB `kaigonotekoto`、ユーザー `ai_labo_dbuser`）。2026-10-21 にプロバイダ側で設定ずみ（nginx・HTTPS・ポート 8043・DB）。
+対象: `https://kaigonote.koto.ai-labo.cloud/` → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn `127.0.0.1:8043` → プロバイダ管理の PostgreSQL（DB `kaigonotekoto`、ユーザー `ai_labo_dbuser`）。2026-10-21 にプロバイダ側で設定ずみ（nginx・HTTPS・ポート 8043・DB）。
 
 コトの機能（画面の型「居宅介護」・`homecare`・`kaigo` アプリ）は **`kyotaku` ブランチだけ**にあります。開発環境（`docs/DEPLOY_AWS_KYOTAKU.md`。`st-kaigonote.kyotaku.ai-labo.cloud`）で確かめてから、本番へは**手で**出します（push では動きません）。
 
@@ -11,7 +11,7 @@
 | アドレス | `st-kaigonote.kyotaku.ai-labo.cloud` | `kaigonote.koto.ai-labo.cloud` |
 | サーバー | 開発環境のサーバー | ゆあーず・オウルと同じサーバー |
 | 置き場所 | `~/kaigonotekyotaku` | `~/kaigonotekoto` |
-| Gunicorn | `0.0.0.0:8039` | `0.0.0.0:8043` |
+| Gunicorn | `127.0.0.1:8039` | `127.0.0.1:8043` |
 | DB | `kaigonotekyotaku`（`st_ai_labo_dbuser`） | `kaigonotekoto`（`ai_labo_dbuser`。ゆあーずと同じユーザー・同じパスワード） |
 | 配備 | Deploy (kyotaku)（`kyotaku` への push） | **Deploy (koto)**（Actions から手で。ブランチ `kyotaku` を選ぶ） |
 | 管理 | Manage (kyotaku) | **Manage (koto)** |

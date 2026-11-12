@@ -1,6 +1,6 @@
 # =============================================
 # 居宅介護の事業所「居宅介護支援事業所コト」の本番環境へデプロイ（ゆあーず・オウルと同じ AWS 共用サーバー）
-#   https://kaigonote.koto.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 0.0.0.0:8043
+#   https://kaigonote.koto.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 127.0.0.1:8043
 #   置き場所 ~/kaigonotekoto、DB kaigonotekoto（ユーザー ai_labo_dbuser。ゆあーず・オウルと同じユーザー）。venv（~/env）はゆあーずと共用
 #   本番なので push では動かさない。Actions の画面（または API）から手動で実行し、ブランチは kyotaku を選ぶ
 #   （コトの機能は kyotaku ブランチだけにある。開発環境の Deploy (kyotaku) で確かめてから本番へ出す）

@@ -1,6 +1,6 @@
 # 居宅介護の事業所「居宅介護支援事業所コト」を AWS 開発環境のサーバーで動かす手順（開発環境と同じサーバー・別ポート・別 DB）
 
-対象: `https://st-kaigonote.kyotaku.ai-labo.cloud/` → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn `0.0.0.0:8039` → プロバイダ管理の PostgreSQL（DB `kaigonotekyotaku`、ユーザー `st_ai_labo_dbuser`）。2026-10-14 にプロバイダ側で設定ずみ（nginx・HTTPS・ポート 8039・DB）。
+対象: `https://st-kaigonote.kyotaku.ai-labo.cloud/` → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn `127.0.0.1:8039` → プロバイダ管理の PostgreSQL（DB `kaigonotekyotaku`、ユーザー `st_ai_labo_dbuser`）。2026-10-14 にプロバイダ側で設定ずみ（nginx・HTTPS・ポート 8039・DB）。
 
 **居宅介護の機能（画面の型「居宅介護」・`homecare` アプリ）は `kyotaku` ブランチだけにあり、ゆあーず・オウル（`ryoiku`）には入れません**（2026-10-14 の依頼）。ゆあーず・オウルと共通の部分を直したときは、`ryoiku` の変更を `kyotaku` に取り込んで配備します。
 
@@ -10,7 +10,7 @@
 |---|---|---|
 | アドレス | `st-michinotedemo.ai-labo.cloud` | `st-kaigonote.kyotaku.ai-labo.cloud` |
 | 置き場所 | `~/michinotedemo` | `~/kaigonotekyotaku` |
-| Gunicorn | `0.0.0.0:8029` | `0.0.0.0:8039` |
+| Gunicorn | `127.0.0.1:8029` | `127.0.0.1:8039` |
 | DB | `michinotedemo` | `kaigonotekyotaku`（同じユーザー `st_ai_labo_dbuser`・同じパスワード） |
 | 配備 | Deploy (dev)（`develop` への push） | Deploy (kyotaku)（**`kyotaku` ブランチ**への push） |
 | 管理 | Manage (dev) | Manage (kyotaku) |

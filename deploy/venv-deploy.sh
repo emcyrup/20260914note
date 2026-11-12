@@ -1,11 +1,11 @@
 #!/bin/bash
 # =============================================
 # 共用サーバー（sudo なし・Docker なし・venv＋Gunicorn）へのデプロイ／起動スクリプト
-#   例: AWS 開発環境 https://st-michinotedemo.ai-labo.cloud/ → Gunicorn 0.0.0.0:8029（~/michinotedemo）
-#       ゆあーず       https://michinote.yours.ai-labo.cloud/  → Gunicorn 0.0.0.0:8030（~/michinoteyours）
-#       オウル         https://michinote.owl.ai-labo.cloud/    → Gunicorn 0.0.0.0:8034（~/michinoteowl）
-#       コト（居宅介護。開発環境のサーバー）https://st-kaigonote.kyotaku.ai-labo.cloud/ → Gunicorn 0.0.0.0:8039（~/kaigonotekyotaku）
-#       コト（本番。ゆあーずと同じサーバー）https://kaigonote.koto.ai-labo.cloud/ → Gunicorn 0.0.0.0:8043（~/kaigonotekoto）
+#   例: AWS 開発環境 https://st-michinotedemo.ai-labo.cloud/ → Gunicorn 127.0.0.1:8029（~/michinotedemo）
+#       ゆあーず       https://michinote.yours.ai-labo.cloud/  → Gunicorn 127.0.0.1:8030（~/michinoteyours）
+#       オウル         https://michinote.owl.ai-labo.cloud/    → Gunicorn 127.0.0.1:8034（~/michinoteowl）
+#       コト（居宅介護。開発環境のサーバー）https://st-kaigonote.kyotaku.ai-labo.cloud/ → Gunicorn 127.0.0.1:8039（~/kaigonotekyotaku）
+#       コト（本番。ゆあーずと同じサーバー）https://kaigonote.koto.ai-labo.cloud/ → Gunicorn 127.0.0.1:8043（~/kaigonotekoto）
 #
 # 使い方（サーバー上で）
 #   bash ~/michinotedemo/deploy/venv-deploy.sh            # 現在のブランチの最新に更新して再起動
@@ -23,6 +23,8 @@
 # 前提
 #   ~/env にプロバイダ作成の venv、~/michinotedemo（または ~/michinoteyours）に git clone、その中の .env に設定
 #   環境変数で変更可: APP_DIR（既定 このスクリプトがある clone）、VENV（既定 ~/env）、PORT（既定 .env の PORT か 8029）
+#   待ち受けるアドレスは 127.0.0.1（同じサーバーの nginx からだけ。外からポートへ直接は入れない。2026-11-12〜）。
+#   nginx が別のアドレスへ中継する構成のときだけ .env に GUNICORN_BIND_HOST=0.0.0.0（変えたら --restart）
 #   同じサーバーで開発環境とゆあーずを両方動かすときは、clone・.env・PORT が別で、venv（~/env）は共用でよい
 # =============================================
 set -euo pipefail
@@ -39,6 +41,14 @@ if [ -f .env ]; then
 fi
 PORT=${PORT:-8029}
 WORKERS=${WORKERS:-2}
+# 待ち受けるアドレス。既定は 127.0.0.1（ループバック）。.env の GUNICORN_BIND_HOST（複数あれば最後の行）で変えられる
+if [ -f .env ]; then
+  BIND_HOST=${BIND_HOST:-$(grep -E '^GUNICORN_BIND_HOST=' .env | tail -n 1 | cut -d= -f2- | tr -d '[:space:]"' || true)}
+fi
+BIND_HOST=${BIND_HOST:-127.0.0.1}
+[[ "$BIND_HOST" =~ ^[0-9a-fA-F.:]+$ ]] || { echo "ERROR: GUNICORN_BIND_HOST は IP アドレスで入れてください（例 127.0.0.1）: $BIND_HOST"; exit 1; }
+# サーバーの中から確かめるときのあて先（0.0.0.0 で待ち受けているときは 127.0.0.1 で届く）
+LOCAL_HOST=$BIND_HOST; [ "$BIND_HOST" = "0.0.0.0" ] && LOCAL_HOST=127.0.0.1
 PIDFILE=$APP_DIR/run/gunicorn.pid
 mkdir -p run logs media
 
@@ -75,23 +85,77 @@ start() {
   # --daemon は使わず setsid + nohup でバックグラウンド化する（SSH を切っても残る。前面起動と同じ動きになる）
   # 制御ソケットは /run/user/<uid> に作られてログアウトで消えることがあるので使わない
   setsid nohup gunicorn config.wsgi:application \
-    --bind "0.0.0.0:$PORT" \
+    --bind "$BIND_HOST:$PORT" \
     --workers "$WORKERS" --threads 2 --timeout 300 \
     --pid "$PIDFILE" --no-control-socket \
     --access-logfile logs/access.log --error-logfile logs/error.log --capture-output \
     >> logs/gunicorn.out 2>&1 < /dev/null &
   for _ in $(seq 1 20); do [ -n "$(running_pid)" ] && break; sleep 0.5; done
   if [ -n "$(running_pid)" ]; then
-    echo "gunicorn: started on 0.0.0.0:$PORT (pid $(running_pid))"
+    echo "gunicorn: started on $BIND_HOST:$PORT (pid $(running_pid))"
   else
     echo "ERROR: gunicorn が起動しませんでした"; tail -n 30 logs/gunicorn.out logs/error.log 2>/dev/null; exit 1
   fi
 }
 
+http_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$1" 2>/dev/null || true; }
+
+current_bind() {
+  # 動いている Gunicorn がいま待ち受けているアドレス（起動したときの --bind の値）
+  tr '\0' '\n' < "/proc/$1/cmdline" 2>/dev/null | grep -A1 -x -e '--bind' | tail -n 1 || true
+}
+
+public_url() {
+  # 利用者が開くアドレスの /healthz/（環境変数 HEALTH_URL、無ければ .env の DJANGO_ALLOWED_HOSTS の 1 つ目）。分からなければ空
+  local host
+  [ -n "${HEALTH_URL:-}" ] && { echo "$HEALTH_URL"; return 0; }
+  host=$(grep -E '^DJANGO_ALLOWED_HOSTS=' .env 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '[:space:]"' | cut -d, -f1 || true)
+  case "$host" in ''|localhost|127.*|\**|.*) return 0 ;; esac
+  echo "https://$host/healthz/"
+}
+
+rebind() {
+  # 待ち受けるアドレスを変える。HUP ではポートの開き方が変わらないので、止めて起動し直す（数秒つながらない）。
+  # 変える前に nginx 経由（公開アドレス）で 200 だったのに、変えたあと 200 に戻らなければ、元のアドレスに戻して .env に残す
+  local cur=$1 old_host=${1%:*} url pre="" post="" code=""
+  url=$(public_url)
+  [ -n "$url" ] && pre=$(http_code "$url")
+  echo "gunicorn: 待ち受けを $cur → $BIND_HOST:$PORT に変えます（止めて起動し直すので数秒つながりません）"
+  stop
+  start
+  for _ in $(seq 1 40); do
+    code=$(http_code "http://$LOCAL_HOST:$PORT/healthz/")
+    [ "$code" = "200" ] && break
+    sleep 1
+  done
+  [ "$code" = "200" ] || { echo "ERROR: 起動し直したあと healthz（$LOCAL_HOST:$PORT）が応答しません（$code）"; return 0; }
+  if [ "$pre" != "200" ]; then
+    echo "bind: サーバーの中からは公開アドレスを確かめられません（変える前の応答: ${pre:-なし}）。外からの確認（Actions の Health check）で確かめてください"
+    return 0
+  fi
+  for _ in $(seq 1 15); do
+    post=$(http_code "$url")
+    [ "$post" = "200" ] && { echo "bind: OK nginx 経由（$url）も 200"; return 0; }
+    sleep 2
+  done
+  echo "WARNING: $BIND_HOST:$PORT にしたら nginx 経由（$url）が $post になりました。元の $old_host に戻します（nginx の中継先が $BIND_HOST ではない構成）"
+  stop
+  BIND_HOST=$old_host
+  LOCAL_HOST=$BIND_HOST; [ "$BIND_HOST" = "0.0.0.0" ] && LOCAL_HOST=127.0.0.1
+  start
+  printf '\n# %s 自動で戻した：127.0.0.1 では nginx から届かなかった（deploy/venv-deploy.sh）。nginx の中継先を直したらこの行を消す\nGUNICORN_BIND_HOST=%s\n' "$(date '+%Y-%m-%d %H:%M')" "$old_host" >> .env
+  echo "WARNING: .env に GUNICORN_BIND_HOST=$old_host を書き足しました"
+}
+
 restart() {
-  local pid
+  local pid cur
   pid=$(running_pid)
   if [ -n "$pid" ]; then
+    cur=$(current_bind "$pid")
+    if [ -n "$cur" ] && [ "$cur" != "$BIND_HOST:$PORT" ]; then
+      rebind "$cur"
+      return 0
+    fi
     # HUP でワーカーだけ入れ替える（新しいコードと .env を読み直す。ポートは開いたまま）
     kill -HUP "$pid"
     echo "gunicorn: reloaded (pid $pid)"
@@ -105,11 +169,12 @@ status() {
   pid=$(running_pid)
   if [ -n "$pid" ]; then
     echo "gunicorn: running (pid $pid, since $(ps -o lstart= -p "$pid" 2>/dev/null | xargs))"
+    echo "bind: $(current_bind "$pid")（設定 $BIND_HOST:$PORT）"
   else
     echo "gunicorn: NOT running"
   fi
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$PORT/healthz/" || true)
-  echo "healthz (127.0.0.1:$PORT): $code"
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$LOCAL_HOST:$PORT/healthz/" || true)
+  echo "healthz ($LOCAL_HOST:$PORT): $code"
   echo "code: $(git rev-parse --short HEAD 2>/dev/null) $(git log -1 --format='%cd %s' --date=format:'%Y-%m-%d %H:%M' 2>/dev/null | cut -c1-80)"
   [ -f logs/deploy.log ] && { echo "最近の配備:"; tail -n 5 logs/deploy.log; }
   return 0
@@ -246,7 +311,7 @@ python manage.py check --deploy --fail-level ERROR
 # 3) 再起動と確認
 restart
 for _ in $(seq 1 20); do
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:$PORT/healthz/" || true)
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$LOCAL_HOST:$PORT/healthz/" || true)
   [ "$code" = "200" ] && { echo "healthz: ok"; exit 0; }
   sleep 1
 done
