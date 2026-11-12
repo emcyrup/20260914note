@@ -1,6 +1,6 @@
 # =============================================
 # 居宅介護の事業所「居宅介護支援事業所コト」を AWS 開発環境のサーバー（st-michinotedemo と同じサーバー）へデプロイ
-#   https://st-kaigonote.kyotaku.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 0.0.0.0:8039
+#   https://st-kaigonote.kyotaku.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 127.0.0.1:8039
 #   置き場所 ~/kaigonotekyotaku、DB kaigonotekyotaku（ユーザー st_ai_labo_dbuser）。venv（~/env）は開発環境と共用
 #   ブランチ kyotaku への push、または Actions から手動実行（ブランチ kyotaku を選ぶ）。居宅介護の機能は kyotaku ブランチだけにあり、
 #   ゆあーず・オウル（ryoiku）には入れない。共通部分の修正は ryoiku から kyotaku へ取り込む
