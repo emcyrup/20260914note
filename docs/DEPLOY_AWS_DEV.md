@@ -1,12 +1,12 @@
 # AWS 開発環境への移行手順（共用サーバー：sudo なし・Docker なし・venv＋Gunicorn）
 
-対象: `https://st-michinotedemo.ai-labo.cloud/` → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn `0.0.0.0:8029` → プロバイダ管理の PostgreSQL（DB `michinotedemo`、ユーザー `st_ai_labo_dbuser`）。
+対象: `https://st-michinotedemo.ai-labo.cloud/` → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn `127.0.0.1:8029` → プロバイダ管理の PostgreSQL（DB `michinotedemo`、ユーザー `st_ai_labo_dbuser`）。
 
 プロバイダの案内（「開発環境のご案内」）の前提:
 
 - Ubuntu、SSH は配布された `.pem` でログイン（例: ユーザー `3piece_user4`、ホーム `/home/dev4`）。**sudo なし**、自分のホーム以外は触れない
 - Python の venv は **`~/env`** にプロバイダが作成済み。作業前に `source ~/env/bin/activate`
-- nginx・ドメイン・SSL は**プロバイダが一括管理**（自分では触らない）。アプリは割り当てポートで `0.0.0.0` にリッスンし、nohup 等でバックグラウンド起動する
+- nginx・ドメイン・SSL は**プロバイダが一括管理**（自分では触らない）。アプリは割り当てポートで `127.0.0.1` にリッスンし、nohup 等でバックグラウンド起動する
 - PostgreSQL の DB・ユーザー・パスワードはプロバイダが発行。**DB のダンプはプロバイダ側で自動化**（自前の cron バックアップは不要）
 - 追加パッケージ（OS 側）はプロバイダに依頼
 
@@ -74,7 +74,7 @@ cd ~/michinotedemo
 bash deploy/venv-deploy.sh
 ```
 
-このスクリプトが `pip install -r requirements.txt` → `migrate` → `collectstatic` → Gunicorn 起動（`0.0.0.0:8029`、デーモン、PID は `run/gunicorn.pid`、ログは `logs/`）→ `http://127.0.0.1:8029/healthz/` の確認までを行います。成功したらブラウザで `https://st-michinotedemo.ai-labo.cloud/healthz/` が `ok` になります。
+このスクリプトが `pip install -r requirements.txt` → `migrate` → `collectstatic` → Gunicorn 起動（`127.0.0.1:8029`、デーモン、PID は `run/gunicorn.pid`、ログは `logs/`）→ `http://127.0.0.1:8029/healthz/` の確認までを行います。成功したらブラウザで `https://st-michinotedemo.ai-labo.cloud/healthz/` が `ok` になります。
 
 管理者を作ります。
 

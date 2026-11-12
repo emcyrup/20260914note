@@ -1,7 +1,7 @@
 # =============================================
 # 放課後等デイサービスのデモ事業所「放デイ　デモ」（2026-11-06。はびりすと同じ使い方：日誌・個別支援計画・来所予定・請求・はびりす様式・LINE）を
 # AWS 開発環境のサーバー（st-michinotedemo・コト／やすらぎの森／老健デモと同じサーバー）へデプロイ
-#   https://<HOUDEIDEMO_DOMAIN>/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 0.0.0.0:<HOUDEIDEMO_PORT>
+#   https://<HOUDEIDEMO_DOMAIN>/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 127.0.0.1:<HOUDEIDEMO_PORT>
 #   置き場所 ~/michinotehoudei、DB <HOUDEIDEMO_DB_NAME>（ユーザー st_ai_labo_dbuser）。venv（~/env）は開発環境と共用
 #   Actions から手動で実行し、ブランチは develop を選ぶ（はびりすの機能は develop にある。介護の kyotaku／yasuragi は選ばない）
 #   サーバー側は deploy/venv-deploy.sh が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行う

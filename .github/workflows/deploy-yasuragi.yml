@@ -1,6 +1,6 @@
 # =============================================
 # 介護施設「やすらぎの森」（法人：みどり会）を AWS 開発環境のサーバー（st-michinotedemo・コトの開発環境と同じサーバー）へデプロイ
-#   https://st-kaigonote.midorikai.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 0.0.0.0:8045（2026-11-02 にプロバイダ側で設定ずみ）
+#   https://st-kaigonote.midorikai.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 127.0.0.1:8045（2026-11-02 にプロバイダ側で設定ずみ）
 #   置き場所 ~/kaigonotemidorikai、DB kaigonotemidorikai（ユーザー st_ai_labo_dbuser）。venv（~/env）は開発環境と共用
 #   Actions から手動で実行し、ブランチは yasuragi を選ぶ（やすらぎの森の機能 nursing は yasuragi ブランチにある）
 #   サーバー側は deploy/venv-deploy.sh が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行う

@@ -1,7 +1,7 @@
 # =============================================
 # 介護施設のデモ事業所（2026-11-05 の相談：病院併設の介護老人保健施設・通所リハ・居宅介護支援・デイサービスを運営する法人向けの試用）を
 # AWS 開発環境のサーバー（st-michinotedemo・コト／やすらぎの森の開発環境と同じサーバー）へデプロイ
-#   https://st-kaigonote.demo.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 0.0.0.0:8046（2026-11-05 にプロバイダ側で設定ずみ）
+#   https://st-kaigonote.demo.ai-labo.cloud/ → プロバイダ管理の nginx（HTTPS 終端）→ Gunicorn 127.0.0.1:8046（2026-11-05 にプロバイダ側で設定ずみ）
 #   置き場所 ~/kaigonotedemo、DB kaigonotedemo（ユーザー st_ai_labo_dbuser）。venv（~/env）は開発環境と共用
 #   Actions から手動で実行し、ブランチは yasuragi を選ぶ（介護施設の機能 nursing は yasuragi ブランチにある）
 #   サーバー側は deploy/venv-deploy.sh が git checkout → pip → migrate → collectstatic → Gunicorn 再起動を行う

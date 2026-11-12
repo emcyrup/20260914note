@@ -8,7 +8,7 @@
 |---|---|---|
 | アドレス | `st-kaigonote.midorikai.ai-labo.cloud` | `st-kaigonote.demo.ai-labo.cloud`（2026-11-05 プロバイダ設定ずみ） |
 | 置き場所 | `~/kaigonotemidorikai` | `~/kaigonotedemo` |
-| Gunicorn | `0.0.0.0:8045` | `0.0.0.0:8046` |
+| Gunicorn | `127.0.0.1:8045` | `127.0.0.1:8046` |
 | DB | `kaigonotemidorikai` | `kaigonotedemo`（ユーザー `st_ai_labo_dbuser`） |
 | ブランチ | `yasuragi` | `yasuragi` |
 | 配備 | Deploy (yasuragi) | **Deploy (kaigodemo)**（Actions から手で。ブランチ `yasuragi` を選ぶ） |

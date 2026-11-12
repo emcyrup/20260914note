@@ -11,7 +11,7 @@
 |---|---|---|
 | アドレス | `st-michinotedemo.ai-labo.cloud` | `st-michinote.sample.ai-labo.cloud`（実行時の入力 `domain` の既定値。Secrets `HOUDEIDEMO_DOMAIN` があれば優先） |
 | 置き場所 | `~/michinotedemo` | `~/michinotehoudei` |
-| Gunicorn | `0.0.0.0:8029` | `0.0.0.0:8047`（入力 `port`） |
+| Gunicorn | `127.0.0.1:8029` | `127.0.0.1:8047`（入力 `port`） |
 | DB | `michinotedemo` | `michinotesample`（入力 `db_name`。ユーザー `st_ai_labo_dbuser`） |
 | ブランチ | `develop` | `develop` |
 | 配備 | Deploy (dev)（push で動く） | **Deploy (houdeidemo)**（Actions から手で。ブランチ `develop` を選ぶ） |
