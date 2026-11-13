@@ -503,3 +503,100 @@ class PersonJoushinTests(CareBase):
         self.client.post(url, {'action': 'delete', 'item': it.pk})
         self.assertFalse(JoushinItem.objects.filter(pk=it.pk).exists())
         self.assertContains(self.client.get(url), '上申書')
+
+
+class DoctorListSettingTests(CareBase):
+    """上申書の医師：設定の画面で 1 人ずつ追加・削除・並べ替え。配備の作業から初期設定（2026-11-13）"""
+
+    def setUp(self):
+        super().setUp()
+        self.facility = self.f
+
+    def post(self, **extra):
+        data = {'record_chars': '250', 'family_chars': '150', 'style_note': '', 'fever_temp': '37.5', 'capacity': '0', 'rx_label': '入所', 'use_family_shown': '1', 'use_family': '1'}
+        data.update(extra)
+        return self.client.post(reverse('nursing:settings'), data)
+
+    def test_screen_has_one_field_per_doctor(self):
+        s = NursingSetting.of(self.facility)
+        s.doctors = '一ノ瀬 Dr\n二階堂 Dr'
+        s.save()
+        html = self.client.get(reverse('nursing:settings')).content.decode()
+        self.assertEqual(html.count('class="input-group input-group-sm mb-1 nr-doc-row"'), 3)   # 2 人＋追加用のひな形
+        self.assertIn('value="一ノ瀬 Dr"', html)
+        self.assertIn('医師を追加', html)
+        self.assertIn('この医師を消す', html)
+
+    def test_add_delete_reorder(self):
+        s = NursingSetting.of(self.facility)
+        s.doctors = '一ノ瀬 Dr\n二階堂 Dr'
+        s.save()
+        # 1 人消して 2 人足し、並びを変える。空の欄・同じ名前・前後の空白は除く
+        self.post(doctors_list='1', doctor=['四谷 Dr', ' 二階堂 Dr ', '', '五十嵐 Dr', '四谷 Dr'])
+        s.refresh_from_db()
+        self.assertEqual(s.doctor_list(), ['四谷 Dr', '二階堂 Dr', '五十嵐 Dr'])
+        # 全部消す
+        self.post(doctors_list='1')
+        s.refresh_from_db()
+        self.assertEqual(s.doctor_list(), [])
+
+    def test_limit_and_old_textarea(self):
+        s = NursingSetting.of(self.facility)
+        self.post(doctors_list='1', doctor=[f'医師{i} Dr' for i in range(12)])
+        s.refresh_from_db()
+        self.assertEqual(len(s.doctor_list()), NursingSetting.DOCTOR_MAX)
+        self.post(doctors='一ノ瀬 Dr\n\n二階堂 Dr')          # 以前の「1 行に 1 人」の送り方も受ける
+        s.refresh_from_db()
+        self.assertEqual(s.doctor_list(), ['一ノ瀬 Dr', '二階堂 Dr'])
+        # 医師の欄を送らない保存では変えない
+        self.post()
+        s.refresh_from_db()
+        self.assertEqual(s.doctor_list(), ['一ノ瀬 Dr', '二階堂 Dr'])
+
+    def test_deleted_doctor_keeps_records(self):
+        s = NursingSetting.of(self.facility)
+        s.doctors = '一ノ瀬 Dr\n二階堂 Dr'
+        s.save()
+        b = self.b
+        day = datetime.date(2026, 11, 13)
+        JoushinItem.objects.create(facility=self.facility, date=day, kind='dr', doctor='一ノ瀬 Dr', beneficiary=b, content='発熱の相談')
+        self.post(doctors_list='1', doctor=['二階堂 Dr'])
+        html = self.client.get(reverse('nursing:joushin') + '?d=2026-11-13').content.decode()
+        self.assertIn('発熱の相談', html)
+        self.assertIn('一ノ瀬 Dr', html)                    # 消した医師の列は、書いてある日には右に出る
+
+    def test_command_sets_doctors_without_printing_names(self):
+        import os
+        from io import StringIO
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        s = NursingSetting.of(self.facility)
+        s.doctors = '一ノ瀬 Dr\n二階堂 Dr\n三上 Dr'
+        s.save()
+        b = self.b
+        day = datetime.date(2026, 11, 13)
+        j1 = JoushinItem.objects.create(facility=self.facility, date=day, kind='dr', doctor='一ノ瀬 Dr', beneficiary=b, content='a')
+        j2 = JoushinItem.objects.create(facility=self.facility, date=day, kind='dr', doctor='二階堂 Dr', beneficiary=b, content='b')
+        n1 = DoctorNote.objects.create(facility=self.facility, beneficiary=b, date=day, writer='dr', doctor='三上 Dr', finding='c')
+        m1 = Medication.objects.create(facility=self.facility, beneficiary=b, name='見本の薬', prescriber='一ノ瀬 Dr', check_doctor='一ノ瀬 Dr')
+        out = StringIO()
+        # 新しい 2 人目は、これまでの 1 人目と同じ名前（入れ替わっても混ざらない）
+        with mock.patch.dict(os.environ, {'NURSING_DOCTORS': '六角 Dr、一ノ瀬 Dr, 七瀬 Dr，八雲 Dr'}):
+            call_command('nursing_doctors', facility=self.facility.pk, rename=True, stdout=out)
+        s.refresh_from_db()
+        self.assertEqual(s.doctor_list(), ['六角 Dr', '一ノ瀬 Dr', '七瀬 Dr', '八雲 Dr'])
+        for obj in (j1, j2, n1, m1):
+            obj.refresh_from_db()
+        self.assertEqual((j1.doctor, j2.doctor, n1.doctor, m1.prescriber, m1.check_doctor), ('六角 Dr', '一ノ瀬 Dr', '七瀬 Dr', '六角 Dr', '六角 Dr'))
+        text = out.getvalue()
+        self.assertIn('4 人', text)
+        for name in ('六角', '七瀬', '八雲', '一ノ瀬'):
+            self.assertNotIn(name, text)                    # 名前はログに出さない
+        with mock.patch.dict(os.environ, {'NURSING_DOCTORS': ''}):
+            with self.assertRaises(CommandError):
+                call_command('nursing_doctors', facility=self.facility.pk, stdout=StringIO())
+
+    def test_tabs_wrap_on_pc(self):
+        html = self.client.get(reverse('nursing:person_joushin', args=[self.b.pk])).content.decode()
+        self.assertIn('flex-wrap: wrap', html)              # PC ではタブを折り返して全部見せる
+        self.assertIn('医師を追加・削除', html)

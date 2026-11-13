@@ -11,7 +11,8 @@
   .js-other { border: 1px solid #555; border-radius: 12px; padding: 4px 10px; min-height: 2.4em; font-size: .85rem; white-space: pre-wrap; }
   .js-del { border: none; background: none; color: #c0392b; padding: 0 2px; font-size: .75rem; }
 </style>{% endblock %}
-{% block person_actions %}<a href="{% url 'nursing:person_joushin_print' b.pk %}?{{ query }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>上申書を印刷</a>
+{% block person_actions %}{% if request.user.can_manage_settings %}<a href="{% url 'nursing:settings' %}?back={{ request.get_full_path|urlencode }}#doctors" class="btn btn-sm btn-outline-secondary"><i class="bi bi-person-plus me-1"></i>医師を追加・削除</a>{% endif %}
+<a href="{% url 'nursing:person_joushin_print' b.pk %}?{{ query }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>上申書を印刷</a>
 <a href="{% url 'nursing:joushin' %}" class="btn btn-sm btn-outline-secondary">その日の上申書（全員）</a>{% endblock %}
 {% block tab_content %}
 <details class="nr-card" open>

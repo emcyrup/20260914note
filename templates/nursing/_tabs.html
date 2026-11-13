@@ -10,3 +10,5 @@
   <a href="{% url 'nursing:incidents' %}?b={{ b.pk }}" class="{% if tab == 'incidents' %}active{% endif %}"><i class="bi bi-exclamation-triangle"></i>ヒヤリ・事故</a>
   <a href="{% url 'nursing:person_plans' b.pk %}" class="{% if tab == 'plans' %}active{% endif %}"><i class="bi bi-clipboard2-check"></i>計画書</a>
 </nav>
+{# スマホ（横に送る）：いま開いているタブが見える位置まで送る #}
+<script>(function () { var n = document.currentScript.previousElementSibling, a = n && n.querySelector('a.active'); if (a && n.scrollWidth > n.clientWidth) { n.scrollLeft = Math.max(0, a.offsetLeft - n.offsetLeft - 12); } })();</script>

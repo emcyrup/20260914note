@@ -6,6 +6,8 @@
   .nr-tabs a { flex: 0 0 auto; padding: 8px 14px; border-radius: 8px 8px 0 0; text-decoration: none; color: #555; background: #f1eee8; white-space: nowrap; font-size: .92rem; }
   .nr-tabs a i { margin-right: 4px; }
   .nr-tabs a.active { background: var(--color-primary, #4f7a4a); color: #fff; font-weight: 700; }
+  /* PC・タブレット：横に送れない（スクロールバーを出していない）ので、折り返して全部見せる（2026-11-13） */
+  @media (min-width: 768px), (hover: hover) and (pointer: fine) { .nr-tabs { flex-wrap: wrap; overflow-x: visible; row-gap: 3px; } .nr-tabs a { border-radius: 8px 8px 0 0; } }
   .nr-tabs a:hover:not(.active) { background: #e6e1d7; }
   .nr-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .nr-name { font-weight: 700; font-size: 1.15rem; }

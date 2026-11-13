@@ -10,10 +10,10 @@
       <input type="date" class="form-control form-control-sm" style="width:auto;" value="{{ day|date:'Y-m-d' }}" onchange="location.href='?d='+this.value" aria-label="日付">
       <div class="fw-bold">{{ day_jp }}</div>
     </div>
-    <div class="d-flex gap-2">{% if can_manage %}<a href="{% url 'nursing:settings' %}?back={{ request.get_full_path|urlencode }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-gear me-1"></i>医師の列を設定</a>{% endif %}
+    <div class="d-flex gap-2">{% if can_manage %}<a href="{% url 'nursing:settings' %}?back={{ request.get_full_path|urlencode }}#doctors" class="btn btn-sm btn-outline-secondary"><i class="bi bi-person-plus me-1"></i>医師を追加・削除</a>{% endif %}
       <a href="{% url 'nursing:joushin_print' %}?d={{ day|date:'Y-m-d' }}&fmt=html" target="_blank" class="btn btn-sm btn-outline-primary"><i class="bi bi-printer me-1"></i>上申書を印刷</a></div>
   </div>
-  {% if not doctors %}<div class="alert alert-info small py-2">上申書の医師の列は「介護施設の設定」の「上申書の医師」に 1 行に 1 人ずつ入れます（用紙の左からの順）。</div>{% endif %}
+  {% if not doctors %}<div class="alert alert-info small py-2">上申書の医師の列は「介護施設の設定」の「上申書の医師」で追加・削除します（上から、用紙の左からの順）。</div>{% endif %}
 
   <div class="nr-card">
     <div class="nr-h mb-1"><i class="bi bi-plus-lg me-1"></i>上申書に足す</div>

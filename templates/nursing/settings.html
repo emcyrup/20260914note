@@ -12,11 +12,48 @@
       <div class="col-12"><label class="nr-lbl" for="style_note">文体の希望（AI の下書き・整えるときに毎回そえる）</label><textarea name="style_note" id="style_note" class="form-control" rows="3" maxlength="1000" placeholder="例：敬語は最小限。「〜されました」は使わない。医療用語は看護師が使う言い方で">{{ setting.style_note }}</textarea></div>
       <div class="col-6"><label class="nr-lbl" for="fever_temp">発熱とみなす体温（℃）</label><input type="text" inputmode="decimal" name="fever_temp" id="fever_temp" class="form-control form-control-sm" value="{{ setting.fever_temp }}"></div>
       <div class="col-6"><label class="nr-lbl" for="capacity">定員（人）</label><input type="number" name="capacity" id="capacity" class="form-control form-control-sm" min="0" max="500" value="{{ setting.capacity }}"></div>
-      <div class="col-md-6"><label class="nr-lbl" for="doctors">上申書の医師（1 行に 1 人。用紙の左からの順）</label><textarea name="doctors" id="doctors" class="form-control form-control-sm" rows="4" maxlength="400" placeholder="例：&#10;山田 Dr&#10;佐藤 Dr">{{ setting.doctors }}</textarea><div class="form-text">薬の「処方した医師」・所見の「医師」の候補にも出します。</div></div>
+      <div class="col-md-6" id="doctors">
+        <span class="nr-lbl">上申書の医師（上から、用紙の左からの順）</span>
+        <input type="hidden" name="doctors_list" value="1">
+        <div id="nr-doc-list">{% for d in doctor_list %}
+          <div class="input-group input-group-sm mb-1 nr-doc-row"><input type="text" name="doctor" class="form-control" value="{{ d }}" maxlength="50" aria-label="医師の名前" placeholder="例：山田 Dr"><button type="button" class="btn btn-outline-secondary nr-doc-up" title="上へ（用紙では左へ）" aria-label="上へ"><i class="bi bi-arrow-up"></i></button><button type="button" class="btn btn-outline-secondary nr-doc-down" title="下へ（用紙では右へ）" aria-label="下へ"><i class="bi bi-arrow-down"></i></button><button type="button" class="btn btn-outline-danger nr-doc-del" title="この医師を消す" aria-label="この医師を消す"><i class="bi bi-x-lg"></i></button></div>{% endfor %}
+        </div>
+        <template id="nr-doc-tpl"><div class="input-group input-group-sm mb-1 nr-doc-row"><input type="text" name="doctor" class="form-control" value="" maxlength="50" aria-label="医師の名前" placeholder="例：山田 Dr"><button type="button" class="btn btn-outline-secondary nr-doc-up" title="上へ（用紙では左へ）" aria-label="上へ"><i class="bi bi-arrow-up"></i></button><button type="button" class="btn btn-outline-secondary nr-doc-down" title="下へ（用紙では右へ）" aria-label="下へ"><i class="bi bi-arrow-down"></i></button><button type="button" class="btn btn-outline-danger nr-doc-del" title="この医師を消す" aria-label="この医師を消す"><i class="bi bi-x-lg"></i></button></div></template>
+        <button type="button" class="btn btn-outline-primary btn-sm" id="nr-doc-add"><i class="bi bi-plus-lg me-1"></i>医師を追加</button>
+        <div class="form-text">{{ doctor_max }} 人まで。「保存する」を押すと反映されます。薬の「処方した医師」・所見の「医師」の候補にも出します。医師を消しても、その医師の名前で書いた上申書・所見は残ります（上申書では右の列に出ます）。</div>
+      </div>
       <div class="col-12"><input type="hidden" name="use_family_shown" value="1"><label class="small"><input type="checkbox" name="use_family" value="1" class="form-check-input" {% if setting.use_family %}checked{% endif %}> 家族向けの文（連絡帳）を使う</label><div class="form-text">外すと、介護記録の「家族向けのメッセージ」の欄とメニューの「連絡帳」を出しません（入っている文は消しません）。</div></div>
       <div class="col-md-6"><label class="nr-lbl" for="rx_label">処方箋の区分</label><input type="text" name="rx_label" id="rx_label" class="form-control form-control-sm" value="{{ setting.rx_label }}" maxlength="20" placeholder="入所"><div class="form-text">処方箋の用紙の上の欄（例：入所・通所）。住所は施設設定の住所を使います。</div></div>
     </div>
     <div class="d-flex justify-content-end mt-3"><button class="btn btn-primary btn-sm"><i class="bi bi-check2 me-1"></i>保存する</button></div>
   </form>
 </div>
+<script>
+(function () {
+  var list = document.getElementById('nr-doc-list'), tpl = document.getElementById('nr-doc-tpl'), add = document.getElementById('nr-doc-add'), MAX = {{ doctor_max }};
+  if (!list || !tpl || !add) return;
+  function refresh() { add.disabled = list.querySelectorAll('.nr-doc-row').length >= MAX; }
+  add.addEventListener('click', function () {
+    if (list.querySelectorAll('.nr-doc-row').length >= MAX) return;
+    list.appendChild(tpl.content.cloneNode(true));
+    var rows = list.querySelectorAll('.nr-doc-row'); rows[rows.length - 1].querySelector('input').focus(); refresh();
+  });
+  list.addEventListener('click', function (e) {
+    var btn = e.target.closest('button'); if (!btn) return;
+    var row = btn.closest('.nr-doc-row'); if (!row) return;
+    if (btn.classList.contains('nr-doc-del')) {
+      var name = row.querySelector('input').value.trim();
+      if (name && !confirm(name + ' を一覧から消しますか？（「保存する」を押すと反映されます）')) return;
+      row.remove();
+    } else if (btn.classList.contains('nr-doc-up') && row.previousElementSibling) {
+      list.insertBefore(row, row.previousElementSibling);
+    } else if (btn.classList.contains('nr-doc-down') && row.nextElementSibling) {
+      list.insertBefore(row.nextElementSibling, row);
+    }
+    refresh();
+  });
+  list.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.name === 'doctor') { e.preventDefault(); add.click(); } });
+  refresh();
+})();
+</script>
 {% endblock %}

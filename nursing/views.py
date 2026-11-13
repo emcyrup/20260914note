@@ -1175,7 +1175,8 @@ class SettingView(CareMixin, View):
     template_name = 'nursing/settings.html'
 
     def get(self, request):
-        return render(request, self.template_name, {'setting': self.setting, 'chars_choices': RECORD_CHARS_CHOICES, 'back': request.GET.get('back', '')})
+        return render(request, self.template_name, {'setting': self.setting, 'chars_choices': RECORD_CHARS_CHOICES, 'back': request.GET.get('back', ''),
+                                                    'doctor_list': self.setting.doctor_list(), 'doctor_max': NursingSetting.DOCTOR_MAX})
 
     def post(self, request):
         s = self.setting
@@ -1187,8 +1188,10 @@ class SettingView(CareMixin, View):
         if fever is not None:
             s.fever_temp = fever
         s.capacity = _int(p, 'capacity', 0, 500) or 0
-        if 'doctors' in p:
-            s.doctors = '\n'.join(x.strip()[:50] for x in _text(p, 'doctors', 400).splitlines() if x.strip())
+        if 'doctors_list' in p:           # 1 人ずつの欄（追加・削除・並べ替え。2026-11-13）
+            s.set_doctors(p.getlist('doctor'))
+        elif 'doctors' in p:              # 以前の「1 行に 1 人」の欄
+            s.set_doctors(_text(p, 'doctors', 400).splitlines())
         if 'rx_label' in p:
             s.rx_label = _text(p, 'rx_label', 20)
         if 'use_family_shown' in p:

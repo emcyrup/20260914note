@@ -495,8 +495,20 @@ class NursingSetting(models.Model):
         setting, _ = cls.objects.get_or_create(facility=facility)
         return setting
 
+    DOCTOR_MAX = 8
+
     def doctor_list(self):
-        return [x.strip() for x in (self.doctors or '').splitlines() if x.strip()][:8]
+        return [x.strip() for x in (self.doctors or '').splitlines() if x.strip()][:self.DOCTOR_MAX]
+
+    def set_doctors(self, names):
+        """医師の一覧を入れ替える（空・重複を除き、DOCTOR_MAX 人まで）。保存はしない"""
+        out = []
+        for x in names:
+            x = ' '.join(str(x).split())[:50]
+            if x and x not in out:
+                out.append(x)
+        self.doctors = '\n'.join(out[:self.DOCTOR_MAX])
+        return out[:self.DOCTOR_MAX]
 
 
 # ---------------------------------------------------------------- 2026-11-11 やすらぎの森の様式（申し送り・所見／処方処置・上申書・温度板・処方箋・提供票）
