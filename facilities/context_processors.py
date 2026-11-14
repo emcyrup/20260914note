@@ -31,8 +31,7 @@ def standalone_context():
     """予約管理だけを動かすサーバー（RESERVATION_ONLY）かどうか"""
     from config.utils import home_url
     only = settings.RESERVATION_ONLY
-    return {'reservation_only': only, 'home_url': home_url() if only else '',
-            'lite_mode': bool(getattr(settings, 'LITE_MODE', False))}
+    return {'reservation_only': only, 'home_url': home_url() if only else ''}
 
 
 def _reservation_fixed(facility):

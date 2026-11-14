@@ -208,22 +208,6 @@ class Facility(models.Model):
     def __str__(self):
         return self.name
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # ライト版のサーバーでは、ライト版に無い機能をオフとして扱う（データベースの値は変えない）
-        from config import lite
-        if lite.enabled():
-            lite.apply(self)
-
-    def save(self, *args, **kwargs):
-        from config import lite
-        if lite.enabled() and self.pk and not self._state.adding:
-            # かぶせた値を保存してしまわない（LITE_MODE を外したときに元の設定へ戻れるように）
-            allowed = set(lite.saveable_fields(type(self)))
-            fields = kwargs.get('update_fields')
-            kwargs['update_fields'] = [f for f in (fields if fields is not None else allowed) if f in allowed]
-        super().save(*args, **kwargs)
-
     @property
     def is_planbook(self):
         return self.layout == self.LAYOUT_PLANBOOK

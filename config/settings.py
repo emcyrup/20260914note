@@ -58,7 +58,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'accounts.middleware.DevFacilityMiddleware',  # 開発向けユーザーの事業所切り替え
     'django.contrib.messages.middleware.MessageMiddleware',
-    'config.lite.LiteModeMiddleware',  # ライト版（LITE_MODE）に無い画面はホームへ戻す
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
@@ -158,10 +157,9 @@ if RESERVATION_ONLY:
     ROOT_URLCONF = 'config.urls_reservation'
     LOGIN_REDIRECT_URL = '/reservations/'
 
-# ライト版（機能制限版）。LITE_MODE=True にすると、サーバー全体が職員アプリと同じ機能だけになる：
-# 利用者台帳・予定と出欠・日誌・療育記録・職員の管理・設定。請求・支援計画・予約・LINE・帳票などは出ず、URL を直接開いても使えない。
-# データベースの「使う機能」は書き換えないので、外せば元に戻る（config/lite.py）。RESERVATION_ONLY とは同時に使わない
-LITE_MODE = config('LITE_MODE', default=False, cast=bool) and not RESERVATION_ONLY
+# 職員アプリの API（/api/mobile/v1/）を、ブラウザ版（michinoteapp の Web 版）から使うときの置き場所。
+# 例：https://lite.example.jp（カンマ区切りで複数）。ここに入れたアドレスからの通信だけ CORS で通す。空ならブラウザからは使えない
+MOBILE_API_CORS_ORIGINS = [o.rstrip('/') for o in config('MOBILE_API_CORS_ORIGINS', default='', cast=Csv()) if o]
 
 ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
 # 活動→めあて・考察の生成に使うモデル（利用できない場合は .env で差し替える）

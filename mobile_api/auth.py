@@ -3,8 +3,9 @@ import datetime
 import functools
 import json
 
+from django.conf import settings
 from django.core.cache import cache
-from django.http import Http404, JsonResponse, QueryDict
+from django.http import Http404, HttpResponse, JsonResponse, QueryDict
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
@@ -69,6 +70,21 @@ def as_post(data):
     return q
 
 
+def _cors(request, response):
+    """
+    ブラウザ版（michinoteapp の Web 版）からの通信。settings.MOBILE_API_CORS_ORIGINS にあるアドレスからだけ通す。
+    Cookie は使わず（トークンだけ）、Access-Control-Allow-Credentials は付けない
+    """
+    origin = request.headers.get('Origin', '')
+    if origin and origin in settings.MOBILE_API_CORS_ORIGINS:
+        response['Access-Control-Allow-Origin'] = origin
+        response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+        response['Access-Control-Allow-Headers'] = 'Authorization, Content-Type, Accept'
+        response['Access-Control-Max-Age'] = '600'
+    response['Vary'] = 'Origin'
+    return response
+
+
 def api(methods=('GET',), auth=True, feature=None):
     """
     API のビューに付ける。
@@ -81,6 +97,11 @@ def api(methods=('GET',), auth=True, feature=None):
         @csrf_exempt
         @functools.wraps(view)
         def wrapper(request, *args, **kwargs):
+            if request.method == 'OPTIONS':     # ブラウザが本番の通信の前に送る確認（preflight）
+                return _cors(request, HttpResponse(status=204))
+            return _cors(request, handle(request, *args, **kwargs))
+
+        def handle(request, *args, **kwargs):
             if request.method not in methods:
                 return error('この操作はできません。', 405)
             request.json = {}

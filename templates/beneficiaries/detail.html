@@ -213,7 +213,7 @@
   </div>
   {% endif %}
 
-  {% if not user.facility.is_ryoiku and not lite_mode %}{% include "beneficiaries/_support_flow.html" %}{% endif %}
+  {% if not user.facility.is_ryoiku %}{% include "beneficiaries/_support_flow.html" %}{% endif %}
 
   <div class="row g-3">
 
@@ -451,7 +451,7 @@
             <div class="small text-muted">新版K式・遠城寺式・KIDS・WISC などの発達年齢と指数を残し、推移を見られます。検査結果の書類から AI で読み取ることもできます。</div>
           </div>
           <div class="d-flex gap-2">
-            {% if not lite_mode %}<a href="{% url 'daily:health_child' beneficiary.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-thermometer-half me-1"></i>健康の記録・注意</a>{% endif %}
+            <a href="{% url 'daily:health_child' beneficiary.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-thermometer-half me-1"></i>健康の記録・注意</a>
             <a href="{% url 'beneficiaries:dev_test_create' beneficiary.pk %}" class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>結果を入れる</a>
           </div>
         </div>

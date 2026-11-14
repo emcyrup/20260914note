@@ -91,6 +91,30 @@ class AuthTests(ApiCase):
         self.assertEqual(self.call('post', 'me/').status_code, 405)
 
 
+class CorsTests(ApiCase):
+    """ブラウザ版（michinoteapp の Web 版）からの通信"""
+
+    def test_no_cors_by_default(self):
+        res = self.client.get(BASE + 'me/', HTTP_AUTHORIZATION=f'Bearer {self.key}', HTTP_ORIGIN='https://lite.example.jp')
+        self.assertEqual(res.status_code, 200)
+        self.assertNotIn('Access-Control-Allow-Origin', res)
+
+    @override_settings(MOBILE_API_CORS_ORIGINS=['https://lite.example.jp'])
+    def test_allowed_origin_only(self):
+        res = self.client.options(BASE + 'auth/login/', HTTP_ORIGIN='https://lite.example.jp',
+                                  HTTP_ACCESS_CONTROL_REQUEST_METHOD='POST')
+        self.assertEqual((res.status_code, res['Access-Control-Allow-Origin']), (204, 'https://lite.example.jp'))
+        self.assertIn('Authorization', res['Access-Control-Allow-Headers'])
+        res = self.client.get(BASE + 'me/', HTTP_AUTHORIZATION=f'Bearer {self.key}', HTTP_ORIGIN='https://lite.example.jp')
+        self.assertEqual(res['Access-Control-Allow-Origin'], 'https://lite.example.jp')
+        self.assertNotIn('Access-Control-Allow-Credentials', res)
+        # エラーの返事にも付く（付かないと、ブラウザ版でエラーの文が読めない）
+        res = self.client.get(BASE + 'me/', HTTP_ORIGIN='https://lite.example.jp')
+        self.assertEqual((res.status_code, res['Access-Control-Allow-Origin']), (401, 'https://lite.example.jp'))
+        res = self.client.get(BASE + 'me/', HTTP_AUTHORIZATION=f'Bearer {self.key}', HTTP_ORIGIN='https://evil.example.com')
+        self.assertNotIn('Access-Control-Allow-Origin', res)
+
+
 class TodayVisitTests(ApiCase):
     def setUp(self):
         super().setUp()
