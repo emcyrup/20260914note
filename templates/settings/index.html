@@ -74,7 +74,7 @@
     <button type="button" class="settings-tab" data-pane="features">使う機能・日誌</button>
     <button type="button" class="settings-tab" data-pane="tags">タグ</button>
     {% if features.billing %}<button type="button" class="settings-tab" data-pane="billing">加算（請求）</button>{% endif %}
-    <button type="button" class="settings-tab" data-pane="ai">AI の資料</button>
+    {% if not lite_mode %}<button type="button" class="settings-tab" data-pane="ai">AI の資料</button>{% endif %}
   </nav>
 
   <!-- ===== 施設基本情報 ===== -->
@@ -339,27 +339,35 @@
       <div class="row g-3">
         <div class="col-md-5">
           <div class="small fw-semibold mb-2">使う機能</div>
+          {% if not lite_mode %}
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_billing" id="use_billing" {% if facility.use_billing %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_billing">請求機能（請求マトリックス・上限額管理・請求書・AI加算提案）</label>
           </div>
+          {% endif %}
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_schedule" id="use_schedule" {% if facility.use_schedule %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_schedule">予定（月のカレンダーに来所予定を入れて出欠を付ける。予約管理で枠を扱う事業所は不要）</label>
           </div>
+          {% if not lite_mode %}
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_line" id="use_line" {% if facility.use_line %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_line">LINE連携（保護者へのLINE送信・配信履歴）</label>
           </div>
+          {% endif %}
+          {% if not lite_mode %}
           <div class="form-check mb-1 ms-4">
             <input type="checkbox" class="form-check-input" name="line_auto_send" id="line_auto_send" {% if facility.line_auto_send %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="line_auto_send">日誌を「確定」で保存したら、保護者向けメッセージを保護者の LINE へ自動で送る
               <span class="small text-muted">（下書き→確定にした保存のときだけ。送らない子は利用者情報の「日誌を LINE で送る」を外す。送信ずみの日誌には二重に送らない）</span></label>
           </div>
+          {% endif %}
+          {% if not lite_mode %}
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_reservation" id="use_reservation" {% if facility.use_reservation %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_reservation">予約管理（1日の枠・キャンセル待ち・公式LINEからの申し込み・顧客台帳）</label>
           </div>
+          {% endif %}
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_therapy_record" id="use_therapy_record" {% if facility.use_therapy_record %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_therapy_record">療育記録（留意点・やったこと①〜⑤・担当・本文。用紙と同じ形で印刷）</label>
@@ -391,36 +399,49 @@
             <input type="checkbox" class="form-check-input" name="schedule_tools" id="schedule_tools" {% if facility.schedule_tools %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="schedule_tools">予定づくり：共演NG の印をまとめて付ける・月間予定表の上に編集中の日時・ドラッグで共演NG の人と同じ枠に入れたら赤く（確かめてから入れる）・利用希望／カレンダー／月間予定表で名前で探す・月の予定をまとめて消してやり直す</label>
           </div>
+          {% if not lite_mode %}
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="plan_no_ai" id="plan_no_ai" {% if facility.plan_no_ai %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="plan_no_ai">個別支援計画：AI で文を作らない（日誌からの下書き・メモからの整文を出さない）。代わりに、最新のアセスメントと期間の療育記録をアセスメントの欄にそのまま入れて直す</label>
           </div>
+          {% elif facility.plan_no_ai %}<input type="hidden" name="plan_no_ai" value="on">{% endif %}
+          {% if not lite_mode %}
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_transport" id="use_transport" {% if facility.use_transport %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_transport">送迎・配車（車両・運転手の登録、利用者ごとの送迎の設定、日ごとの配車表と印刷）</label>
           </div>
+          {% endif %}
+          {% if not lite_mode %}
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_dev_assessment" id="use_dev_assessment" {% if facility.use_dev_assessment %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_dev_assessment">5領域アセスメント（健康・生活／運動・感覚／認知・行動／言語・コミュニケーション／人間関係・社会性を5段階で評価する用紙。A4で印刷）</label>
           </div>
+          {% endif %}
+          {% if not lite_mode %}
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_survey" id="use_survey" {% if facility.use_survey %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_survey">アンケート・自己評価（保護者評価アンケートの回収と集計、事業所の自己評価、公表用の PDF。ガイドラインの年 1 回の評価・公表）</label>
           </div>
+          {% endif %}
+          {% if not lite_mode %}
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_daily_ops" id="use_daily_ops" {% if facility.use_daily_ops %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_daily_ops">毎日の運営（クラスの週間の活動計画と記録・健康と生活の記録と引き渡しカード・発達検査の推移）</label>
           </div>
+          {% endif %}
+          {% if not lite_mode %}
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_consultation" id="use_consultation" {% if facility.use_consultation %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_consultation">相談支援の計画（申請者の現状・サービス等利用計画／障害児支援利用計画・週間計画表。書類の読み取りからの取り込みと AI の下書き、A4 で印刷）</label>
           </div>
+          {% endif %}
           {% if facility.is_ryoiku %}
           <div class="form-check mb-1">
             <input type="checkbox" class="form-check-input" name="use_reports" id="use_reports" {% if facility.use_reports %}checked{% endif %} {% if not is_admin %}disabled{% endif %}>
             <label class="form-check-label" for="use_reports">帳票出力（利用者ごとのサービス提供実績記録票・療育記録一覧、出欠・利用実績一覧、業務日誌、名簿、個別支援計画一覧を PDF・CSV で）</label>
           </div>
           {% endif %}
+          {% if lite_mode %}<div class="alert alert-info small py-1 px-2 mt-2 mb-2">このサーバーは<b>ライト版</b>です。請求・個別支援計画・予約・LINE連携・送迎・帳票などはフル版の機能で、ここでは選べません。</div>{% endif %}
           <div class="form-text">使わない機能はメニューやボタンから消えます。記録は消えないので、あとから戻せます。</div>
           {% if trial_ai.limit and not is_developer %}
           <div class="alert alert-info small py-1 px-2 mt-2 mb-0">「お試し」の機能の AI は <b>{{ trial_ai.limit }} 回</b>まで使えます（使った回数 {{ trial_ai.used }}・あと {{ trial_ai.remaining }} 回）。</div>
@@ -621,6 +642,7 @@
   </section>
 
   <!-- ===== 算定要件資料（AI加算提案・チャット用） ===== -->
+  {% if not lite_mode %}
   <section class="settings-pane" id="pane-ai">
   <div class="settings-card" id="reference-docs">
     <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
@@ -669,6 +691,7 @@
   </div>
 
   </section>
+  {% endif %}
 
   {% if features.billing %}
   <!-- ===== 加算設定（コード・単位数・料金） ===== -->
@@ -857,6 +880,7 @@
   </div>
 </div>
 
+{% if not lite_mode %}
 <!-- ===== 算定要件資料アップロードモーダル ===== -->
 <div class="modal fade" id="uploadDocModal" tabindex="-1">
   <div class="modal-dialog">
@@ -886,6 +910,7 @@
     </div>
   </div>
 </div>
+{% endif %}
 
 <!-- ===== 支援タグ追加モーダル ===== -->
 <div class="modal fade" id="addSupportTagModal" tabindex="-1">

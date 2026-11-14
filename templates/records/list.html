@@ -539,7 +539,7 @@
       <span class="sidebar-nav-item sidebar-nav-future">
         <span class="sidebar-nav-num">05</span>連絡帳
       </span>
-      {% if current_plan and plan_step_urls.5 %}
+{% if not lite_mode %}      {% if current_plan and plan_step_urls.5 %}
       <a href="{{ plan_step_urls.5 }}" class="sidebar-nav-item"><span class="sidebar-nav-num">06</span>モニタリング</a>
       {% else %}
       <span class="sidebar-nav-item sidebar-nav-future" title="計画のステップ4まで完了すると開けます"><span class="sidebar-nav-num">06</span>モニタリング</span>
@@ -550,7 +550,7 @@
       {% else %}
       <a href="{% url 'support_plans:create' %}?beneficiary={{ beneficiary.pk }}" class="sidebar-nav-item"><span class="sidebar-nav-num">07</span>アセスメント</a>
       <a href="{% url 'support_plans:create' %}?beneficiary={{ beneficiary.pk }}" class="sidebar-nav-item"><span class="sidebar-nav-num">08</span>計画書をつくる</a>
-      {% endif %}
+      {% endif %}{% endif %}
     </nav>
     <div class="sidebar-back">
       <a href="{% url 'beneficiaries:list' %}">
@@ -573,7 +573,7 @@
       <i class="bi bi-journal-text"></i>日誌
     </a>
     <span class="jmn-item future"><i class="bi bi-envelope"></i>連絡帳</span>
-    {% if current_plan and plan_step_urls.5 %}<a class="jmn-item" href="{{ plan_step_urls.5 }}"><i class="bi bi-clipboard-check"></i>モニタリング</a>
+{% if not lite_mode %}    {% if current_plan and plan_step_urls.5 %}<a class="jmn-item" href="{{ plan_step_urls.5 }}"><i class="bi bi-clipboard-check"></i>モニタリング</a>
     {% else %}<span class="jmn-item future"><i class="bi bi-clipboard-check"></i>モニタリング</span>{% endif %}
     {% if current_plan %}
     <a class="jmn-item" href="{{ plan_step_urls.1 }}"><i class="bi bi-graph-up"></i>アセスメント</a>
@@ -581,7 +581,7 @@
     {% else %}
     <a class="jmn-item" href="{% url 'support_plans:create' %}?beneficiary={{ beneficiary.pk }}"><i class="bi bi-graph-up"></i>アセスメント</a>
     <a class="jmn-item" href="{% url 'support_plans:create' %}?beneficiary={{ beneficiary.pk }}"><i class="bi bi-file-earmark-text"></i>計画書</a>
-    {% endif %}
+    {% endif %}{% endif %}
   </nav>
 
   <!-- ページヘッダー -->

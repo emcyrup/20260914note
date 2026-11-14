@@ -67,7 +67,7 @@
       </div>
       <div>
         <div class="sidebar-brand-name">{{ user.facility.name|default:"放デイ業務支援" }}</div>
-        <div class="sidebar-brand-sub">{% if reservation_only %}予約の受付{% else %}放課後等デイサービス{% endif %}</div>
+        <div class="sidebar-brand-sub">{% if reservation_only %}予約の受付{% elif lite_mode %}ライト版{% else %}放課後等デイサービス{% endif %}</div>
       </div>
     </a>
 
@@ -329,6 +329,7 @@
           <span>記録</span>
         </a>
       </li>
+      {% if not lite_mode %}
       <li>
         <a class="sidebar-nav-item {% block nav_minutes %}{% endblock %}"
            href="{% url 'minutes:index' %}" target="_blank" rel="noopener" title="別のタブで開きます">
@@ -343,6 +344,7 @@
           <span>支援計画</span>
         </a>
       </li>
+      {% endif %}
       <li class="nav-secondary">
         {% if features.line %}
         <a class="sidebar-nav-item {% block nav_line %}{% endblock %}"
@@ -353,6 +355,7 @@
         {% endif %}
       </li>
 
+      {% if not lite_mode %}
       <li class="sidebar-nav-label nav-secondary">{% if features.billing %}請求・帳票{% else %}帳票{% endif %}</li>
       {% if features.consultation %}
       <li class="nav-secondary">
@@ -399,6 +402,7 @@
           <span>帳票出力</span>
         </a>
       </li>
+      {% endif %}
       {% if features.form_set and features.form_set != 'standard' %}
       <li class="nav-secondary">
         <a class="sidebar-nav-item {% block nav_custom_forms %}{% endblock %}"
@@ -560,7 +564,7 @@
 <script src="{% static 'js/name-filter.js' %}?v=1"></script>{% endif %}{% endif %}
 {% block extra_js %}{% endblock %}
 
-{% if user.is_authenticated and user.ui_theme != 'simple' and not reservation_only %}
+{% if user.is_authenticated and user.ui_theme != 'simple' and not reservation_only and not lite_mode %}
 {% include 'ai_assist/_chat_widget.html' %}
 {% endif %}
 

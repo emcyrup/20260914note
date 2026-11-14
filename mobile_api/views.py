@@ -481,6 +481,11 @@ def _therapy_fields(data, facility):
     }
 
 
+def _cautions_guard(facility):
+    if facility.therapy_no_cautions:
+        raise ApiError('この事業所では療育記録の「留意点」の欄を使わない設定になっています。', 403, 'feature_off')
+
+
 @api(feature='therapy')
 def therapy_child(request, pk):
     from therapy.views import ACTIVITY_CHIP_MAX, activity_suggestions, filter_records
@@ -492,7 +497,10 @@ def therapy_child(request, pk):
     records, ym, _, _ = filter_records(records, request.GET)
     suggestions = activity_suggestions(facility)
     return JsonResponse({
-        'beneficiary': _beneficiary_row(b), 'cautions': profile.cautions if profile else '',
+        'beneficiary': _beneficiary_row(b),
+        # 「留意点の欄を使わない」事業所（施設設定）には出さない（文は残っている）
+        'cautions_enabled': not facility.therapy_no_cautions,
+        'cautions': profile.cautions if profile and not facility.therapy_no_cautions else '',
         'records': [_therapy_row(r) for r in records[:LIST_MAX]], 'months': months, 'ym': ym,
         'activity_suggestions': suggestions[:60], 'activity_chips': suggestions[:ACTIVITY_CHIP_MAX],
         'staff': _staff_list(facility), 'me': request.user.pk,
@@ -502,6 +510,7 @@ def therapy_child(request, pk):
 @api(methods=('POST',), feature='therapy')
 def therapy_cautions(request, pk):
     from therapy.views import CAUTIONS_MAX
+    _cautions_guard(request.user.facility)
     b = get_object_or_404(Beneficiary, pk=pk, facility=request.user.facility)
     profile, _ = TherapyProfile.objects.get_or_create(beneficiary=b)
     profile.cautions = _text(request.json, 'cautions', CAUTIONS_MAX)
@@ -546,6 +555,7 @@ def therapy_record_detail(request, pk):
 def therapy_ai_cautions(request, pk):
     """留意点を「短く要約」（mode=summary）／「詳しくまとめる」（mode=detail）。保存はしない"""
     from therapy.views import CautionsSummaryView
+    _cautions_guard(request.user.facility)
     request.POST = as_post({'text': request.json.get('text'), 'mode': request.json.get('mode')})
     return CautionsSummaryView().post(request, pk)
 
@@ -554,6 +564,7 @@ def therapy_ai_cautions(request, pk):
 def therapy_ai_record(request, pk):
     """留意点を、その日のやったことに照らして「記録」に足す文にする。保存はしない"""
     from therapy.views import RecordSummaryView
+    _cautions_guard(request.user.facility)
     data = request.json
     acts = data.get('activities') if isinstance(data.get('activities'), list) else []
     post = {'date': data.get('date'), 'body': data.get('body'), 'cautions': data.get('cautions')}

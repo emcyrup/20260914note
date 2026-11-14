@@ -122,7 +122,7 @@
     </div>
     {% endif %}
 
-    {% if plan_items %}
+    {% if plan_items and not lite_mode %}
     <div class="card mb-3" style="border-color: var(--color-primary);">
       <div class="card-header fw-bold" style="background: var(--color-primary-bg); color: var(--color-primary-dark);">
         <i class="bi bi-calendar-check me-2"></i>個別支援計画・モニタリングの期限（{{ plan_items|length }}件）

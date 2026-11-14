@@ -284,6 +284,18 @@ class TherapyTests(ApiCase):
         self.assertEqual(self.call('delete', f'therapy/records/{rec["id"]}/').status_code, 200)
         self.assertFalse(TherapyRecord.objects.exists())
 
+    def test_cautions_off(self):
+        TherapyProfile.objects.create(beneficiary=self.kid, cautions='前に入れた文')
+        self.f.therapy_no_cautions = True
+        self.f.save()
+        base = f'beneficiaries/{self.kid.pk}/therapy/'
+        body = self.call('get', base).json()
+        self.assertEqual((body['cautions_enabled'], body['cautions']), (False, ''))
+        self.assertEqual(self.call('post', base + 'cautions/', {'cautions': 'x'}).status_code, 403)
+        self.assertEqual(self.call('post', base + 'ai/record/', {'activities': ['a']}).status_code, 403)
+        self.assertEqual(TherapyProfile.objects.get(beneficiary=self.kid).cautions, '前に入れた文')
+        self.assertEqual(self.call('post', base + 'records/', {'date': '2026-10-02'}).status_code, 201)
+
     def test_tenant(self):
         other = Facility.objects.create(name='別', use_therapy_record=True)
         rec = TherapyRecord.objects.create(facility=other, beneficiary=child(other, '他'), date=datetime.date(2026, 10, 2))
