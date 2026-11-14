@@ -31,6 +31,8 @@ urlpatterns = [
     path('esignatures/', include('esignatures.urls')),
     path('line/', include('line_integration.urls')),
     path('ai/', include('ai_assist.urls')),
+    # 職員アプリ（iOS・Android。michinoteapp）の API。ログインはトークン（Authorization: Bearer）
+    path('api/mobile/v1/', include('mobile_api.urls')),
     # アップロードファイルはログイン中の職員の事業所のものだけ返す（署名 URL なら外部からも可）。
     # 前段の nginx / Caddy で /media/ を直接配信しないこと。
     path('media/<path:path>', ProtectedMediaView.as_view(), name='protected_media'),

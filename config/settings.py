@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'planbook',
     'therapy',
     'minutes',
+    'mobile_api',  # 職員アプリ（iOS・Android）の API
 ]
 
 MIDDLEWARE = [
