@@ -16,6 +16,10 @@ from facilities.models import Facility
 from nursing.models import DoctorNote, JoushinItem, Medication, NursingSetting
 
 
+# 付け替えの途中だけ使う仮の名前の頭（PostgreSQL は文字列に NUL を入れられないので、ふつうの文字で）
+TMP_MARK = '⟪tmp-doctor⟫'
+
+
 class Command(BaseCommand):
     help = '上申書の医師の一覧を環境変数 NURSING_DOCTORS から入れる（名前は出さず、人数だけ出す）'
 
@@ -45,7 +49,7 @@ class Command(BaseCommand):
             if o.get('rename'):
                 # いちど仮の名前へ移してから付け替える（新旧で同じ名前が別の位置にあっても混ざらない）
                 pairs = [(a, b) for a, b in zip(old, new) if a != b]
-                tmp = {a: f'\x00doctor-{i}' for i, (a, _) in enumerate(pairs)}
+                tmp = {a: f'{TMP_MARK}{i}' for i, (a, _) in enumerate(pairs)}
                 for step in (lambda a, b: (a, tmp[a]), lambda a, b: (tmp[a], b)):
                     for a, b in pairs:
                         src, dst = step(a, b)

@@ -590,6 +590,9 @@ class DoctorListSettingTests(CareBase):
         self.assertEqual((j1.doctor, j2.doctor, n1.doctor, m1.prescriber, m1.check_doctor), ('六角 Dr', '一ノ瀬 Dr', '七瀬 Dr', '六角 Dr', '六角 Dr'))
         text = out.getvalue()
         self.assertIn('4 人', text)
+        from nursing.management.commands.nursing_doctors import TMP_MARK
+        self.assertNotIn('\x00', TMP_MARK)                # PostgreSQL は NUL を受け付けない（SQLite のテストでは気づけない）
+        self.assertFalse(JoushinItem.objects.filter(doctor__startswith=TMP_MARK).exists())
         for name in ('六角', '七瀬', '八雲', '一ノ瀬'):
             self.assertNotIn(name, text)                    # 名前はログに出さない
         with mock.patch.dict(os.environ, {'NURSING_DOCTORS': ''}):
