@@ -30,7 +30,7 @@ on:
         type: choice
         required: true
         default: list
-        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, enable_owl_features, route_check, fixed_days_check, therapy_cautions_off, therapy_cautions_on, error_log, set_media_root, billing_demo, billing_demo_remove, disable_logins, enable_logins, therapy_fidelity_check]
+        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, enable_owl_features, route_check, fixed_days_check, therapy_cautions_off, therapy_cautions_on, error_log, set_media_root, billing_demo, billing_demo_remove, disable_logins, enable_logins, therapy_fidelity_check, status, autostart_check, autostart_install]
       facility_name:
         description: "事業所名（create_facility）"
         type: string
@@ -158,6 +158,14 @@ jobs:
               route_check)
                 # 配車表の所要時間（学校→施設・施設→自宅）がこのサーバーから求められるか。公共の住所 2 か所で試す（個人の住所は出さない）
                 python manage.py route_estimate --no-cache --quiet ;;
+              status)
+                # 動いているか・待ち受けのアドレス・いまのコミット・最後の配備
+                APP_DIR="$APP_DIR" bash deploy/venv-deploy.sh --status ;;
+              autostart_check)
+                APP_DIR="$APP_DIR" bash deploy/venv-deploy.sh --autostart check ;;
+              autostart_install)
+                # 止まっていれば 5 分ごとに起動し直す行と、サーバーの再起動のあとに起動する行を crontab に入れる（この clone の行だけ）
+                APP_DIR="$APP_DIR" bash deploy/venv-deploy.sh --autostart install ;;
               error_log)
                 # 公開リポジトリのログに出るので、日本語（利用者名など）と 6 桁以上の数字は伏せ、技術的な行だけにする
                 for f in logs/error.log logs/gunicorn.out; do
