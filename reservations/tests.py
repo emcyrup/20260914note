@@ -2,7 +2,8 @@
 import datetime
 from unittest import mock
 
-from django.test import TestCase, override_settings
+from django.db import connection
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -195,6 +196,15 @@ class ReservationScreenTests(TestCase):
         self.assertEqual((setting.capacity, setting.closed_weekdays, setting.signature), (5, [6], 'なゆた'))
         self.client.post(reverse('reservations:settings'), {'capacity': 0})
         self.assertEqual(services.get_setting(self.f).capacity, 5)
+
+    def test_guest_name_cannot_break_out_of_inline_js(self):
+        # 公開予約で入れた名前が、職員の画面の confirm('…') の中でスクリプトにならない（2026-10-22 の点検）
+        services.create_reservation(self.f, None, self.day, guest_name="');alert(1);//")
+        res = self.client.get(reverse('reservations:day', args=[2026, 10, 1]))
+        body = res.content.decode()
+        self.assertNotIn("confirm('');alert(1);//", body)
+        self.assertNotIn("confirm('&#x27;);alert(1);//", body)
+        self.assertIn("\\u0027)\\u003Balert(1)", body)                    # escapejs の形（' と ; が \u 表記になる）
 
     def test_day_add_cancel_close(self):
         url = reverse('reservations:day', args=[2026, 10, 1])
@@ -536,6 +546,20 @@ class ApplyMessageTests(TestCase):
                                             customer=self.customer, today=self.today)
         self.assertFalse(handled)   # 職員が確かめる
         self.assertEqual(Reservation.objects.count(), 0)
+
+    def test_customer_without_assigned_children_cannot_touch_any_child(self):
+        # 顧客台帳に登録しただけ（担当の利用者がまだ無い）の人は、名前を書いても予約・取り消しできない（職員が確かめる）
+        services.create_reservation(self.f, self.b, self.day)
+        stranger = Customer.objects.create(facility=self.f, name='知らない人', line_user_id='U9')
+        handled, _ = services.apply_message(self.f, f'{self.md(self.day)} 井上みなと キャンセル',
+                                            customer=stranger, today=self.today)
+        self.assertFalse(handled)
+        self.assertTrue(Reservation.objects.filter(beneficiary=self.b, date=self.day,
+                                                   status__in=Reservation.ACTIVE_STATUSES).exists())
+        handled, _ = services.apply_message(self.f, f'{(self.day + D(days=1)).month}/{(self.day + D(days=1)).day} 井上みなと 予約',
+                                            customer=stranger, today=self.today)
+        self.assertFalse(handled)
+        self.assertFalse(Reservation.objects.filter(beneficiary=self.b, date=self.day + D(days=1)).exists())
 
     def test_message_without_a_date_is_left_to_staff(self):
         handled, _ = services.apply_message(self.f, '来週あたり予約したいです',
@@ -1253,3 +1277,44 @@ class FirstComeFirstServedTests(TestCase):
         self.client.post(url, {'action': 'link', 'reservation': res.pk, 'beneficiary': newcomer.pk})
         res.refresh_from_db()
         self.assertEqual(res.beneficiary, newcomer)
+
+
+class LockNeedsTransactionTests(TransactionTestCase):
+    """
+    select_for_update はトランザクションの中でしか使えない。テストの SQLite は行ロックを持たず黙って通すが、
+    本番の PostgreSQL では外で呼ぶと TransactionManagementError（500）になる（2026-11-06 ゆあーず本番：1 日の画面から予約を足すと落ちた）。
+    ここでは SQLite にロックがあることにして（FOR UPDATE の文は空に）、トランザクションの外からの呼び出しを本番と同じ条件で確かめる。
+    """
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='テスト', use_reservation=True)
+        self.user = StaffAccount.objects.create_user('staff', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.kid = child(self.f, '山田')
+        self.client.force_login(self.user)
+
+    def test_create_reservation_locks_inside_a_transaction(self):
+        day = datetime.date(2026, 11, 21)
+        with mock.patch.object(connection.features, 'has_select_for_update', True), \
+             mock.patch.object(connection.ops, 'for_update_sql', return_value=''):
+            res, _ = services.create_reservation(self.f, self.kid, day)            # 直接
+            self.assertEqual(res.date, day)
+            url = reverse('reservations:day', args=[2026, 11, 24])                 # 1 日の画面から（火曜）
+            self.assertEqual(self.client.post(url, {'action': 'add', 'beneficiary': self.kid.pk}).status_code, 302)
+            self.assertTrue(Reservation.objects.filter(beneficiary=self.kid, date=datetime.date(2026, 11, 24)).exists())
+
+
+class WishGridStickyHeaderTests(TestCase):
+    """利用希望の表の見出しを上に留める作り：表を囲むカードの overflow: hidden を外しておく
+    （外さないと見出しがカードの中で留まり、1 日の行が見出しの上に出て 2 日の行が隠れる。2026-11-06 ゆあーず）"""
+
+    def test_wish_card_overflow_visible(self):
+        f = Facility.objects.create(name='テスト', use_reservation=True)
+        u = StaffAccount.objects.create_user('s', password='pw12345678', facility=f, role=StaffAccount.ROLE_ADMIN)
+        kid = child(f, '山田')
+        setting = services.get_setting(f)
+        setting.slot_mode = True
+        setting.save()
+        self.client.force_login(u)
+        res = self.client.get(reverse('reservations:monthly_request_edit', args=[2026, 12, kid.pk]))
+        self.assertContains(res, '#wishGrid.card { overflow: visible; }')
+        self.assertContains(res, 'id="wishGrid"')

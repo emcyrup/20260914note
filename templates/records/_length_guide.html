@@ -1,0 +1,21 @@
+{% comment %}AI 一括生成の分量（200／300／400字）とキーワードの入れ方。Alpine の length（localStorage に覚える）と warnMsg を使う{% endcomment %}
+<div class="d-flex flex-wrap align-items-center gap-2 mt-2 small">
+  <label class="text-muted mb-0" for="{{ id }}">分量</label>
+  <select id="{{ id }}" class="form-select form-select-sm" style="width:auto;" x-model="length" @change="saveLength()">
+    <option value="">いつもの長さ</option>
+    <option value="200">短め（約200字）</option>
+    <option value="300">ふつう（約300字）</option>
+    <option value="400">長め（約400字）</option>
+  </select>
+  <span class="text-muted">観察・支援・反応の3つの文を合わせた字数の目安。キーワードに無いことは書かないので、材料が少ないと短くなります。</span>
+</div>
+<details class="mt-1 small">
+  <summary class="text-muted">キーワードの入れ方（2〜4 個がおすすめ）</summary>
+  <div class="mt-1 p-2 rounded" style="background:#fff;border:1px solid #e3e0d8;">
+    <div><b>数</b>：2〜4 個。1 個だと短い文になり、5 個以上なら長め（400字）を選ぶ。</div>
+    <div><b>書くこと</b>：①何をしたか（活動）②どう支援したか（声かけ・手順）③本人の様子（言った言葉は「」で）。例：「折り紙のかぼちゃ」「手順カードで声かけ」「最後まで集中」「完成して『できた』」</div>
+    <div><b>避けること</b>：「頑張った」「楽しそう」だけの言葉（何をどう頑張ったかが分からない）、診断名や決めつけ（「問題行動」など）、ほかの子の名前、保護者に見せたくない表現。</div>
+    <div><b>分量</b>：連絡帳や保護者向けは短め（200字）、半期の計画やモニタリングで使う日は長め（400字）が目安。</div>
+    <div class="text-muted mt-1">AI はキーワードとタグにある事実だけで文をつなげます。足りないことは、生成のあとに直してください。</div>
+  </div>
+</details>

@@ -27,6 +27,22 @@ class MinutesTests(TestCase):
         self.assertContains(res, 'id="voice-log-toggle"')        # うまく文字にならないときの記録
         self.assertContains(res, f'href="{self.url}" target="_blank"')
 
+    def test_draft_autosave(self):
+        """書きかけは static/js/draft-autosave.js が残す（新しい議事録・開いている議事録で別の下書き）"""
+        res = self.client.get(self.url)
+        self.assertContains(res, 'data-draft="minutes:new" data-draft-fields="#mn-title, #mn-date, #transcript, #summary" data-draft-new')
+        m = Minutes.objects.create(facility=self.f, title='会議', held_on=datetime.date(2026, 9, 24), transcript='x', created_by=self.user)
+        res = self.client.get(f'{self.url}?id={m.pk}')
+        self.assertContains(res, f'data-draft="minutes:{m.pk}"')
+        self.assertNotContains(res, f'data-draft="minutes:{m.pk}" data-draft-fields="#mn-title, #mn-date, #transcript, #summary" data-draft-new')
+
+    def test_global_memo_draft_and_saved_message(self):
+        res = self.client.get(self.url)
+        self.assertContains(res, 'data-draft="memo" data-draft-new')
+        res = self.client.post(reverse('records:memo_create'), {'content': '気づいたこと'}, follow=True)
+        self.assertContains(res, 'メモを保存しました。')
+        self.assertContains(res, 'window.DRAFT_SAVED = true || false;')
+
     def test_create_edit_delete(self):
         res = self.client.post(self.url, {'title': '職員会議', 'held_on': '2026-09-24', 'transcript': 'えー、来月の行事について', 'summary': ''})
         m = Minutes.objects.get()
@@ -41,6 +57,13 @@ class MinutesTests(TestCase):
         self.assertEqual(Minutes.objects.count(), 1)
         res = self.client.get(reverse('minutes:print', args=[m.pk]))
         self.assertContains(res, '行事')
+        self.assertNotContains(res, '来月の行事について')     # 話した内容（文字起こし）は印刷しない
+        self.assertNotContains(res, '文字起こし')
+        m.summary = ''
+        m.save()
+        res = self.client.get(reverse('minutes:print', args=[m.pk]))
+        self.assertNotContains(res, '来月の行事について')
+        self.assertContains(res, '議事録の欄がまだ空です')
         self.client.post(self.url, {'action': 'delete', 'id': m.pk})
         self.assertFalse(Minutes.objects.exists())
 
@@ -52,7 +75,8 @@ class MinutesTests(TestCase):
         kid = Beneficiary.objects.create(facility=self.f, last_name='青木', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
         res = self.client.get(self.url)
         self.assertContains(res, 'id="save-as-therapy"')
-        self.assertContains(res, f'<option value="{kid.pk}">青木 子</option>')
+        self.assertContains(res, 'id="save-as-both"')
+        self.assertContains(res, f'id="mn-kid-{kid.pk}"')
         # 利用者を選ばないと保存しない
         res = self.client.post(self.url, {'title': '面談', 'held_on': '2026-09-24', 'transcript': 'x', 'summary': '',
                                           'save_as': 'therapy', 'beneficiary': ''}, follow=True)
@@ -66,7 +90,13 @@ class MinutesTests(TestCase):
         self.assertEqual((rec.beneficiary, rec.date, rec.time, rec.staff, rec.facility),
                          (kid, datetime.date(2026, 9, 24), datetime.time(14, 30), self.user, self.f))
         self.assertEqual(rec.body, '【保護者面談】\n【概要】\n母から家庭でのようすを聞いた')   # 議事録の欄を優先、件名を頭に
-        self.assertFalse(Minutes.objects.exists())                                       # 議事録の履歴には残さない
+        self.assertFalse(Minutes.objects.exists())                                       # 「反映」だけなら議事録の履歴には残さない
+        # 同じ日にもう一度入れると、その記録の後ろに足す（同じ日の記録を 2 つにしない）
+        self.client.post(self.url, {'title': '追加の面談', 'held_on': '2026-09-24', 'transcript': 'x', 'summary': '父からも聞いた',
+                                    'save_as': 'therapy', 'beneficiaries': [kid.pk]})
+        rec.refresh_from_db()
+        self.assertEqual(TherapyRecord.objects.filter(beneficiary=kid, date=datetime.date(2026, 9, 24)).count(), 1)
+        self.assertTrue(rec.body.endswith('\n\n【追加の面談】\n父からも聞いた'))
         # 議事録の欄が空なら話した内容。ほかの事業所の利用者は選べない
         other_f = Facility.objects.create(name='ほか', use_therapy_record=True)
         other = Beneficiary.objects.create(facility=other_f, last_name='井上', first_name='子', date_of_birth=datetime.date(2019, 4, 1))
@@ -85,20 +115,36 @@ class MinutesTests(TestCase):
         self.client.post(self.url, {'title': '空', 'transcript': ' ', 'summary': ''})
         self.assertFalse(Minutes.objects.exists())
 
-    def test_keeps_newest_ten(self):
+    def test_keeps_all_and_list_delete(self):
+        """件数の上限は無い（以前は新しい 10 件だけ残していた）。履歴は新しい 10 件、一覧は全件。一覧から 1 件ずつ・まとめて消せる"""
         for i in range(KEEP + 2):
             self.client.post(self.url, {'title': f'会議{i}', 'transcript': f'内容{i}'})
-        titles = list(Minutes.objects.values_list('title', flat=True))
-        self.assertEqual(len(titles), KEEP)
-        self.assertEqual(titles[0], f'会議{KEEP + 1}')
-        self.assertNotIn('会議0', titles)
-        self.assertNotIn('会議1', titles)
+        self.assertEqual(Minutes.objects.count(), KEEP + 2)
         res = self.client.get(self.url)
-        self.assertContains(res, '一番古い議事録')
-        # 直すだけなら消えない
-        m = Minutes.objects.last()
-        self.client.post(self.url, {'id': m.pk, 'title': '直した', 'transcript': 'x'})
-        self.assertEqual(Minutes.objects.count(), KEEP)
+        self.assertContains(res, '会議2')
+        self.assertNotContains(res, '>会議0<')
+        self.assertContains(res, f'一覧（全 {KEEP + 2} 件）')
+        self.assertNotContains(res, '一番古い議事録')
+        lst = self.client.get(reverse('minutes:list'))
+        self.assertContains(lst, '会議0')
+        self.assertContains(lst, f'議事録は全 {KEEP + 2} 件')
+        # 探す
+        self.assertNotContains(self.client.get(reverse('minutes:list') + '?q=内容3'), '会議4')
+        self.assertContains(self.client.get(reverse('minutes:list') + '?q=内容3'), '会議3')
+        # 1 件ずつ
+        m0 = Minutes.objects.get(title='会議0')
+        res = self.client.post(reverse('minutes:list'), {'action': 'delete', 'id': m0.pk, 'q': '', 'page': '1'})
+        self.assertRedirects(res, reverse('minutes:list') + '?page=1')
+        self.assertFalse(Minutes.objects.filter(pk=m0.pk).exists())
+        # まとめて
+        ids = list(Minutes.objects.filter(title__in=['会議1', '会議2', '会議3']).values_list('pk', flat=True))
+        res = self.client.post(reverse('minutes:list'), {'action': 'delete_many', 'ids': ids}, follow=True)
+        self.assertContains(res, '議事録を 3 件削除しました')
+        self.assertEqual(Minutes.objects.count(), KEEP - 2)
+        # 何も選ばないと消えない
+        res = self.client.post(reverse('minutes:list'), {'action': 'delete_many'}, follow=True)
+        self.assertContains(res, '消す議事録を選んでください')
+        self.assertEqual(Minutes.objects.count(), KEEP - 2)
 
     def test_other_facility_cannot_open(self):
         other = Facility.objects.create(name='ほか')
@@ -106,16 +152,16 @@ class MinutesTests(TestCase):
         self.assertEqual(self.client.get(f'{self.url}?id={m.pk}').status_code, 404)
         self.assertEqual(self.client.get(reverse('minutes:print', args=[m.pk])).status_code, 404)
         self.client.post(self.url, {'action': 'delete', 'id': m.pk})
-        self.assertTrue(Minutes.objects.filter(pk=m.pk).exists())
-        # ほかの事業所の議事録は数に入れない
-        for i in range(KEEP):
-            self.client.post(self.url, {'title': f'会議{i}', 'transcript': 'x'})
+        self.client.post(reverse('minutes:list'), {'action': 'delete', 'id': m.pk})
+        self.client.post(reverse('minutes:list'), {'action': 'delete_many', 'ids': [m.pk]})
         self.assertTrue(Minutes.objects.filter(pk=m.pk).exists())
         self.assertNotContains(self.client.get(self.url), 'ひみつ')
+        self.assertNotContains(self.client.get(reverse('minutes:list')), 'ひみつ')
 
     def test_login_required(self):
         self.client.logout()
         self.assertEqual(self.client.get(self.url).status_code, 302)
+        self.assertEqual(self.client.get(reverse('minutes:list')).status_code, 302)
 
     @override_settings(ANTHROPIC_API_KEY='test-key')
     @mock.patch('ai_assist.quick.anthropic.Anthropic')
@@ -133,3 +179,87 @@ class MinutesTests(TestCase):
     def test_organize_empty(self):
         res = self.client.post(reverse('minutes:organize'), {'text': ''})
         self.assertEqual(res.status_code, 400)
+
+
+class ConsentTests(TestCase):
+    """面談の録音・文字起こしの同意書と、画面の「録音のご案内」"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず')
+        self.user = StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.login(username='ryo', password='pw12345678')
+
+    def test_notice_on_screen_and_consent_form(self):
+        res = self.client.get(reverse('minutes:index'))
+        self.assertContains(res, '録音のご案内')
+        self.assertContains(res, '文字起こしと要約の作成に AI')
+        self.assertContains(res, reverse('minutes:consent'))
+        res = self.client.get(reverse('minutes:consent') + '?fmt=html')
+        self.assertContains(res, '面談の録音・文字起こしに関する同意書')
+        self.assertContains(res, '発達支援ルーム　ゆあーず')
+        self.assertContains(res, '保護者氏名（署名）')
+        self.assertContains(res, '撤回')
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse('minutes:consent')).status_code, 302)
+
+
+class MinutesConflictTests(TestCase):
+    def setUp(self):
+        self.f = Facility.objects.create(name='発達支援ルーム　ゆあーず')
+        StaffAccount.objects.create_user('ryo', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.login(username='ryo', password='pw12345678')
+
+    def test_edit_conflict_keeps_text(self):
+        from config.concurrency import version_token
+        m = Minutes.objects.create(facility=self.f, title='職員会議', held_on=datetime.date(2026, 10, 1), summary='もとの議事録')
+        opened = version_token(m)
+        page = self.client.get(reverse('minutes:index') + f'?id={m.pk}')
+        self.assertContains(page, f'data-concurrency="minutes:{m.pk}"')
+        m.summary = '他の職員が直した議事録'
+        m.save()
+        res = self.client.post(reverse('minutes:index'), {'id': m.pk, 'title': '職員会議', 'held_on': '2026-10-01',
+                                                          'summary': 'わたしの議事録', 'version': opened}, follow=True)
+        self.assertContains(res, '他の職員が')
+        self.assertContains(res, '保存できなかった内容')
+        self.assertContains(res, 'わたしの議事録')
+        m.refresh_from_db()
+        self.assertEqual(m.summary, '他の職員が直した議事録')
+        self.client.post(reverse('minutes:index'), {'id': m.pk, 'title': '職員会議', 'held_on': '2026-10-01',
+                                                    'summary': 'わたしの議事録', 'version': version_token(m)})
+        m.refresh_from_db()
+        self.assertEqual(m.summary, 'わたしの議事録')
+
+
+class MinutesToManyTherapyRecordsTests(TestCase):
+    """オウル（2026-11-07）：小集団の会や面談の議事録を、何人かの療育記録にまとめて入れる。「両方」なら議事録にも残す"""
+
+    def setUp(self):
+        from beneficiaries.models import Beneficiary
+        self.f = Facility.objects.create(name='児童発達支援センター　オウル', use_therapy_record=True)
+        self.user = StaffAccount.objects.create_user('owl', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.client.force_login(self.user)
+        self.url = reverse('minutes:index')
+        self.kids = [Beneficiary.objects.create(facility=self.f, last_name=n, first_name='子', date_of_birth=datetime.date(2020, 4, 1))
+                     for n in ('青木', '石田', '上野')]
+
+    def test_reflects_to_several_children_and_keeps_minutes(self):
+        from therapy.models import TherapyRecord
+        res = self.client.post(self.url, {'title': '小集団の会', 'held_on': '2026-11-06', 'transcript': 'x',
+                                          'summary': '【概要】\n3 人で順番に話した', 'save_as': 'both', 'time': '10:30',
+                                          'beneficiaries': [self.kids[0].pk, self.kids[1].pk]}, follow=True)
+        self.assertEqual(TherapyRecord.objects.count(), 2)
+        for kid in self.kids[:2]:
+            rec = TherapyRecord.objects.get(beneficiary=kid)
+            self.assertEqual((rec.date, rec.time, rec.staff), (datetime.date(2026, 11, 6), datetime.time(10, 30), self.user))
+            self.assertEqual(rec.body, '【小集団の会】\n【概要】\n3 人で順番に話した')
+        self.assertFalse(TherapyRecord.objects.filter(beneficiary=self.kids[2]).exists())
+        m = Minutes.objects.get()
+        self.assertEqual(m.title, '小集団の会')                 # 両方：議事録にも残る
+        self.assertContains(res, '2 人（青木 子・石田 子）の 11/6 の療育記録に入れました')
+        self.assertContains(res, '議事録「小集団の会」としても残しました')
+        self.assertContains(res, f'id="mn-kid-{self.kids[2].pk}"')   # 戻り先は議事録の画面（開いた状態）
+        # 選ばないと入れない。ほかの事業所の子は数に入らない
+        res = self.client.post(self.url, {'title': 'x', 'held_on': '2026-11-06', 'transcript': 'x', 'summary': '',
+                                          'save_as': 'therapy'}, follow=True)
+        self.assertContains(res, 'どの利用者の記録かを選んでください')
+        self.assertEqual(TherapyRecord.objects.count(), 2)

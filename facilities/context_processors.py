@@ -1,6 +1,8 @@
 """呼び方・ロゴ・配色をすべてのテンプレートに渡す"""
 from django.conf import settings
 
+from ai_assist import speech
+
 
 DEFAULT_TERMS = {'staff': '職員', 'beneficiary': '利用者'}
 
@@ -32,13 +34,23 @@ def standalone_context():
     return {'reservation_only': only, 'home_url': home_url() if only else ''}
 
 
+def _reservation_fixed(facility):
+    """予約を「利用予定曜日から予定を作る」形で使う事業所か（オウル。メニューの名前を「予定」にする）"""
+    if not facility.use_reservation:
+        return False
+    try:
+        return bool(facility.reservation_setting.fixed_days)
+    except Exception:       # noqa: BLE001  設定の行がまだ無い
+        return False
+
+
 def branding(request):
     user = getattr(request, 'user', None)
     facility = getattr(user, 'facility', None) if user is not None and user.is_authenticated else None
     if facility is None:
         return {'terms': dict(DEFAULT_TERMS), 'branding': {'logo': None, 'color': ''},
                 'features': {'billing': True, 'schedule': True, 'line': True, 'reservation': False, 'form_set': 'standard',
-                             'planbook': False, 'therapy': False, 'ryoiku': False}, 'journal_sections': [],
+                             'planbook': False, 'therapy': False, 'ryoiku': False, 'reservation_fixed': False}, 'journal_sections': [],
                 **standalone_context(), **developer_context(user)}
     return {
         'terms': get_terms(user),
@@ -46,11 +58,13 @@ def branding(request):
         'features': {'billing': facility.use_billing, 'schedule': facility.use_schedule, 'line': facility.use_line,
                      'reservation': facility.use_reservation, 'form_set': facility.form_set,
                      'planbook': facility.is_planbook, 'therapy': facility.use_therapy_record,
-                     'ryoiku': facility.is_ryoiku},
+                     'transport': facility.use_transport, 'dev_assessment': facility.use_dev_assessment, 'survey': facility.use_survey, 'daily': facility.use_daily_ops, 'consultation': facility.use_consultation, 'reports': facility.use_reports,
+                     'ryoiku': facility.is_ryoiku, 'reservation_fixed': _reservation_fixed(facility)},
         'trial_ai': _trial_ai(facility),
         'planbook_unread': _planbook_unread(facility) if facility.is_planbook else 0,
         'pending_staff_count': _pending_staff(user, facility),
-        'speech_server': bool(settings.GOOGLE_SPEECH_API_KEY),
+        'speech_server': speech.enabled(),
+        'speech_diarization': speech.diarization(),
         'journal_sections': facility.journal_section_keys(),
         **standalone_context(),
         **developer_context(user),

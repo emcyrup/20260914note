@@ -1,0 +1,17 @@
+{# 共演NG の確認：同じ時間枠にいる組の表（rows: monthly.pair_check の row） #}
+<table class="table table-sm mb-0 small pc-table">
+  <tbody>
+  {% for row in rows %}
+    <tr>
+      <td class="pc-when"><a href="{% url 'reservations:day' row.a.date.year row.a.date.month row.a.date.day %}">{{ row.a.date|date:'n/j' }}（{{ row.a.date|date:'D' }}）</a> {% if row.a.start_time %}{{ row.a.hour }}時{% else %}終日{% endif %}</td>
+      <td>
+        {% with r=row.a %}{% include 'reservations/_pair_check_who.html' %}{% endwith %}
+        <span class="text-danger mx-1">×</span>
+        {% with r=row.b %}{% include 'reservations/_pair_check_who.html' %}{% endwith %}
+        {% if row.sibling %}<span class="pc-tag">きょうだい</span>{% endif %}
+        {% if row.a.date >= today and not row.movable %}<span class="pc-tag off">移す対象外</span>{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>

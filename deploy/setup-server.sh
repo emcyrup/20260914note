@@ -7,6 +7,7 @@
 #   - スワップ 2GB（e2-micro でも PDF 生成が落ちないように）
 #   - APP_DIR（compose・Caddyfile・.env を置く場所。既定 /opt/simple）
 #   - 毎日 3:30 の DB バックアップ cron
+#   - fail2ban（SSH の総当たり遮断）・セキュリティ更新の自動適用・SSH のパスワード認証オフ
 #   置き場所を変えるには、次のどれかを使う（上から優先）
 #     1. VM のカスタムメタデータ `app-dir` に /opt/ryoiku などを入れる（起動スクリプトに貼るときはこれが楽）
 #     2. APP_DIR=/opt/xxx bash setup-server.sh
@@ -82,6 +83,28 @@ cat > "/etc/cron.d/${APP_NAME}-backup" <<CRON
 CRON
 chmod 644 "/etc/cron.d/${APP_NAME}-backup"
 
+# 不正アクセスへの備え（2026-10-20）：SSH への総当たりを fail2ban で遮断し、セキュリティ更新を自動で入れる
+apt_install fail2ban unattended-upgrades
+cat > /etc/fail2ban/jail.d/sshd.local <<'JAIL'
+[sshd]
+enabled = true
+maxretry = 5
+findtime = 10m
+bantime = 1h
+JAIL
+systemctl enable --now fail2ban || true
+systemctl restart fail2ban || true
+cat > /etc/apt/apt.conf.d/20auto-upgrades <<'APT'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT
+# SSH はパスワードを受け付けない（鍵だけ）。root の直接ログインも止める
+mkdir -p /etc/ssh/sshd_config.d
+cat > /etc/ssh/sshd_config.d/60-hardening.conf <<'SSHD'
+PasswordAuthentication no
+PermitRootLogin no
+SSHD
+systemctl reload ssh || systemctl reload sshd || true
 # Docker のログが肥大化しないように
 mkdir -p /etc/docker
 cat > /etc/docker/daemon.json <<'JSON'

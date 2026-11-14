@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+
+{% block title %}相談支援の計画{% endblock %}
+{% block page_title %}相談支援の計画（申請者の現状・サービス等利用計画・週間計画表）{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="small text-muted mb-2">相談支援事業所の書類を作ります。流れ：① 基本情報（申請者の現状）→ ② サービス等利用計画（様式2-1）→ ③ 週間計画表（様式2-2）。
+        利用者の「書類・画像」で読み取ったサービス等利用計画・基本情報は、確認画面の「相談支援の計画として登録する」からここに入ります。AI の下書きは、台帳・書類・療育記録・児童発達支援の個別支援計画をもとにします。</div>
+      <form method="get" action="{% url 'consultation:create' %}" class="d-flex gap-2 align-items-end flex-wrap">
+        <div><label class="form-label small mb-0">利用者</label>
+          <select name="beneficiary" class="form-select form-select-sm" required>
+            <option value="">選ぶ</option>{% for x in beneficiaries %}<option value="{{ x.pk }}">{{ x.full_name }}</option>{% endfor %}
+          </select></div>
+        <button class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>新しく作る</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header fw-bold"><i class="bi bi-diagram-3 me-1"></i>作成した計画</div>
+    {% if plans %}
+    <ul class="list-group list-group-flush">
+      {% for p in plans %}
+      <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="small"><strong>{{ p.beneficiary.full_name }}</strong>　{{ p.title }}　<span class="badge text-bg-light border">{{ p.get_status_display }}</span>
+          {% if p.planner %}<span class="text-muted ms-1">担当 {{ p.planner }}</span>{% endif %}</div>
+        <div class="d-flex gap-1 flex-wrap">
+          <a href="{% url 'consultation:edit' p.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil me-1"></i>編集</a>
+          <a href="{% url 'consultation:pdf_basic' p.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary">基本情報</a>
+          <a href="{% url 'consultation:pdf_plan' p.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary">計画（2-1）</a>
+          <a href="{% url 'consultation:pdf_weekly' p.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary">週間（2-2）</a>
+          <form method="post" action="{% url 'consultation:delete' p.pk %}" onsubmit="return confirm('この計画を削除しますか？');">{% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button></form>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<div class="card-body text-muted small">まだありません。上の「新しく作る」か、利用者の書類の読み取りから登録してください。</div>{% endif %}
+  </div>
+</div>
+{% endblock %}

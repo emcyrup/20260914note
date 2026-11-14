@@ -1,0 +1,42 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% block title %}面談の録音・文字起こしに関する同意書{% endblock %}
+{% block back_link %}<a class="outline" href="{% url 'minutes:index' %}">議事録へ戻る</a>{% endblock %}
+{% block body %}
+<style>
+  body { font-size: 12.5px; line-height: 1.7; }
+  h1 { font-size: 18px; margin-bottom: 14px; }
+  .lead { margin: 0 0 10px; }
+  table.items th { width: 90px; background: #eef2f6; text-align: center; }
+  table.items td { white-space: normal; }
+  .notice { border: 1px solid #333; padding: 8px 10px; margin: 12px 0; background: #fafafa; }
+  .notice .t { font-weight: 700; margin-bottom: 4px; }
+  .sig { margin-top: 18px; }
+  .sig table td { height: 42px; vertical-align: middle; white-space: nowrap; }
+  .sig table td.l { width: 130px; background: #eef2f6; text-align: center; font-weight: 700; }
+  .check { margin: 10px 0 4px; font-size: 12px; }
+  .box { min-height: 0; display: inline-block; width: 12px; height: 12px; border: 1.5px solid #333; vertical-align: middle; margin-right: 6px; padding: 0; }
+</style>
+<h1>面談の録音・文字起こしに関する同意書</h1>
+<p class="lead">{{ facility.name }}（以下「事業所」）では、保護者の方との面談・相談の内容を正確に記録するため、次のとおり録音と文字起こしを行います。内容をご確認のうえ、ご同意いただける場合は下の欄にご署名ください。</p>
+<table class="items">
+  <tbody>
+    {% for label, text in items %}<tr><th>{{ label }}</th><td>{{ text }}</td></tr>{% endfor %}
+  </tbody>
+</table>
+<div class="notice">
+  <div class="t">面談のはじめに、職員が次のようにご案内します</div>
+  <div>「{{ notice }}」</div>
+</div>
+<div class="check"><span class="box"></span>上記の内容について説明を受け、面談の録音・文字起こし・AI による要約の作成に同意します。</div>
+<div class="check"><span class="box"></span>同意しません（面談は録音せず、職員がメモで記録します）。</div>
+<div class="sig">
+  <table>
+    <tbody>
+      <tr><td class="l">同意日</td><td>　　　　年　　　月　　　日</td><td class="l">お子さまの氏名</td><td></td></tr>
+      <tr><td class="l">保護者氏名（署名）</td><td></td><td class="l">続柄</td><td></td></tr>
+      <tr><td class="l">説明した職員</td><td>{{ facility.name }}　　　　　　　　　　</td><td class="l">説明日</td><td>　　　　年　　　月　　　日</td></tr>
+    </tbody>
+  </table>
+</div>
+<p class="small muted" style="margin-top:10px;">この同意書は契約書類といっしょに事業所で保管します。同意を取り消したいときは、いつでも職員にお伝えください。</p>
+{% endblock %}

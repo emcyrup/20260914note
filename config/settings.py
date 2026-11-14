@@ -42,6 +42,10 @@ INSTALLED_APPS = [
     'planbook',
     'therapy',
     'minutes',
+    'transport',
+    'surveys',
+    'daily',
+    'consultation',
     'mobile_api',  # 職員アプリ（iOS・Android）の API
 ]
 
@@ -160,7 +164,17 @@ AI_PLAN_MODEL = config('AI_PLAN_MODEL', default='claude-opus-5')
 AI_TEXT_MODEL = config('AI_TEXT_MODEL', default='claude-opus-5')
 # 音声の文字起こし（Google Cloud Speech-to-Text）。iPhone の音声入力で使う（ai_assist/speech.py）。空なら使わない
 GOOGLE_SPEECH_API_KEY = config('GOOGLE_SPEECH_API_KEY', default='')
+# 配車表の所要時間（2026-11-09）：キーがあれば Google Distance Matrix、無ければ国土地理院の住所検索＋OSRM（無料・キー不要）
+GOOGLE_MAPS_API_KEY = config('GOOGLE_MAPS_API_KEY', default='')
 GOOGLE_SPEECH_MODEL = config('GOOGLE_SPEECH_MODEL', default='latest_long')
+# サーバー内の文字起こし（faster-whisper。ai_assist/whisper_local.py）。WHISPER_MODEL を入れると Google の代わりに使う
+# （両方あるときは SPEECH_BACKEND=google / whisper で選ぶ。既定は Google があれば Google）
+SPEECH_BACKEND = config('SPEECH_BACKEND', default='')
+WHISPER_MODEL = config('WHISPER_MODEL', default='')
+WHISPER_COMPUTE = config('WHISPER_COMPUTE', default='int8')
+WHISPER_THREADS = config('WHISPER_THREADS', default=0, cast=int)
+WHISPER_BEAM = config('WHISPER_BEAM', default=5, cast=int)
+WHISPER_DIR = config('WHISPER_DIR', default='')
 # 日誌を保存したときに AI が加算を提案する（API キーが無ければ何もしない）
 AI_ADDON_SUGGESTIONS = config('AI_ADDON_SUGGESTIONS', default=True, cast=bool)
 
@@ -196,6 +210,7 @@ if not DEBUG:
         # ブラウザに1年間HTTPSを強制させる（HSTS）
         SECURE_HSTS_SECONDS = 31536000
         SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+        SECURE_HSTS_PRELOAD = True
 
 # ログ: アプリ内の例外を gunicorn の標準エラー（docker compose logs app）に出す
 LOGGING = {
@@ -205,6 +220,8 @@ LOGGING = {
     'root': {'handlers': ['console'], 'level': 'WARNING'},
     'loggers': {
         'django.request': {'handlers': ['console'], 'level': 'ERROR', 'propagate': False},
+        # 療育記録の音声→AI の文字数・時間（中身は出さない）。Manage (yours) の voice_stats で集計する
+        'therapy': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
     },
 }
 

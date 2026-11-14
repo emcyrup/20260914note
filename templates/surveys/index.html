@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+
+{% block title %}アンケート・自己評価{% endblock %}
+{% block page_title %}アンケート・自己評価{% endblock %}
+{% block nav_surveys %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .sv-card { background: var(--sheet, #fff); border: 1px solid var(--line, #e5e1d8); border-radius: var(--radius, 14px); padding: 14px 16px; margin-bottom: 14px; }
+  .sv-year { font-weight: 700; font-size: 1.05rem; color: var(--lake-text, #2f4f58); }
+  .sv-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line, #e5e1d8); flex-wrap: wrap; }
+  .sv-row:first-of-type { border-top: 0; }
+  .sv-title { font-weight: 700; text-decoration: none; color: inherit; }
+  .sv-meta { font-size: 0.8rem; color: #8a8378; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 960px;">
+  <div class="sv-card">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+      <div>
+        <div class="sv-year">年 1 回の評価と公表</div>
+        <div class="small text-muted">ガイドラインでは、保護者による評価と従業者による評価をもとに事業所の自己評価を行い、結果と改善の内容を概ね 1 年に 1 回以上公表することになっています。<br>
+          流れ：① 保護者評価のアンケートを作って配る（LINE・QR・紙）→ ② 従業者評価のアンケートを職員に配る → ③ 自己評価（総括）を書く → ④ 公表用の PDF を出す。</div>
+      </div>
+    </div>
+    <form method="get" action="{% url 'surveys:create' %}" class="d-flex gap-2 align-items-end flex-wrap mt-3">
+      <div><label class="form-label small mb-0">年度</label><input type="number" name="year" class="form-control form-control-sm" value="{{ this_year }}" style="width:100px;"></div>
+      <div><label class="form-label small mb-0">事業の種類</label>
+        <select name="service" class="form-select form-select-sm">{% for k, v in services %}<option value="{{ k }}" {% if k == service %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+      <button class="btn btn-sm btn-primary" name="kind" value="guardian"><i class="bi bi-people me-1"></i>保護者評価のアンケートを作る</button>
+      <button class="btn btn-sm btn-outline-primary" name="kind" value="staff"><i class="bi bi-person-badge me-1"></i>従業者評価のアンケートを作る</button>
+    </form>
+    <form method="post" action="{% url 'surveys:self_create' %}" class="d-flex gap-2 align-items-end flex-wrap mt-2">
+      {% csrf_token %}
+      <input type="hidden" name="fiscal_year" value="{{ this_year }}"><input type="hidden" name="service" value="{{ service }}">
+      <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-journal-check me-1"></i>{{ this_label }}の自己評価（総括）を開く</button>
+      <span class="small text-muted">同じ年度の保護者評価・従業者評価を自動で結びつけます。</span>
+    </form>
+  </div>
+
+  {% for y in years %}
+  <div class="sv-card">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+      <div class="sv-year">{{ y.label }}</div>
+      {% if y.self %}<a href="{% url 'surveys:self_edit' y.self.pk %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-journal-check me-1"></i>自己評価（総括）{% if y.self.published_on %}<span class="badge text-bg-success ms-1">公表 {{ y.self.published_on|date:'n/j' }}</span>{% endif %}</a>{% endif %}
+    </div>
+    {% for s in y.surveys %}
+    <div class="sv-row">
+      <span class="badge {% if s.is_guardian %}text-bg-primary{% else %}text-bg-secondary{% endif %}">{{ s.get_kind_display }}</span>
+      <a href="{% url 'surveys:detail' s.pk %}" class="sv-title">{{ s.title }}</a>
+      <span class="sv-meta">{{ s.get_service_display }}・設問 {{ s.questions|length }}・回答 <b>{{ s.n_responses }}</b> 件{% if s.closes_on %}・{{ s.closes_on|date:'n/j' }} まで{% endif %}</span>
+      {% if s.accepting %}<span class="badge text-bg-success">受付中</span>{% else %}<span class="badge text-bg-light border">締め切り</span>{% endif %}
+    </div>
+    {% empty %}<div class="small text-muted">この年度のアンケートはまだありません。</div>{% endfor %}
+  </div>
+  {% empty %}
+  <div class="sv-card small text-muted">まだアンケートがありません。上の「保護者評価のアンケートを作る」から始めてください。設問はこども家庭庁の参考様式をもとにした標準のものが入り、画面で直せます。</div>
+  {% endfor %}
+</div>
+{% endblock %}

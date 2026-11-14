@@ -10,6 +10,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LoginView, LogoutView
 from django.db import transaction
 from django.db.models import F
+from django.db.models import Q as models_q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
@@ -19,7 +20,8 @@ from django.views import View
 from config.utils import home_url, safe_next, to_int
 
 from .middleware import SESSION_KEY as DEV_FACILITY_SESSION_KEY
-from .models import StaffAccount, StaffInvitation
+from . import security
+from .models import LoginEvent, SecurityAlert, StaffAccount, StaffInvitation
 from facilities.context_processors import get_terms
 from facilities.models import Facility
 
@@ -37,6 +39,32 @@ class StaffLoginView(LoginView):
         ctx['signup_enabled'] = settings.ALLOW_FACILITY_SIGNUP
         ctx['signup_open'] = Facility.objects.filter(staff_signup_open=True).exists()
         return ctx
+
+    def post(self, request, *args, **kwargs):
+        # 失敗が続いたユーザー名・IP は、しばらくログインを受け付けない（accounts/security.py）。正しいパスワードでも
+        from . import security
+        username = (request.POST.get('username') or '').strip()
+        # スマホは先頭を大文字にしたり前後に空白を入れたりする（2026-11-07 放デイ デモ「スマホではログインできない」）。
+        # 大文字小文字だけ違うユーザー名が 1 人に決まるなら、そのユーザー名として扱う
+        fixed = self._fix_username(username)
+        if fixed != (request.POST.get('username') or ''):
+            request.POST = request.POST.copy()
+            request.POST['username'] = fixed
+            username = fixed
+        until = security.locked_until(username, security.client_ip(request))
+        if until is not None:
+            security.record(LoginEvent.KIND_LOCK, request, username)
+            form = self.get_form()
+            return self.render_to_response(self.get_context_data(form=form, locked_until=timezone.localtime(until)))
+        return super().post(request, *args, **kwargs)
+
+    @staticmethod
+    def _fix_username(username):
+        username = (username or '').strip()
+        if not username or StaffAccount.objects.filter(username=username).exists():
+            return username
+        found = list(StaffAccount.objects.filter(username__iexact=username).values_list('username', flat=True)[:2])
+        return found[0] if len(found) == 1 else username
 
     def form_invalid(self, form):
         # 承認待ちの人には、パスワード違いではなく承認待ちであることを伝える
@@ -149,6 +177,10 @@ class SwitchFacilityView(LoginRequiredMixin, View):
         return redirect(safe_next(request, request.POST.get('next'), home_url()))
 
 
+def terms_staff(request):
+    return get_terms(request.user.facility)['staff']
+
+
 class AdminOnlyMixin(LoginRequiredMixin):
     def dispatch(self, request, *args, **kwargs):
         if request.user.is_authenticated and not (request.user.is_admin or request.user.is_superuser):
@@ -188,8 +220,72 @@ class StaffListView(AdminOnlyMixin, View):
         u.facility = request.user.facility
         u.set_password(form.cleaned_data['password'])
         u.save()
+        security.admin_action(request, f'{terms_staff(request)}「{u.display_name or u.username}」（{u.get_role_display()}）を追加しました')
         messages.success(request, f'{u.display_name or u.username} さんを追加しました（ログインID: {u.username}）。')
         return redirect('accounts:staff')
+
+
+class LoginLogView(AdminOnlyMixin, View):
+    """ログインの記録（管理者）：この事業所の職員のログイン・失敗・ロック。開発向けユーザーは全事業所と、事業所に結びつかない失敗も"""
+    template_name = 'accounts/login_log.html'
+    LIMIT = 300
+
+    def get(self, request):
+        from . import security
+        security.cleanup()
+        facility = request.user.facility
+        qs = LoginEvent.objects.select_related('user', 'facility')
+        if request.user.can_switch_facility:
+            scope = 'all'
+        else:
+            scope = 'facility'
+            names = list(StaffAccount.objects.filter(facility=facility).values_list('username', flat=True))
+            qs = qs.filter(models_q(facility=facility) | models_q(facility__isnull=True, username__in=names))
+        kind = request.GET.get('kind') or ''
+        if kind in dict(LoginEvent.KIND_CHOICES):
+            qs = qs.filter(kind=kind)
+        events = list(qs[:self.LIMIT])
+        since = timezone.now() - datetime.timedelta(days=7)
+        week = LoginEvent.objects.filter(created_at__gte=since)
+        if scope == 'facility':
+            week = week.filter(models_q(facility=facility) | models_q(facility__isnull=True, username__in=names))
+        summary = {
+            'fail': week.filter(kind=LoginEvent.KIND_FAIL).count(),
+            'lock': week.filter(kind=LoginEvent.KIND_LOCK).count(),
+            'ok': week.filter(kind=LoginEvent.KIND_OK).count(),
+            'ips': week.filter(kind=LoginEvent.KIND_FAIL).values('ip').distinct().count(),
+        }
+        locked = sorted({e.username for e in events if e.kind == LoginEvent.KIND_FAIL and e.created_at >= timezone.now() - datetime.timedelta(minutes=security.WINDOW_MINUTES)
+                         and security.locked_until(e.username, '') is not None})
+        alerts = SecurityAlert.objects.select_related('actor', 'facility')
+        if scope == 'facility':
+            alerts = alerts.filter(facility=facility)
+        return render(request, self.template_name, {
+            'alerts': list(alerts[:30]), 'notify_on': facility.security_notify,
+            'events': events, 'kind': kind, 'kinds': LoginEvent.KIND_CHOICES, 'summary': summary, 'scope': scope,
+            'locked': locked, 'limit': self.LIMIT, 'policy': {'window': security.WINDOW_MINUTES, 'user': security.USER_TRIES,
+                                                               'ip': security.IP_TRIES, 'lock': security.LOCK_MINUTES, 'keep': security.KEEP_DAYS},
+        })
+
+
+class SecurityTestView(AdminOnlyMixin, View):
+    """不正アクセスの通知のテスト送信（管理者）：LINE グループとメールに届くかを確かめる"""
+
+    def post(self, request):
+        facility = request.user.facility
+        who = request.user.display_name or request.user.username
+        row = security.alert(facility, SecurityAlert.KIND_TEST, f'{who} さんがテスト送信しました（IP {security.client_ip(request) or "不明"}）。'
+                                                                 'この文が届いていれば、不正アクセスの通知はこの宛先に来ます。', actor=request.user)
+        if not facility.security_notify:
+            messages.warning(request, '施設設定で「不正アクセスの通知を送る」がオフなので、記録だけ残しました。')
+        else:
+            parts = []
+            parts.append('LINE グループ：' + ('送りました' if row.line_sent else '送っていません（予約の「増減を知らせる LINE グループ」とチャネルトークンの設定が要ります）'))
+            parts.append('メール：' + ('送りました' if row.mail_sent else '送っていません（施設設定の「不正アクセスの通知」に送信用の Gmail とアプリ パスワードを入れるか、宛先（管理者・児発管のメールか通知のメール宛先）を入れてください）'))
+            if row.error:
+                parts.append(f'エラー：{row.error}')
+            (messages.success if (row.line_sent or row.mail_sent) and not row.error else messages.warning)(request, 'テスト送信：' + '／'.join(parts))
+        return redirect('accounts:login_log')
 
 
 class StaffUpdateView(AdminOnlyMixin, View):
@@ -208,6 +304,7 @@ class StaffUpdateView(AdminOnlyMixin, View):
         if u == request.user and form.cleaned_data['role'] != StaffAccount.ROLE_ADMIN and not request.user.is_superuser:
             messages.error(request, '自分の権限区分を管理者以外に変えることはできません。')
             return redirect('accounts:staff')
+        before = StaffAccount.objects.get(pk=u.pk)
         u = form.save()
         pw = form.cleaned_data.get('new_password')
         if pw:
@@ -216,6 +313,15 @@ class StaffUpdateView(AdminOnlyMixin, View):
             note = '（パスワードを再設定しました）'
         else:
             note = ''
+        changes = []
+        if before.role != u.role:
+            changes.append(f'権限を{before.get_role_display()}→{u.get_role_display()}')
+        if before.is_active != u.is_active:
+            changes.append('有効にしました' if u.is_active else '無効にしました')
+        if pw:
+            changes.append('パスワードを再設定')
+        if changes:
+            security.admin_action(request, f'{terms_staff(request)}「{u.display_name or u.username}」の' + '・'.join(changes))
         messages.success(request, f'{u.display_name or u.username} さんの情報を保存しました{note}。')
         return redirect('accounts:staff')
 
@@ -237,6 +343,7 @@ class InvitationCreateView(AdminOnlyMixin, View):
         inv.created_by = request.user
         inv.expires_at = timezone.now() + datetime.timedelta(days=form.cleaned_data['expires_days'])
         inv.save()
+        security.admin_action(request, f'招待リンクを発行しました（{inv.get_role_display()}・{inv.max_uses} 回）')
         messages.success(request, f'招待リンクを発行しました（{inv.get_role_display()}・{inv.max_uses}回・'
                                   f'{timezone.localtime(inv.expires_at):%-m/%-d %H:%M} まで）。URL をコピーして本人に渡してください。')
         return redirect('accounts:staff')
@@ -422,5 +529,6 @@ class StaffApproveView(AdminOnlyMixin, View):
             role = StaffAccount.ROLE_STAFF
         u.role, u.is_active, u.signup_pending = role, True, False
         u.save(update_fields=['role', 'is_active', 'signup_pending'])
+        security.admin_action(request, f'{terms_staff(request)}「{name}」を{u.get_role_display()}として承認しました')
         messages.success(request, f'{name} さんを{u.get_role_display()}として承認しました。ログインID「{u.username}」でログインできます。')
         return redirect('accounts:staff')

@@ -1,0 +1,9 @@
+{% comment %}共演NG の印をまとめて付ける道具（Facility.schedule_tools）。親の要素に data-check-group、印の欄を .cg-list に入れる{% endcomment %}
+{% if user.facility.schedule_tools %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-1 small">
+  <input type="search" class="form-control form-control-sm cg-filter" style="max-width:180px;" placeholder="名前・かなで絞る" aria-label="名前・かなで絞る">
+  <button type="button" class="btn btn-sm btn-outline-secondary py-0 cg-all" title="いま見えている人（絞っているときは絞った人）に、まとめて印を付けます">見えている人に印</button>
+  <button type="button" class="btn btn-sm btn-outline-secondary py-0 cg-none" title="いま見えている人の印を、まとめて外します">見えている人の印を外す</button>
+  <span class="text-muted cg-count"></span>
+</div>
+{% endif %}

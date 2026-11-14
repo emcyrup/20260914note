@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% load concurrency form_extras %}
+
+{% block title %}個別支援計画別表 — {{ b.full_name }}{% endblock %}
+{% block page_title %}{{ b.full_name }} さんの個別支援計画別表（提供時間・加算・延長支援）{% endblock %}
+{% block nav_custom_forms %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .ot { font-size: .88rem; }
+  .ot th { background: #f1f1ee; font-weight: 600; white-space: nowrap; }
+  .ot input[type=text], .ot input[type=time] { font-size: .85rem; padding: 2px 4px; }
+  .ot .form-check-label { font-size: .86rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+    <div>
+      <a href="{% url 'support_plans:detail' plan.pk %}" class="text-muted small"><i class="bi bi-arrow-left me-1"></i>{{ plan.title }} の全体</a>
+      <span class="text-muted small mx-1">/</span>
+      <a href="{% url 'support_plans:sheet' plan.pk %}" class="text-muted small">計画書（様式のまま編集）</a>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{% url 'custom_forms:plan_owl' plan.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>計画書</a>
+      <a href="{% url 'custom_forms:plan_owl_table' plan.pk %}?fmt=html" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>別表</a>
+    </div>
+  </div>
+
+  <form method="post" data-concurrency="support_plan:{{ plan.pk }}">
+    {% csrf_token %}{% version_field plan %}
+    <div class="card mb-3"><div class="card-body ot">
+      <div class="row g-2 mb-3">
+        <div class="col-sm-4"><label class="form-label small fw-semibold mb-1">受給者証番号</label><input type="text" name="cert_number" class="form-control form-control-sm" value="{{ cert_number }}" maxlength="20"><div class="form-text">空なら受給者証の登録から取ります。</div></div>
+        <div class="col-sm-4"><label class="form-label small fw-semibold mb-1">利用サービス</label><input type="text" name="service_name" class="form-control form-control-sm" value="{{ service_name }}" maxlength="40"></div>
+        <div class="col-sm-4"><label class="form-label small fw-semibold mb-1">作成回数</label><input type="text" name="revision" class="form-control form-control-sm" value="{{ revision }}" maxlength="5"><div class="form-text">空なら前の計画の数から数えます。</div></div>
+      </div>
+
+      <div class="fw-bold mb-1">提供時間（曜日ごと）</div>
+      <div class="table-responsive"><table class="table table-sm table-bordered align-middle mb-2">
+        <thead><tr><th></th>{% for k, l in weekdays %}<th class="text-center">{{ l }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          <tr><th>開始</th>{% for k, l in weekdays %}<td>{% with w=weekly|dictkey:k %}<input type="text" name="w_{{ k }}_start" class="form-control form-control-sm" placeholder="10時00分" value="{{ w.start }}">{% endwith %}</td>{% endfor %}</tr>
+          <tr><th>終了</th>{% for k, l in weekdays %}<td>{% with w=weekly|dictkey:k %}<input type="text" name="w_{{ k }}_end" class="form-control form-control-sm" placeholder="10時40分" value="{{ w.end }}">{% endwith %}</td>{% endfor %}</tr>
+          <tr><th>時間数</th>{% for k, l in weekdays %}<td>{% with w=weekly|dictkey:k %}<input type="text" name="w_{{ k }}_hours" class="form-control form-control-sm" placeholder="0時間40分" value="{{ w.hours }}">{% endwith %}</td>{% endfor %}</tr>
+        </tbody>
+      </table></div>
+
+      <div class="fw-bold mb-1">特記事項</div>
+      <textarea name="slots_note" class="form-control form-control-sm mb-2" rows="3">{{ slots_note }}</textarea>
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        {% for a in addons_all %}<label class="form-check-label border rounded px-2 py-1"><input type="checkbox" class="form-check-input me-1" name="addons" value="{{ a }}" {% if addons|has:a %}checked{% endif %}>{{ a }}</label>{% endfor %}
+      </div>
+
+      <div class="fw-bold mb-1">延長支援時間 <span class="small text-muted fw-normal">（支援前・支援後それぞれ 1 時間以上から）</span></div>
+      <div class="table-responsive"><table class="table table-sm table-bordered align-middle mb-2">
+        <thead><tr><th></th>{% for k, l in weekdays %}<th class="text-center">{{ l }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          <tr><th>支援前</th>{% for k, l in weekdays %}<td>{% with e=ext|dictkey:k %}<input type="text" name="e_{{ k }}_before" class="form-control form-control-sm" value="{{ e.before }}">{% endwith %}</td>{% endfor %}</tr>
+          <tr><th>支援後</th>{% for k, l in weekdays %}<td>{% with e=ext|dictkey:k %}<input type="text" name="e_{{ k }}_after" class="form-control form-control-sm" value="{{ e.after }}">{% endwith %}</td>{% endfor %}</tr>
+        </tbody>
+      </table></div>
+      <label class="form-label small fw-semibold mb-1">延長を必要とする理由及び時間</label>
+      <textarea name="ext_reason" class="form-control form-control-sm" rows="3">{{ ext_reason }}</textarea>
+    </div></div>
+    <div class="d-flex justify-content-end gap-2 mb-4">
+      <button class="btn btn-outline-primary" name="next" value="pdf"><i class="bi bi-printer me-1"></i>保存して別表を見る</button>
+      <button class="btn btn-primary px-4"><i class="bi bi-check2 me-1"></i>保存する</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

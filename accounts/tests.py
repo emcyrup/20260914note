@@ -239,7 +239,7 @@ class DeveloperFacilitySwitchTests(TestCase):
 
     def setUp(self):
         self.f1 = Facility.objects.create(name='みちのて', form_set=Facility.FORM_SET_STANDARD)
-        self.f2 = Facility.objects.create(name='はぴねす', form_set=Facility.FORM_SET_HAPPINESS)
+        self.f2 = Facility.objects.create(name='はびりす', form_set=Facility.FORM_SET_HAPPINESS)
         self.dev = StaffAccount.objects.create_user('dev', password='pass12345', facility=self.f1,
                                                     role=StaffAccount.ROLE_ADMIN, is_developer=True)
         self.admin = StaffAccount.objects.create_user('adm', password='pass12345', facility=self.f1,
@@ -251,12 +251,12 @@ class DeveloperFacilitySwitchTests(TestCase):
         self.assertContains(res, 'devFacilitySelect')
         self.assertContains(res, 'みちのて（所属）')
         self.assertNotContains(res, '事業所様式')
-        # はぴねすに切り替えると、その事業所として動く（専用様式のメニューが出る）
+        # はびりすに切り替えると、その事業所として動く（専用様式のメニューが出る）
         res = self.client.post(reverse('accounts:switch_facility'), {'facility': self.f2.pk, 'next': '/'})
         self.assertRedirects(res, '/', fetch_redirect_response=False)
         res = self.client.get(reverse('facilities:dashboard'))
         self.assertContains(res, '事業所様式')
-        self.assertContains(res, 'はぴねす')
+        self.assertContains(res, 'はびりす')
         res = self.client.get(reverse('custom_forms:index'))
         self.assertEqual(res.status_code, 200)
         # DB の所属は変わらない
@@ -298,7 +298,7 @@ class DeveloperFacilitySwitchTests(TestCase):
         self.client.force_login(self.admin)
         res = self.client.get(reverse('facilities:settings'))
         self.assertNotContains(res, 'name="form_set"')
-        self.assertNotContains(res, 'はぴねす様式')
+        self.assertNotContains(res, 'はびりす様式')
         self.client.post(reverse('facilities:feature_settings'), {
             'use_billing': 'on', 'journal_sections': ['activity', 'observation'], 'form_set': 'happiness'})
         self.f1.refresh_from_db()
@@ -616,3 +616,254 @@ class StaffRegisterOpenTests(TestCase):
         self.client.post(reverse('accounts:signup_code'), {'action': 'open'})
         self.f.refresh_from_db()
         self.assertFalse(self.f.staff_signup_open)                     # 職員は切り替えられない
+
+
+
+class LoginSecurityTests(TestCase):
+    """ログインの記録と一時ロック（accounts/security.py。2026-10-20）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='テスト施設')
+        self.user = StaffAccount.objects.create_user('taro', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN)
+        self.url = reverse('accounts:login')
+
+    def _login(self, username='taro', password='wrong', ip='203.0.113.5'):
+        return self.client.post(self.url, {'username': username, 'password': password}, REMOTE_ADDR=ip)
+
+    def test_fail_and_success_are_recorded(self):
+        from .models import LoginEvent
+        self._login(password='wrong')
+        self._login(password='pw12345678')
+        kinds = list(LoginEvent.objects.order_by('created_at').values_list('kind', 'username', 'ip'))
+        self.assertEqual(kinds, [('fail', 'taro', '203.0.113.5'), ('ok', 'taro', '203.0.113.5')])
+        self.assertEqual(LoginEvent.objects.get(kind='ok').facility, self.f)
+        self.client.get(reverse('accounts:logout')) if False else self.client.post(reverse('accounts:logout'))
+        self.assertEqual(LoginEvent.objects.filter(kind='logout', username='taro').count(), 1)
+
+    def test_lock_after_repeated_failures(self):
+        from . import security
+        from .models import LoginEvent
+        for _ in range(security.USER_TRIES):
+            self._login(password='wrong')
+        res = self._login(password='pw12345678')                     # 正しいパスワードでも受け付けない
+        self.assertContains(res, 'ログインの失敗が続いたため')
+        self.assertFalse(res.wsgi_request.user.is_authenticated)
+        self.assertEqual(LoginEvent.objects.filter(kind='lock').count(), 1)
+        # 別のユーザー名・別の IP は入れる
+        other = StaffAccount.objects.create_user('hana', password='pw12345678', facility=self.f)
+        res = self._login(username='hana', password='pw12345678', ip='203.0.113.9')
+        self.assertEqual(res.status_code, 302)
+        # ロックの時間が過ぎれば入れる
+        import datetime
+        from django.utils import timezone
+        LoginEvent.objects.filter(kind='fail').update(created_at=timezone.now() - datetime.timedelta(minutes=security.LOCK_MINUTES + 1))
+        self.client.logout()
+        res = self._login(password='pw12345678')
+        self.assertEqual(res.status_code, 302)
+
+    def test_ip_lock(self):
+        from . import security
+        for i in range(security.IP_TRIES):
+            self._login(username=f'nobody{i}', password='x', ip='198.51.100.7')
+        res = self._login(password='pw12345678', ip='198.51.100.7')
+        self.assertContains(res, 'ログインの失敗が続いたため')
+        res = self._login(password='pw12345678', ip='198.51.100.8')
+        self.assertEqual(res.status_code, 302)
+
+    def test_log_page_admin_only_and_scoped(self):
+        from .models import LoginEvent
+        other_f = Facility.objects.create(name='ほかの施設')
+        StaffAccount.objects.create_user('jiro', password='pw12345678', facility=other_f)
+        self._login(username='jiro', password='wrong', ip='192.0.2.1')
+        self._login(username='taro', password='wrong', ip='192.0.2.2')
+        self._login(username='ghost', password='wrong', ip='192.0.2.3')          # だれでもない名前
+        self.client.force_login(self.user)
+        res = self.client.get(reverse('accounts:login_log'))
+        self.assertContains(res, '192.0.2.2')
+        self.assertNotContains(res, '192.0.2.1')                                  # ほかの事業所の失敗は出ない
+        self.assertNotContains(res, '192.0.2.3')
+        self.assertContains(res, '失敗 <b class="text-danger">1</b> 回')
+        self.assertContains(self.client.get(reverse('accounts:staff')), reverse('accounts:login_log'))
+        # 職員は見られない
+        staff = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.force_login(staff)
+        self.assertEqual(self.client.get(reverse('accounts:login_log')).status_code, 302)
+        # 開発向けユーザーは全部
+        dev = StaffAccount.objects.create_superuser('root', 'root@example.com', 'pass12345')
+        dev.facility = self.f
+        dev.save()
+        self.client.force_login(dev)
+        res = self.client.get(reverse('accounts:login_log'))
+        self.assertContains(res, '192.0.2.1')
+        self.assertContains(res, '192.0.2.3')
+        self.assertContains(res, 'ほかの施設')
+        # 種類で絞る
+        res = self.client.get(reverse('accounts:login_log') + '?kind=ok')
+        self.assertNotContains(res, '192.0.2.3')
+
+
+
+class SecurityAlertTests(TestCase):
+    """不審なログイン・管理者の操作の通知（accounts/security.py alert。2026-10-20）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='テスト施設', representative_email='rep@example.com', line_channel_access_token='tok')
+        from reservations.models import ReservationSetting
+        ReservationSetting.objects.create(facility=self.f, notify_group_id='Cgroup1')
+        self.admin = StaffAccount.objects.create_user('taro', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_ADMIN,
+                                                      display_name='太郎', email='taro@example.com')
+        self.url = reverse('accounts:login')
+
+    def _login(self, username='taro', password='pw12345678', ip='203.0.113.5'):
+        return self.client.post(self.url, {'username': username, 'password': password}, REMOTE_ADDR=ip)
+
+    def test_lock_alert_sent_to_line_and_mail(self):
+        from unittest import mock
+        from django.core import mail
+        from django.test import override_settings
+        from . import security
+        from .models import SecurityAlert
+        with override_settings(EMAIL_HOST='smtp.example.com', EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend'), \
+                mock.patch('line_integration.sending.push_text', return_value=(True, '')) as push:
+            for _ in range(security.USER_TRIES):
+                self._login(password='wrong')
+        a = SecurityAlert.objects.get(kind='lock')
+        self.assertIn('「taro」でログインの失敗が 5 回続いたため、15 分ロックしました（IP 203.0.113.5）', a.text)
+        self.assertTrue(a.line_sent and a.mail_sent)
+        self.assertEqual(push.call_args.args[1], 'Cgroup1')
+        self.assertIn('安全のお知らせ', push.call_args.args[2])
+        self.assertEqual(sorted(mail.outbox[0].to), ['rep@example.com', 'taro@example.com'])
+        self.assertEqual(SecurityAlert.objects.filter(kind='lock').count(), 1)       # 6 回目以降は知らせない
+        self._login(password='wrong')
+        self.assertEqual(SecurityAlert.objects.filter(kind='lock').count(), 1)
+
+    def test_new_ip_and_night_alerts(self):
+        from unittest import mock
+        from .models import SecurityAlert
+        with mock.patch('line_integration.sending.push_text', return_value=(True, '')):
+            self._login(ip='203.0.113.5')                      # 初めてのログインは知らせない
+            self.assertFalse(SecurityAlert.objects.filter(kind='new_ip').exists())
+            self.client.logout()
+            self._login(ip='203.0.113.5')                      # 同じ場所
+            self.assertFalse(SecurityAlert.objects.filter(kind='new_ip').exists())
+            self.client.logout()
+            self._login(ip='198.51.100.9')                     # 初めての場所
+        a = SecurityAlert.objects.get(kind='new_ip')
+        self.assertEqual(a.text, '太郎 さんが初めての場所（IP 198.51.100.9）からログインしました。')
+        self.assertTrue(a.line_sent)
+        # 深夜
+        import datetime
+        from django.utils import timezone
+        night = timezone.make_aware(datetime.datetime(2026, 10, 21, 2, 30))
+        with mock.patch('accounts.security.timezone.now', return_value=night), mock.patch('line_integration.sending.push_text', return_value=(True, '')):
+            self.client.logout()
+            self._login(ip='198.51.100.9')
+        self.assertTrue(SecurityAlert.objects.filter(kind='night', text__contains='深夜（2 時台）').exists())
+
+    def test_admin_actions_alert_and_switch_off(self):
+        from unittest import mock
+        from .models import SecurityAlert
+        self.client.force_login(self.admin)
+        with mock.patch('line_integration.sending.push_text', return_value=(True, '')) as push:
+            res = self.client.post(reverse('accounts:staff'), {'username': 'hana', 'display_name': '花', 'role': 'staff', 'password': 'pw12345678',
+                                                               'ui_theme': StaffAccount.THEME_STANDARD})
+            hana = StaffAccount.objects.get(username='hana')
+            self.client.post(reverse('accounts:staff_update', args=[hana.pk]), {'display_name': '花', 'role': 'admin', 'is_active': 'on',
+                                                                                'ui_theme': StaffAccount.THEME_STANDARD})
+        texts = list(SecurityAlert.objects.filter(kind='admin').order_by('created_at').values_list('text', flat=True))
+        self.assertTrue(any('「花」（職員）を追加しました' in t for t in texts), texts)
+        self.assertTrue(any('権限を職員→管理者' in t for t in texts), texts)
+        self.assertTrue(push.called)
+        # 画面に出る
+        res = self.client.get(reverse('accounts:login_log'))
+        self.assertContains(res, '知らせた出来事')
+        self.assertContains(res, '権限を職員→管理者')
+        self.assertContains(res, 'LINE 済')
+        # 通知を止めると記録だけ
+        Facility.objects.filter(pk=self.f.pk).update(security_notify=False)
+        with mock.patch('line_integration.sending.push_text', return_value=(True, '')) as push:
+            self.client.post(reverse('accounts:invitation_add'), {'role': 'staff', 'max_uses': 1, 'expires_days': 7, 'note': ''})
+        self.assertFalse(push.called)
+        inv = SecurityAlert.objects.filter(kind='admin', text__contains='招待リンク').first()
+        self.assertIsNotNone(inv)
+        self.assertFalse(inv.line_sent or inv.mail_sent)
+        self.assertContains(self.client.get(reverse('facilities:settings')), 'name="security_notify_email"')
+
+
+    def test_test_send_button(self):
+        from unittest import mock
+        from django.core import mail
+        from django.test import override_settings
+        from .models import SecurityAlert
+        self.client.force_login(self.admin)
+        with override_settings(EMAIL_HOST='smtp.gmail.com', EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend'), \
+                mock.patch('line_integration.sending.push_text', return_value=(True, '')):
+            res = self.client.post(reverse('accounts:security_test'), follow=True)
+        self.assertContains(res, 'テスト送信：LINE グループ：送りました／メール：送りました')
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('テスト送信しました', mail.outbox[0].body)
+        a = SecurityAlert.objects.get(kind='test')
+        self.assertTrue(a.line_sent and a.mail_sent)
+        self.assertContains(self.client.get(reverse('accounts:login_log')), 'テスト送信</button>')
+        # 職員は押せない
+        staff = StaffAccount.objects.create_user('st', password='pw12345678', facility=self.f, role=StaffAccount.ROLE_STAFF)
+        self.client.force_login(staff)
+        self.assertEqual(self.client.post(reverse('accounts:security_test')).status_code, 302)
+        self.assertEqual(SecurityAlert.objects.filter(kind='test').count(), 1)
+
+
+    def test_facility_gmail_from_settings_screen(self):
+        from unittest import mock
+        from django.core import mail
+        from .models import SecurityAlert
+        self.client.force_login(self.admin)
+        from facilities.forms import FacilityForm
+        url = reverse('facilities:facility_update')
+        base = {k: ('on' if v is True else v) for k, v in FacilityForm(instance=self.f).initial.items() if v not in (None, False, '')}
+        base.pop('logo', None)
+        base.update({'security_notify': 'on', 'mail_from': 'alert@gmail.com', 'mail_app_password_new': 'abcd efgh ijkl mnop'})
+        res = self.client.post(url, base, follow=True)
+        self.assertContains(res, '施設情報を更新しました')
+        f = Facility.objects.get(pk=self.f.pk)
+        self.assertEqual((f.mail_from, f.mail_app_password), ('alert@gmail.com', 'abcdefghijklmnop'))    # 空白は除く
+        page = self.client.get(reverse('facilities:settings'))
+        self.assertContains(page, '（設定済み）')
+        self.assertNotContains(page, 'abcdefghijklmnop')                                                   # 画面に出さない
+        self.assertContains(page, 'いまの送信元：施設設定の Gmail（alert@gmail.com）')
+        # 空で保存しても消えない。「消す」で消える
+        self.client.post(url, dict(base, mail_app_password_new=''))
+        self.assertEqual(Facility.objects.get(pk=self.f.pk).mail_app_password, 'abcdefghijklmnop')
+        # テスト送信は施設の Gmail から送る（接続は locmem に差し替え）
+        with mock.patch('facilities.mail.SMTP_BACKEND', 'django.core.mail.backends.locmem.EmailBackend'), \
+                mock.patch('line_integration.sending.push_text', return_value=(True, '')):
+            self.client.post(reverse('accounts:security_test'))
+        self.assertTrue(SecurityAlert.objects.filter(kind='test', mail_sent=True).exists())
+        self.assertEqual(mail.outbox[-1].from_email, 'alert@gmail.com')
+        self.client.post(url, dict(base, mail_app_password_new='', mail_app_password_clear='on'))
+        self.assertEqual(Facility.objects.get(pk=self.f.pk).mail_app_password, '')
+
+
+class PhoneLoginTests(TestCase):
+    """スマホはユーザー名の先頭を大文字にしたり空白を入れたりする（2026-11-07 放デイ デモ「スマホではログインできない」）"""
+
+    def setUp(self):
+        self.f = Facility.objects.create(name='テスト')
+        StaffAccount.objects.create_user('houdeidemo', password='pw12345678', facility=self.f)
+
+    def test_username_field_does_not_autocapitalize(self):
+        res = self.client.get(reverse('accounts:login'))
+        self.assertContains(res, 'autocapitalize="none"')
+
+    def test_case_and_spaces_in_username_are_accepted(self):
+        res = self.client.post(reverse('accounts:login'), {'username': ' Houdeidemo ', 'password': 'pw12345678'})
+        self.assertEqual(res.status_code, 302)
+        self.assertTrue(res.wsgi_request.user.is_authenticated)
+
+    def test_exact_username_still_wins_when_two_differ_only_by_case(self):
+        StaffAccount.objects.create_user('Houdeidemo', password='other1234567', facility=self.f)
+        res = self.client.post(reverse('accounts:login'), {'username': 'Houdeidemo', 'password': 'other1234567'})
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(res.wsgi_request.user.username, 'Houdeidemo')
+        self.client.logout()
+        res = self.client.post(reverse('accounts:login'), {'username': 'HOUDEIDEMO', 'password': 'pw12345678'})   # 2 人に当たるので直さない
+        self.assertEqual(res.status_code, 200)

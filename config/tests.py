@@ -77,3 +77,26 @@ class AllowedHostsTests(SimpleTestCase):
         with self.settings(ALLOWED_HOSTS=['203.0.113.10', '127.0.0.1', 'localhost']):
             res = self.client.get('/healthz/', HTTP_HOST='127.0.0.1:8000')
             self.assertEqual(res.status_code, 200)
+
+
+class PdfUrlFetcherTests(SimpleTestCase):
+    """PDF の URL フェッチャ：/media/ はサーバー内のファイルを読み、決めたフォルダの外の file:// は読まない"""
+
+    def test_media_and_file_limits(self):
+        import tempfile
+        from pathlib import Path
+        from django.test import override_settings
+        from config.pdf import media_url_fetcher, render_pdf
+        with tempfile.TemporaryDirectory() as media:
+            Path(media, 'a.txt').write_text('ok', encoding='utf-8')
+            with override_settings(MEDIA_ROOT=media, MEDIA_URL='/media/'):
+                f = media_url_fetcher()
+                r = f.fetch('https://example.invalid/media/a.txt')
+                self.assertEqual(r.read(), b'ok')
+                r.close()
+                with self.assertRaises(ValueError):
+                    f.fetch('file:///etc/passwd')                       # 決めたフォルダの外
+                with self.assertRaises(ValueError):
+                    f.fetch('ftp://example.invalid/x')                   # 許していない方式
+                pdf = render_pdf('<p>テスト</p><img src="file:///etc/passwd">')
+                self.assertTrue(pdf.startswith(b'%PDF'))

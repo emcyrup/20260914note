@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% block title %}書いていない日誌{% endblock %}
+{% block page_title %}書いていない日誌{% endblock %}
+{% block content %}
+<div class="container-fluid py-3" style="max-width: 1000px;">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+    <div>
+      <h5 class="mb-0"><i class="bi bi-journal-x me-2"></i>書いていない日誌</h5>
+      <div class="small text-muted">来所した（予定の出欠が欠席・振替でない{% if features.reservation %}・予約の実績が「来た」か未入力{% endif %}）のに、その日の日誌が無い・下書きのままの{{ terms.beneficiary }}。きのうまで {{ days }} 日ぶん（{{ since|date:'n/j' }} 〜）。きょうの分は<a href="{% url 'records:dashboard' %}">日誌の週間カレンダー</a>で</div>
+    </div>
+    <a href="{% url 'records:dashboard' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>日誌へ</a>
+  </div>
+
+  <form method="get" class="d-flex align-items-center flex-wrap gap-2 mb-3 small">
+    <span>さかのぼる日数：</span>
+    {% for d in day_choices %}
+    <a href="?days={{ d }}{% if not include_draft %}&draft=0{% endif %}" class="btn btn-sm {% if d == days %}btn-primary{% else %}btn-outline-secondary{% endif %}">{{ d }} 日</a>
+    {% endfor %}
+    <span class="ms-3">
+      {% if include_draft %}<a href="?days={{ days }}&draft=0" class="text-decoration-none"><i class="bi bi-check-square me-1"></i>下書きのままも出す</a>
+      {% else %}<a href="?days={{ days }}" class="text-decoration-none"><i class="bi bi-square me-1"></i>下書きのままも出す</a>{% endif %}
+    </span>
+  </form>
+
+  {% if rows %}
+  <div class="alert alert-warning py-2 small mb-3">
+    <i class="bi bi-exclamation-triangle me-1"></i><b>{{ rows|length }} 件</b>（未作成 {{ none_count }}・下書きのまま {{ draft_count }}）。
+    「書く」を押すと、その{{ terms.beneficiary }}の日誌の画面がその日付で開きます。期限のお知らせメールにも載ります（来所から 3・7・14 日たった日と月曜）。
+  </div>
+  {% for g in groups %}
+  <div class="card mb-3">
+    <div class="card-header py-2 fw-bold d-flex justify-content-between">
+      <span>{{ g.date|date:'Y年n月j日' }}（{{ g.weekday }}）</span>
+      <span class="small fw-normal text-muted">{{ g.rows|length }} 人</span>
+    </div>
+    <ul class="list-group list-group-flush">
+      {% for r in g.rows %}
+      <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2 py-2">
+        <span>
+          <a href="{% url 'beneficiaries:detail' r.beneficiary.pk %}" class="fw-semibold text-decoration-none">{{ r.beneficiary.full_name }}</a>
+          <span class="badge ms-2 {% if r.state == 'none' %}text-bg-danger{% else %}text-bg-warning text-dark{% endif %}">{{ r.label }}</span>
+          <span class="small text-muted ms-2">{{ r.when }}</span>
+        </span>
+        {% if r.record %}
+        <a href="{% url 'records:list' r.beneficiary.pk %}?selected={{ r.record.pk }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil me-1"></i>下書きを開く</a>
+        {% else %}
+        <a href="{% url 'records:list' r.beneficiary.pk %}?new_date={{ r.date|date:'Y-m-d' }}" class="btn btn-sm btn-primary"><i class="bi bi-plus me-1"></i>書く</a>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="p-4 rounded text-center" style="background: var(--color-primary-bg); color: var(--color-primary-dark);">
+    <i class="bi bi-check-circle-fill me-2"></i>きのうまで {{ days }} 日ぶんの日誌は、すべて書けています。
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

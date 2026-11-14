@@ -1,0 +1,82 @@
+{% comment %} 住所・連絡先・学校の欄（2026-11-09 オウル）。利用者の編集画面（form.html）と詳細の「編集」の窓の両方で使う。
+   使い方：{% include 'beneficiaries/_address_school_fields.html' with f=form prefix='f' %}
+   学校名を入れると、同じ事業所に登録のある学校なら住所・電話を呼び出す（/users/schools/lookup/）。無ければ保存のときに学校として登録される {% endcomment %}
+<div class="row g-2 addr-school" data-lookup="{% url 'beneficiaries:school_lookup' %}">
+  <div class="col-sm-3">
+    <label class="form-label small fw-semibold" for="{{ prefix }}-postal">郵便番号</label>
+    <input type="text" name="postal_code" id="{{ prefix }}-postal" class="form-control form-control-sm" maxlength="8" value="{{ f.postal_code.value|default:'' }}" placeholder="600-0000" inputmode="numeric">
+  </div>
+  <div class="col-sm-9">
+    <label class="form-label small fw-semibold" for="{{ prefix }}-address">住所 <span class="text-muted fw-normal">— 送りの場所・フェイスシートに使います</span></label>
+    <input type="text" name="address" id="{{ prefix }}-address" class="form-control form-control-sm" maxlength="200" value="{{ f.address.value|default:'' }}" placeholder="京都市○○区…">
+  </div>
+  <div class="col-sm-6">
+    <label class="form-label small fw-semibold" for="{{ prefix }}-mobile">携帯電話</label>
+    <input type="text" name="mobile_phone" id="{{ prefix }}-mobile" class="form-control form-control-sm" maxlength="20" value="{{ f.mobile_phone.value|default:'' }}" inputmode="tel">
+  </div>
+  <div class="col-sm-6">
+    <label class="form-label small fw-semibold" for="{{ prefix }}-home">自宅電話</label>
+    <input type="text" name="home_phone" id="{{ prefix }}-home" class="form-control form-control-sm" maxlength="20" value="{{ f.home_phone.value|default:'' }}" inputmode="tel">
+  </div>
+  <div class="col-sm-8">
+    <label class="form-label small fw-semibold" for="{{ prefix }}-school">学校・園 <span class="text-muted fw-normal">— 登録のある学校なら住所を呼び出します。無ければ保存のときに学校として登録されます</span></label>
+    <input type="text" name="school_name" id="{{ prefix }}-school" class="form-control form-control-sm" maxlength="100" list="{{ prefix }}-school-list" value="{{ f.school_name.value|default:'' }}" placeholder="○○小学校・○○保育園" autocomplete="off" data-school-name>
+    <datalist id="{{ prefix }}-school-list">{% for sc in schools %}<option value="{{ sc.name }}">{% if sc.address %}{{ sc.address }}{% endif %}</option>{% endfor %}</datalist>
+    <div class="small text-muted mt-1" data-school-status></div>
+  </div>
+  <div class="col-sm-4">
+    <label class="form-label small fw-semibold" for="{{ prefix }}-grade">学年</label>
+    <select name="grade" id="{{ prefix }}-grade" class="form-select form-select-sm">
+      {% for value, label in f.fields.grade.choices %}<option value="{{ value }}" {% if f.grade.value == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="col-sm-3">
+    <label class="form-label small fw-semibold" for="{{ prefix }}-spostal">学校の郵便番号</label>
+    <input type="text" name="school_postal_code" id="{{ prefix }}-spostal" class="form-control form-control-sm" maxlength="8" value="{{ f.school_postal_code.value|default:'' }}" inputmode="numeric" data-school-field="postal_code">
+  </div>
+  <div class="col-sm-6">
+    <label class="form-label small fw-semibold" for="{{ prefix }}-saddress">学校の住所 <span class="text-muted fw-normal">— 迎えの場所に使います</span></label>
+    <input type="text" name="school_address" id="{{ prefix }}-saddress" class="form-control form-control-sm" maxlength="200" value="{{ f.school_address.value|default:'' }}" data-school-field="address">
+  </div>
+  <div class="col-sm-3">
+    <label class="form-label small fw-semibold" for="{{ prefix }}-sphone">学校の電話</label>
+    <input type="text" name="school_phone" id="{{ prefix }}-sphone" class="form-control form-control-sm" maxlength="20" value="{{ f.school_phone.value|default:'' }}" inputmode="tel" data-school-field="phone">
+  </div>
+  <div class="col-sm-4">
+    <label class="form-label small fw-semibold" for="{{ prefix }}-sdismiss">下校時刻（既定） <span class="text-muted fw-normal">— 迎えの時刻の既定になります</span></label>
+    <input type="time" name="school_dismissal" id="{{ prefix }}-sdismiss" class="form-control form-control-sm" value="{{ f.school_dismissal.value|default:'' }}" data-school-field="dismissal_time">
+    <div class="small text-muted">曜日ごとの違いは <a href="{% url 'beneficiaries:schools' %}" target="_blank">学校の一覧</a> で</div>
+  </div>
+</div>
+<script>
+(function () {
+  // 学校名を入れ終えたら（change）、登録のある学校なら住所・電話を呼び出して入れる（手で直した値は、別の学校名に変えたときだけ置き換える）
+  document.querySelectorAll('.addr-school').forEach(function (box) {
+    if (box.dataset.ready) return;
+    box.dataset.ready = '1';
+    var name = box.querySelector('[data-school-name]');
+    var status = box.querySelector('[data-school-status]');
+    var fields = {};
+    box.querySelectorAll('[data-school-field]').forEach(function (el) { fields[el.dataset.schoolField] = el; });
+    var last = name.value;
+    function lookup() {
+      var v = name.value.trim();
+      if (!v) { status.textContent = ''; return; }
+      fetch(box.dataset.lookup + '?name=' + encodeURIComponent(v), { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.found) {
+            var changed = (v !== last);
+            Object.keys(fields).forEach(function (k) { if (changed || !fields[k].value) fields[k].value = d[k] || ''; });
+            status.textContent = '登録のある学校です（' + (d.students || 0) + ' 人が通っています）。住所・電話・下校時刻を呼び出しました。' + (d.dismissal_display ? '下校 ' + d.dismissal_display : '');
+          } else {
+            if (v !== last) Object.keys(fields).forEach(function (k) { fields[k].value = ''; });
+            status.textContent = 'まだ登録の無い学校です。住所を入れて保存すると、次からほかの子にも呼び出せます。';
+          }
+          last = v;
+        }).catch(function () { status.textContent = ''; });
+    }
+    name.addEventListener('change', lookup);
+  });
+})();
+</script>

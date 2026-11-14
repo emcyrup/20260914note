@@ -12,6 +12,7 @@
 - 日誌：直近3週間の来所日（活動・めあて・考察、観察/支援/反応の記録文、タグ、5領域）
 - 請求マトリックス：前月〜今日までの実績
 - スタッフメモ
+- 見本の職員 2 人（名前だけ。ログインはできない）と議事録 3 件
 - 予約（予約管理を使う施設だけ）：顧客台帳・これからの予約とキャンセル待ち・臨時休業日・
   空き状況ページからの申し込み・公式LINEの受信・送信待ちの通知
 """
@@ -126,6 +127,40 @@ PARENT_MESSAGES = [
     '今日は{act}に取り組みました。{name}さんは最後まで集中して参加でき、完成したときにはとても嬉しそうな表情を見せてくれました。',
     '本日は{act}をしました。友だちとやり取りしながら進める場面が増えています。ご家庭でもぜひ今日の話を聞いてみてください。',
 ]
+# 見本の職員（名前だけ。ログインはできない）と議事録。ユーザー名は sample-<施設ID>-… で、--reset で消す
+SAMPLE_STAFF = [
+    ('jihatsukan', '見本 さくら', 'child_dev_manager'),
+    ('shokuin', '見本 たける', 'staff'),
+]
+SAMPLE_MINUTES_PREFIX = '【サンプル】'
+# 見本の学校（学校マスタ。架空）：(学校名, 郵便番号, 住所, 電話, 備考, 下校時刻{既定・曜日・備考})
+SAMPLE_SCHOOLS = [
+    ('見本小学校', '612-0000', '京都市伏見区深草見本町3-1', '075-000-0010', '東門で待つ',
+     {'dismissal_time': '14:30', 'dismissal_wed': '13:30', 'dismissal_note': '1 年生は 14:00。行事の日は学校だよりで確認'}),
+    ('見本第二小学校', '612-0001', '京都市伏見区深草見本町8-5', '075-000-0011', '正門前のロータリー',
+     {'dismissal_time': '15:00', 'dismissal_wed': '14:30'}),
+    ('見本こども園', '612-0002', '京都市伏見区深草見本町1-12', '075-000-0012', '職員室で引き取り', {'dismissal_time': '14:00'}),
+]
+SAMPLE_MINUTES = [
+    (2, '職員会議（今月の活動と来月の行事）',
+     'えーと、今月は工作とおやつ作りが多かったです。来月は秋の公園へ外出したい。送迎の車は2台で、運転は田中さんと伊藤さん。'
+     '雨のときは室内でパラバルーン。保護者には今週中にお知らせを出す。それから避難訓練、月末の金曜に決めました。',
+     '【概要】\n今月の活動のふり返りと、来月の外出・避難訓練について話した。\n\n【今月の活動】\n・工作とおやつ作りが中心だった\n\n【来月の外出】\n'
+     '・秋の公園へ外出する。送迎は 2 台、運転は田中・伊藤\n・雨のときは室内でパラバルーン\n\n【決まったこと】\n・避難訓練は月末の金曜\n\n'
+     '【次にやること】\n・保護者へのお知らせを今週中に出す（担当：児発管）'),
+    (9, '保護者面談（佐藤はるとさん）',
+     '職員：最近は順番を待つことが増えましたね。保護者：家でもカードを使うようになりました。職員：学校のほうはどうですか。'
+     '保護者：先生から、給食の時間に座っていられる時間が長くなったと聞きました。次の計画では友だちとの関わりを増やしたいです。',
+     '【概要】\n佐藤はるとさんの保護者と、事業所と家庭・学校での様子を共有した。\n\n【事業所での様子】\n・職員「順番を待つことが増えた」\n\n'
+     '【家庭・学校】\n・保護者「家でもカードを使うようになった」\n・学校から、給食の時間に座っていられる時間が長くなったと聞いている\n\n'
+     '【次にやること】\n・次の個別支援計画で、友だちとの関わりを増やす目標を入れる（児発管）'),
+    (16, '避難訓練の打ち合わせ',
+     '避難訓練の日は月末の金曜。火災を想定して、玄関から駐車場に出る。車いすの子は職員が2人で。点呼は名簿の順で。'
+     '消火器の場所をもう一度みんなで確かめる。終わったら感想を日誌に書く。',
+     '【概要】\n月末の避難訓練（火災を想定）の段取りを決めた。\n\n【当日の流れ】\n・玄関から駐車場へ避難する\n・車いすの子は職員 2 人で介助\n'
+     '・点呼は名簿の順\n\n【決まったこと】\n・消火器の場所を全員で確かめる\n\n【次にやること】\n・訓練のあと、感想を日誌に書く（全職員）'),
+]
+
 MEMOS = [
     '来週の工作の材料（画用紙・のり）を発注する',
     '佐藤はるとさんの保護者から、送迎時間を10分早めたいとの相談あり',
@@ -195,6 +230,20 @@ class Command(BaseCommand):
         bens.delete()
         StaffMemo.objects.filter(facility=facility, content__in=MEMOS).delete()
         self._reset_reservations(facility)
+        # 送迎・配車のサンプル（送迎の設定・配車は利用者・予約の削除で一緒に消える）
+        from transport.models import Driver, Vehicle
+        Vehicle.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()
+        Driver.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()
+        from beneficiaries.models import School
+        School.objects.filter(facility=facility, note__contains=SAMPLE_MARK, students__isnull=True).delete()   # 見本の学校（通っている子が残っていれば消さない）
+        from surveys.models import SelfEvaluation, Survey
+        SelfEvaluation.objects.filter(facility=facility, summary__contains=SAMPLE_MARK).delete()
+        from daily.models import ClassGroup
+        ClassGroup.objects.filter(facility=facility, note__contains=SAMPLE_MARK).delete()      # 健康の記録・注意・発達検査は利用者と一緒に消える
+        Survey.objects.filter(facility=facility, intro__contains=SAMPLE_MARK).delete()
+        from minutes.models import Minutes
+        Minutes.objects.filter(facility=facility, title__startswith=SAMPLE_MINUTES_PREFIX).delete()
+        StaffAccount.objects.filter(facility=facility, username__startswith=f'sample-{facility.pk}-').delete()
         self.stdout.write(f'サンプル利用者 {n} 名と関連データを削除しました')
 
     def _reset_reservations(self, facility):
@@ -397,7 +446,10 @@ class Command(BaseCommand):
             StaffMemo.objects.get_or_create(facility=facility, content=content, defaults={'author': staff})
         counts['スタッフメモ'] = len(MEMOS)
 
-        # --- 事業所様式（はぴねす様式の施設だけ）---
+        # --- 見本の職員と議事録 ---
+        counts.update(self._create_staff_and_minutes(facility, staff, today))
+
+        # --- 事業所様式（はびりす様式の施設だけ）---
         if facility.form_set == Facility.FORM_SET_HAPPINESS:
             counts.update(self._create_custom_forms(facility, beneficiaries, staff, today))
 
@@ -413,7 +465,339 @@ class Command(BaseCommand):
         if facility.use_therapy_record:
             counts.update(self._create_therapy(facility, beneficiaries, staff, today, rng))
 
+        # --- 送迎・配車と 5領域アセスメント（施設設定で使う施設だけ。オウル）---
+        if getattr(facility, 'use_transport', False):
+            counts.update(self._create_transport(facility, beneficiaries, today, rng))
+        if getattr(facility, 'use_dev_assessment', False):
+            counts.update(self._create_dev_assessments(facility, beneficiaries, staff, today, rng))
+            counts.update(self._create_owl_sheets(facility, beneficiaries, staff, today))
+        if getattr(facility, 'use_survey', False):
+            counts.update(self._create_surveys(facility, staff, today, rng))
+        if getattr(facility, 'use_daily_ops', False):
+            counts.update(self._create_daily(facility, beneficiaries, staff, today, rng))
+
         return counts
+
+    # ------------------------------------------------------------------
+    def _create_staff_and_minutes(self, facility, staff, today):
+        """見本の職員 2 人（名前だけ。ログインはできない）と、議事録 3 件（職員会議・保護者面談・避難訓練）"""
+        from minutes.models import Minutes
+        n_staff = 0
+        for key, name, role in SAMPLE_STAFF:
+            _, made = StaffAccount.objects.get_or_create(
+                username=f'sample-{facility.pk}-{key}',
+                defaults={'facility': facility, 'display_name': name, 'role': role, 'password': '!'})   # '!' ＝使えないパスワード
+            n_staff += int(made)
+        n_minutes = 0
+        for days_ago, title, transcript, summary in SAMPLE_MINUTES:
+            _, made = Minutes.objects.get_or_create(
+                facility=facility, title=f'{SAMPLE_MINUTES_PREFIX}{title}',
+                defaults={'held_on': today - datetime.timedelta(days=days_ago), 'transcript': transcript,
+                          'summary': summary, 'created_by': staff})
+            n_minutes += int(made)
+        return {'見本の職員': n_staff, '議事録': n_minutes}
+
+    # ------------------------------------------------------------------
+    def _create_daily(self, facility, beneficiaries, staff, today, rng):
+        """毎日の運営の見本：クラス 2 つ（今週の計画と、過ぎた日の記録）、健康の記録（ここ 5 日の予約・在籍の子）、健康の注意、発達検査"""
+        from beneficiaries.models import DevelopmentTest
+        from daily.models import ClassGroup, GroupSession, HealthLog, HealthProfile
+        from daily.views import apply_to_therapy, day_children, monday_of
+        half = max(1, len(beneficiaries) // 2)
+        groups = [
+            ClassGroup.objects.create(facility=facility, name='ひよこ組', color='#c0703b', weekdays=[0, 2, 4], start_time=datetime.time(10, 0),
+                                      note=SAMPLE_MARK, order=0),
+            ClassGroup.objects.create(facility=facility, name='うさぎ組', color='#6a8f3c', weekdays=[1, 3], start_time=datetime.time(13, 30),
+                                      note=SAMPLE_MARK, order=1),
+        ]
+        groups[0].members.set(beneficiaries[:half])
+        groups[1].members.set(beneficiaries[half:])
+        plans = [
+            ('友だちと順番を守って遊ぶ', ['朝の会（名前呼び）', 'サーキット遊び', 'ボール転がし', '手遊び歌', '帰りの会'], 'マット・平均台・ボール'),
+            ('手指を使って遊ぶ', ['朝の会', '粘土あそび', 'シール貼り', '絵本の読み聞かせ', '帰りの会'], '粘土・シール・絵本'),
+            ('見通しを持って活動を切り替える', ['朝の会（スケジュール確認）', '感触あそび', 'リズム遊び', 'おやつ', '帰りの会'], 'スケジュール表・タイマー・楽器'),
+        ]
+        bodies = ['サーキットでは平均台を一人で渡れる子が増えた。待つ場面ではタイマーを見せると座って待てた。',
+                  '粘土は丸める・伸ばすを楽しんだ。シール貼りは線の上に貼ることに挑戦した。',
+                  'スケジュール表で次の活動を確かめてから移動できた。リズム遊びでは太鼓を順番に叩けた。']
+        monday = monday_of(today)
+        n_sessions = n_applied = 0
+        for g in groups:
+            for k, wd in enumerate(g.weekdays):
+                d = monday + datetime.timedelta(days=wd)
+                aim, acts, mats = plans[(k + g.order) % len(plans)]
+                s = GroupSession.objects.create(group=g, date=d, start_time=g.start_time, aim=aim, activities=acts, materials=mats,
+                                                staff_name=str(staff) if staff else '', created_by=staff)
+                n_sessions += 1
+                if d < today:
+                    members = list(g.members.all())
+                    s.body = bodies[(k + g.order) % len(bodies)]
+                    s.present = [m.pk for m in members]
+                    if members:
+                        s.notes = {str(members[0].pk): '自分から友だちにボールを渡せた。'}
+                    s.save()
+                    if facility.use_therapy_record and s.present:
+                        apply_to_therapy(s, staff)
+                        n_applied += 1
+        # 健康の注意（2 人）
+        HealthProfile.objects.update_or_create(beneficiary=beneficiaries[0], defaults={'allergies': '卵・乳（除去食）', 'other': SAMPLE_MARK})
+        if len(beneficiaries) > 2:
+            HealthProfile.objects.update_or_create(beneficiary=beneficiaries[2], defaults={'medications': '昼食後に抗てんかん薬（保護者から預かる）', 'seizure': '発作時は横向きに寝かせて時間を計る', 'other': SAMPLE_MARK})
+        # 健康の記録（ここ 5 日。きょうは半分だけ）
+        n_logs = 0
+        meals = ['all', 'all', 'most', 'half', 'little']
+        moods = ['good', 'good', 'normal', 'tired']
+        for back in range(4, -1, -1):
+            d = today - datetime.timedelta(days=back)
+            kids = day_children(facility, d) or [(b, None) for b in beneficiaries[:4]]     # 予約の無い日は見本の 4 人
+            for i, (b, _t) in enumerate(kids):
+                if back == 0 and i % 2:
+                    continue
+                temp = rng.choice(['36.4', '36.6', '36.8', '36.5', '37.0', '36.7'])
+                if back == 2 and i == 0:
+                    temp = '37.6'
+                HealthLog.objects.update_or_create(beneficiary=b, date=d, defaults={
+                    'facility': facility, 'temp_arrival': temp, 'meal': rng.choice(meals), 'urine': rng.choice([1, 2, 3]),
+                    'stool': rng.choice([0, 0, 1]), 'nap_minutes': rng.choice([None, 30, 45, 60]), 'mood': rng.choice(moods),
+                    'note': f'お迎えまで元気に過ごしました。{SAMPLE_MARK}' if i == 0 else SAMPLE_MARK,
+                    'handed_to': rng.choice(['母', '父', '送迎']), 'recorded_by': staff})
+                n_logs += 1
+        # 発達検査（2 人。半年前と最近）
+        n_tests = 0
+        for i, b in enumerate(beneficiaries[:2]):
+            for back, step in ((200, 0), (20, 1)):
+                d = today - datetime.timedelta(days=back)
+                ca = (d.year - b.date_of_birth.year) * 12 + d.month - b.date_of_birth.month
+                base = [70, 78, 65] if i == 0 else [85, 80, 74]
+                qs = [q + step * rng.choice([3, 5, 6]) for q in base]
+                DevelopmentTest.objects.create(
+                    beneficiary=b, test='kshiki', test_other='新版K式発達検査2020', date=d, examiner='こども発達クリニック',
+                    ca_months=ca, overall_quotient=round(sum(qs) / 3), overall_age_months=round(ca * sum(qs) / 300),
+                    results=[{'label': lab, 'age_months': round(ca * q / 100), 'quotient': q} for lab, q in zip(DevelopmentTest.DOMAINS['kshiki'], qs)],
+                    note=f'言語・社会の領域にゆっくりさがみられる。{SAMPLE_MARK}', created_by=staff)
+                n_tests += 1
+        return {'クラス': len(groups), 'クラスの活動（今週）': n_sessions, '療育記録に写した活動': n_applied,
+                '健康の記録': n_logs, '発達検査': n_tests}
+
+    # ------------------------------------------------------------------
+    def _create_surveys(self, facility, staff, today, rng):
+        """アンケートの見本：今年度の保護者評価（回答 8 件）と従業者評価（回答 3 件）、自己評価（途中まで）"""
+        from surveys.models import SelfEvaluation, Survey, SurveyResponse, fiscal_label, fiscal_year_of
+        from surveys.questions import default_questions
+        year = fiscal_year_of(today)
+        service = Survey.SERVICE_JIHATSU if '児童発達支援' in facility.name else Survey.SERVICE_HOUDAY
+        g = Survey.objects.create(facility=facility, kind=Survey.KIND_GUARDIAN, service=service, fiscal_year=year,
+                                  title=f'{fiscal_label(year)} 保護者評価', intro=f'よりよい支援のため、ご意見をお聞かせください。{SAMPLE_MARK}',
+                                  questions=default_questions(Survey.KIND_GUARDIAN, service), closes_on=today + datetime.timedelta(days=14), created_by=staff)
+        st = Survey.objects.create(facility=facility, kind=Survey.KIND_STAFF, service=service, fiscal_year=year,
+                                   title=f'{fiscal_label(year)} 従業者評価', intro=f'日頃の支援を振り返って答えてください。{SAMPLE_MARK}',
+                                   questions=default_questions(Survey.KIND_STAFF, service), closes_on=today + datetime.timedelta(days=14), created_by=staff)
+        g_comments = {3: 'もう少し広いと安心です', 8: '季節の行事が楽しみです', 13: '連絡帳で様子が分かり助かっています', 22: '送迎の時間が分かると助かります'}
+        frees = ['いつもありがとうございます。', '送迎がとても助かっています。', '保護者同士で話せる機会があるとうれしいです。']
+        for i in range(8):
+            answers = {str(q['no']): rng.choices(['yes', 'neutral', 'no', 'unknown'], weights=[7, 2, 0.5, 1.5])[0] for q in g.questions}
+            comments = {str(no): c for no, c in g_comments.items() if rng.random() < 0.3}
+            SurveyResponse.objects.create(survey=g, answers=answers, comments=comments, free_text=frees[i] if i < len(frees) else '')
+        for i in range(3):
+            answers = {str(q['no']): rng.choices(['yes', 'no'], weights=[8, 2])[0] for q in st.questions}
+            comments = {'1': '＋部屋を活動ごとに区切って使っている'} if i == 0 else ({'9': '研修に出る時間がとりにくい'} if i == 1 else {})
+            SurveyResponse.objects.create(survey=st, answers=answers, comments=comments)
+        ev = SelfEvaluation.objects.create(facility=facility, fiscal_year=year, service=service, guardian_survey=g, staff_survey=st,
+                                           summary=f'保護者からは活動や連絡に高い評価をいただいた。職員の研修時間の確保と保護者同士の交流の機会づくりを来年度の改善目標とする。{SAMPLE_MARK}',
+                                           created_by=staff)
+        ev.seed_items()
+        ev.fill_from_staff()
+        ev.save()
+        return {'アンケート（保護者評価・従業者評価）': 2, 'アンケートの回答': 11, '自己評価': 1}
+
+    # ------------------------------------------------------------------
+    def _create_transport(self, facility, beneficiaries, today, rng):
+        """送迎・配車のサンプル：車両 2 台・運転手 2 人・利用者ごとの送迎の設定・きょうの配車の一部"""
+        from transport.models import DIRECTION_DROPOFF, DIRECTION_PICKUP, Driver, TransportAssignment, TransportProfile, Vehicle
+        drivers = [Driver.objects.get_or_create(facility=facility, name=name, defaults={'note': SAMPLE_MARK, 'order': i})[0]
+                   for i, name in enumerate(['佐藤 運転手', '鈴木 運転手'])]
+        vehicles = [
+            Vehicle.objects.get_or_create(facility=facility, name='ハイエース（白）',
+                                          defaults={'capacity': 6, 'plate': '白', 'default_driver': drivers[0], 'note': SAMPLE_MARK, 'order': 0})[0],
+            Vehicle.objects.get_or_create(facility=facility, name='軽ワゴン',
+                                          defaults={'capacity': 3, 'plate': '銀', 'default_driver': drivers[1],
+                                                    'note': f'チャイルドシート 1 つ {SAMPLE_MARK}', 'order': 1})[0],
+        ]
+        # 運転できる車両（2026-11-09）：佐藤 運転手はどちらも、鈴木 運転手は軽ワゴンだけ。佐藤 運転手を最初の職員（管理者）に結びつけ、
+        # その人のホームに「きょうの送迎」が出るようにする（見本。seed_demo_reset で運転手ごと消える）
+        if not drivers[0].vehicles.exists():
+            drivers[0].vehicles.set(vehicles)
+        if not drivers[1].vehicles.exists():
+            drivers[1].vehicles.set([vehicles[1]])
+        staff = StaffAccount.objects.filter(facility=facility).order_by('pk').first()
+        if staff and not drivers[0].staff_id:
+            drivers[0].staff = staff
+            drivers[0].save(update_fields=['staff', 'updated_at'])
+        # 見本の学校（学校マスタ）と、利用者の住所・学校（迎えの場所が空なら学校の住所、送りは自宅の住所が配車表に出る）
+        from beneficiaries.models import School
+        schools = []
+        for name, postal, addr, phone, note, dismissal in SAMPLE_SCHOOLS:
+            school, _created = School.remember(facility, name, postal, addr, phone)
+            if not school.note:
+                school.note = f'{note}（{SAMPLE_MARK}）'
+                school.save(update_fields=['note', 'updated_at'])
+            if not school.dismissal_time:
+                school.set_dismissal(dismissal)
+            schools.append(school)
+        for i, b in enumerate(beneficiaries):
+            if b.school_id or b.address:
+                continue                 # 入力済みの子（計画書中心の見本など）は触らない
+            age = today.year - b.date_of_birth.year - (1 if (today.month, today.day) < (b.date_of_birth.month, b.date_of_birth.day) else 0)
+            school = schools[2] if age < 6 else schools[i % 2]
+            b.school = school
+            b.school_name = school.name
+            b.grade = b.grade or ('pre' if age < 6 else f'e{max(1, min(6, age - 6))}')
+            b.postal_code = b.postal_code or '612-0003'
+            b.address = f'京都市伏見区深草見本町{10 + i}-{i + 1}'
+            b.save(update_fields=['school', 'school_name', 'grade', 'postal_code', 'address', 'updated_at'])
+        # 同じ車に乗せない組（見本）：毎日来る子と月水金の子
+        if len(beneficiaries) > 2 and not beneficiaries[0].no_ride_with.exists():
+            beneficiaries[0].no_ride_with.add(beneficiaries[2])
+        places = ['南小学校', '北小学校', '中央こども園', '自宅']
+        n_profiles = 0
+        for i, b in enumerate(beneficiaries):
+            if i % 5 == 4:          # 5 人に 1 人は送迎なし
+                continue
+            TransportProfile.objects.update_or_create(beneficiary=b, defaults={
+                # 学校が結びついていれば場所は空にして、学校マスタの住所が配車表に出るのを見せる
+                'pickup': True, 'pickup_place': '' if b.school_id else (b.school_name or places[i % len(places)]),
+                'pickup_time': datetime.time(14, 30 + 5 * (i % 4)),
+                'dropoff': i % 3 != 2, 'dropoff_place': '' if b.address else '自宅', 'dropoff_time': datetime.time(17, 0 + 10 * (i % 3)),
+                'default_vehicle': vehicles[i % 2], 'note': 'チャイルドシート' if i % 4 == 0 else '',
+            })
+            n_profiles += 1
+        # きょうの確定した予約の 2 件だけ、配車表でその日の変更を入れておく（時刻を変える・送りなし）
+        n_assign = 0
+        if facility.use_reservation:
+            from reservations.models import Reservation
+            todays = list(Reservation.objects.filter(facility=facility, date=today, status=Reservation.STATUS_CONFIRMED,
+                                                     beneficiary__isnull=False).order_by('start_time', 'pk')[:2])
+            for k, r in enumerate(todays):
+                if k == 0:
+                    TransportAssignment.objects.update_or_create(reservation=r, direction=DIRECTION_PICKUP, defaults={
+                        'time': datetime.time(14, 45), 'place': '南小学校 正門', 'note': '先生に声かけ', 'vehicle': vehicles[0], 'driver': drivers[0]})
+                else:
+                    TransportAssignment.objects.update_or_create(reservation=r, direction=DIRECTION_DROPOFF, defaults={'skip': True, 'note': '保護者が迎えに来る'})
+                n_assign += 1
+        return {'車両': len(vehicles), '運転手': len(drivers), '学校': len(schools), '送迎の設定': n_profiles, 'きょうの配車の変更': n_assign}
+
+    # ------------------------------------------------------------------
+    def _create_dev_assessments(self, facility, beneficiaries, staff, today, rng):
+        """5領域アセスメントのサンプル：先頭 4 人に 2 枚ずつ（半年前と先月。評価が少し上がる）"""
+        from beneficiaries.models import DevelopmentAssessment as DA
+        nows = {
+            'health': ['食事は自分で食べる。着替えはボタンに時間がかかる。', '着替えは手順表を見ながら自分でできるようになった。'],
+            'motor': ['走ると転びやすい。はさみは一回切り。', 'バランスボールで姿勢を保てる時間が延びた。はさみで線に沿って切れる。'],
+            'cognition': ['活動の切り替えに時間がかかる。', 'タイマーと絵カードで見通しを持てると切り替えられる。'],
+            'language': ['二語文で要求できる。質問には単語で答える。', '三語文が増えた。「なんで？」の質問が出てきた。'],
+            'social': ['大人とは関われるが、友だちとは並行遊びが中心。', '友だちと順番を守ってボールを転がし合える。'],
+        }
+        goals = {
+            'health': '着替えの手順表を使い、自分で最後までできることを増やす', 'motor': '粗大運動の遊びで体幹を育て、はさみの連続切りへ',
+            'cognition': '絵カードで予定を示し、終わりの合図で切り替える', 'language': '遊びの中で三語文をモデルで示す',
+            'social': '小集団の遊びで順番とルールを経験する',
+        }
+        n = 0
+        for i, b in enumerate(beneficiaries[:4]):
+            base = {k: 2 + ((i + j) % 3) for j, (k, _) in enumerate(DA.DOMAINS)}
+            for when, step in ((today - datetime.timedelta(days=180), 0), (today - datetime.timedelta(days=30), 1)):
+                domains = {k: {'rating': min(5, base[k] + step), 'now': nows[k][step], 'goal': goals[k]} for k, _ in DA.DOMAINS}
+                DA.objects.create(
+                    beneficiary=b, date=when, assessed_by=staff, created_by=staff, interviewed_with='保護者（母）', domains=domains,
+                    strengths=['電車が好き。数字に強い。', '歌とダンスが好き。', '絵本をよく覚えている。', '工作が得意。'][i % 4],
+                    concerns=['大きな音が苦手。', '初めての場所で固まる。', '負けると泣いてしまう。', '偏食が強い。'][i % 4],
+                    wishes_child='友だちと遊びたい', wishes_family='集団に慣れてほしい。就学に向けて見通しを持って動けるように。',
+                    summary='視覚的な手がかりを増やし、見通しを持って活動に取り組めるようにする。' + ('前回より切り替えが早くなった。' if step else ''),
+                )
+                n += 1
+        return {'5領域アセスメント': n}
+
+    # ------------------------------------------------------------------
+    def _create_owl_sheets(self, facility, beneficiaries, staff, today):
+        """
+        オウルの用紙のサンプル（架空）：先頭 4 人にフェイスシート 1 枚（半年前の聞き取り）と
+        アセスメントシート 2 枚（半年前と先月。いくつかの項目が 1 段階良くなる）。PDF・前回との比べ・モニタリングの材料のデモ用
+        """
+        from beneficiaries.models import AssessmentSheet, FaceSheet
+        from beneficiaries.sheets import ASSESS_ITEMS, face_prefill
+        who = str(staff) if staff else '見本 職員'
+        faces = [
+            dict(sleep='21 時ごろ就寝、6 時半起床。寝つきは良い。添い寝は不要。', meal='白いご飯とからあげが好き。野菜は細かく刻めば食べる。スプーンとフォークを使う。',
+                 toilet='日中は自分でトイレに行く。夜はおむつ。自動で流れる便座の音が苦手。', dress='前後を間違えることがある。タグが当たるのを嫌がる。',
+                 grooming='歯磨きは仕上げ磨きが必要。爪切りは寝ている間に。', communication='二語文で要求できる。絵カードがあると理解が早い。',
+                 behavior='電車が好きで、時刻表を眺めている。大きな音が苦手。', problem='思い通りにならないと床に寝転ぶことがある。',
+                 motor='走るのが好き。ボール投げは片手。', social='大人とは関われる。友だちとは並行遊びが中心。',
+                 outing='手をつなげば歩ける。駐車場で急に走り出すことがある。', holiday='電車を見に行く。プラレール。',
+                 environment='初めての場所では固まるが、10 分ほどで動き出す。', strengths='数字と電車に詳しい。', wish_child='電車の運転士になりたい。',
+                 grow='自分の気持ちを言葉で伝える力。', wish_family='集団に慣れてほしい。就学に向けて見通しを持って動けるように。',
+                 other_services='相談支援事業所 サンプル（計画相談）'),
+            dict(sleep='22 時ごろ就寝。朝は起こさないと起きない。', meal='好き嫌いは少ない。食べるのが速く、よく噛まない。', toilet='自立。',
+                 dress='自分でできるが、気が散って途中で止まる。', grooming='手洗いは声かけが必要。', communication='おしゃべりが好き。話が飛ぶことがある。',
+                 behavior='思いついたらすぐ動く。待つのが苦手。', problem='順番を待てずに割り込むことがある。', motor='運動は得意。',
+                 social='友だちと遊びたい気持ちは強いが、トラブルになりやすい。', outing='信号で止まれる。', holiday='公園で走り回る。',
+                 environment='新しい場所でもすぐに動ける。', strengths='明るく元気。歌とダンスが好き。', wish_child='みんなと遊びたい。',
+                 grow='最後まで話を聞く力。', wish_family='友だちと仲良く遊べるようになってほしい。', other_services='放課後等デイサービス（週 1 回）'),
+            dict(sleep='20 時半就寝、6 時起床。', meal='偏食が強い。白いものしか食べない時期がある。箸は練習中。', toilet='自立。拭き残しあり。',
+                 dress='自分でできる。ボタンは時間がかかる。', grooming='歯磨きは一人でできる。', communication='単語と短い文。質問には単語で答える。',
+                 behavior='決まった順番にこだわる。', problem='予定が変わると泣く。', motor='はさみは一回切り。', social='年下の子にやさしい。',
+                 outing='一人で出て行くことはない。', holiday='絵本を読んでもらう。', environment='静かな場所を好む。',
+                 strengths='絵本をよく覚えている。', wish_child='（本人からの言葉はまだ）', grow='困ったときに助けを求める力。',
+                 wish_family='食べられるものが増えてほしい。', other_services='なし'),
+            dict(sleep='21 時就寝。夜中に起きることがある。', meal='何でも食べる。こぼしが多い。', toilet='自立。', dress='左右・裏表を間違える。',
+                 grooming='散髪を嫌がる。', communication='年齢相応に話せる。', behavior='手先を使うことを避けたがる。',
+                 problem='特になし。', motor='転びやすい。階段は手すりを使う。ボールを捕るのが苦手。', social='友だちとよく遊ぶ。',
+                 outing='歩くのが遅く、疲れやすい。', holiday='工作。粘土。', environment='新しい場所も平気。', strengths='工作が得意。絵が上手。',
+                 wish_child='なわとびができるようになりたい。', grow='体を使う自信。', wish_family='体育で困らないようになってほしい。',
+                 other_services='なし'),
+        ]
+        comm = [(['1', '5'], ['3', '5']), (['5'], ['5']), (['2', '5'], ['3', '5']), (['5'], ['5'])]
+        notes = {
+            'greeting': 'おはようは言える。', 'conversation': '二語文・三語文が出てきた。', 'wording': '不明瞭で伝わりにくいことがある。',
+            'cooperation': '集団の活動は見ていることが多い。', 'emotion': '思い通りにいかないと泣く。', 'assert': '伝わらないと手を引いて教える。',
+            'teamwork': '確認できていない。', 'peers': '園では友だちと並んで遊ぶ。', 'adults': '誰にでも話しかける。', 'guardians': '',
+            'rhythm': '夕方に寝ると夜が遅くなる。', 'mood': '切り替えに時間がかかる。', 'meal': '好き嫌いはあるが食べられる。',
+            'toilet': '出たら教えてくれる。', 'grooming': '裏返し・前後逆になる。', 'initiative': 'したいことは自分で持ってくる。',
+            'join_task': '用意された活動には参加できる。', 'prepare': '「片付けて」で箱に入れる。', 'dexterity': 'スプーンを使うが手でつかむことも。',
+            'instruction': '長い指示は 2 つまで。', 'focus': '1、2 日で飽きる。', 'switch': '納得すると切り替えられるが時間がかかる。',
+            'literacy': '線や渦巻きをかける。', 'math': '5 まで数えられる。',
+        }
+        n_face = n_assess = 0
+        for i, b in enumerate(beneficiaries[:4]):
+            data = face_prefill(b)
+            data['items'] = dict(faces[i])
+            data['comm_means'], data['comm_understand'] = comm[i]
+            age = today.year - b.date_of_birth.year - ((today.month, today.day) < (b.date_of_birth.month, b.date_of_birth.day))
+            if not data['head'].get('school'):
+                data['head']['school'] = '見本小学校' if age >= 7 else '見本保育園'
+                data['head']['grade'] = f'{min(age - 6, 6)} 年' if age >= 7 else '年長'
+            data['head'].update({'nickname': b.first_name + ('くん' if b.gender == 'male' else 'ちゃん'), 'blood': ['A', 'O', 'B', 'AB'][i],
+                                 'height': str(105 + i * 4), 'weight': str(17 + i * 2), 'notebook': ['療育手帳 B2', '手帳なし', '療育手帳 B1', '手帳なし'][i],
+                                 'hospital': '見本こども病院　主治医 見本先生', 'temp_normal': '36.5', 'temp_fever': '37.5',
+                                 'medicine': '定期薬なし', 'epilepsy': 'なし', 'allergy': ['なし', '卵（加熱すれば可）', 'なし', 'なし'][i],
+                                 'emergency_work_ok': 'はい', 'emergency_name_ok': 'はい'})
+            g = b.guardians.first()
+            data['family'] = [{'name': f'{g.last_name} {g.first_name}' if g else '', 'relation': '母' if (g and g.relation == 'mother') else '父',
+                               'birth': '（38）', 'job': '会社員', 'note': ''},
+                              {'name': f'{b.last_name} ○○', 'relation': '祖母', 'birth': '（66）', 'job': '', 'note': '同居'}]
+            data['contacts'] = [{'who': '母' if (g and g.relation == 'mother') else '父', 'where': '携帯', 'tel': g.phone if g else ''},
+                                {'who': '祖母', 'where': '自宅', 'tel': '075-000-0000'}]
+            FaceSheet.objects.create(beneficiary=b, date=today - datetime.timedelta(days=180), filled_by=who, data=data, created_by=staff)
+            n_face += 1
+            for when, step in ((today - datetime.timedelta(days=180), 0), (today - datetime.timedelta(days=30), 1)):
+                items = {}
+                for j, (key, _label, _levels, _g, _gl) in enumerate(ASSESS_ITEMS):
+                    level = 1 + ((i + j) % 3)                 # 1〜3 を散らす
+                    if step and (i + j) % 4 == 0 and level > 1:
+                        level -= 1                            # 先月の用紙は 4 項目に 1 つ、1 段階良くなる
+                    items[key] = {'level': level, 'note': notes.get(key, '')}
+                AssessmentSheet.objects.create(beneficiary=b, date=when, filled_by=who, items=items, created_by=staff)
+                n_assess += 1
+        return {'フェイスシート': n_face, 'アセスメントシート': n_assess}
 
     # ------------------------------------------------------------------
     def _create_planbook(self, facility, beneficiaries, staff, today):
@@ -676,10 +1060,18 @@ class Command(BaseCommand):
                 made_requests += 1
         counts['月予約利用希望（今月・来月）'] = made_requests
 
-        result = monthly.assign_month(facility, today.year, today.month, setting, notify=True)
-        counts['予約（今月の月間予定表）'] = len(result.made)
-        if result.short:
-            counts['希望の枠に空きが足りなかった人'] = len(result.short)
+        if setting.fixed_days:
+            # 利用予定曜日から予定を作る事業所（オウル。2026-11-09）：今月と来月の予定を「まとめて作成」と同じ手順で作る
+            from reservations import fixed
+            made = 0
+            for (y, m) in [(today.year, today.month), (ny, nm)]:
+                made += fixed.bulk_create(facility, y, m, setting)[0]
+            counts['予定（利用予定曜日から。今月・来月）'] = made
+        else:
+            result = monthly.assign_month(facility, today.year, today.month, setting, notify=True)
+            counts['予約（今月の月間予定表）'] = len(result.made)
+            if result.short:
+                counts['希望の枠に空きが足りなかった人'] = len(result.short)
 
         # 職員のシフト（曜日×時間帯）→ その日の担当、過ぎた日の実績（来た・欠席）
         from reservations.models import Reservation, StaffShift
@@ -692,8 +1084,15 @@ class Command(BaseCommand):
         done = 0
         for res in Reservation.objects.filter(facility=facility, date__lt=today, status=Reservation.STATUS_CONFIRMED,
                                               beneficiary__notes__contains=SAMPLE_MARK):
-            res.attendance = Reservation.ATT_ATTENDED if rng.random() < 0.9 else Reservation.ATT_ABSENT
-            res.save(update_fields=['attendance'])
+            r = rng.random()
+            if setting.fixed_days:          # 出欠入力の見本：来所・欠席・キャンセル（備考つき）
+                res.attendance = (Reservation.ATT_ATTENDED if r < 0.85 else Reservation.ATT_ABSENT if r < 0.95 else Reservation.ATT_CANCELLED)
+                if res.attendance == Reservation.ATT_ABSENT and not res.note:
+                    res.note = rng.choice(['発熱のため', '通院のため', '学校行事のため'])
+                res.save(update_fields=['attendance', 'note'])
+            else:
+                res.attendance = Reservation.ATT_ATTENDED if r < 0.9 else Reservation.ATT_ABSENT
+                res.save(update_fields=['attendance'])
             done += 1
         counts['実績（過ぎた日）'] = done
         keep = list(ReservationNotice.objects.filter(facility=facility)
@@ -752,7 +1151,7 @@ class Command(BaseCommand):
 
     # ------------------------------------------------------------------
     def _create_custom_forms(self, facility, beneficiaries, staff, today):
-        """はぴねす様式のサンプル：関係機関連携加算Ⅱ報告書・専門的支援実施計画書・計画書の追加項目"""
+        """はびりす様式のサンプル：関係機関連携加算Ⅱ報告書・専門的支援実施計画書・計画書の追加項目"""
         from custom_forms.models import AgencyMeetingReport, SpecializedSupportPlan
         D = datetime.timedelta
         counts = {}

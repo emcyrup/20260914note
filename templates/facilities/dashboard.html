@@ -10,6 +10,64 @@
   <!-- 日付表示 -->
   <p class="text-muted mb-4">{{ today|date:"Y / m / d" }}</p>
 
+  {% if my_transport %}
+  <!-- ===== きょうの送迎（運転手に結びついた職員だけ。2026-11-09 オウル） ===== -->
+  <div class="mb-4" id="my-transport">
+    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+      <h5 class="dash-heading mb-0"><i class="bi bi-truck me-1"></i>きょうの送迎（{% for d in my_transport.drivers %}{{ d.name }}{% if not forloop.last %}・{% endif %}{% endfor %}）</h5>
+      <div class="d-flex gap-2">
+        <a href="{% url 'transport:day' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-list-check me-1"></i>配車表</a>
+        <a href="{% url 'transport:day_pdf' %}?inline=1" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>印刷</a>
+      </div>
+    </div>
+    {% if my_transport.total %}
+    {% if my_transport.problems %}<div class="alert alert-danger small py-2 px-3 mb-2"><i class="bi bi-exclamation-triangle me-1"></i>同乗NG・運転不可の行があります。配車表で確かめてください。</div>{% endif %}
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-body py-2">
+            <div class="fw-bold mb-1"><i class="bi bi-box-arrow-in-right me-1"></i>迎え <span class="badge text-bg-secondary">{{ my_transport.pickup|length }} 人</span></div>
+            {% if my_transport.pickup %}
+            <ul class="list-unstyled mb-0 small">
+              {% for x in my_transport.pickup %}
+              <li class="py-1 border-bottom {% if x.ride_ng or x.driver_ng %}text-danger{% endif %}">
+                <span class="fw-semibold">{{ x.time|time:'G:i'|default:'--:--' }}</span>　<a href="{% url 'beneficiaries:detail' x.beneficiary.pk %}#transport" class="text-decoration-none fw-semibold">{{ x.beneficiary.full_name }}</a>
+                {% if x.vehicle %}<span class="badge text-bg-light border ms-1">{{ x.vehicle.name }}</span>{% endif %}
+                {% if x.ride_ng %}<span class="badge text-bg-danger ms-1">同乗NG：{{ x.ride_ng|join:'・' }}</span>{% endif %}{% if x.driver_ng %}<span class="badge text-bg-danger ms-1">運転不可</span>{% endif %}
+                <div class="text-muted">{{ x.place_shown|default:'場所未定' }}{% if x.route %}　<i class="bi bi-stopwatch"></i>{{ x.route.label }}{% endif %}{% if x.note %}　{{ x.note }}{% endif %}{% if x.profile_note %}　<i class="bi bi-exclamation-triangle"></i>{{ x.profile_note }}{% endif %}</div>
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}<div class="small text-muted">なし</div>{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-body py-2">
+            <div class="fw-bold mb-1"><i class="bi bi-box-arrow-right me-1"></i>送り <span class="badge text-bg-secondary">{{ my_transport.dropoff|length }} 人</span></div>
+            {% if my_transport.dropoff %}
+            <ul class="list-unstyled mb-0 small">
+              {% for x in my_transport.dropoff %}
+              <li class="py-1 border-bottom {% if x.ride_ng or x.driver_ng %}text-danger{% endif %}">
+                <span class="fw-semibold">{{ x.time|time:'G:i'|default:'--:--' }}</span>　<a href="{% url 'beneficiaries:detail' x.beneficiary.pk %}#transport" class="text-decoration-none fw-semibold">{{ x.beneficiary.full_name }}</a>
+                {% if x.vehicle %}<span class="badge text-bg-light border ms-1">{{ x.vehicle.name }}</span>{% endif %}
+                {% if x.ride_ng %}<span class="badge text-bg-danger ms-1">同乗NG：{{ x.ride_ng|join:'・' }}</span>{% endif %}{% if x.driver_ng %}<span class="badge text-bg-danger ms-1">運転不可</span>{% endif %}
+                <div class="text-muted">{{ x.place_shown|default:'場所未定' }}{% if x.route %}　<i class="bi bi-stopwatch"></i>{{ x.route.label }}{% endif %}{% if x.note %}　{{ x.note }}{% endif %}{% if x.profile_note %}　<i class="bi bi-exclamation-triangle"></i>{{ x.profile_note }}{% endif %}</div>
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}<div class="small text-muted">なし</div>{% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="p-3 rounded small" style="background: var(--color-primary-bg); color: var(--color-primary-dark);">きょう、あなたが運転する送迎はありません。</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <!-- ===== アラートカード ===== -->
   <div class="mb-4">
     <h5 class="dash-heading">お知らせ・アラート</h5>
@@ -89,7 +147,31 @@
     </div>
     {% endif %}
 
-    {% if not expired_certs and not expiring_certs and not plan_items %}
+    {% if unwritten_rows %}
+    <div class="card mb-3" style="border-color: var(--color-warning);">
+      <div class="card-header fw-bold d-flex justify-content-between align-items-center flex-wrap gap-1" style="background: var(--color-primary-bg); color: var(--color-primary-dark);">
+        <span><i class="bi bi-journal-x me-2"></i>書いていない日誌（{{ unwritten_rows|length }}件）
+        <span class="small fw-normal ms-2">来所したのに日誌が無い・下書きのまま。きのうまで {{ unwritten_days }} 日ぶん</span></span>
+        <a href="{% url 'records:unwritten' %}" class="small fw-normal">一覧・もっと前 <i class="bi bi-arrow-right"></i></a>
+      </div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+          {% for r in unwritten_rows|slice:":10" %}
+          <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-1">
+            <span>
+              <a href="{% url 'records:list' r.beneficiary.pk %}{% if r.record %}?selected={{ r.record.pk }}{% else %}?new_date={{ r.date|date:'Y-m-d' }}{% endif %}" class="fw-semibold text-decoration-none">{{ r.beneficiary.full_name }}</a>
+              <span class="small ms-2">{{ r.date|date:'n/j' }}（{{ r.weekday }}）の日誌が{{ r.label }}</span>
+            </span>
+            <span class="badge text-white" style="background: {% if r.state == 'none' %}var(--color-danger){% else %}var(--color-warning){% endif %};">{{ r.when }}</span>
+          </li>
+          {% endfor %}
+          {% if unwritten_rows|length > 10 %}<li class="list-group-item small text-center"><a href="{% url 'records:unwritten' %}">ほか {{ unwritten_rows|length|add:"-10" }} 件を見る</a></li>{% endif %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if not expired_certs and not expiring_certs and not plan_items and not unwritten_rows %}
     <div class="p-3 rounded text-center" style="background: var(--color-primary-bg); color: var(--color-primary-dark);">
       <i class="bi bi-check-circle-fill me-2"></i>現在、対応が必要なアラートはありません。
     </div>
@@ -185,7 +267,7 @@
             <a href="{% url 'records:dashboard' %}" class="btn btn-outline-primary">日誌を入力する</a>
             <a href="{% url 'beneficiaries:list' %}" class="btn btn-outline-primary">{{ terms.beneficiary }}を確認する</a>
             {% if features.schedule %}<a href="{% url 'schedules:calendar' %}" class="btn btn-outline-primary">今月の予定を確認する</a>{% endif %}
-            {% if features.reservation %}<a href="{% url 'reservations:calendar' %}" class="btn btn-outline-primary">予約カレンダーを開く</a>{% endif %}
+            {% if features.reservation %}<a href="{% url 'reservations:calendar' %}" class="btn btn-outline-primary">{% if features.reservation_fixed %}予定（出欠）を開く{% else %}予約カレンダーを開く{% endif %}</a>{% endif %}
             {% if features.ryoiku and features.reservation %}<a href="{% url 'reservations:daily_board' %}" class="btn btn-outline-primary">きょうの予定と担当</a>{% endif %}
             {% if features.therapy %}<a href="{% url 'therapy:index' %}" class="btn btn-outline-primary">療育記録を書く</a>{% endif %}
             {% if features.billing %}<a href="{% url 'billing:matrix' %}" class="btn btn-outline-primary">請求マトリックスを開く</a>{% endif %}

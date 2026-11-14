@@ -1,12 +1,13 @@
 """
 議事録。会議・打ち合わせ・面談などで話したことを音声入力で残し、AI で見出しと箇条書きに整理する。
-利用者（児童）には結びつけない。事業所ごとに新しい KEEP 件だけ残す。
+利用者（児童）には結びつけない。件数の上限は設けず、すべて残す（消すのは職員が一覧から。2026-11-06 ゆあーず）。
 """
 from django.db import models
 
 from facilities.models import Facility
 
-KEEP = 10   # 事業所ごとに残す件数（これを超えたら古いものから消す）
+KEEP = 10   # 議事録の画面の右の「履歴」に出す件数（残す件数の上限ではない。全件は「一覧」で見る）
+LIST_PER_PAGE = 50
 
 
 class Minutes(models.Model):
@@ -27,12 +28,3 @@ class Minutes(models.Model):
 
     def __str__(self):
         return f'{self.held_on} {self.title}'
-
-    @classmethod
-    def prune(cls, facility, keep=KEEP):
-        """新しい keep 件を残して、古いものを消す。消した件数を返す"""
-        old = list(cls.objects.filter(facility=facility).order_by('-created_at', '-pk').values_list('pk', flat=True)[keep:])
-        if not old:
-            return 0
-        cls.objects.filter(pk__in=old).delete()
-        return len(old)

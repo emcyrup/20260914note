@@ -21,6 +21,9 @@ class TherapyProfile(models.Model):
     beneficiary = models.OneToOneField(Beneficiary, on_delete=models.CASCADE, related_name='therapy_profile',
                                        verbose_name='利用者')
     cautions = models.TextField(blank=True, verbose_name='留意点')
+    # 誰がいつ直したか（2026-11-04 ゆあーず：成長や状況で変わる注意なので、いつの内容か分かるように）
+    updated_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='+', verbose_name='最後に直した職員')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -44,7 +47,14 @@ class TherapyRecord(models.Model):
     staff_name = models.CharField(max_length=50, blank=True, verbose_name='担当（名前）',
                                   help_text='アカウントのない職員や、退職した職員の名前を残すとき')
     activities = models.JSONField(default=list, blank=True, verbose_name='やったこと（①〜⑤）')
-    body = models.TextField(blank=True, verbose_name='記録')
+    body = models.TextField(blank=True, verbose_name='記録（事実：したこと）')
+    # 2段の記録（2026-10-09〜）：事実（何をしたか）と様子（どうだったか：見えたこと・聞こえた言葉）を分ける。
+    # 前からの記録は body だけ（様子が空なら「記録」として1段で出す）
+    situation = models.TextField(blank=True, verbose_name='様子（どうだったか）')
+    # 音声入力を直接入れる事業所（therapy_voice_direct）：整える前の音声の文字と AI が整えた文を残し、
+    # 職員の直し方を次の整文の例にする（therapy/learning.py。90 日で消す）
+    spoken_text = models.TextField(blank=True, verbose_name='音声の文字（整える前）')
+    ai_body = models.TextField(blank=True, verbose_name='AI が整えた文')
     reservation = models.ForeignKey('reservations.Reservation', on_delete=models.SET_NULL, null=True, blank=True,
                                     related_name='therapy_records', verbose_name='もとになった予約')
     created_by = models.ForeignKey('accounts.StaffAccount', on_delete=models.SET_NULL, null=True, blank=True,
@@ -68,6 +78,10 @@ class TherapyRecord(models.Model):
         return self.staff_name
 
     @property
+    def text_for_search(self):
+        return f'{self.body} {self.situation}'
+
+    @property
     def activity_list(self):
         """['①ウレタン棒', '②アンパンマンブロック', ...]"""
         items = [a for a in (self.activities or []) if isinstance(a, str) and a.strip()]
@@ -79,7 +93,10 @@ class TherapyRecord(models.Model):
 
     @property
     def time_label(self):
-        return f'{self.time.hour}時{self.time.minute:02d}分' if self.time else ''
+        """「15時」（時刻は時だけで入れる。前に分まで入れた記録は「15時30分」）"""
+        if not self.time:
+            return ''
+        return f'{self.time.hour}時' + (f'{self.time.minute:02d}分' if self.time.minute else '')
 
     @property
     def date_label(self):

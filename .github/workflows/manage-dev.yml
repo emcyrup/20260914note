@@ -1,0 +1,198 @@
+# =============================================
+# 開発環境（st-michinotedemo）AWS 共用サーバーでの管理コマンド（Actions の画面から実行する）
+#   Deploy (dev) と同じ Secrets（DEV_*）で SSH し、~/michinotedemo の manage.py を実行する
+#   - create_facility : 事業所「発達支援ルーム　ゆあーず」と管理者を作る（--preset ryoiku。サンプルデータも入れられる）
+#   - set_password    : 管理者（職員）のパスワードを設定する
+#   - seed_demo       : サンプルデータを入れる／入れ直す（--reset）
+#   - seed_demo_reset : サンプルデータを消す（実データを入れる前に）
+#   - list            : 事業所の一覧を表示する
+#   - delete_facility : 利用者・予約の無い事業所を、職員アカウント・設定ごと消す（facility_id）
+#   - error_log       : サーバーのエラーログの末尾（技術的な行だけ。日本語と長い数字は伏せる）を表示する
+#   - set_media_root  : .env の MEDIA_ROOT を ~/michinotedemo/media に直して Gunicorn を再起動する（写真・書類が 500 になるとき）
+#   - billing_demo    : 請求の動作確認用の架空の利用者 40 人と 2 か月ぶんの出欠・加算・上限額管理を入れる（facility_id。billing/demo.py）
+#   - billing_demo_remove : billing_demo で入れた利用者だけを関連の記録ごと消す（facility_id）
+#   - therapy_fidelity_check : 架空の話し言葉 6 つを実際の AI で療育記録に整え、「できなかった→できた」の反転・否定の落ち・短すぎが残るかを数える（therapy/fidelity.py。架空の話だけ・実在の記録は読まない）
+#   - disable_logins  : その事業所の職員アカウントをすべて無効にして、ログインできなくする（facility_id。データは残る）
+#   - enable_logins   : disable_logins で無効にしたアカウントを有効に戻す（facility_id）
+#
+# パスワードは入力欄では受け取らない（入力欄の値は公開のログの「env:」にそのまま出るため）。
+# リポジトリの Secrets の DEV_ADMIN_PASSWORD に入れてから set_password／create_facility を実行する（Secrets はログで伏せられる）。
+# 使い終わったら Secret は消してよい。空なら create_facility はランダムな仮の値にする。
+# このリポジトリは公開なので、ログに秘密の値を出さないこと。
+# =============================================
+name: Manage (dev)
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "実行する作業"
+        type: choice
+        required: true
+        default: list
+        options: [create_facility, set_password, seed_demo, seed_demo_reset, list, delete_facility, enable_owl_features, route_check, fixed_days_check, therapy_cautions_off, therapy_cautions_on, error_log, set_media_root, billing_demo, billing_demo_remove, disable_logins, enable_logins, therapy_fidelity_check, status, autostart_check, autostart_install]
+      facility_name:
+        description: "事業所名（create_facility）"
+        type: string
+        default: "児童発達支援センター　オウル"
+      admin_username:
+        description: "管理者のユーザー名（create_facility・set_password）"
+        type: string
+        default: owl
+      with_demo:
+        description: "サンプルデータも入れる（create_facility）"
+        type: boolean
+        default: true
+      facility_id:
+        description: "施設 ID（seed_demo・seed_demo_reset・billing_demo・disable_logins・enable_logins。空なら事業所が1つのときだけ自動。billing_demo と *_logins は必須）"
+        type: string
+        default: ""
+      copy_from:
+        description: "設定を写す元の施設 ID（create_facility。例：ゆあーずの ID。空なら写さない）"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: ${{ secrets.DEV_APP_DIR || '~/michinotedemo' }}
+  VENV: ${{ secrets.DEV_VENV || '~/env' }}
+  SSH_PORT: ${{ secrets.DEV_DEPLOY_SSH_PORT || '22' }}
+
+jobs:
+  manage:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+    steps:
+      - name: Check secrets
+        env:
+          HOST: ${{ secrets.DEV_DEPLOY_HOST }}
+          USER: ${{ secrets.DEV_DEPLOY_USER }}
+          KEY: ${{ secrets.DEV_DEPLOY_SSH_KEY }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ]; then
+            echo "DEV_DEPLOY_HOST / DEV_DEPLOY_USER / DEV_DEPLOY_SSH_KEY が未登録です（docs/DEPLOY_AWS_DEV.md）"; exit 1
+          fi
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEV_DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ env.SSH_PORT }}" -H "${{ secrets.DEV_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Run manage.py on the server
+        env:
+          TASK: ${{ inputs.task }}
+          FACILITY_NAME: ${{ inputs.facility_name }}
+          ADMIN_USERNAME: ${{ inputs.admin_username }}
+          ADMIN_PASSWORD: ${{ secrets.DEV_ADMIN_PASSWORD }}
+          WITH_DEMO: ${{ inputs.with_demo }}
+          FACILITY_ID: ${{ inputs.facility_id }}
+          COPY_FROM: ${{ inputs.copy_from }}
+          REMOTE_APP_DIR: ${{ env.APP_DIR }}
+          REMOTE_VENV: ${{ env.VENV }}
+        run: |
+          # パスワードは Secrets（DEV_ADMIN_PASSWORD）から。無ければランダムな仮の値（どちらもログに出さない）
+          if [ "$TASK" = "set_password" ] && [ -z "$ADMIN_PASSWORD" ]; then
+            echo "Secrets の DEV_ADMIN_PASSWORD が空です。先に Settings → Secrets and variables → Actions で登録してください（入力欄では受け取りません）"; exit 1
+          fi
+          if [ -n "$ADMIN_PASSWORD" ]; then
+            echo "::add-mask::$ADMIN_PASSWORD"
+          else
+            ADMIN_PASSWORD=$(openssl rand -base64 24)
+            echo "::add-mask::$ADMIN_PASSWORD"
+          fi
+          # 秘密の値はコマンド行に出さず、ssh の標準入力（スクリプトの先頭）で渡す
+          {
+            printf 'TASK=%q\nFACILITY_NAME=%q\nADMIN_USERNAME=%q\nADMIN_PASSWORD=%q\nWITH_DEMO=%q\nFACILITY_ID=%q\nCOPY_FROM=%q\nAPP_DIR_IN=%q\nVENV_IN=%q\n' \
+              "$TASK" "$FACILITY_NAME" "$ADMIN_USERNAME" "$ADMIN_PASSWORD" "$WITH_DEMO" "$FACILITY_ID" "$COPY_FROM" "$REMOTE_APP_DIR" "$REMOTE_VENV"
+            cat <<'REMOTE'
+            set -euo pipefail
+            export ADMIN_USERNAME ADMIN_PASSWORD
+            APP_DIR=$(eval echo "$APP_DIR_IN"); VENV=$(eval echo "$VENV_IN")
+            # shellcheck disable=SC1091
+            source "$VENV/bin/activate"
+            cd "$APP_DIR"
+            test -f .env || { echo "ERROR: $APP_DIR/.env がありません"; exit 1; }
+            set_password() {
+              # パスワードは引数に出さず、環境変数から読む
+              python manage.py shell -c "import os; from accounts.models import StaffAccount; u = StaffAccount.objects.get(username=os.environ['ADMIN_USERNAME']); u.set_password(os.environ['ADMIN_PASSWORD']); u.save(update_fields=['password']); print('パスワードを設定しました:', u.username)"
+            }
+            case "$TASK" in
+              create_facility)
+                args=(create_facility "$FACILITY_NAME" --admin "$ADMIN_USERNAME" --password "$(openssl rand -base64 18)" --preset ryoiku)
+                [ -n "$COPY_FROM" ] && args+=(--copy-settings-from "$COPY_FROM")
+                [ "$WITH_DEMO" = "true" ] && args+=(--demo)
+                python manage.py "${args[@]}"
+                set_password
+                ;;
+              set_password)
+                set_password ;;
+              seed_demo)
+                args=(seed_demo --reset); [ -n "$FACILITY_ID" ] && args+=(--facility "$FACILITY_ID")
+                python manage.py "${args[@]}" ;;
+              seed_demo_reset)
+                FACILITY_ID="$FACILITY_ID" python manage.py shell -c "import os, sys; from facilities.models import Facility; from facilities.management.commands.seed_demo import Command; fid = os.environ.get('FACILITY_ID') or ''; qs = Facility.objects.filter(pk=fid) if fid else Facility.objects.all(); qs.count() == 1 or sys.exit('施設を1つに絞ってください（facility_id）: ' + ', '.join(f'{f.pk}:{f.name}' for f in Facility.objects.all())); f = qs.get(); print('サンプルデータを消します:', f.pk, f.name); Command()._reset(f)" ;;
+              list)
+                python manage.py shell -c "from facilities.models import Facility; [print(f.pk, f.name, '| 型:', f.layout, '| 予約:', f.use_reservation, '| 療育記録:', f.use_therapy_record, '| お試しAI:', f.trial_ai_used, '/', f.trial_ai_limit) for f in Facility.objects.order_by('pk')] or print('事業所はまだありません')"
+                python manage.py shell -c "from accounts.models import StaffAccount; [print(' 職員:', u.username, '|', u.facility_id, '|', u.get_role_display()) for u in StaffAccount.objects.order_by('pk')]" ;;
+              delete_facility)
+                [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください"; exit 1; }
+                python manage.py delete_facility "$FACILITY_ID" --yes ;;
+              enable_owl_features)
+                # オウル（児童発達支援センター）のデモ用：送迎・5領域アセスメント（フェイスシート・アセスメントシートも）・アンケート・毎日の運営・相談支援の計画・帳票出力をオンにし、帳票様式をオウル様式に
+                [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください（list で確認）"; exit 1; }
+                FACILITY_ID="$FACILITY_ID" python manage.py shell -v 0 -c "import os; from facilities.models import Facility; f = Facility.objects.get(pk=os.environ['FACILITY_ID']); f.use_transport = f.use_dev_assessment = f.use_survey = f.use_daily_ops = f.use_consultation = f.use_reports = True; f.form_set = Facility.FORM_SET_OWL; f.save(update_fields=['use_transport', 'use_dev_assessment', 'use_survey', 'use_daily_ops', 'use_consultation', 'use_reports', 'form_set']); from reservations.services import get_setting; s = get_setting(f); s.fixed_days = True; s.save(update_fields=['fixed_days', 'updated_at']); print('オウルの機能をオンにしました（送迎・5領域・アンケート・毎日の運営・相談支援の計画・帳票出力・オウル様式・利用予定曜日から予定を作る）:', f.pk, f.name)" ;;
+              therapy_cautions_off|therapy_cautions_on)
+                # 療育記録の「留意点」の欄を使わない／使う（2026-11-10 ゆあーずの依頼）。入っている文は消さない
+                [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください（list で確認）"; exit 1; }
+                FACILITY_ID="$FACILITY_ID" OFF="$([ "$TASK" = therapy_cautions_off ] && echo 1 || echo 0)" python manage.py shell -v 0 -c "import os; from facilities.models import Facility; f = Facility.objects.get(pk=os.environ['FACILITY_ID']); f.therapy_no_cautions = os.environ['OFF'] == '1'; f.save(update_fields=['therapy_no_cautions', 'updated_at']); print('療育記録の留意点の欄:', '使わない（画面に出さず、印刷の枠は空）' if f.therapy_no_cautions else '使う', '/', f.pk, f.name)" ;;
+              fixed_days_check)
+                # 予定（利用予定曜日から予定を作る）の動作確認。数だけを出す（名前は出さない）。試しの作成・保存は取り消す
+                [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください"; exit 1; }
+                python manage.py fixed_days_check --facility "$FACILITY_ID" ;;
+              route_check)
+                # 配車表の所要時間（学校→施設・施設→自宅）がこのサーバーから求められるか。公共の住所 2 か所で試す（個人の住所は出さない）
+                python manage.py route_estimate --no-cache --quiet ;;
+              status)
+                # 動いているか・待ち受けのアドレス・いまのコミット・最後の配備
+                APP_DIR="$APP_DIR" bash deploy/venv-deploy.sh --status ;;
+              autostart_check)
+                APP_DIR="$APP_DIR" bash deploy/venv-deploy.sh --autostart check ;;
+              autostart_install)
+                # 止まっていれば 5 分ごとに起動し直す行と、サーバーの再起動のあとに起動する行を crontab に入れる（この clone の行だけ）
+                APP_DIR="$APP_DIR" bash deploy/venv-deploy.sh --autostart install ;;
+              error_log)
+                # 公開リポジトリのログに出るので、日本語（利用者名など）と 6 桁以上の数字は伏せ、技術的な行だけにする
+                for f in logs/error.log logs/gunicorn.out; do
+                  echo "== $f（直近 120 行のうち Traceback・File・Error の行） =="
+                  tail -n 400 "$f" 2>/dev/null | grep -E "Traceback|^  File |Error|Exception|Warning|\[[0-9]+\] \[(ERROR|CRITICAL|WARNING)\]" | tail -n 120 \
+                    | LC_ALL=C sed -E 's/[^\x00-\x7F]/*/g; s/[0-9]{6,}/#/g; s/\*{4,}/***/g' || echo "(無し)"
+                done
+                echo "== 空き容量 =="; df -h "$APP_DIR" /tmp 2>/dev/null | tail -n 2; du -sh media 2>/dev/null ;;
+              set_media_root)
+                target="$HOME/michinotedemo/media"
+                mkdir -p "$target"
+                if grep -q '^MEDIA_ROOT=' .env; then sed -i "s#^MEDIA_ROOT=.*#MEDIA_ROOT=$target#" .env; else echo "MEDIA_ROOT=$target" >> .env; fi
+                echo "MEDIA_ROOT を $target にしました"
+                APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --restart ;;
+              billing_demo)
+                [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください（はびりすは list で確認）"; exit 1; }
+                python manage.py billing_demo --facility "$FACILITY_ID" ;;
+              therapy_fidelity_check)
+                python manage.py therapy_fidelity_check --times 2 ;;
+              billing_demo_remove)
+                [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください"; exit 1; }
+                python manage.py billing_demo --facility "$FACILITY_ID" --remove ;;
+              disable_logins|enable_logins)
+                [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください（list で確認）"; exit 1; }
+                # 事業所の職員をまとめて無効／有効にする（ユーザー名は出さず、件数だけ）
+                FACILITY_ID="$FACILITY_ID" TASK="$TASK" python manage.py shell -c "import os; from facilities.models import Facility; from accounts.models import StaffAccount; f = Facility.objects.get(pk=os.environ['FACILITY_ID']); on = os.environ['TASK'] == 'enable_logins'; n = StaffAccount.objects.filter(facility=f, is_active=not on).update(is_active=on); print(f'施設 {f.pk}「{f.name}」の職員アカウント {n} 件を', '有効に戻しました' if on else '無効にしました（ログインできません）')" ;;
+              *) echo "unknown task: $TASK"; exit 1 ;;
+            esac
+          REMOTE
+          } | ssh -i ~/.ssh/deploy_key -p "${{ env.SSH_PORT }}" "${{ secrets.DEV_DEPLOY_USER }}@${{ secrets.DEV_DEPLOY_HOST }}" bash -s

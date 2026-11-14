@@ -163,7 +163,8 @@ class WebhookInboxTests(TestCase):
         # （自動で確定する設定なら予約になり、そうでなければ受信箱に積む）
         from reservations.models import Customer, Reservation
         self.assertTrue(Customer.objects.filter(facility=self.f, line_user_id='U1').exists())
-        res, reply = self._post('10/2 予約', message_id='m2')
+        day = date.today() + timedelta(days=3)      # きょうの日付だと「締め切りを過ぎています」になり、どちらにも残らない
+        res, reply = self._post(f'{day.month}/{day.day} 予約', message_id='m2')
         self.assertEqual(LineInbox.objects.count() + Reservation.objects.count(), 1)
 
     def test_group_message_is_inboxed_with_group_id(self):

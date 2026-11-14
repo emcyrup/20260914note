@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+{% load concurrency sheet_extras %}
+
+{% block title %}フェイスシート — {{ beneficiary.full_name }}{% endblock %}
+{% block page_title %}フェイスシート{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .fs-card { background: var(--sheet, #fff); border: 1px solid var(--line, #e5e1d8); border-radius: var(--radius, 14px); padding: 14px 16px; margin-bottom: 12px; }
+  .fs-title { font-weight: 700; font-size: 1rem; color: var(--lake-text, #2f4f58); }
+  .fs-hint { font-size: 0.78rem; color: #8a8378; }
+  .fs-sec { font-weight: 700; font-size: 0.9rem; margin: 10px 0 4px; color: var(--lake-text, #2f4f58); }
+  .fs-item label.form-label { font-weight: 600; margin-bottom: 0; }
+  .fs-item .fs-paren { font-size: 0.76rem; color: #8a8378; }
+  textarea.form-control { font-size: 0.92rem; line-height: 1.6; }
+  table.fs-tbl input { font-size: 0.88rem; }
+  table.fs-tbl th { font-size: 0.78rem; font-weight: 600; color: #6b6257; white-space: nowrap; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1000px;">
+  <nav class="small mb-2"><a href="{% url 'beneficiaries:list' %}">{{ terms.beneficiary }}情報</a> › <a href="{% url 'beneficiaries:detail' beneficiary.pk %}#owl-sheets">{{ beneficiary.full_name }}</a> › フェイスシート</nav>
+
+  {% if not sheet.pk %}
+  <div class="fs-card">
+    <div class="fs-title" style="font-size:.95rem;">紙の用紙から作る</div>
+    <div class="fs-hint">保護者に手書きしてもらったフェイスシートの PDF や写真を読み取って、下の欄に入れます。{% if imported %}<b>読み取りずみ。</b>内容を確かめて「保存する」を押してください。{% if unreadable %}<br>AI が読めなかった・迷ったところ：{{ unreadable }}{% endif %}{% endif %}</div>
+    {% url 'beneficiaries:face_sheet_import' beneficiary.pk as face_import_url %}
+    {% include 'beneficiaries/_sheet_import.html' with import_url=face_import_url import_label='フェイスシート' import_id='face' %}
+  </div>
+  {% endif %}
+  <form method="post"{% if post_url %} action="{{ post_url }}"{% endif %} {% if sheet.pk %}data-concurrency="face_sheet:{{ sheet.pk }}"{% endif %}{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
+    {% csrf_token %}{% if sheet.pk %}{% version_field sheet %}{% endif %}
+    <div class="fs-card">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <div>
+          <div class="fs-title">{{ beneficiary.full_name }}{% if beneficiary.full_name_kana|length > 1 %} <span class="small text-muted">（{{ beneficiary.full_name_kana }}）</span>{% endif %}</div>
+          <div class="fs-hint">{{ beneficiary.date_of_birth|date:'Y年n月j日' }}生{% if age is not None %}（記入日に {{ age }} 歳）{% endif %}。児童発達支援・保育所等訪問支援のフェイスシート（紙の用紙と同じ項目）。氏名・生年月日は{{ terms.beneficiary }}情報から入ります。</div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+          {% if sheet.pk %}
+          <a href="{% url 'beneficiaries:face_sheet_pdf' beneficiary.pk sheet.pk %}?inline=1" target="_blank" class="btn btn-sm btn-outline-secondary" title="A4 の用紙（PDF）を開きます"><i class="bi bi-printer me-1"></i>印刷（PDF）</a>
+          {% else %}<span class="badge text-bg-warning align-self-center">まだ保存していません</span>{% endif %}
+          <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button>
+        </div>
+      </div>
+      <div class="row g-2 mt-2">
+        <div class="col-6 col-md-3">
+          <label class="form-label small mb-0" for="fs-date">記入日</label>
+          <input type="date" id="fs-date" name="date" class="form-control form-control-sm" value="{{ sheet.date|date:'Y-m-d' }}" required>
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label small mb-0" for="fs-by">記入者</label>
+          <input type="text" id="fs-by" name="filled_by" class="form-control form-control-sm" maxlength="50" value="{{ sheet.filled_by }}">
+        </div>
+      </div>
+    </div>
+
+    <div class="fs-card">
+      <div class="fs-sec">基本情報</div>
+      <div class="row g-2">
+        {% for key, label in head %}
+        {% if key == 'diagnosis' or key == 'notebook' or key == 'hospital' or key == 'medicine' or key == 'epilepsy' or key == 'allergy' or key == 'emergency_work_ok' or key == 'emergency_name_ok' %}
+        <div class="col-12 fs-item">
+          <label class="form-label small" for="head-{{ key }}">{{ label }}</label>
+          <textarea id="head-{{ key }}" name="head_{{ key }}" class="form-control form-control-sm" rows="2" maxlength="2000">{{ d.head|default_if_none:''|dictkey:key }}</textarea>
+        </div>
+        {% else %}
+        <div class="col-6 col-md-3 fs-item">
+          <label class="form-label small" for="head-{{ key }}">{{ label }}</label>
+          <input type="text" id="head-{{ key }}" name="head_{{ key }}" class="form-control form-control-sm" maxlength="200" value="{{ d.head|default_if_none:''|dictkey:key }}">
+        </div>
+        {% endif %}
+        {% endfor %}
+      </div>
+
+      <div class="fs-sec">家族構成</div>
+      <table class="table table-sm fs-tbl mb-2">
+        <thead><tr>{% for c, cl in family_cols %}<th>{{ cl }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for i in family_rows %}
+          <tr>{% for c, cl in family_cols %}<td><input type="text" class="form-control form-control-sm" name="family_{{ i }}_{{ c }}" maxlength="200" value="{{ d.family|rowcell:i|dictkey:c }}"></td>{% endfor %}</tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div class="fs-sec">緊急時の連絡先（連絡順）</div>
+      <table class="table table-sm fs-tbl mb-0">
+        <thead><tr><th style="width:3em;">順</th>{% for c, cl in contact_cols %}<th>{{ cl }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for i in contact_rows %}
+          <tr><td class="small text-muted pt-2">{{ forloop.counter }}</td>{% for c, cl in contact_cols %}<td><input type="text" class="form-control form-control-sm" name="contact_{{ i }}_{{ c }}" maxlength="200" value="{{ d.contacts|rowcell:i|dictkey:c }}"></td>{% endfor %}</tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="fs-card">
+      <div class="fs-sec">聞き取りの項目</div>
+      {% for key, label, paren in items %}
+      <div class="fs-item mb-2">
+        <label class="form-label small" for="item-{{ key }}">{{ label }}{% if paren %} <span class="fs-paren">（{{ paren }}）</span>{% endif %}</label>
+        {% if key == 'communication' %}
+        <div class="small mb-1">
+          <span class="fw-semibold me-1">意思伝達手段：</span>
+          {% for v, l in comm_means %}<label class="me-2"><input type="checkbox" name="comm_means_{{ v }}" value="1" {% if v in d.comm_means %}checked{% endif %}> {{ l }}</label>{% endfor %}
+        </div>
+        <div class="small mb-1">
+          <span class="fw-semibold me-1">意思伝達理解：</span>
+          {% for v, l in comm_understand %}<label class="me-2"><input type="checkbox" name="comm_understand_{{ v }}" value="1" {% if v in d.comm_understand %}checked{% endif %}> {{ l }}</label>{% endfor %}
+        </div>
+        {% endif %}
+        <textarea id="item-{{ key }}" name="item_{{ key }}" class="form-control form-control-sm" rows="{% if key == 'strengths' or key == 'wish_child' or key == 'grow' or key == 'wish_family' %}2{% else %}3{% endif %}" maxlength="2000">{{ d.items|default_if_none:''|dictkey:key }}</textarea>
+      </div>
+      {% endfor %}
+      <div class="d-flex justify-content-end gap-2 mt-3">
+        {% if sheet.pk %}<a href="{% url 'beneficiaries:face_sheet_pdf' beneficiary.pk sheet.pk %}?inline=1" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>印刷（PDF）</a>{% endif %}
+        <button class="btn btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button>
+      </div>
+    </div>
+  </form>
+  {% if sheet.pk %}
+  <form method="post" action="{% url 'beneficiaries:face_sheet_delete' beneficiary.pk sheet.pk %}" class="text-end mb-4" onsubmit="return confirm('{{ sheet.date|date:'Y/n/j' }} のフェイスシートを削除します。戻せません。よろしいですか？');">
+    {% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>このフェイスシートを削除</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

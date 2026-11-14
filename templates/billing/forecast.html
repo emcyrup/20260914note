@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+
+{% block title %}月次の見込み — {{ year }}年{{ month }}月{% endblock %}
+{% block page_title %}月次の見込み — {{ year }}年{{ month }}月{% endblock %}
+{% block nav_billing_forecast %}active{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-3">
+
+  <div class="monthnav mb-3">
+    <a href="{% url 'billing:forecast_month' prev_year prev_month %}" class="btn btn-sm btn-outline-secondary" aria-label="前の月">
+      <i class="bi bi-chevron-left"></i>
+    </a>
+    <span class="monthnav-label">{{ year }}年{{ month }}月</span>
+    <a href="{% url 'billing:forecast_month' next_year next_month %}" class="btn btn-sm btn-outline-secondary" aria-label="次の月">
+      <i class="bi bi-chevron-right"></i>
+    </a>
+    <a href="{% url 'billing:forecast' %}" class="btn btn-sm btn-outline-primary">今月</a>
+  </div>
+
+  <div class="subnav mb-3">
+    <a href="{% url 'billing:matrix_month' year month %}" class="btn btn-sm btn-outline-secondary">請求マトリックス</a>
+    <a href="{% url 'billing:invoice_list_month' year month %}" class="btn btn-sm btn-outline-secondary">請求書・領収書</a>
+    <span class="btn btn-sm btn-primary disabled">月次の見込み</span>
+  </div>
+
+  <div class="alert mb-3 small" style="background-color: var(--color-primary-bg); border: 1px solid var(--color-primary-light); color: var(--color-primary-dark);">
+    <i class="bi bi-info-circle me-1"></i>
+    実績は請求マトリックスで「来所」にした日から、請求書と同じ計算（基本報酬・加算・減算・処遇改善加算 × 地域区分の単価）で出しています。
+    見込みは実績に、今日から月末までの来所予定（{{ summary.remaining_days }} 日ぶん）を足したものです。
+    利用者負担は 1 割と上限月額の小さい方（上限額管理での調整の前）、給付費は総費用から利用者負担を引いた額です。
+  </div>
+
+  {% if summary.unknown %}
+  <div class="alert alert-warning small py-2">
+    <i class="bi bi-exclamation-triangle me-1"></i>
+    基本報酬の単位数が分からず総費用を出せない利用者がいます（{% for b in summary.unknown %}{{ b.full_name }}{% if not forloop.last %}・{% endif %}{% endfor %}）。施設設定の「基本報酬（請求）」を確かめてください。
+  </div>
+  {% endif %}
+
+  <div class="table-responsive mb-4">
+    <table class="table table-bordered table-sm align-middle" style="font-size: 0.88rem; max-width: 760px;">
+      <thead>
+        <tr style="background-color: #f8f9fa;">
+          <th class="px-3"></th>
+          <th class="text-end px-3">実績</th>
+          <th class="text-end px-3">見込み（予定を足す）</th>
+          <th class="text-end px-3">先月の実績</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><th class="px-3 fw-normal">利用した人数</th>
+          <td class="text-end px-3">{{ summary.actual.people }} 人</td><td class="text-end px-3">{{ summary.forecast.people }} 人</td><td class="text-end px-3 text-muted">{{ prev.people }} 人</td></tr>
+        <tr><th class="px-3 fw-normal">延べ利用人数</th>
+          <td class="text-end px-3">{{ summary.actual.days }} 人日</td><td class="text-end px-3">{{ summary.forecast.days }} 人日</td><td class="text-end px-3 text-muted">{{ prev.days }} 人日</td></tr>
+        <tr><th class="px-3">総費用（売上の概算）</th>
+          <td class="text-end px-3 fw-semibold">{{ summary.actual.cost|floatformat:"0g" }} 円</td><td class="text-end px-3 fw-semibold">{{ summary.forecast.cost|floatformat:"0g" }} 円</td><td class="text-end px-3 text-muted">{{ prev.cost|floatformat:"0g" }} 円</td></tr>
+        <tr><th class="px-3 fw-normal">　うち給付費（国保連へ請求）</th>
+          <td class="text-end px-3">{{ summary.actual.benefit|floatformat:"0g" }} 円</td><td class="text-end px-3">{{ summary.forecast.benefit|floatformat:"0g" }} 円</td><td class="text-end px-3 text-muted">{{ prev.benefit|floatformat:"0g" }} 円</td></tr>
+        <tr><th class="px-3 fw-normal">　うち利用者負担</th>
+          <td class="text-end px-3">{{ summary.actual.burden|floatformat:"0g" }} 円</td><td class="text-end px-3">{{ summary.forecast.burden|floatformat:"0g" }} 円</td><td class="text-end px-3 text-muted">{{ prev.burden|floatformat:"0g" }} 円</td></tr>
+        <tr><th class="px-3 fw-normal">処遇改善加算の額（総費用の内数）</th>
+          <td class="text-end px-3">{{ summary.actual.treatment|floatformat:"0g" }} 円</td><td class="text-end px-3">{{ summary.forecast.treatment|floatformat:"0g" }} 円</td><td class="text-end px-3 text-muted">{{ prev.treatment|floatformat:"0g" }} 円</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  {% if summary.rows %}
+  <div class="fw-semibold small mb-1" style="color: var(--color-primary-dark);">{{ terms.beneficiary }}ごと</div>
+  <div class="table-responsive">
+    <table class="table table-bordered table-sm align-middle" style="font-size: 0.82rem;">
+      <thead>
+        <tr style="background-color: #f8f9fa;">
+          <th class="px-3">{{ terms.beneficiary }}</th>
+          <th class="text-end px-2">来所</th>
+          <th class="text-end px-2">これからの予定</th>
+          <th class="text-end px-2">総費用（実績）</th>
+          <th class="text-end px-2">利用者負担（実績）</th>
+          <th class="text-end px-2">上限月額</th>
+          <th class="text-end px-2">総費用（見込み）</th>
+          <th class="text-end px-2">利用者負担（見込み）</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in summary.rows %}
+        <tr>
+          <td class="px-3">{{ r.beneficiary.full_name }}</td>
+          <td class="text-end px-2">{{ r.days }} 日</td>
+          <td class="text-end px-2">{% if r.planned %}{{ r.planned }} 日{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end px-2">{% if r.cost is not None %}{{ r.cost|floatformat:"0g" }} 円{% else %}<span class="text-warning">不明</span>{% endif %}</td>
+          <td class="text-end px-2">{% if r.burden is not None %}{{ r.burden|floatformat:"0g" }} 円{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end px-2">{% if r.cap is not None %}{{ r.cap|floatformat:"0g" }} 円{% else %}<span class="text-warning">受給者証なし</span>{% endif %}</td>
+          <td class="text-end px-2">{% if r.f_cost is not None %}{{ r.f_cost|floatformat:"0g" }} 円{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="text-end px-2">{% if r.f_burden is not None %}{{ r.f_burden|floatformat:"0g" }} 円{% else %}<span class="text-muted">—</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="text-center py-5 text-muted">
+    <i class="bi bi-calendar-x" style="font-size: 2.5rem;"></i>
+    <p class="mt-3">この月の来所の実績と予定がありません。</p>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

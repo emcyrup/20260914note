@@ -1,0 +1,254 @@
+# =============================================
+# 介護施設のデモ事業所（2026-11-05 の相談。老健・通所リハの法人の試用）の環境での管理コマンド（Actions の画面から実行する）
+#   Deploy (kaigodemo) と同じ Secrets（KAIGODEMO_*。無ければ開発環境の DEV_* を使う）で SSH し、~/kaigonotedemo の manage.py を実行する
+#   - create_facility : デモ事業所と管理者を作る（--preset は入力の preset：roken＝老健・通所リハ（LINE なし）／care＝通所介護／
+#                       houdei＝放課後等デイサービス（はびりすと同じ。2026-11-07 特別対応：放デイ デモをこの環境に同居させる）。--company）
+#   - set_password    : 管理者（職員）のパスワードを設定する
+#   - list / delete_facility / demo_add / demo_remove / error_log / speech_check / speech_log / set_media_root / status /
+#     autostart_check / autostart_install / backup / backup_list / backup_check : Manage (yasuragi) と同じ
+#   - demo_add の scenario：roken（通所リハ 36 人・入所 8 人・車両 4 台・運転手 4 人・同乗NG）／care（通所介護 12 人）／
+#                          houdei（日誌・計画・来所予定・はびりす様式の 6 人と、請求デモ 40 人。facility_id 必須）
+#
+# パスワードは入力欄では受け取らない（入力欄の値は公開のログの「env:」にそのまま出るため）。
+# リポジトリの Secrets の KAIGODEMO_ADMIN_PASSWORD を使う（Secrets はログで伏せられる）。
+# 放デイ デモの管理者（houdeidemo）は password_secret=houdeidemo で HOUDEIDEMO_ADMIN_PASSWORD を使う。
+# 空なら create_facility はランダムな仮の値にする。このリポジトリは公開なので、ログに秘密の値を出さないこと。
+# =============================================
+name: Manage (kaigodemo)
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "実行する作業"
+        type: choice
+        required: true
+        default: list
+        options: [create_facility, set_password, set_company, list, delete_facility, demo_add, demo_remove, error_log, login_log, speech_check, speech_log, set_media_root, status, autostart_check, autostart_install, backup, backup_list, backup_check]
+      facility_name:
+        description: "事業所名（create_facility）"
+        type: string
+        default: "介護老人保健施設　デモ"
+      company_name:
+        description: "法人名・母体（create_facility・set_company。空にしても create_facility では既定の「医療法人（デモ）」になるので、消すときは set_company に「-」）"
+        type: string
+        default: "医療法人（デモ）"
+      admin_username:
+        description: "管理者のユーザー名（create_facility・set_password）"
+        type: string
+        default: kaigodemo
+      preset:
+        description: "事業所の型（create_facility）：roken＝老健・通所リハ（LINE なし）／care＝通所介護／houdei＝放課後等デイサービス（はびりすと同じ）"
+        type: choice
+        default: roken
+        options: [roken, care, houdei]
+      scenario:
+        description: "サンプルの内容（create_facility の with_demo・demo_add・demo_remove）：roken＝通所リハ 36 人・入所 8 人／care＝通所介護 12 人／houdei＝放デイ（日誌などの 6 人と請求デモ 40 人。demo は facility_id 必須）"
+        type: choice
+        default: roken
+        options: [roken, care, houdei]
+      password_secret:
+        description: "管理者のパスワードに使う Secrets（create_facility・set_password）：kaigodemo＝KAIGODEMO_ADMIN_PASSWORD／houdeidemo＝HOUDEIDEMO_ADMIN_PASSWORD"
+        type: choice
+        default: kaigodemo
+        options: [kaigodemo, houdeidemo]
+      with_demo:
+        description: "サンプルデータも入れる（create_facility）"
+        type: boolean
+        default: false
+      facility_id:
+        description: "施設 ID（delete_facility・demo_add・demo_remove・set_company。demo は空なら介護施設の事業所）"
+        type: string
+        default: ""
+      copy_from:
+        description: "設定を写す元の施設 ID（create_facility。同じ DB の中の事業所だけ。通常は空）"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: ${{ secrets.KAIGODEMO_APP_DIR || '~/kaigonotedemo' }}
+  VENV: ${{ secrets.KAIGODEMO_VENV || secrets.DEV_VENV || '~/env' }}
+  SSH_PORT: ${{ secrets.KAIGODEMO_DEPLOY_SSH_PORT || secrets.DEV_DEPLOY_SSH_PORT || '22' }}
+
+jobs:
+  manage:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+    steps:
+      - name: Check secrets
+        env:
+          HOST: ${{ secrets.KAIGODEMO_DEPLOY_HOST || secrets.DEV_DEPLOY_HOST }}
+          USER: ${{ secrets.KAIGODEMO_DEPLOY_USER || secrets.DEV_DEPLOY_USER }}
+          KEY: ${{ secrets.KAIGODEMO_DEPLOY_SSH_KEY || secrets.DEV_DEPLOY_SSH_KEY }}
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ]; then
+            echo "KAIGODEMO_DEPLOY_HOST（または DEV_DEPLOY_HOST）などの SSH の Secrets が未登録です（docs/DEPLOY_AWS_KAIGODEMO.md）"; exit 1
+          fi
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.KAIGODEMO_DEPLOY_SSH_KEY || secrets.DEV_DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ env.SSH_PORT }}" -H "${{ secrets.KAIGODEMO_DEPLOY_HOST || secrets.DEV_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Run manage.py on the server
+        env:
+          TASK: ${{ inputs.task }}
+          FACILITY_NAME: ${{ inputs.facility_name }}
+          COMPANY_NAME: ${{ inputs.company_name }}
+          ADMIN_USERNAME: ${{ inputs.admin_username }}
+          # 選んだ Secrets が空のとき、もう一方に黙って切り替わらないよう（&& || の書き方だと空なら右側になる）、bash で選ぶ
+          PASSWORD_SECRET: ${{ inputs.password_secret }}
+          PW_HOUDEIDEMO: ${{ secrets.HOUDEIDEMO_ADMIN_PASSWORD }}
+          PW_KAIGODEMO: ${{ secrets.KAIGODEMO_ADMIN_PASSWORD }}
+          WITH_DEMO: ${{ inputs.with_demo }}
+          PRESET: ${{ inputs.preset }}
+          SCENARIO: ${{ inputs.scenario }}
+          FACILITY_ID: ${{ inputs.facility_id }}
+          COPY_FROM: ${{ inputs.copy_from }}
+          REMOTE_APP_DIR: ${{ env.APP_DIR }}
+          REMOTE_VENV: ${{ env.VENV }}
+        run: |
+          # パスワードは Secrets（password_secret で選ぶ）から。無ければランダムな仮の値（どちらもログに出さない）
+          if [ "$PASSWORD_SECRET" = "houdeidemo" ]; then ADMIN_PASSWORD="$PW_HOUDEIDEMO"; SECRET_NAME=HOUDEIDEMO_ADMIN_PASSWORD; else ADMIN_PASSWORD="$PW_KAIGODEMO"; SECRET_NAME=KAIGODEMO_ADMIN_PASSWORD; fi
+          if [ "$TASK" = "create_facility" ] && [ -z "$ADMIN_PASSWORD" ]; then
+            echo "注意: Secrets の $SECRET_NAME が空なので、管理者のパスワードはランダムな仮の値になります。あとで Secrets を登録して set_password を実行してください"
+          fi
+          if [ "$TASK" = "set_password" ] && [ -z "$ADMIN_PASSWORD" ]; then
+            echo "Secrets の $SECRET_NAME が空です。先に Settings → Secrets and variables → Actions で登録してください（入力欄では受け取りません）"; exit 1
+          fi
+          if [ -n "$ADMIN_PASSWORD" ]; then
+            echo "::add-mask::$ADMIN_PASSWORD"
+          else
+            ADMIN_PASSWORD=$(openssl rand -base64 24)
+            echo "::add-mask::$ADMIN_PASSWORD"
+          fi
+          # 秘密の値はコマンド行に出さず、ssh の標準入力（スクリプトの先頭）で渡す
+          {
+            printf 'TASK=%q\nFACILITY_NAME=%q\nCOMPANY_NAME=%q\nADMIN_USERNAME=%q\nADMIN_PASSWORD=%q\nWITH_DEMO=%q\nPRESET=%q\nSCENARIO=%q\nFACILITY_ID=%q\nCOPY_FROM=%q\nAPP_DIR_IN=%q\nVENV_IN=%q\n' \
+              "$TASK" "$FACILITY_NAME" "$COMPANY_NAME" "$ADMIN_USERNAME" "$ADMIN_PASSWORD" "$WITH_DEMO" "$PRESET" "$SCENARIO" "$FACILITY_ID" "$COPY_FROM" "$REMOTE_APP_DIR" "$REMOTE_VENV"
+            cat <<'REMOTE'
+            set -euo pipefail
+            export ADMIN_USERNAME ADMIN_PASSWORD
+            APP_DIR=$(eval echo "$APP_DIR_IN"); VENV=$(eval echo "$VENV_IN")
+            # shellcheck disable=SC1091
+            source "$VENV/bin/activate"
+            cd "$APP_DIR"
+            test -f .env || { echo "ERROR: $APP_DIR/.env がありません"; exit 1; }
+            set_password() {
+              # パスワードは引数に出さず、環境変数から読む
+              python manage.py shell -c "import os; from accounts.models import StaffAccount; u = StaffAccount.objects.get(username=os.environ['ADMIN_USERNAME']); u.set_password(os.environ['ADMIN_PASSWORD']); u.save(update_fields=['password']); print('パスワードを設定しました:', u.username)"
+            }
+            case "$TASK" in
+              create_facility)
+                case "$PRESET" in roken|care|houdei) ;; *) PRESET=roken;; esac
+                args=(create_facility "$FACILITY_NAME" --admin "$ADMIN_USERNAME" --password "$(openssl rand -base64 18)" --preset "$PRESET")
+                [ -n "$COMPANY_NAME" ] && args+=(--company "$COMPANY_NAME")
+                [ -n "$COPY_FROM" ] && args+=(--copy-settings-from "$COPY_FROM")
+                # 放デイ（houdei）のサンプルは create_facility の --demo（seed_demo＋billing_demo）で入れる
+                [ "$PRESET" = "houdei" ] && [ "$WITH_DEMO" = "true" ] && args+=(--demo)
+                python manage.py "${args[@]}"
+                if [ "$WITH_DEMO" = "true" ] && [ "$PRESET" != "houdei" ]; then
+                  # -v 0：shell の「N objects imported automatically」を出さない（番号だけを受け取る）
+                  fid=$(python manage.py shell -v 0 -c "from facilities.models import Facility; print(Facility.objects.order_by('-pk').first().pk)" | tail -n 1)
+                  python manage.py nursing_demo --facility "$fid" --scenario "$SCENARIO"
+                fi
+                set_password
+                ;;
+              set_password)
+                set_password ;;
+              set_company)
+                # 法人名（母体）を入れ替える。「-」なら空にする（放デイ デモのように母体の無い事業所）
+                [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください（list で確認）"; exit 1; }
+                FACILITY_ID="$FACILITY_ID" COMPANY_NAME="$COMPANY_NAME" python manage.py shell -v 0 -c "import os; from facilities.models import Facility; f = Facility.objects.get(pk=os.environ['FACILITY_ID']); v = os.environ.get('COMPANY_NAME', ''); f.company_name = '' if v.strip() in ('-', '') else v.strip(); f.save(update_fields=['company_name']); print('法人名を設定しました:', f.pk, f.name, '->', repr(f.company_name))" ;;
+              list)
+                python manage.py shell -c "from facilities.models import Facility; [print(f.pk, f.name, '| 型:', f.layout, '| 予約:', f.use_reservation, '| 療育記録:', f.use_therapy_record, '| お試しAI:', f.trial_ai_used, '/', f.trial_ai_limit) for f in Facility.objects.order_by('pk')] or print('事業所はまだありません')"
+                python manage.py shell -c "from accounts.models import StaffAccount; [print(' 職員:', u.username, '|', u.facility_id, '|', u.get_role_display()) for u in StaffAccount.objects.order_by('pk')]"
+                # 事業所ごとのデータの件数（名前などは出さない）
+                python manage.py shell -v 0 -c "from django.apps import apps; from facilities.models import Facility; names=[('beneficiaries','Beneficiary','利用者'),('records','DailyRecord','日誌'),('support_plans','SupportPlan','計画'),('schedules','ScheduledVisit','来所予定'),('billing','BillingMatrixEntry','請求の実績'),('nursing','CareRecord','介護記録'),('nursing','VitalsLog','検温'),('therapy','TherapyRecord','療育記録'),('minutes','Minutes','議事録')]; ms=[(next((m for m in apps.get_models() if m._meta.app_label==a and m.__name__==n), None), l) for a,n,l in names]; fld=lambda m: 'facility' if 'facility' in {x.name for x in m._meta.fields} else ('beneficiary__facility' if 'beneficiary' in {x.name for x in m._meta.fields} else None); [print(' 件数:', f.pk, f.name, '|', ' / '.join(f'{l} {m.objects.filter(**{fld(m): f}).count()}' for m,l in ms if m is not None and fld(m))) for f in Facility.objects.order_by('pk')]" ;;
+              delete_facility)
+                [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください"; exit 1; }
+                python manage.py delete_facility "$FACILITY_ID" --yes ;;
+              demo_add|demo_remove)
+                if [ "$SCENARIO" = "houdei" ]; then
+                  # 放デイのサンプル：日誌などの 6 人（seed_demo）と請求デモの 40 人（billing_demo）。事業所を間違えないよう facility_id 必須
+                  [ -n "$FACILITY_ID" ] || { echo "facility_id を入れてください（list で確認）"; exit 1; }
+                  if [ "$TASK" = "demo_add" ]; then
+                    python manage.py seed_demo --reset --facility "$FACILITY_ID"
+                    python manage.py billing_demo --facility "$FACILITY_ID"
+                  else
+                    FACILITY_ID="$FACILITY_ID" python manage.py shell -c "import os; from facilities.models import Facility; from facilities.management.commands.seed_demo import Command; f = Facility.objects.get(pk=os.environ['FACILITY_ID']); print('サンプルデータを消します:', f.pk, f.name); Command()._reset(f)"
+                    python manage.py billing_demo --facility "$FACILITY_ID" --remove
+                  fi
+                else
+                  args=(nursing_demo --scenario "$SCENARIO")
+                  [ -n "$FACILITY_ID" ] && args+=(--facility "$FACILITY_ID")
+                  [ "$TASK" = "demo_remove" ] && args+=(--remove)
+                  python manage.py "${args[@]}"
+                fi ;;
+              error_log)
+                # 公開リポジトリのログに出るので、日本語（利用者名など）と 6 桁以上の数字は伏せ、技術的な行だけにする
+                for f in logs/error.log logs/gunicorn.out; do
+                  echo "== $f（直近 120 行のうち Traceback・File・Error の行） =="
+                  tail -n 400 "$f" 2>/dev/null | grep -E "Traceback|^  File |Error|Exception|Warning|\[[0-9]+\] \[(ERROR|CRITICAL|WARNING)\]" | tail -n 120 \
+                    | LC_ALL=C sed -E 's/[^\x00-\x7F]/*/g; s/[0-9]{6,}/#/g; s/\*{4,}/***/g' || echo "(無し)"
+                done
+                echo "== 空き容量 =="; df -h "$APP_DIR" /tmp 2>/dev/null | tail -n 2; du -sh media 2>/dev/null ;;
+              speech_check)
+                # 出るのは CPU・メモリ・使う方式・モデル名・時間だけ（.env の値は出さない）
+                # 短い区切り（5 秒）と長い区切り（25 秒）の両方。Whisper は 30 秒の窓ごとに処理するので、短く送っても速くならない
+                python manage.py speech_check --seconds 5
+                # 同梱の合成音声（架空の文）で、区切りの長さ（5・12・33 秒）と探索の幅（beam 5・1）の違いを測る
+                python manage.py speech_check --sample --seconds 5
+                python manage.py speech_check --sample --seconds 12
+                python manage.py speech_check --sample
+                python manage.py speech_check --sample --beam 1 ;;
+              login_log)
+                echo "== /accounts/login/ への送信（access.log、直近 7 日。302＝ログインできた・200＝画面に戻った（失敗・ロック）・403＝CSRF）=="
+                since=$(date -d '7 days ago' '+%Y-%m-%d' 2>/dev/null || echo 0000-00-00)
+                { grep -F 'POST /accounts/login/' logs/access.log 2>/dev/null || true; } \
+                  | awk -v s="$since" '{ if ($4 ~ /^\[/) { split($4, a, "[/:\\[]"); m["Jan"]="01";m["Feb"]="02";m["Mar"]="03";m["Apr"]="04";m["May"]="05";m["Jun"]="06";m["Jul"]="07";m["Aug"]="08";m["Sep"]="09";m["Oct"]="10";m["Nov"]="11";m["Dec"]="12"; d=a[4] "-" m[a[3]] "-" a[2]; if (d>=s) print d " " a[5] ":" a[6] " 応答=" $9 " " ($0 ~ /iPhone|iPad/ ? "iPhone/iPad" : $0 ~ /Android/ ? "Android" : $0 ~ /Windows/ ? "Windows" : $0 ~ /Macintosh/ ? "Mac" : "その他") "/" ($0 ~ /Edg/ ? "Edge" : $0 ~ /CriOS|Chrome/ ? "Chrome" : $0 ~ /Firefox/ ? "Firefox" : $0 ~ /Safari/ ? "Safari" : "不明") } }' \
+                  | tail -n 60
+                echo "== スマホ（iPhone/iPad/Android）からの画面の流れ（access.log、直近 3 日。static・media・healthz を除く。時刻 メソッド パス 応答 端末） =="
+                since3=$(date -d '3 days ago' '+%Y-%m-%d' 2>/dev/null || echo 0000-00-00)
+                awk -v s="$since3" '{ if ($4 ~ /^\[/ && ($0 ~ /iPhone|iPad|Android/) && $7 !~ /^\/(static|media|healthz)/) { split($4, a, "[/:\\[]"); m["Jan"]="01";m["Feb"]="02";m["Mar"]="03";m["Apr"]="04";m["May"]="05";m["Jun"]="06";m["Jul"]="07";m["Aug"]="08";m["Sep"]="09";m["Oct"]="10";m["Nov"]="11";m["Dec"]="12"; d=a[4] "-" m[a[3]] "-" a[2]; if (d>=s) print d " " a[5] ":" a[6] ":" a[7] " " $6 " " $7 " " $9 " " ($0 ~ /iPhone|iPad/ ? "iPhone/iPad" : "Android") "/" ($0 ~ /CriOS|Chrome/ ? "Chrome" : $0 ~ /Safari/ ? "Safari" : "不明") } }' logs/access.log 2>/dev/null | sed -E 's/\?[^ ]*//; s/[0-9]{6,}/#/g' | tail -n 120 || true
+                echo "== ログインの記録（直近 7 日。種類・端末・ユーザー名の違い） =="
+                python manage.py shell -v 0 -c "import datetime; from django.utils import timezone; from accounts.models import LoginEvent, StaffAccount; names = {u.username for u in StaffAccount.objects.all()}; lower = {n.lower(): n for n in names}; [print(timezone.localtime(e.created_at).strftime('%m-%d %H:%M'), e.get_kind_display(), '|', ('iPhone/iPad' if ('iPhone' in e.user_agent or 'iPad' in e.user_agent) else 'Android' if 'Android' in e.user_agent else 'Windows' if 'Windows' in e.user_agent else 'Mac' if 'Macintosh' in e.user_agent else 'その他'), '|', ('ユーザー名は登録どおり' if e.username in names else '大文字小文字・空白だけ違う' if e.username.strip().lower() in lower else '登録のないユーザー名' if e.username else '（ユーザー名なし）')) for e in LoginEvent.objects.filter(created_at__gte=timezone.now() - datetime.timedelta(days=7)).order_by('created_at')[:80]]" ;;
+              speech_log)
+                # 音声の送信が届いているか。日時・応答・大きさ・端末の種類（iPhone/Android/Windows/Mac とブラウザ）だけを出す
+                echo "== /ai/transcribe/ への送信（access.log、直近 14 日） =="
+                since=$(date -d '14 days ago' '+%Y-%m-%d' 2>/dev/null || echo 0000-00-00)
+                { grep -F '/ai/transcribe/' logs/access.log 2>/dev/null || true; } \
+                  | awk -v s="$since" '{ if ($4 ~ /^\[/) { split($4, a, "[/:\\[]"); m["Jan"]="01";m["Feb"]="02";m["Mar"]="03";m["Apr"]="04";m["May"]="05";m["Jun"]="06";m["Jul"]="07";m["Aug"]="08";m["Sep"]="09";m["Oct"]="10";m["Nov"]="11";m["Dec"]="12"; d=a[4] "-" m[a[3]] "-" a[2]; if (d>=s) print d " " a[5] ":" a[6] " 応答=" $9 " " $10 "B " ($0 ~ /iPhone|iPad/ ? "iPhone/iPad" : $0 ~ /Android/ ? "Android" : $0 ~ /Windows/ ? "Windows" : $0 ~ /Macintosh/ ? "Mac" : "その他") "/" ($0 ~ /Edg/ ? "Edge" : $0 ~ /CriOS|Chrome/ ? "Chrome" : $0 ~ /Firefox/ ? "Firefox" : $0 ~ /Safari/ ? "Safari" : "不明") } }' \
+                  | tail -n 60
+                n=$(grep -cF '/ai/transcribe/' logs/access.log 2>/dev/null || true); echo "（これまでの送信 ${n:-0} 件。access.log $( { wc -l < logs/access.log; } 2>/dev/null || echo 0) 行）"
+                echo "== 画面を開いた端末の種類（直近 14 日・ログインしている画面。件数だけ） =="
+                awk -v s="$since" '{ if ($4 ~ /^\[/ && $7 !~ /^\/(static|healthz|media)/) { split($4, a, "[/:\\[]"); m["Jan"]="01";m["Feb"]="02";m["Mar"]="03";m["Apr"]="04";m["May"]="05";m["Jun"]="06";m["Jul"]="07";m["Aug"]="08";m["Sep"]="09";m["Oct"]="10";m["Nov"]="11";m["Dec"]="12"; d=a[4] "-" m[a[3]] "-" a[2]; if (d>=s) c[($0 ~ /iPhone|iPad/ ? "iPhone/iPad" : $0 ~ /Android/ ? "Android" : $0 ~ /Windows/ ? "Windows" : $0 ~ /Macintosh/ ? "Mac" : "その他") "/" ($0 ~ /Edg/ ? "Edge" : $0 ~ /CriOS|Chrome/ ? "Chrome" : $0 ~ /Firefox/ ? "Firefox" : $0 ~ /Safari/ ? "Safari" : "不明")]++ } } END { for (k in c) print "  " k ": " c[k] " 件" }' logs/access.log 2>/dev/null | sort || true ;;
+              set_media_root)
+                target="$APP_DIR/media"
+                mkdir -p "$target"
+                if grep -q '^MEDIA_ROOT=' .env; then sed -i "s#^MEDIA_ROOT=.*#MEDIA_ROOT=$target#" .env; else echo "MEDIA_ROOT=$target" >> .env; fi
+                echo "MEDIA_ROOT を $target にしました"
+                APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --restart ;;
+              status)
+                APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --status ;;
+              autostart_check)
+                APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --autostart check ;;
+              autostart_install)
+                APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --autostart install ;;
+              backup)
+                APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --backup run ;;
+              backup_list)
+                APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --backup list ;;
+              backup_check)
+                APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh --backup check ;;
+              *) echo "unknown task: $TASK"; exit 1 ;;
+            esac
+          REMOTE
+          } | ssh -i ~/.ssh/deploy_key -p "${{ env.SSH_PORT }}" "${{ secrets.KAIGODEMO_DEPLOY_USER || secrets.DEV_DEPLOY_USER }}@${{ secrets.KAIGODEMO_DEPLOY_HOST || secrets.DEV_DEPLOY_HOST }}" bash -s

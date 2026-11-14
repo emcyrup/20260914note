@@ -1,0 +1,76 @@
+{% extends 'custom_forms/pdf/_base.html' %}
+{% load sheet_extras %}
+{% block title %}フェイスシート {{ beneficiary.full_name }}{% endblock %}
+{% block back_link %}{% if sheet.pk %}<a class="outline" href="{% url 'beneficiaries:face_sheet_edit' beneficiary.pk sheet.pk %}">用紙の編集へ戻る</a>{% else %}<a class="outline" href="{% url 'beneficiaries:detail' beneficiary.pk %}#owl-sheets">利用者情報へ戻る</a>{% endif %}{% endblock %}
+{% block body %}
+{# 紙のフェイスシート（児童発達支援・保育所等訪問支援）と同じ並び。1 枚目：基本情報、2〜4 枚目：聞き取りの項目 #}
+<style>
+  .fs-top { display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 4px; }
+  .fs-top .ul { display: inline-block; min-width: 120px; border-bottom: 1px solid #333; padding: 0 4px; }
+  .fs-h { text-align: center; font-size: 12px; line-height: 1.4; margin-bottom: 4px; }
+  table.fs { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  table.fs th, table.fs td { border: 1px solid #333; font-size: 9.5px; padding: 3px 5px; vertical-align: top; white-space: pre-wrap; }
+  table.fs th { width: 64px; background: #f6f6f6; font-weight: 600; text-align: left; white-space: nowrap; }
+  table.fs td.mini { font-size: 8.5px; color: #333; }
+  .sec { border: 1px solid #333; border-top: 0; padding: 4px 6px 6px; font-size: 9.5px; page-break-inside: avoid; }
+  .sec:first-of-type { border-top: 1px solid #333; }
+  .sec .lbl { font-weight: 600; font-size: 9.5px; }
+  .sec .paren { font-size: 8px; color: #555; font-weight: normal; }
+  /* 罫線は div で引く（PDF（WeasyPrint）は repeating-linear-gradient を描かない） */
+  .sec .body { position: relative; min-height: 48px; }
+  .sec .body.tall { min-height: 96px; }
+  .sec .lines { position: absolute; left: 0; right: 0; top: 0; }
+  .sec .ln { height: 16px; border-bottom: 1px solid #ccc; }
+  .sec .txt { position: relative; white-space: pre-wrap; line-height: 16px; }
+  .chk { font-size: 9px; }
+  .chk span { margin-right: 6px; }
+  .chk span.chk-on::before { content: '☑ '; } .chk span::before { content: '☐ '; }
+  .pb { page-break-before: always; }
+</style>
+<div class="fs-top">
+  <div>記入日　<span class="ul">{{ sheet.date|date:'Y年n月j日' }}</span></div>
+  <div>記入者　<span class="ul">{{ sheet.filled_by }}</span></div>
+</div>
+<div class="fs-h">{{ facility.name }}<br>児童発達支援・保育所等訪問支援　フェイスシート</div>
+<table class="fs">
+  <colgroup><col style="width:64px"><col style="width:32%"><col style="width:64px"><col></colgroup>
+  <tr><th>ふりがな</th><td class="mini">{{ beneficiary.full_name_kana }}</td><th>所属</th><td>{{ h.school }}{% if h.grade %}　（{{ h.grade }}）{% endif %}</td></tr>
+  <tr><th>氏名</th><td>{{ beneficiary.full_name }}</td><th>学級</th><td>{{ h.class_type }}</td></tr>
+  <tr><th>愛称</th><td>{{ h.nickname }}</td><th>生年月日</th><td>{{ beneficiary.date_of_birth|date:'Y年n月j日' }}{% if age is not None %}（{{ age }}歳）{% endif %}</td></tr>
+  <tr><th>保護者氏名</th><td>{{ h.guardian }}</td><th>性別</th><td>{{ h.gender }}　　血液型　{{ h.blood }}</td></tr>
+  <tr><th>住所</th><td>{% if h.postal %}〒{{ h.postal }}　{% endif %}{{ h.address }}</td><th>身長・体重</th><td>{{ h.height }} cm　／　{{ h.weight }} kg</td></tr>
+  <tr><th>TEL</th><td colspan="3">{{ h.tel }}</td></tr>
+</table>
+<table class="fs" style="border-top:0;">
+  <colgroup><col style="width:64px"><col style="width:30%"><col style="width:12%"><col style="width:22%"><col style="width:20%"><col></colgroup>
+  <tr><th rowspan="{{ family|length|add:1 }}">家族構成</th><th style="width:auto;text-align:center;">名前</th><th style="text-align:center;">続柄</th><th style="text-align:center;">生年月日（年齢）</th><th style="text-align:center;">職場・学年</th><th style="text-align:center;">備考</th></tr>
+  {% for f in family %}<tr><td>{{ f.name|default:'' }}</td><td>{{ f.relation|default:'' }}</td><td>{{ f.birth|default:'' }}</td><td>{{ f.job|default:'' }}</td><td>{{ f.note|default:'' }}</td></tr>{% endfor %}
+</table>
+<table class="fs" style="border-top:0;">
+  <colgroup><col style="width:64px"><col></colgroup>
+  <tr><th>緊急時の<br>連絡確認</th><td>①緊急時、自宅・携帯につながらない場合、勤務先に TEL してもよい　<b>{{ h.emergency_work_ok|default:'はい ・ いいえ' }}</b><br>②勤務先に TEL をした際、事業所名を名乗ってもよい　<b>{{ h.emergency_name_ok|default:'はい ・ いいえ' }}</b></td></tr>
+  <tr><th>緊急時の<br>連絡先<br>連絡順</th><td>{% for c in contacts %}{{ forloop.counter }}　{{ c.who|default:'父 ・ 母 ・ その他（　　）' }}　／　{{ c.where|default:'自宅 ・ 携帯 ・ 勤務先 ・ その他（　　）' }}　／　TEL：{{ c.tel|default:'' }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td></tr>
+  <tr><th>障がい診断</th><td>{{ h.diagnosis }}{% if h.diagnosis_org %}<br>診断医療機関・診断者：{{ h.diagnosis_org }}{% endif %}</td></tr>
+  <tr><th>所有手帳</th><td>{{ h.notebook }}</td></tr>
+  <tr><th>医療機関</th><td>{{ h.hospital }}{% if h.temp_normal or h.temp_fever %}<br>平熱　{{ h.temp_normal }}　　発熱の目安　{{ h.temp_fever }}{% endif %}{% if h.aids %}<br>補助具の使用：{{ h.aids }}{% endif %}</td></tr>
+  <tr><th>服薬</th><td>{{ h.medicine }}</td></tr>
+  <tr><th>てんかん</th><td>{{ h.epilepsy }}</td></tr>
+  <tr><th>アレルギー</th><td>{{ h.allergy }}</td></tr>
+</table>
+
+<div class="pb"></div>
+{% for key, label, paren in items %}
+<div class="sec">
+  <div class="lbl">{{ label }}{% if paren %}<span class="paren">（{{ paren }}）</span>{% endif %}</div>
+  {% if key == 'communication' %}
+  <div class="chk">意思伝達手段：{% for v, l, on in comm_means %}<span class="{% if on %}chk-on{% endif %}">{{ l }}</span>{% endfor %}</div>
+  <div class="chk">意思伝達理解：{% for v, l, on in comm_understand %}<span class="{% if on %}chk-on{% endif %}">{{ l }}</span>{% endfor %}</div>
+  {% endif %}
+  {% if key == 'sleep' or key == 'meal' or key == 'toilet' or key == 'dress' or key == 'grooming' or key == 'behavior' or key == 'problem' %}
+  <div class="body tall"><div class="lines"><div class="ln"></div><div class="ln"></div><div class="ln"></div><div class="ln"></div><div class="ln"></div><div class="ln"></div></div><div class="txt">{{ it|dictkey:key }}</div></div>
+  {% else %}
+  <div class="body"><div class="lines"><div class="ln"></div><div class="ln"></div><div class="ln"></div></div><div class="txt">{{ it|dictkey:key }}</div></div>
+  {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,54 @@
+<div class="tr-card">
+  <div class="tr-card-h">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <div class="t"><i class="bi {% if direction == 'pickup' %}bi-box-arrow-in-right{% else %}bi-box-arrow-right{% endif %} me-1"></i>{{ dlabel }}</div>
+      <span class="badge text-bg-secondary">{{ active }} 人</span>
+    </div>
+    <div class="tr-cnt d-flex gap-1 flex-wrap">
+      {% for c in counts %}<span class="badge {% if c.ng %}text-bg-danger{% else %}text-bg-light border{% endif %}" title="{% if c.over %}乗れる人数（{{ c.vehicle.capacity }}）を超えています{% elif c.vehicle.capacity %}乗れる人数 {{ c.vehicle.capacity }}{% endif %}{% if c.driver_ng %}　運転手がこの車を運転できません{% endif %}">{{ c.vehicle.name }} {{ c.count }}{% if c.vehicle.capacity %}/{{ c.vehicle.capacity }}{% endif %}{% if c.minutes %} <span class="fw-normal" title="この車の行の所要時間の合計（一人ずつの目安。回る順は考えていません）">約{{ c.minutes }}分</span>{% endif %}{% if c.over %} 定員超{% endif %}{% if c.driver_ng %} 運転不可{% endif %}</span>{% endfor %}
+      {% if unassigned %}<span class="badge text-bg-warning" title="車両がまだ決まっていない人。「自動で割り当てる」か、行ごとに選んでください">車両未定 {{ unassigned }}</span>{% endif %}
+    </div>
+  </div>
+  {% if rows %}
+  <div class="table-responsive">
+  <table class="tr-table">
+    <thead><tr><th style="width:120px;">時刻</th><th>利用者</th><th>場所</th><th style="width:150px;">車両</th><th style="width:150px;">運転手</th><th>備考</th><th style="width:56px;">なし</th></tr></thead>
+    <tbody>
+    {% for x in rows %}
+    <tr class="{% if x.skip %}skip{% endif %}{% if x.ride_ng or x.driver_ng %} ride-ng{% endif %}">
+      <td><input type="hidden" name="present_{{ x.key }}" value="1"><input type="time" name="time_{{ x.key }}" class="form-control" value="{{ x.time|time:'H:i' }}" aria-label="時刻"></td>
+      <td class="tr-who">
+        <a href="{% url 'beneficiaries:detail' x.beneficiary.pk %}#transport" class="tr-name">{{ x.beneficiary.full_name }}</a>
+        {% if x.reservation.start_time %}<span class="small text-muted ms-1">予約 {{ x.reservation.time_label }}</span>{% endif %}
+        {% if x.added %}<span class="badge text-bg-info ms-1">この日だけ</span>{% endif %}
+        {% if x.dismissal %}<span class="small text-muted ms-1" title="学校マスタの下校時刻（この曜日）。迎えの時刻が空ならこの時刻が入ります">下校 {{ x.dismissal|time:'G:i' }}</span>{% endif %}
+        {% if x.ride_ng %}<span class="badge text-bg-danger ms-1" title="同じ車・近い時刻に、同じ車に乗せない利用者がいます">同乗NG：{{ x.ride_ng|join:'・' }}</span>{% endif %}
+        {% if x.driver_ng %}<span class="badge text-bg-danger ms-1" title="この運転手は「運転できる車両」にこの車が入っていません">運転不可</span>{% endif %}
+        {% if x.profile_note %}<div class="tr-pnote"><i class="bi bi-exclamation-triangle me-1"></i>{{ x.profile_note }}</div>{% endif %}
+      </td>
+      <td><input type="text" name="place_{{ x.key }}" class="form-control" maxlength="200" value="{{ x.place }}" placeholder="{{ x.default_place|default:'場所' }}" title="{% if x.default_place %}空のままなら {{ x.default_place }}{% endif %}">{% if not x.place and x.default_place %}<div class="small text-muted" style="font-size:.72rem;">{{ x.default_place }}</div>{% endif %}{% if x.route %}<div class="small" style="font-size:.72rem; color:#2f4f58;" title="{% if direction == 'pickup' %}学校の住所 → 施設{% else %}施設 → 自宅{% endif %}（車）。{{ x.route.source_label }}"><i class="bi bi-stopwatch me-1"></i>{{ x.route.label }}</div>{% endif %}</td>
+      <td>
+        <select name="vehicle_{{ x.key }}" class="form-select" aria-label="車両">
+          <option value="">－</option>
+          {% for v in vehicles %}<option value="{{ v.pk }}" {% if x.vehicle_id == v.pk %}selected{% endif %}>{{ v.name }}</option>{% endfor %}
+          {% if x.vehicle and not x.vehicle.is_active %}<option value="{{ x.vehicle.pk }}" selected>{{ x.vehicle.name }}（使っていない）</option>{% endif %}
+        </select>
+      </td>
+      <td>
+        <select name="driver_{{ x.key }}" class="form-select" aria-label="運転手">
+          <option value="">－</option>
+          {% for d in drivers %}<option value="{{ d.pk }}" {% if x.driver_id == d.pk %}selected{% endif %}>{{ d.name }}</option>{% endfor %}
+          {% if x.driver and not x.driver.is_active %}<option value="{{ x.driver.pk }}" selected>{{ x.driver.name }}（退職）</option>{% endif %}
+        </select>
+      </td>
+      <td><input type="text" name="note_{{ x.key }}" class="form-control" maxlength="200" value="{{ x.note }}" placeholder="備考"></td>
+      <td class="text-center tr-skip"><label class="d-inline-flex align-items-center gap-1 mb-0"><input type="checkbox" class="form-check-input" name="skip_{{ x.key }}" {% if x.skip %}checked{% endif %} title="この日は{{ dlabel }}なし"><span class="tr-skip-l">この日は{{ dlabel }}なし</span></label></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="tr-others">この日に{{ dlabel }}のある人はいません。</div>
+  {% endif %}
+</div>

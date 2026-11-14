@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% load concurrency %}
+
+{% block title %}{% if survey.pk %}アンケートを直す{% else %}アンケートを作る{% endif %}{% endblock %}
+{% block page_title %}{% if survey.pk %}アンケートを直す{% else %}アンケートを作る{% endif %}{% endblock %}
+{% block nav_surveys %}active{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 900px;">
+  <nav class="small mb-2"><a href="{% url 'surveys:index' %}">アンケート・自己評価</a> › {% if survey.pk %}{{ survey.title }}{% else %}新しいアンケート{% endif %}</nav>
+  <form method="post" class="card p-3" {% if survey.pk %}data-concurrency="survey:{{ survey.pk }}"{% endif %}>
+    {% csrf_token %}{% if survey.pk %}{% version_field survey %}{% endif %}
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label small mb-0">種類</label>
+        <select name="kind" class="form-select form-select-sm" {% if locked %}disabled{% endif %}>{% for k, v in kinds %}<option value="{{ k }}" {% if k == survey.kind %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-0">事業の種類</label>
+        <select name="service" class="form-select form-select-sm" {% if locked %}disabled{% endif %}>{% for k, v in services %}<option value="{{ k }}" {% if k == survey.service %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-0">年度（西暦）</label>
+        <input type="number" name="fiscal_year" class="form-control form-control-sm" value="{{ survey.fiscal_year }}" min="2000" max="2100">
+      </div>
+      <div class="col-md-8">
+        <label class="form-label small mb-0">件名</label>
+        <input type="text" name="title" class="form-control form-control-sm" value="{{ survey.title }}" maxlength="100" required>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-0">締め切り</label>
+        <input type="date" name="closes_on" class="form-control form-control-sm" value="{{ survey.closes_on|date:'Y-m-d' }}">
+      </div>
+      <div class="col-12">
+        <label class="form-label small mb-0">回答ページの案内文</label>
+        <textarea name="intro" class="form-control form-control-sm" rows="4" maxlength="3000">{{ survey.intro }}</textarea>
+      </div>
+      <div class="col-12">
+        <label class="form-label small mb-0">設問（1 行 1 問。「# 区分」の行で区分を分ける）</label>
+        {% if locked %}<div class="alert alert-warning small py-1 px-2 mb-1">回答が集まっているので設問は変えられません（集計がずれるため）。変えるときは新しいアンケートを作ってください。</div>{% endif %}
+        <textarea name="questions" class="form-control form-control-sm" rows="22" style="font-size:0.85rem;" {% if locked %}readonly{% endif %}>{{ questions_text }}</textarea>
+        <div class="form-text">こども家庭庁の参考様式（令和6年のガイドライン）をもとにした標準の設問です。最新の様式に合わせて足す・消す・言い換えるなど自由に直せます。番号は自動で付きます。</div>
+      </div>
+      <div class="col-12 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <label class="form-check mb-0"><input type="checkbox" class="form-check-input" name="is_open" {% if survey.is_open or not survey.pk %}checked{% endif %}> 回答を受け付ける</label>
+        <div class="d-flex gap-2">
+          <a href="{% if survey.pk %}{% url 'surveys:detail' survey.pk %}{% else %}{% url 'surveys:index' %}{% endif %}" class="btn btn-sm btn-outline-secondary">やめる</a>
+          <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>{% if survey.pk %}保存する{% else %}作る{% endif %}</button>
+        </div>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

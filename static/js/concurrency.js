@@ -3,6 +3,7 @@
  *  - form[data-concurrency="種類:ID"] を開いている間、サーバーに「編集中」を知らせ、
  *    同じものを開いている他の職員がいればフォームの先頭に表示する
  *  - 保存の直前にサーバーの版を確かめ、開いたあとに他の職員が保存していれば確認する
+ *  - data-concurrency-lazy を付けたフォームは、入力を始めたときから「編集中」を知らせる
  */
 (function () {
   var URL = document.body.getAttribute('data-editing-url');
@@ -84,7 +85,12 @@
   function init() {
     document.querySelectorAll('form[data-concurrency]').forEach(function (form) {
       var modal = form.closest('.modal');
-      if (modal) {
+      if (form.hasAttribute('data-concurrency-lazy')) {
+        // 一覧に並んだ編集フォームなど：開いただけでは「編集中」にせず、入力を始めたときから知らせる
+        var start = function () { watch(form); form.removeEventListener('focusin', start); form.removeEventListener('input', start); };
+        form.addEventListener('focusin', start);
+        form.addEventListener('input', start);
+      } else if (modal) {
         modal.addEventListener('shown.bs.modal', function () { watch(form); });
         modal.addEventListener('hidden.bs.modal', function () { unwatch(form); });
       } else {

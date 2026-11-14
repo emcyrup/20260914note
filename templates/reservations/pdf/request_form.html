@@ -19,7 +19,7 @@
 <div class="rf-note">
   可能な日時の枠に○を付けてください。{% if setting.closed_weekdays_text %}{{ setting.closed_weekdays_text }}はお休みです。{% endif %}<br>
   {{ setting.hours_text }}。網掛けの枠は利用できません。{% if facility.is_ryoiku %}<br>
-  来られない日が少ないときは、日付の欄に「ダメな日」と書き、その下に来られない日付だけを並べてください（それ以外の日はどの枠でも可能として予定を組みます）。{% endif %}
+  来られない日が少ないときは、来られない日の日付に×を付ける（または欄外に「ダメな日」と日付を書く）だけでも構いません。来られる日のうち希望の時刻があれば○も付けてください（○の無い日はどの枠でも可能として予定を組みます）。{% endif %}
 </div>
 <table class="rf">
   <thead><tr>

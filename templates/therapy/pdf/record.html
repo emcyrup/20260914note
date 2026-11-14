@@ -2,41 +2,57 @@
 {% block title %}療育記録 {{ beneficiary.full_name }}{% endblock %}
 {% block back_link %}<a class="outline" href="{% url 'therapy:child' beneficiary.pk %}">療育記録へ戻る</a>{% endblock %}
 {% block body %}
+{# 紙の「療育記録」用紙と同じ形（2026-11-06 ゆあーず）：左上に題名と氏名、右上に「留意点」の枠、下に 1 枚 5 回分の枠（日付の行と罫線） #}
 <style>
-  .tr-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 4px; }
-  .tr-title { font-size: 18px; font-weight: 700; letter-spacing: .3em; }
-  .tr-name { font-size: 12px; }
-  .tr-cau { border: 1px solid #333; min-height: 46px; padding: 3px 6px; font-size: 10px; white-space: pre-wrap; margin-bottom: 6px; }
-  .tr-cau .lbl { font-weight: 700; margin-right: 6px; }
-  .tr-cau.long { font-size: 9px; line-height: 1.45; }
-  .tr-entry { border: 1px solid #333; margin-bottom: 4px; page-break-inside: avoid; }
-  .tr-entry .h { border-bottom: 1px solid #333; padding: 2px 6px; font-size: 10.5px; background: #f2f2f2; }
-  .tr-entry .h .staff { float: right; }
-  .tr-lines { padding: 2px 6px 0; font-size: 10px; }
-  .tr-line { height: 20px; line-height: 20px; border-bottom: 1px dotted #888; white-space: nowrap; overflow: hidden; }
+  .tr-top { display: flex; justify-content: space-between; align-items: flex-start; margin: 2px 0 8px; }
+  .tr-left { padding-left: 10px; }
+  .tr-title { font-size: 20px; font-weight: 500; letter-spacing: .35em; margin: 14px 0 18px; }
+  .tr-name { font-size: 11px; white-space: nowrap; }
+  .tr-name .ul { display: inline-block; min-width: 150px; border-bottom: 1px solid #333; text-align: center; padding: 0 6px; }
+  .tr-cau-wrap { display: flex; align-items: flex-start; width: 56%; }
+  .tr-cau-lbl { font-size: 11px; padding: 26px 10px 0 0; white-space: nowrap; }
+  .tr-cau { border: 1px solid #333; flex: 1; min-height: 82px; padding: 4px 6px; font-size: 9.5px; white-space: pre-wrap; line-height: 1.45; }
+  .tr-cau.long { font-size: 8.5px; line-height: 1.35; }
+  .tr-sheet { border: 1px solid #333; }
+  .tr-entry { page-break-inside: avoid; }
+  .tr-entry + .tr-entry { border-top: 1.5px solid #333; }
+  .tr-entry .h { padding: 4px 8px 3px 16%; font-size: 11px; border-bottom: 1px solid #333; white-space: nowrap; letter-spacing: .05em; }
+  .tr-entry .h .staff { margin-left: 2.2em; }
+  /* 罫線は div で引く（PDF（WeasyPrint）は repeating-linear-gradient を描かない） */
+  .tr-body { position: relative; min-height: 144px; }
+  .tr-lines { position: absolute; left: 0; right: 0; top: 0; }
+  .tr-line { height: 24px; border-bottom: 1px solid #aaa; }
   .tr-line:last-child { border-bottom: 0; }
-  .tr-text { padding: 2px 6px 4px; font-size: 10px; white-space: pre-wrap; min-height: 112px; line-height: 1.6;
-             background-image: repeating-linear-gradient(to bottom, transparent 0 15px, #bbb 15px 16px); }
+  .tr-text { position: relative; padding: 0 8px; font-size: 10px; line-height: 24px; white-space: pre-wrap; }
+  .tr-text .acts { font-weight: 600; }
   .pb { page-break-before: always; }
 </style>
 {% for page in pages %}
 {% if not forloop.first %}<div class="pb"></div>{% endif %}
-<div class="tr-head">
-  <div class="tr-title">療育記録</div>
-  <div class="tr-name">氏名（ <u>&nbsp;{% if not blank %}{{ beneficiary.full_name }}{% else %}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{% endif %}&nbsp;</u> ）{% if ym %}　{{ ym }}{% endif %}{% if pages|length > 1 %}　{{ forloop.counter }}/{{ pages|length }}{% endif %}</div>
+<div class="tr-top">
+  <div class="tr-left">
+    <div class="tr-title">療育記録</div>
+    <div class="tr-name">氏名　<span class="ul">{% if not blank %}{{ beneficiary.full_name }}{% else %}&nbsp;{% endif %}</span>（　　　）{% if ym %}　{{ ym }}{% endif %}{% if pages|length > 1 %}　{{ forloop.counter }}/{{ pages|length }}{% endif %}</div>
+  </div>
+  <div class="tr-cau-wrap">
+    <div class="tr-cau-lbl">留意点</div>
+    <div class="tr-cau{% if long_cautions %} long{% endif %}">{% if not blank %}{% if forloop.first or not long_cautions %}{{ profile.cautions|default:'' }}{% else %}（1枚目のとおり）{% endif %}{% endif %}</div>
+  </div>
 </div>
-<div class="tr-cau{% if long_cautions %} long{% endif %}"><span class="lbl">留意点</span>{% if not blank %}{% if forloop.first or not long_cautions %}{{ profile.cautions|default:'' }}{% else %}（1枚目のとおり）{% endif %}{% endif %}</div>
+<div class="tr-sheet">
 {% for rec in page %}
 <div class="tr-entry">
   {% if rec %}
-  <div class="h">{{ rec.date_label }}　{{ rec.time_label|default:'　時　分' }}<span class="staff">担当　{{ rec.staff_label }}</span></div>
-  <div class="tr-text">{% if rec.activity_text %}{{ rec.activity_text }}
-{% endif %}{{ rec.body }}</div>
+  <div class="h">{{ rec.date|date:'Y年n月j日' }}　{{ rec.date_label|slice:'-3:' }}　{% if rec.time %}{{ rec.time.hour }}時{% if rec.time.minute %}{{ rec.time.minute }}分{% else %}　　分{% endif %}{% else %}　　時　　分{% endif %}<span class="staff">担当　{{ rec.staff_label }}</span></div>
+  <div class="tr-body"><div class="tr-lines">{% for _ in line_range %}<div class="tr-line"></div>{% endfor %}</div><div class="tr-text">{% if rec.activity_text %}<span class="acts">{{ rec.activity_text }}</span>
+{% endif %}{% if rec.situation %}{% if rec.body %}【事実】{{ rec.body }}
+{% endif %}【様子】{{ rec.situation }}{% else %}{{ rec.body }}{% endif %}</div></div>
   {% else %}
-  <div class="h">　　　年　　月　　日　　曜日　　　時　　分<span class="staff">担当　　　　　</span></div>
-  <div class="tr-lines">{% for i in line_range %}<div class="tr-line"></div>{% endfor %}</div>
+  <div class="h">{{ blank_year }}年　　月　　日　　曜日　　時　　分<span class="staff">担当</span></div>
+  <div class="tr-body"><div class="tr-lines">{% for _ in line_range %}<div class="tr-line"></div>{% endfor %}</div></div>
   {% endif %}
 </div>
 {% endfor %}
+</div>
 {% endfor %}
 {% endblock %}

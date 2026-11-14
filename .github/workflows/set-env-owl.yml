@@ -1,0 +1,76 @@
+# =============================================
+# オウルのサーバーの .env の「決まった項目」だけを書き換えて再起動する（手動実行だけ）
+#   Actions → Set env (owl) → Run workflow → settings に「KEY=VALUE KEY=VALUE」の形で入れる
+#   例: SPEECH_BACKEND=whisper WHISPER_MODEL=small
+#   書き換えられるのは ALLOWED にある秘密でない項目だけ（API キーやパスワードは扱わない。それらはサーバーで直接 .env を直す）。
+#   書き換える前に .env を .env.bak-<日時> に残し、いまのコミットのまま deploy/venv-deploy.sh を通す
+#   （必要な部品の追加・再起動・healthz まで）。ログには項目名と値だけが出る。
+# =============================================
+name: Set env (owl)
+
+on:
+  workflow_dispatch:
+    inputs:
+      settings:
+        description: "KEY=VALUE を空白区切りで（例: SPEECH_BACKEND=whisper WHISPER_MODEL=small）。値を空にすると項目を外す（KEY=）"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: ${{ secrets.OWL_APP_DIR || '~/michinoteowl' }}
+  VENV: ${{ secrets.OWL_VENV || secrets.YOURS_VENV || '~/env' }}
+  SSH_PORT: ${{ secrets.OWL_DEPLOY_SSH_PORT || secrets.YOURS_DEPLOY_SSH_PORT || '22' }}
+  HEALTH_URL: ${{ secrets.OWL_HEALTH_URL || 'https://michinote.owl.ai-labo.cloud/healthz/' }}
+
+jobs:
+  set-env:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-yours
+      cancel-in-progress: false
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.OWL_DEPLOY_SSH_KEY || secrets.YOURS_DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ env.SSH_PORT }}" -H "${{ secrets.OWL_DEPLOY_HOST || secrets.YOURS_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Update .env and restart
+        env:
+          SETTINGS: ${{ github.event.inputs.settings }}
+          REMOTE_APP_DIR: ${{ env.APP_DIR }}
+          REMOTE_VENV: ${{ env.VENV }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${{ env.SSH_PORT }}" "${{ secrets.OWL_DEPLOY_USER || secrets.YOURS_DEPLOY_USER }}@${{ secrets.OWL_DEPLOY_HOST || secrets.YOURS_DEPLOY_HOST }}" \
+            "SETTINGS='$SETTINGS' APP_DIR_IN='$REMOTE_APP_DIR' VENV_IN='$REMOTE_VENV' bash -s" <<'REMOTE'
+            set -euo pipefail
+            APP_DIR=$(eval echo "$APP_DIR_IN")
+            VENV=$(eval echo "$VENV_IN")
+            cd "$APP_DIR"
+            ALLOWED=" SPEECH_BACKEND WHISPER_MODEL WHISPER_THREADS WHISPER_BEAM WHISPER_COMPUTE GUNICORN_WORKERS AI_TEXT_MODEL AI_PLAN_MODEL AI_ADDON_SUGGESTIONS "
+            cp .env ".env.bak-$(date +%Y%m%d-%H%M%S)"
+            for kv in $SETTINGS; do
+              key=${kv%%=*}; value=${kv#*=}
+              case " $ALLOWED " in *" $key "*) ;; *) echo "ERROR: $key はこのワークフローでは変えられません"; exit 1;; esac
+              if ! printf '%s' "$value" | grep -Eq '^[A-Za-z0-9._/-]*$'; then echo "ERROR: $key の値に使えない文字があります"; exit 1; fi
+              grep -vE "^${key}=" .env > .env.new || true
+              if [ -n "$value" ]; then echo "${key}=${value}" >> .env.new; fi
+              mv .env.new .env
+              echo "set: ${key}=${value:-（外した）}"
+            done
+            chmod 600 .env
+            # いまのコミットのまま、部品の追加・migrate・再起動まで通す
+            APP_DIR="$APP_DIR" VENV="$VENV" bash deploy/venv-deploy.sh "$(git rev-parse HEAD)"
+          REMOTE
+
+      - name: Health check (public URL)
+        run: |
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${{ env.HEALTH_URL }}" || true)
+            case "$code" in 200) echo "healthy ($code)"; exit 0;; esac
+            echo "waiting... ($code)"; sleep 5
+          done
+          echo "health check failed"; exit 1

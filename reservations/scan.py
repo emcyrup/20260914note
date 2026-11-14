@@ -38,9 +38,10 @@ SYSTEM_PROMPT = """あなたは放課後等デイサービスの事務員です�
 - 印のない日は days に入れない
 - 日付は印刷された日付の数字（1〜31）で答える。行を数え間違えないよう、曜日の並びと【この月の暦】を照らし合わせる
 - 希望利用回数が読めなければ -1、氏名が読めなければ空文字
-- **「来られない日」の書き方**：保護者が表の日付の欄に「ダメな日」「来られない日」「×の日」「不可」などと書き、
-  その下に日付（と曜日）だけを並べて時刻の枠に印を付けていないときは、mode を "ng" にし、
-  並んでいる日付を ng_days に入れる（days は空）。この書き方では、それ以外の日は終日利用できるという意味になる。
+- **「来られない日」の書き方**：保護者が表の日付の欄に「ダメな日」「来られない日」「×の日」「不可」などと書いて
+  日付（と曜日）を並べているか、日付の行そのものに×を付けているときは、mode を "ng" にし、
+  来られない日付を ng_days に入れる。この書き方でも、来られる日の枠に○が付いていれば、その日と時刻を days に入れる
+  （来られる日のうちの希望。無ければ days は空）。○の無い日はどの枠でも利用できるという意味になる。
   ふつうに○で希望を書いた用紙は mode を "ok" にし、ng_days は空にする
 - 欄外の書き込み（「午前がよい」「送迎希望」など）は note に書き写す
 - 読めない・迷った箇所は unreadable に短く書く（例：「12日の行は印がかすれている」）
@@ -141,7 +142,7 @@ def normalize(data, facility, year, month, setting):
     wishes, ignored = to_wishes(data, facility, year, month, setting)
     ng_dates = to_ng_dates(data, year, month) if ng_mode else []
     if ng_mode:
-        wishes, ignored = {}, []
+        wishes = {k: v for k, v in wishes.items() if k not in ng_dates}     # 来られない日の○は捨てる
     try:
         desired = int(data.get('desired_count'))
     except (TypeError, ValueError):

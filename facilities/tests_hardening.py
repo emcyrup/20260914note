@@ -32,11 +32,12 @@ class SettingsAdminOnlyTests(TestCase):
         res = self.client.get(reverse('facilities:settings'))
         self.assertNotContains(res, 'value="sec"')
         self.assertContains(res, 'トークンは管理者だけが見られます')
-        # 加算マスタの投入は開発向けユーザーのみ
+        # 加算マスタの投入は開発向けユーザーのみ（migration で入った標準マスタを消してから確かめる）
+        from facilities.models import AddonMaster
+        AddonMaster.objects.all().delete()
         self.client.force_login(self.admin)
         res = self.client.post(reverse('facilities:addon_defaults'))
         self.assertRedirects(res, reverse('facilities:settings'))
-        from facilities.models import AddonMaster
         self.assertFalse(AddonMaster.objects.exists())
         res = self.client.get(reverse('facilities:settings'))
         self.assertContains(res, 'value="sec"')

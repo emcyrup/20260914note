@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block title %}面談資料 — {{ beneficiary.full_name }}{% endblock %}
+{% block page_title %}面談資料（記録のまとめ）{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .dg-stats { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: .88rem; }
+  .dg-stats b { font-size: 1.05rem; }
+  .dg-src { max-height: 420px; overflow-y: auto; font-size: .82rem; }
+  .dg-src div { border-top: 1px solid var(--line); padding: 4px 0; }
+  #dg-summary { line-height: 1.75; font-size: .92rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width:1100px;">
+  <a href="{% url 'beneficiaries:digest' beneficiary.pk %}" class="small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>面談資料の一覧へ</a>
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-2 mb-2">
+    <h5 class="fw-bold mb-0">{{ beneficiary.full_name }} さん　{{ item.date_from|date:'Y/n/j' }}〜{{ item.date_to|date:'Y/n/j' }}</h5>
+    <a href="?print=1" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>印刷（A4）</a>
+  </div>
+  <div class="card mb-3"><div class="card-body py-2 dg-stats">
+    <span>日誌 <b>{{ item.stats.journals|default:0 }}</b> 件</span>
+    <span>療育記録 <b>{{ item.stats.therapy|default:0 }}</b> 件</span>
+    <span>記録のある日 <b>{{ item.stats.days|default:0 }}</b> 日</span>
+    {% if item.stats.reserved is not None %}<span>予約 <b>{{ item.stats.reserved }}</b> 回（来た {{ item.stats.attended }}・欠席・キャンセル {{ item.stats.absent }}）</span>{% endif %}
+    {% if item.stats.health_days %}<span>健康の記録 <b>{{ item.stats.health_days }}</b> 日（37.5℃以上 {{ item.stats.fever_days }} 日）</span>{% endif %}
+  </div></div>
+  <div class="row g-3">
+    <div class="col-lg-7">
+      <form method="post">
+        {% csrf_token %}
+        <div class="mb-2"><label class="form-label small fw-semibold">使い道</label><input type="text" name="purpose" value="{{ item.purpose }}" maxlength="50" class="form-control form-control-sm"></div>
+        <label class="form-label small fw-semibold" for="dg-summary">まとめ（右の記録と見比べて直してください）</label>
+        <textarea name="summary" id="dg-summary" class="form-control" rows="26">{{ item.summary }}</textarea>
+        <div class="d-flex justify-content-between mt-2">
+          <button class="btn btn-sm btn-outline-danger" name="action" value="delete" onclick="return confirm('この面談資料を削除します。よろしいですか？');"><i class="bi bi-trash me-1"></i>削除</button>
+          <button class="btn btn-primary btn-sm"><i class="bi bi-check2 me-1"></i>保存する</button>
+        </div>
+        <div class="form-text">AI は記録にあることだけを使うよう指示しています。記録に無い言い回しや、違う日付が混じっていないか確かめてから使ってください。</div>
+      </form>
+    </div>
+    <div class="col-lg-5">
+      <div class="card"><div class="card-body">
+        <div class="fw-bold small mb-1"><i class="bi bi-journal-text me-1"></i>この期間の記録（{{ sources|length }} 件）</div>
+        <div class="dg-src">
+          {% for d, kind, text in sources %}<div><b>{{ d|date:'n/j' }}</b> <span class="text-muted">{{ kind }}</span><br>{{ text|truncatechars:200 }}</div>{% empty %}<div class="text-muted">記録がありません。</div>{% endfor %}
+        </div>
+      </div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

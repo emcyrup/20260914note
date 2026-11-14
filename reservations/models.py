@@ -70,11 +70,26 @@ class ReservationSetting(models.Model):
                                     help_text='1日の枠ではなく、1時間ごとの枠（1枠45分）に人数の上限を置きます。'
                                               '月予約利用希望から月間予定表を作れます。')
     slot_capacity = models.PositiveSmallIntegerField(default=3, verbose_name='1枠の人数')
+    line_friend_url = models.URLField(max_length=200, blank=True, verbose_name='公式LINEの友だち追加のアドレス',
+                                      help_text='https://lin.ee/… など。保護者向けの案内紙に QR コードで載せる')
+    # 定員超過利用減算の目安（予約は止めず、月間予定表・日の画面で知らせるだけ）。0 は使わない／自動
+    legal_capacity = models.PositiveSmallIntegerField(default=0, verbose_name='定員（人／日）',
+                                                      help_text='指定を受けた定員。0 なら定員の知らせを出さない')
+    day_limit = models.PositiveSmallIntegerField(default=0, verbose_name='1日の上限（人）',
+                                                 help_text='0 なら定員の 150%（定員 10 なら 15）')
+    avg_limit = models.DecimalField(max_digits=4, decimal_places=1, default=0, verbose_name='3か月平均の上限（人／日）',
+                                    help_text='0 なら定員 11 以下は定員＋3、12 以上は定員の 125%')
     slot_minutes = models.PositiveSmallIntegerField(default=45, verbose_name='1枠の長さ（分）')
     weekday_first_hour = models.PositiveSmallIntegerField(default=10, verbose_name='平日の最初の枠（時）')
     weekday_last_hour = models.PositiveSmallIntegerField(default=18, verbose_name='平日の最後の枠（時）')
     holiday_first_hour = models.PositiveSmallIntegerField(default=9, verbose_name='土日祝の最初の枠（時）')
     holiday_last_hour = models.PositiveSmallIntegerField(default=17, verbose_name='土日祝の最後の枠（時）')
+    # 利用予定曜日から予定を作る（2026-11-09 オウル。はびりすの「予定」と同じ使い方）：
+    # 月の予定を利用者情報の利用予定曜日からまとめて作り、日ごとに出欠（来所・欠席・キャンセル）を入れる。カレンダーは人数の表示に
+    fixed_days = models.BooleanField(default=False, verbose_name='利用予定曜日から予定を作る',
+                                     help_text='利用者情報の利用予定曜日から月の予定をまとめて作り、日ごとに出欠を入れる（はびりすの「予定」と同じ使い方）')
+    fixed_days_time = models.TimeField(null=True, blank=True, verbose_name='まとめて作るときの時刻',
+                                       help_text='時間枠で予約する設定のとき、まとめて作った予定に付ける開始時刻（空なら 15:00）')
     break_hours = models.JSONField(default=default_break_hours, blank=True, verbose_name='枠を置かない時刻',
                                    help_text='昼休みなど。例：12')
     updated_at = models.DateTimeField(auto_now=True)
@@ -85,6 +100,14 @@ class ReservationSetting(models.Model):
 
     def __str__(self):
         return f'{self.facility} の予約設定（1日{self.capacity}人）'
+
+    @property
+    def bulk_start_time(self):
+        """まとめて作る予定の開始時刻（時間枠で予約する事業所だけ。1日の枠なら None）"""
+        import datetime as _dt
+        if not self.slot_mode:
+            return None
+        return self.fixed_days_time or _dt.time(15, 0)
 
     def closed_weekday_numbers(self):
         return [n for n in (self.closed_weekdays or []) if isinstance(n, int) and 0 <= n <= 6]
@@ -134,6 +157,23 @@ class ReservationSetting(models.Model):
         first = min(self.weekday_first_hour, self.holiday_first_hour)
         last = max(self.weekday_last_hour, self.holiday_last_hour)
         return [h for h in range(first, last + 1) if h not in skip]
+
+    @property
+    def day_limit_value(self):
+        """1日の上限（人）。0 なら定員の 150%（端数は切り捨て）。定員が無ければ 0"""
+        if not self.legal_capacity:
+            return 0
+        return self.day_limit or self.legal_capacity * 3 // 2
+
+    @property
+    def avg_limit_value(self):
+        """3か月平均の上限（人／日）。0 なら定員 11 以下は定員＋3、12 以上は定員の 125%。定員が無ければ 0"""
+        from decimal import Decimal
+        if not self.legal_capacity:
+            return Decimal(0)
+        if self.avg_limit:
+            return Decimal(self.avg_limit)
+        return Decimal(self.legal_capacity + 3) if self.legal_capacity <= 11 else Decimal(self.legal_capacity) * Decimal('1.25')
 
     def slot_capacity_of(self, day):
         """その日の枠の合計人数（時間枠のとき）"""
@@ -296,6 +336,11 @@ class Reservation(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_CONFIRMED, verbose_name='状態')
     source = models.CharField(max_length=10, choices=SOURCE_CHOICES, default=SOURCE_STAFF, verbose_name='入口')
     note = models.CharField(max_length=200, blank=True, verbose_name='備考')
+    # きょうだいと同じ時間枠に入るとき、1枠（1人ぶんの席）にまとめる。まとめない日は、きょうだいもそれぞれ1枠ずつ数える
+    share_seat = models.BooleanField(default=False, verbose_name='きょうだいと1枠にまとめる')
+    # 共演NG の人と同じ時間枠だと職員が確かめたうえで入れた予約（利用希望にほかの時刻が無かったとき）。
+    # 月間予定表を開いたときの自動の移動（monthly.fix_pair_slots）では動かさない（2026-10-17 ゆあーず）
+    pair_ok = models.BooleanField(default=False, verbose_name='共演NG を承知で同じ時間にした')
     # 実績（来た・欠席・キャンセル）。月間予定表・その日の画面で入れ、業務日誌の「実績」欄に印字する。空は未入力
     ATT_ATTENDED = 'attended'
     ATT_ABSENT = 'absent'
@@ -507,6 +552,7 @@ class StaffShift(models.Model):
     part = models.CharField(max_length=5, choices=PART_CHOICES, default=PART_ALL, verbose_name='時間帯')
     is_active = models.BooleanField(default=True, verbose_name='使う')
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)     # 編集の競合の確認に使う版
 
     class Meta:
         verbose_name = '職員のシフト'
@@ -559,7 +605,8 @@ class MonthlyRequest(models.Model):
     month = models.PositiveSmallIntegerField(verbose_name='月')
     desired_count = models.PositiveSmallIntegerField(default=0, verbose_name='希望利用回数')
     wishes = models.JSONField(default=dict, blank=True, verbose_name='可能な日時')
-    # 書き方：用紙の○（wishes）か、「来られない日」だけを書いたもの（ng_dates。それ以外の日は終日可能）
+    # 書き方：用紙の○（wishes）か、「来られない日」を書いたもの（ng_dates。来られる日のうち○のある日はその時刻を優先し、
+    # ○の無い日はどの枠でも可能として扱う）
     WISH_OK = 'ok'
     WISH_NG = 'ng'
     WISH_MODE_CHOICES = [(WISH_OK, '可能な日時に○'), (WISH_NG, '来られない日を書く')]
@@ -606,18 +653,20 @@ class MonthlyRequest(models.Model):
         return [datetime.date(self.year, self.month, d) for d in range(1, calendar.monthrange(self.year, self.month)[1] + 1)]
 
     def wish_of(self, day):
-        """その日の希望：'all'（終日）・時刻のリスト・None（希望なし）"""
-        if self.is_ng_mode:          # 来られない日以外は、その月のどの日でも終日可能
-            if (day.year, day.month) != (self.year, self.month) or day.isoformat() in (self.ng_dates or []):
-                return None
-            return 'all'
+        """
+        その日の希望：'all'（終日に○）・時刻のリスト（○の枠）・None（希望なし／来られない日）・
+        'any'（「来られない日」の書き方で印の無い日＝どの枠でも可。○のある日のあとに回す）
+        """
+        if self.is_ng_mode and ((day.year, day.month) != (self.year, self.month) or day.isoformat() in (self.ng_dates or [])):
+            return None
         value = (self.wishes or {}).get(day.isoformat())
         if value == 'all':
             return 'all'
         if isinstance(value, list):
             hours = sorted({h for h in value if isinstance(h, int)})
-            return hours or None
-        return None
+            if hours:
+                return hours
+        return 'any' if self.is_ng_mode else None
 
     def wish_hours(self, day, setting):
         """その日に○の付いた枠の時刻（休業日・枠のない時刻は除く）"""
@@ -625,7 +674,7 @@ class MonthlyRequest(models.Model):
         hours = setting.slot_hours(day)
         if wish is None:
             return []
-        if wish == 'all':
+        if wish in ('all', 'any'):
             return list(hours)
         return [h for h in wish if h in hours]
 
@@ -642,8 +691,13 @@ class MonthlyRequest(models.Model):
                     continue
         return sorted(out)
 
+    def marked_days(self):
+        """○を付けた日（「来られない日」の書き方では、印の無い日は数えない）"""
+        return [d for d in self.wished_days() if self.wish_of(d) != 'any']
+
     def slot_count(self, setting):
-        return sum(len(self.wish_hours(d, setting)) for d in self.wished_days())
+        """○の付いた枠の数（「来られない日」の書き方では、○の無い日は数えない）"""
+        return sum(len(self.wish_hours(d, setting)) for d in self.marked_days())
 
 
 class RequestScan(models.Model):

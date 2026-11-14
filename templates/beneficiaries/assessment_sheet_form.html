@@ -1,0 +1,96 @@
+{% extends 'base.html' %}
+{% load concurrency sheet_extras %}
+
+{% block title %}アセスメントシート — {{ beneficiary.full_name }}{% endblock %}
+{% block page_title %}アセスメントシート{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .as-card { background: var(--sheet, #fff); border: 1px solid var(--line, #e5e1d8); border-radius: var(--radius, 14px); padding: 14px 16px; margin-bottom: 12px; }
+  .as-title { font-weight: 700; font-size: 1rem; color: var(--lake-text, #2f4f58); }
+  .as-hint { font-size: 0.78rem; color: #8a8378; }
+  table.as-tbl { width: 100%; border-collapse: collapse; }
+  table.as-tbl th, table.as-tbl td { border: 1px solid var(--line, #e5e1d8); padding: 6px 8px; vertical-align: top; font-size: 0.9rem; }
+  table.as-tbl th { background: rgba(243,239,231,0.9); font-weight: 600; font-size: 0.82rem; }
+  table.as-tbl td.grp { writing-mode: vertical-rl; text-align: center; font-weight: 700; width: 2.2em; background: rgba(243,239,231,0.6); }
+  table.as-tbl td.item { width: 160px; font-weight: 600; }
+  table.as-tbl td.lv { width: 230px; }
+  .as-lv label { display: block; font-size: 0.86rem; margin: 0; cursor: pointer; }
+  .as-lv .prev { color: #a08a5a; font-size: 0.72rem; }
+  textarea.form-control { font-size: 0.9rem; line-height: 1.5; }
+  @media (max-width: 760px) { table.as-tbl td.lv { width: auto; } table.as-tbl td.item { width: auto; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width: 1100px;">
+  <nav class="small mb-2"><a href="{% url 'beneficiaries:list' %}">{{ terms.beneficiary }}情報</a> › <a href="{% url 'beneficiaries:detail' beneficiary.pk %}#owl-sheets">{{ beneficiary.full_name }}</a> › アセスメントシート</nav>
+
+  {% if not sheet.pk %}
+  <div class="as-card">
+    <div class="as-title" style="font-size:.95rem;">紙の用紙から作る</div>
+    <div class="as-hint">手書きのアセスメントシート（2 枚）の PDF や写真を読み取って、○の段階と「本人の状態」を下の表に入れます。{% if imported %}<b>読み取りずみ。</b>○の段階と文を確かめて「保存する」を押してください。{% if unreadable %}<br>AI が読めなかった・迷ったところ：{{ unreadable }}{% endif %}{% endif %}</div>
+    {% url 'beneficiaries:assessment_sheet_import' beneficiary.pk as assess_import_url %}
+    {% include 'beneficiaries/_sheet_import.html' with import_url=assess_import_url import_label='アセスメントシート' import_id='assess' %}
+  </div>
+  {% endif %}
+  <form method="post"{% if post_url %} action="{{ post_url }}"{% endif %} {% if sheet.pk %}data-concurrency="assessment_sheet:{{ sheet.pk }}"{% endif %}{% if user.facility.beneficiary_tools %} data-unsaved-warn{% endif %}>
+    {% csrf_token %}{% if sheet.pk %}{% version_field sheet %}{% endif %}
+    <div class="as-card">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <div>
+          <div class="as-title">{{ beneficiary.full_name }}{% if beneficiary.full_name_kana|length > 1 %} <span class="small text-muted">（{{ beneficiary.full_name_kana }}）</span>{% endif %}</div>
+          <div class="as-hint">{{ beneficiary.date_of_birth|date:'Y年n月j日' }}生{% if age is not None %}（記入日に {{ age }} 歳）{% endif %}。対人関係・生活面・学習面を 3 段階で選び、「本人の状態」に様子を書きます。{% if previous %}前回（{{ previous.date|date:'Y/n/j' }}）の段階は薄い字で出ます。{% endif %}</div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+          {% if sheet.pk %}
+          <a href="{% url 'beneficiaries:assessment_sheet_pdf' beneficiary.pk sheet.pk %}?inline=1" target="_blank" class="btn btn-sm btn-outline-secondary" title="A4 の用紙（PDF）を開きます"><i class="bi bi-printer me-1"></i>印刷（PDF）</a>
+          {% else %}<span class="badge text-bg-warning align-self-center">まだ保存していません</span>{% endif %}
+          <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button>
+        </div>
+      </div>
+      <div class="row g-2 mt-2">
+        <div class="col-6 col-md-3">
+          <label class="form-label small mb-0" for="as-date">記入日</label>
+          <input type="date" id="as-date" name="date" class="form-control form-control-sm" value="{{ sheet.date|date:'Y-m-d' }}" required>
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label small mb-0" for="as-by">記入者</label>
+          <input type="text" id="as-by" name="filled_by" class="form-control form-control-sm" maxlength="50" value="{{ sheet.filled_by }}">
+        </div>
+      </div>
+    </div>
+
+    <div class="as-card p-2">
+      <table class="as-tbl">
+        <thead><tr><th colspan="2">項目</th><th>状況</th><th>本人の状態</th></tr></thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            {% ifchanged r.group %}<td class="grp" rowspan="{% if r.group == 'social' %}10{% elif r.group == 'life' %}12{% else %}2{% endif %}">{{ r.group_label }}</td>{% endifchanged %}
+            <td class="item">{{ r.label }}</td>
+            <td class="lv as-lv">
+              {% for v, word in r.levels %}
+              <label><input type="radio" name="level_{{ r.key }}" value="{{ v }}" {% if r.level == v %}checked{% endif %}> {{ word }}{% if r.prev_level == v %} <span class="prev">（前回）</span>{% endif %}</label>
+              {% endfor %}
+              {% if r.level %}<label class="small text-muted"><input type="radio" name="level_{{ r.key }}" value=""> 空にする</label>{% endif %}
+            </td>
+            <td><textarea name="note_{{ r.key }}" class="form-control form-control-sm" rows="2" maxlength="2000">{{ r.note }}</textarea></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <div class="d-flex justify-content-end gap-2 mt-3">
+        {% if sheet.pk %}<a href="{% url 'beneficiaries:assessment_sheet_pdf' beneficiary.pk sheet.pk %}?inline=1" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer me-1"></i>印刷（PDF）</a>{% endif %}
+        <button class="btn btn-primary"><i class="bi bi-check2 me-1"></i>保存する</button>
+      </div>
+    </div>
+  </form>
+  {% if sheet.pk %}
+  <form method="post" action="{% url 'beneficiaries:assessment_sheet_delete' beneficiary.pk sheet.pk %}" class="text-end mb-4" onsubmit="return confirm('{{ sheet.date|date:'Y/n/j' }} のアセスメントシートを削除します。戻せません。よろしいですか？');">
+    {% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>このアセスメントシートを削除</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

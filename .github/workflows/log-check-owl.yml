@@ -1,0 +1,63 @@
+# =============================================
+# オウルのサーバーのエラーログを外から確かめる（手動実行だけ）
+#   Actions → Log check (owl) → Run workflow
+#   gunicorn の error.log から、直近 N 日のエラー（Traceback）の数と、例外の種類だけを出す。
+#   （リポジトリは公開なので、リクエストの中身や名前などは出さない。種類と件数だけ）
+# =============================================
+name: Log check (owl)
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "さかのぼる日数"
+        default: "7"
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: ${{ secrets.OWL_APP_DIR || '~/michinoteowl' }}
+  SSH_PORT: ${{ secrets.OWL_DEPLOY_SSH_PORT || secrets.YOURS_DEPLOY_SSH_PORT || '22' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.OWL_DEPLOY_SSH_KEY || secrets.YOURS_DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ env.SSH_PORT }}" -H "${{ secrets.OWL_DEPLOY_HOST || secrets.YOURS_DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Count errors in gunicorn error.log
+        env:
+          DAYS: ${{ github.event.inputs.days }}
+          REMOTE_APP_DIR: ${{ env.APP_DIR }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${{ env.SSH_PORT }}" "${{ secrets.OWL_DEPLOY_USER || secrets.YOURS_DEPLOY_USER }}@${{ secrets.OWL_DEPLOY_HOST || secrets.YOURS_DEPLOY_HOST }}" \
+            "DAYS='$DAYS' APP_DIR_IN='$REMOTE_APP_DIR' bash -s" <<'REMOTE'
+            set -uo pipefail
+            APP_DIR=$(eval echo "$APP_DIR_IN")
+            cd "$APP_DIR/logs" 2>/dev/null || { echo "logs が無い"; exit 0; }
+            echo "gunicorn: $(pgrep -f 'gunicorn config.wsgi' | wc -l) プロセス"
+            echo "error.log: $(wc -l < error.log 2>/dev/null || echo 0) 行 / access.log: $(wc -l < access.log 2>/dev/null || echo 0) 行"
+            since=$(date -d "-${DAYS:-7} days" +%Y-%m-%d)
+            echo "== $since 以降の Traceback の数（日ごと）"
+            grep -E '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}' error.log 2>/dev/null | awk -v s="$since" '{d=substr($1,2,10); if (d>=s) print d}' | sort | uniq -c | tail -20 || true
+            n=$(grep -c '^Traceback' error.log 2>/dev/null || echo 0)
+            echo "Traceback 合計: $n"
+            echo "== 例外の種類（種類と回数だけ。中身は出さない）"
+            grep -E '^[A-Za-z_.]+(Error|Exception)\b' error.log 2>/dev/null | sed -E 's/^([A-Za-z_.]+(Error|Exception)).*/\1/' | sort | uniq -c | sort -rn | head -15 || true
+            echo "== どこで起きたか（Traceback ごとに、最後のファイル・行・関数と例外の種類。パスや値は出さない）"
+            awk '
+              /^\[[0-9]{4}-[0-9]{2}-[0-9]{2} .*\] \[ERROR\]/ { d=substr($1,2,10); u=$NF; gsub(/[0-9]+/, "N", u); gsub(/[A-Za-z0-9_:-]{20,}/, "…", u); last=d " " u; next }
+              /^Traceback/ { intb=1; loc=""; when=last; next }
+              intb && /^  File "/ { if ($0 ~ /site-packages|<frozen|\/usr\/lib\//) next; f=$0; sub(/^  File "/, "", f); sub(/",? line /, ":", f); sub(/, in /, " ", f); n=split(f, p, "/"); if (n>1) f=p[n-1] "/" p[n]; loc=f; next }
+              intb && /^[A-Za-z_.]+(Error|Exception)/ { e=$0; sub(/:.*/, "", e); if (e ~ /Error$/ && $0 ~ /Errno/) e=e " [Errno]"; else if (e=="TypeError"||e=="AttributeError"||e=="KeyError"||e=="ValueError") { m=$0; sub(/^[^:]*: /, "", m); gsub(/'"'"'[^'"'"']*'"'"'/, "'"'"'…'"'"'", m); e=e ": " substr(m,1,90) } print when "  " loc " → " e; intb=0 }
+            ' error.log 2>/dev/null | sort | uniq -c | sort -k2 | tail -40 || true
+            echo "== 5xx の応答（access.log、直近 ${DAYS:-7} 日）"
+            awk -v s="$since" '{ if ($4 ~ /^\[/) { split($4, a, "[/:\\[]"); m["Jan"]="01";m["Feb"]="02";m["Mar"]="03";m["Apr"]="04";m["May"]="05";m["Jun"]="06";m["Jul"]="07";m["Aug"]="08";m["Sep"]="09";m["Oct"]="10";m["Nov"]="11";m["Dec"]="12"; d=a[4] "-" m[a[3]] "-" a[2]; if (d>=s && $9 ~ /^5/) c[d " " $9]++ } } END { for (k in c) print k, c[k]; if (!length(c)) print "なし" }' access.log 2>/dev/null | sort || true
+          REMOTE

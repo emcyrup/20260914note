@@ -156,7 +156,59 @@ class TranscribeView(LoginRequiredMixin, View):
         if f.size > speech.MAX_BYTES + 4096:
             return JsonResponse({'error': '音声が長すぎます（1回に送れるのは1分まで）。'}, status=400)
         try:
-            text = speech.transcribe(f.read(), speakers=request.POST.get('speakers') == '1')
+            text = speech.transcribe(f.read(), speakers=request.POST.get('speakers') == '1', facility=request.user.facility)
         except speech.SpeechError as e:
             return JsonResponse({'error': str(e)}, status=400 if '形式' in str(e) or '長すぎ' in str(e) else 502)
         return JsonResponse({'text': text})
+
+
+def _device(ua):
+    """User-Agent を端末の種類とブラウザの名前だけにする（ログ用。個人を特定しない）"""
+    os_ = ('iPhone/iPad' if ('iPhone' in ua or 'iPad' in ua) else 'Android' if 'Android' in ua else 'Windows' if 'Windows' in ua
+           else 'Mac' if 'Macintosh' in ua else 'other')
+    br = ('Edge' if 'Edg' in ua else 'Chrome' if ('Chrome' in ua or 'CriOS' in ua) else 'Firefox' if 'Firefox' in ua
+          else 'Safari' if 'Safari' in ua else 'unknown')
+    return f'{os_}/{br}'
+
+
+class VoiceReportView(LoginRequiredMixin, View):
+    """
+    音声入力（static/js/voice-input.js）がうまく動かなかったときの知らせ。
+    出来事の名前・理由・端末の種類だけをエラーログに残す（管理者が Manage の error_log で原因を見るため）。話した言葉は届かない。
+    {"v": "v11", "event": "fallback"|"stop", "reason": "network", "secure": true, "sr": true, "server": true, "page": "/kaigo/..."}
+    """
+
+    def post(self, request):
+        import re
+        try:
+            data = json.loads(request.body[:2000].decode('utf-8') or '{}')
+        except (ValueError, UnicodeDecodeError):
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+
+        def word(key, n=40):
+            return re.sub(r'[^\w./:-]', '', str(data.get(key, '')))[:n] or '-'
+        logger.warning('VoiceInputWarning event=%s reason=%s v=%s secure=%s sr=%s server=%s device=%s page=%s facility=%s',
+                       word('event'), word('reason'), word('v'), bool(data.get('secure')), bool(data.get('sr')), bool(data.get('server')),
+                       _device(request.META.get('HTTP_USER_AGENT', '')), word('page', 80), request.user.facility_id)
+        return JsonResponse({'ok': True})
+
+
+class WordingCheckView(LoginRequiredMixin, View):
+    """言葉づかいのチェック（ai_assist/wording.py）。{"texts": [...]} → {"findings": [{word, hint, kind, label}]}。AI は使わない"""
+
+    def post(self, request):
+        import json
+
+        from django.http import JsonResponse
+
+        from . import wording
+        try:
+            data = json.loads(request.body.decode('utf-8') or '{}')
+        except ValueError:
+            data = {}
+        texts = data.get('texts') if isinstance(data.get('texts'), list) else [data.get('text', '')]
+        text = '\n'.join(str(t) for t in texts if t)[:20000]
+        return JsonResponse({'findings': wording.check(text, request.user.facility)})
+

@@ -81,6 +81,9 @@ def build_record_summary(record):
         lines.append('観点: ' + ' / '.join(
             f'{v.get("text")}={ {"yes": "はい", "no": "いいえ"}.get(v.get("answer"), "未確認") }'
             for v in record.activity_viewpoints))
+    if record.question_answers:            # 共通の質問・個別の質問（records/questions.py）
+        from records.questions import text_for_ai
+        lines.append('質問: ' + text_for_ai(record.question_answers))
     return '\n'.join(lines)
 
 
@@ -252,6 +255,9 @@ def build_beneficiary_context(beneficiary, today=None):
                 parts.append('観点: ' + ' / '.join(
                     f'{v.get("text")}={ {"yes": "はい", "no": "いいえ"}.get(v.get("answer"), "未確認") }'
                     for v in r.activity_viewpoints[:4]))
+            if r.question_answers:
+                from records.questions import text_for_ai
+                parts.append('質問: ' + text_for_ai(r.question_answers)[:200])
             lines.append(' '.join(parts))
     else:
         lines.append('直近の日誌: なし')

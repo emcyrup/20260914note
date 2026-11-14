@@ -25,6 +25,31 @@ from facilities.services import COPY_FIELDS, create_facility  # noqa: F401  (COP
 TRIAL_AI_LIMIT = 20   # お試しの AI を使える回数（1回あたり数十円 → 20回で 500 円ほど）
 
 
+# 予約の設定で、ほかの事業所から写してよい項目（公開アドレス・LINE グループ・署名は写さない）
+RESERVATION_COPY_FIELDS = [
+    'capacity', 'allow_waitlist', 'closed_weekdays', 'auto_send', 'public_calendar', 'public_booking', 'public_request',
+    'booking_from_days', 'booking_until_days', 'notify_vacancy', 'booking_mode', 'group_auto_apply',
+    'slot_mode', 'slot_capacity', 'slot_minutes', 'weekday_first_hour', 'weekday_last_hour',
+    'holiday_first_hour', 'holiday_last_hour', 'break_hours', 'legal_capacity', 'day_limit', 'avg_limit',
+]
+
+
+def copy_reservation_setting(src, facility):
+    """予約の設定（枠・時間・休業曜日・受付の決まり）を src の事業所から写す。署名は新しい事業所名にする"""
+    from reservations.models import ReservationSetting
+    from reservations.services import get_setting
+    src_setting = ReservationSetting.objects.filter(facility=src).first()
+    if src_setting is None:
+        return None
+    setting = get_setting(facility)
+    for f in RESERVATION_COPY_FIELDS:
+        if hasattr(src_setting, f):
+            setattr(setting, f, getattr(src_setting, f))
+    setting.signature = facility.name
+    setting.save()
+    return setting
+
+
 def apply_ryoiku_preset(facility):
     """療育の事業所（発達支援ルーム　ゆあーず）の設定：時間枠の予約と療育記録"""
     from reservations.services import get_setting
@@ -51,6 +76,32 @@ def apply_ryoiku_preset(facility):
     return setting
 
 
+def apply_houdei_preset(facility):
+    """放課後等デイサービスのデモ事業所（2026-11-06。はびりすと同じ使い方）：標準の型で、はびりす様式・請求・予定・LINE を使う。
+    定員区分 11〜20 人、加算マスタ（全事業所共通）が無ければ標準を入れ、はびりすが算定している標準の加算を「算定する」に"""
+    from billing.demo import STANDARD_ADDONS
+    from facilities.addon_defaults import load_default_addons
+    from facilities.models import AddonMaster, FacilityAddonSetting
+    facility.layout = Facility.LAYOUT_STANDARD
+    facility.form_set = Facility.FORM_SET_HAPPINESS
+    facility.use_billing = True
+    facility.use_schedule = True
+    facility.use_line = True
+    facility.use_reservation = False
+    facility.use_therapy_record = False
+    if not facility.capacity_class and not facility.base_unit_count:
+        facility.capacity_class = '20'
+    if not facility.brand_color:
+        facility.brand_color = '#4e7ea8'   # 放デイのデモは青系
+    facility.save()
+    if not AddonMaster.objects.exists():
+        load_default_addons()
+    if not FacilityAddonSetting.objects.filter(facility=facility, is_enabled=True).exists():
+        for a in AddonMaster.objects.filter(is_active=True, name__in=STANDARD_ADDONS):
+            FacilityAddonSetting.objects.update_or_create(facility=facility, addon=a, defaults={'is_enabled': True})
+    return facility
+
+
 class Command(BaseCommand):
     help = '別の事業所（施設）を作成し、標準タグと管理者アカウントを用意する'
 
@@ -65,8 +116,9 @@ class Command(BaseCommand):
         parser.add_argument('--demo', action='store_true', help='架空のサンプルデータ（seed_demo）も投入する')
         parser.add_argument('--layout', choices=['standard', 'planbook'], default=None,
                             help='画面の型（planbook＝計画書中心・シンプル：利用者・完了期日一覧・スタッフ・保護者・連絡帳・施設の6メニュー）')
-        parser.add_argument('--preset', choices=['ryoiku'], default=None,
-                            help='ryoiku＝療育の事業所：予約管理（時間枠・月予約利用希望・月間予定表）と療育記録を使う')
+        parser.add_argument('--preset', choices=['ryoiku', 'houdei'], default=None,
+                            help='ryoiku＝療育の事業所：予約管理（時間枠・月予約利用希望・月間予定表）と療育記録を使う。'
+                                 'houdei＝放課後等デイサービス（はびりすと同じ：はびりす様式・請求・予定・LINE。--demo は日誌などのサンプルと請求デモ 40 人）')
 
     def handle(self, *args, **o):
         name = o['name'].strip()
@@ -105,6 +157,12 @@ class Command(BaseCommand):
                 apply_ryoiku_preset(facility)
                 self.stdout.write('療育の事業所の設定にしました：予約管理（時間枠 1枠45分・1枠3人・平日10〜18時・土日祝9〜17時・'
                                   '月木休）と療育記録を使います')
+            if o.get('preset') == 'houdei':
+                apply_houdei_preset(facility)
+                self.stdout.write('放課後等デイサービスの設定にしました（はびりすと同じ）：日誌・個別支援計画・来所予定と出欠・請求（請求マトリックス・'
+                                  '上限額管理・請求書）・はびりす様式（事業所様式）・LINE を使います。定員区分 11〜20 人、標準の加算を算定')
+            if src is not None and getattr(src, 'use_reservation', False) and copy_reservation_setting(src, facility):
+                self.stdout.write(f'予約の設定（枠・時間・休業曜日・受付の決まり）も「{src.name}」から写しました')
             self.stdout.write(self.style.SUCCESS(f'施設「{facility.name}」を作成しました（ID {facility.pk}）'))
             if not o.get('no_default_tags'):
                 self.stdout.write('標準の活動タグ・支援内容タグを入れました')
@@ -116,7 +174,11 @@ class Command(BaseCommand):
                 )
                 self.stdout.write(self.style.SUCCESS(f'管理者アカウント「{o["admin"]}」を作成しました（初回ログイン後にパスワードを変えてください）'))
 
-        if o.get('demo'):
+        if o.get('demo') and o.get('preset') == 'houdei':
+            # 日誌・計画・来所予定・はびりす様式のサンプル（6 人）と、請求の動作確認用の 40 人（2 か月ぶんの出欠・加算・上限額管理）
+            call_command('seed_demo', '--facility', str(facility.pk), stdout=self.stdout)
+            call_command('billing_demo', '--facility', str(facility.pk), stdout=self.stdout)
+        elif o.get('demo'):
             call_command('seed_demo', '--facility', str(facility.pk), stdout=self.stdout)
 
         self.stdout.write('次の手順: この管理者でログイン → 施設設定で事業所番号・呼び方・使う機能を確認 → 職員・運用管理で職員を追加')

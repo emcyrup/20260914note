@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block title %}{{ terms.beneficiary }}を1人にまとめる{% endblock %}
+{% block page_title %}{{ terms.beneficiary }}を1人にまとめる{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width:820px;">
+  <a href="{% url 'beneficiaries:duplicates' %}" class="small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>同じ名前の{{ terms.beneficiary }}に戻る</a>
+  <div class="row g-2 mt-2 mb-3">
+    <div class="col-md-6"><div class="card h-100 border-success"><div class="card-body p-2 small">
+      <div class="fw-bold text-success mb-1"><i class="bi bi-check-circle me-1"></i>残す</div>
+      <div class="fs-6 fw-bold">{{ p.keep.full_name }} <span class="text-muted small">No.{{ p.keep.pk }}</span></div>
+      <div>{{ p.keep.full_name_kana|default:'' }}</div>
+      <div>{{ p.keep.date_of_birth|date:'Y/n/j' }} 生まれ{% if p.keep.date_of_birth == placeholder_dob %} <span class="badge text-bg-warning">仮</span>{% endif %}・{{ p.keep.get_status_display }}</div>
+    </div></div></div>
+    <div class="col-md-6"><div class="card h-100 border-danger"><div class="card-body p-2 small">
+      <div class="fw-bold text-danger mb-1"><i class="bi bi-box-arrow-in-left me-1"></i>まとめて消す</div>
+      <div class="fs-6 fw-bold">{{ p.drop.full_name }} <span class="text-muted small">No.{{ p.drop.pk }}</span></div>
+      <div>{{ p.drop.full_name_kana|default:'' }}</div>
+      <div>{{ p.drop.date_of_birth|date:'Y/n/j' }} 生まれ{% if p.drop.date_of_birth == placeholder_dob %} <span class="badge text-bg-warning">仮</span>{% endif %}・{{ p.drop.get_status_display }}</div>
+    </div></div></div>
+  </div>
+
+  {% if p.conflicts %}
+  <div class="alert alert-danger small">
+    <div class="fw-bold mb-1"><i class="bi bi-exclamation-octagon me-1"></i>このままではまとめられません</div>
+    1人に1日（1か月）1件の決まりがあるものが、両方にあります。どちらかを消すか日を直してから、もう一度開いてください。
+    <ul class="mb-0 mt-1">{% for c in p.conflicts %}<li>{{ c }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  <div class="card mb-3"><div class="card-body small">
+    <div class="fw-bold mb-1">No.{{ p.drop.pk }} から No.{{ p.keep.pk }} へ移すもの</div>
+    {% if p.moves %}<ul class="mb-2">{% for label, n in p.moves %}<li>{{ label }}：{{ n }} 件</li>{% endfor %}</ul>{% else %}<div class="text-muted mb-2">移す記録はありません。</div>{% endif %}
+    <div class="fw-bold mb-1">残す方の空いている欄に入れるもの</div>
+    {% if p.fills %}<ul class="mb-2">{% for name, label, value in p.fills %}<li>{{ label }}：{{ value }}</li>{% endfor %}</ul>{% else %}<div class="text-muted mb-2">ありません（残す方の値をそのまま使います）。</div>{% endif %}
+    {% for t in p.one_to_one %}<div>・{{ t }}</div>{% endfor %}
+    <div class="text-muted mt-2">備考は両方の文をつなぎます。きょうだい・同じ時間にできない・同じ車に乗せないの相手、予約の保護者・クラスも移します。残す方の欄に値があるものは、残す方の値のままです。</div>
+  </div></div>
+
+  {% if not p.conflicts %}
+  <form method="post" action="{% url 'beneficiaries:merge' %}">
+    {% csrf_token %}<input type="hidden" name="keep" value="{{ p.keep.pk }}"><input type="hidden" name="drop" value="{{ p.drop.pk }}">
+    <div class="alert alert-warning small mb-2"><i class="bi bi-exclamation-triangle me-1"></i>まとめたあとは元に戻せません。同じ子であることを確かめてから押してください。</div>
+    <div class="form-check mb-3">
+      <input class="form-check-input" type="checkbox" name="agree" value="1" id="agree" required>
+      <label class="form-check-label small" for="agree">No.{{ p.drop.pk }} と No.{{ p.keep.pk }} は同じ子です。No.{{ p.keep.pk }} にまとめます</label>
+    </div>
+    <button class="btn btn-primary"><i class="bi bi-intersect me-1"></i>1人にまとめる</button>
+    <a href="{% url 'beneficiaries:duplicates' %}" class="btn btn-outline-secondary ms-2">やめる</a>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

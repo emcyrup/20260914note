@@ -17,6 +17,9 @@
  * - 聞き取りを始め直せない（InvalidStateError）：少し待ってやり直す
  * - 押して始めるときは、前の聞き取りが終わってから少し間をあける。始めてもマイクが動き出さないときはやり直す
  * - VoiceInput.log() で、うまく動かないときの記録（出来事と文字数。話した言葉は残さない）を取り出せる
+ * - ブラウザの音声認識が使えないとき（network・service-not-allowed・始まらない・すぐ止まる・音声認識の無いブラウザ）は、
+ *   サーバーの文字起こし（VOICE_INPUT_SERVER）があればそちらに切り替え、その端末では次からもサーバーを使う（localStorage）。
+ *   切り替えたこと・止めた理由はサーバーに知らせる（VOICE_INPUT_REPORT。出来事の名前と端末の種類だけ。話した言葉は送らない）
  * マイクは https のページ（または localhost）でしか使えないので、http のときは理由を出す。
  */
 (function () {
@@ -45,7 +48,7 @@
 
   // うまく動かないときに調べるための記録（話した言葉そのものは残さず、文字数だけ）
   // 保存・読み込み直しをしても消えないよう、このタブのあいだは sessionStorage にも残す
-  var VERSION = 'v10';
+  var VERSION = 'v12';
   var LOG_KEY = 'voice-input-log', LOG = [], T0 = Date.now(), seq = 0;
   try { LOG = JSON.parse(sessionStorage.getItem(LOG_KEY) || '[]') || []; } catch (e) { LOG = []; }
   function log(msg) {
@@ -56,6 +59,26 @@
   log('ready ' + VERSION + ' page=' + location.pathname + ' ' +
       (SR ? (window.SpeechRecognition ? 'SpeechRecognition' : 'webkitSpeechRecognition') : 'no-SR') +
       ' oneShot=' + ONE_SHOT + ' server=' + !!window.VOICE_INPUT_SERVER + ' secure=' + window.isSecureContext + ' ua=' + UA);
+
+  // ブラウザの音声認識が使えなかった端末では、次からサーバーで文字にする（この端末のブラウザに覚えておく）
+  var ENGINE_KEY = 'voice-input-engine';
+  function remembered() { try { return localStorage.getItem(ENGINE_KEY) || ''; } catch (e) { return ''; } }
+  function remember(engine) { try { if (engine) localStorage.setItem(ENGINE_KEY, engine); else localStorage.removeItem(ENGINE_KEY); } catch (e) { /* 使えない */ } }
+  function hasMic() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia); }
+
+  // うまく動かなかったことをサーバーに知らせる（管理者がログで原因を見るため）。出来事の名前だけで、話した言葉は送らない
+  var reports = 0;
+  function report(event, reason) {
+    var url = window.VOICE_INPUT_REPORT;
+    if (!url || reports >= 5) return;
+    reports++;
+    var body = JSON.stringify({v: VERSION, event: event, reason: String(reason || '').slice(0, 40), secure: !!window.isSecureContext,
+                               sr: !!SR, server: !!window.VOICE_INPUT_SERVER, page: location.pathname.slice(0, 80)});
+    try {
+      fetch(url, {method: 'POST', body: body, credentials: 'same-origin', keepalive: true,
+                  headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf()}}).catch(function () { /* 知らせは任意 */ });
+    } catch (e) { /* 知らせは任意 */ }
+  }
 
   function note(btn, text) {
     var id = btn.getAttribute('data-voice-note');
@@ -147,6 +170,7 @@
     clearInterval(a.timer);
     clearTimeout(a.retryTimer);
     keepAwake(a, false);
+    paintSwitch(a);
     if (a.server) {
       stopServer(a);
       a.btn.classList.remove('recording');
@@ -242,17 +266,23 @@
       log('#' + id + ' error ' + e.error + (active !== a ? ' (stopped)' : ''));
       if (active !== a) return;
       a.lastError = e.error;
-      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-        stop(a.restarts
+      if (e.error === 'not-allowed') {
+        fail(a, e.error, a.restarts
           ? 'この端末では、自動で聞き取りをつなぎ直せないため止まりました。続けるときは、もう一度ボタンを押してください。'
           : 'マイクの使用が許可されていません。ブラウザのアドレス欄の鍵マークから、マイクを「許可」にしてください。');
+      } else if (e.error === 'service-not-allowed') {
+        // ブラウザの音声認識サービスが使えない（会社のネットワークや設定で止められている）→ サーバーで文字にする
+        switchToServer(a, e.error) || fail(a, e.error, 'このブラウザでは音声認識サービスが使えない設定になっています。管理者に確認してください。');
       } else if (e.error === 'audio-capture') {
-        stop('マイクが見つかりません。マイクがつながっているか、ほかのアプリがマイクを使っていないか確かめてください。');
+        // ブラウザの音声認識がマイクを見つけられない端末でも、録音（getUserMedia）はできることがある → サーバーで試す
+        switchToServer(a, e.error) || fail(a, e.error, 'マイクが見つかりません。マイクがつながっているか、ほかのアプリがマイクを使っていないか確かめてください。');
       } else if (e.error === 'language-not-supported') {
-        stop('この端末では日本語の音声入力が使えません。');
+        switchToServer(a, e.error) || fail(a, e.error, 'この端末では日本語の音声入力が使えません。');
       } else if (e.error === 'network') {
+        // Chrome の音声認識は Google のサービスに通信する。つながらない（会社のネットワークなど）ときは、サーバーで文字にする
+        if (switchToServer(a, e.error)) return;
         a.netFails = (a.netFails || 0) + 1;
-        if (a.netFails > MAX_NET_RETRY) stop('音声の聞き取りに通信が必要です。電波の良い所でもう一度押してください。');
+        if (a.netFails > MAX_NET_RETRY) fail(a, e.error, '音声の聞き取りに通信が必要です。電波の良い所でもう一度押してください。');
       }
       // no-speech・aborted などは onend でつなぎ直す
     };
@@ -274,13 +304,13 @@
       a.lastError = '';
       a.quickEnds = (Date.now() - a.sessionStart < 1000 && !err) ? (a.quickEnds || 0) + 1 : 0;
       if (a.quickEnds > MAX_QUICK_END) {
-        stop('音声の聞き取りがすぐに止まってしまいます。ほかのタブやアプリでマイクを使っていないか確かめて、もう一度押してください。');
+        switchToServer(a, 'quick-end') || fail(a, 'quick-end', '音声の聞き取りがすぐに止まってしまいます。ほかのタブやアプリでマイクを使っていないか確かめて、もう一度押してください。');
         return;
       }
       // aborted・network などで終わったときは、少し間をあけてつなぎ直す（すぐだと同じ理由でまた終わる）
       a.errRun = (err && err !== 'no-speech') ? (a.errRun || 0) + 1 : 0;
       if (a.errRun > MAX_ERR_RUN) {
-        stop('音声の聞き取りを始められませんでした。ページを読み込み直してから、もう一度押してください。');
+        switchToServer(a, err || 'error-run') || fail(a, err || 'error-run', '音声の聞き取りを始められませんでした。ページを読み込み直してから、もう一度押してください。');
         return;
       }
       if (Date.now() - a.lastHeard > SILENCE_MS) {
@@ -351,28 +381,66 @@
       if (tries < 4) {
         a.retryTimer = setTimeout(function () { begin(a, tries + 1); }, 300);
       } else {
-        stop('音声入力を始められませんでした。少し待ってから、もう一度押してください。');
+        switchToServer(a, 'start-failed') || fail(a, 'start-failed', '音声入力を始められませんでした。少し待ってから、もう一度押してください。');
       }
     }
   }
 
+  // 使えなくて止める（理由をサーバーに知らせてから止める）
+  function fail(a, reason, message) {
+    report('stop', reason);
+    stop(message);
+  }
+
+  // ブラウザの音声認識をやめて、同じ録音をサーバーの文字起こしに切り替える。切り替えられないときは false
+  function switchToServer(a, why) {
+    if (!SERVER || !hasMic() || a.server || cfg.engine === 'browser' || active !== a) return false;
+    log('switch to server (' + why + ')');
+    clearTimeout(a.retryTimer);
+    var r = a.rec;
+    if (r) {
+      clearTimeout(r._viWatch); clearTimeout(r._viHint);
+      r._viEnded = true;                    // onend でつなぎ直さない
+      forget(r);
+      try { r.abort(); } catch (e) { /* もう止まっている */ }
+    }
+    a.rec = null; a.pending = ''; a.lastError = ''; a.errRun = 0; a.netFails = 0; a.quickEnds = 0;
+    a.waiting = false;
+    liveBox(a.target).textContent = '';
+    if (!IOS) remember('server');           // この端末では次からサーバーで（iPhone はもともとサーバー）
+    report('fallback', why);
+    note(a.btn, 'ブラウザの音声認識が使えないため、サーバーで文字にします（' + (WHISPER ? SEG_MIN + '〜' + SEG_HARD + '秒ごと' : 'ひと息ごと') + 'に文字になります）。');
+    paint(a);
+    startServer(a);
+    return true;
+  }
+
   // ===== サーバーで文字にする（iPhone・話者を分けるとき） =====
   // 画面で音声を録り（16kHz・モノラルの WAV）、話の切れ目ごとにサーバーへ送って文字にしてもらう。
-  // 話しながら文字が出るように、ひと息の間（0.5 秒ほど）があれば 3 秒以上で送り、続けて話していても 15 秒で送る。
+  // Google：話しながら文字が出るように、ひと息の間（0.5 秒ほど）があれば 3 秒以上で送り、続けて話していても 15 秒で送る。
+  // Whisper：30 秒の窓ごとに処理するため、5 秒でも 25 秒でも 1 回にかかる時間はほぼ同じ（コトのサーバーで約 13 秒）。
+  //   短く送るほど処理が追いつかず遅れが積み上がるので、12 秒以上のひと息の間で送り、続けて話していても
+  //   25 秒を過ぎたら短い間（0.2 秒）で、29 秒で必ず送る（言葉の途中で切れにくく、処理も追いつく）。
   // 話者を分けるときは、区切りの中でしか同じ人と分からないので長め（10〜40 秒）にする。
   // iPhone のブラウザの音声認識は、1ページで1回しか文字にならないことがあるため
   var SERVER = window.VOICE_INPUT_SERVER || null;
-  var SEG_MIN = (cfg.segMinSec || 3), SEG_MAX = (cfg.segMaxSec || 15);
+  var WHISPER = !!(SERVER && !SERVER.diarization);
+  var SEG_MIN = (cfg.segMinSec || (WHISPER ? 12 : 3)), SEG_MAX = (cfg.segMaxSec || (WHISPER ? 25 : 15));
+  var SEG_HARD = (cfg.segHardSec || (WHISPER ? 29 : SEG_MAX));   // 間が無くても必ず送る長さ
   var SPK_MIN = (cfg.speakersMinSec || 10), SPK_MAX = (cfg.speakersMaxSec || 40);
-  var LOUD = 0.015, QUIET = 0.008, QUIET_RUN = 6;       // 音の大きさ（RMS）のめやす。QUIET_RUN は 4096 サンプルの塊の数（6 ≒ 0.5 秒）
+  // 音の大きさ（RMS）のめやす。小さな声（机に置いた iPhone など）も捨てないように低め。QUIET_RUN は 4096 サンプルの塊の数（6 ≒ 0.5 秒）
+  // 部屋の雑音が大きいときは、雑音の底（floor）を測って、その 2 倍までを「間」、4 倍からを「声」とみなす
+  var LOUD = 0.004, QUIET = 0.002, QUIET_RUN = 6, SHORT_RUN = 2;
   var uploads = 0, chain = Promise.resolve(), waitingSubmit = null;
 
   function useServer(a) {
     if (cfg.engine === 'server') return !!SERVER;
     if (cfg.engine === 'browser') return false;
-    var mic = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    var mic = hasMic();
     // 話者を分けるときは、どの端末でもサーバー（Google）で文字にする（ブラウザの音声認識は話者を分けられない）
     if (a && a.speakers) return !!SERVER && mic;
+    if (!SR) return !!SERVER && mic;                      // 音声認識の無いブラウザ（Firefox など）
+    if (remembered() === 'server') return !!SERVER && mic; // 前にブラウザの音声認識が使えなかった端末
     return IOS && !!SERVER && mic;
   }
 
@@ -381,6 +449,19 @@
     var id = btn.getAttribute('data-voice-speakers');
     var el = id && document.getElementById(id);
     return !!(el && el.checked && SERVER);
+  }
+  // 声で話者を分けられる（Google）か。分けられないとき（Whisper）は、画面の「話者1・2・3」のボタンで切り替える
+  function byVoice() { return !!(SERVER && SERVER.diarization); }
+  function manualSpeakers(a) { return !!(a && a.speakers && !byVoice()); }
+  function switchBox(a) {
+    var id = a && a.btn.getAttribute('data-voice-speaker-switch');
+    return id ? document.getElementById(id) : null;
+  }
+  function paintSwitch(a) {
+    var box = switchBox(a);
+    if (!box) return;
+    box.classList.toggle('d-none', !(active === a && manualSpeakers(a)));
+    box.querySelectorAll('[data-speaker]').forEach(function (b) { b.classList.toggle('active', String(a.speaker) === b.getAttribute('data-speaker')); });
   }
 
   function csrf() {
@@ -414,8 +495,10 @@
 
   function showBusy(a) {
     var box = liveBox(a.target);
-    if (uploads > 0) box.textContent = '文字にしています…（' + uploads + '）';
-    else if (active === a) box.textContent = a.speakers ? '録音中：話の区切り（10〜40秒）ごとに、話者を分けて文字になります' : '録音中：ひと息ごとに文字になります';
+    var pace = WHISPER ? SEG_MIN + '〜' + SEG_HARD + '秒ごとに文字になります（サーバーで文字にするため、少し遅れて出ます）' : 'ひと息ごとに文字になります';
+    if (uploads > 0) box.textContent = '文字にしています…（' + uploads + '）' + (active === a ? ' 続けて話せます' : '');
+    else if (active === a) box.textContent = manualSpeakers(a) ? '録音中：話す人が替わったら「話者」のボタンを押してください（話者' + a.speaker + '）'
+      : a.speakers ? '録音中：話の区切り（10〜40秒）ごとに、話者を分けて文字になります' : '録音中：' + pace;
     else box.textContent = '';
   }
 
@@ -424,15 +507,16 @@
     var chunks = a.chunks, secs = a.samples / a.rate, loud = a.loud;
     a.chunks = []; a.samples = 0; a.loud = false; a.quietRun = 0;
     if (!chunks.length) return;
-    if (!loud || secs < 0.5) { log('segment ' + secs.toFixed(1) + 's ' + (loud ? 'too short' : 'silent') + ' → skip'); return; }
-    var blob = toWav(chunks, a.rate), n = ++seq;
-    log('segment #' + n + ' ' + secs.toFixed(1) + 's ' + Math.round(blob.size / 1024) + 'KB → upload' + (a.speakers ? ' speakers' : ''));
+    if (!loud || secs < 0.5) { log('segment ' + secs.toFixed(1) + 's ' + (loud ? 'too short' : 'silent floor=' + (a.floor || 0).toFixed(4)) + ' → skip'); return; }
+    var blob = toWav(chunks, a.rate), n = ++seq, spk = manualSpeakers(a) ? a.speaker : 0;   // 送った時点の話者
+    log('segment #' + n + ' ' + secs.toFixed(1) + 's ' + Math.round(blob.size / 1024) + 'KB → upload' + (a.speakers ? ' speakers' + (spk ? '=' + spk : '') : ''));
+    var t0 = Date.now();
     uploads++;
     showBusy(a);
     chain = chain.then(function () {
       var body = new FormData();
       body.append('audio', blob, 'voice.wav');
-      if (a.speakers) body.append('speakers', '1');
+      if (a.speakers && byVoice()) body.append('speakers', '1');
       return fetch(SERVER.url, {method: 'POST', body: body, credentials: 'same-origin', headers: {'X-CSRFToken': csrf()}})
         .then(function (r) { return r.json().catch(function () { return {error: '文字にできませんでした（' + r.status + '）。'}; }); })
         .then(function (d) {
@@ -440,12 +524,12 @@
             log('segment #' + n + ' error');
             a.errors = (a.errors || 0) + 1;
             note(a.btn, d.error);
-            if (a.errors >= 2 && active === a) stop('');
+            if (a.errors >= 2 && active === a) { remember(''); fail(a, 'server-error', ''); }
             return;
           }
           a.errors = 0;
-          log('segment #' + n + ' text=' + (d.text || '').length);
-          if (d.text) append(a, d.text);
+          log('segment #' + n + ' text=' + (d.text || '').length + ' in ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+          if (d.text) append(a, spk ? '話者' + spk + '：' + d.text : d.text);
         })
         .catch(function () { log('segment #' + n + ' network error'); note(a.btn, '通信できず、一部が文字になりませんでした。電波の良い所でお試しください。'); });
     }).then(function () {
@@ -462,7 +546,7 @@
     a.server = true;
     var AC = window.AudioContext || window.webkitAudioContext;
     var ctx;
-    try { ctx = new AC(); } catch (e) { stop('この端末では録音を始められませんでした。'); return; }
+    try { ctx = new AC(); } catch (e) { fail(a, 'no-audiocontext', 'この端末では録音を始められませんでした。'); return; }
     a.ctx = ctx;
     if (ctx.resume) ctx.resume();                     // 押したときに動かしておく（iPhone は押した時でないと鳴らない）
     log('server engine start rate=' + ctx.sampleRate);
@@ -481,11 +565,15 @@
           var rms = Math.sqrt(sum / d.length);
           a.chunks.push(new Float32Array(d));
           a.samples += d.length;
-          if (rms > LOUD) { a.loud = true; a.lastHeard = Date.now(); }
-          a.quietRun = rms < QUIET ? a.quietRun + 1 : 0;
+          // 雑音の底：下がるときはすぐ、上がるときはゆっくり（話し始めが底にならないように）
+          a.floor = a.floor == null ? rms : Math.min(a.floor * 1.005 + 0.00001, rms);
+          var loud = Math.max(LOUD, a.floor * 4), quiet = Math.max(QUIET, a.floor * 2);
+          if (rms > loud) { a.loud = true; a.lastHeard = Date.now(); }
+          a.quietRun = rms < quiet ? a.quietRun + 1 : 0;
           var secs = a.samples / a.rate;
-          var segMin = a.speakers ? SPK_MIN : SEG_MIN, segMax = a.speakers ? SPK_MAX : SEG_MAX;
-          if (secs >= segMax || (secs >= segMin && a.quietRun >= QUIET_RUN)) cut(a);
+          var long = a.speakers && byVoice();        // 声で分けるときだけ長め（ボタンで切り替えるときはひと息ごと）
+          var segMin = long ? SPK_MIN : SEG_MIN, segMax = long ? SPK_MAX : SEG_MAX, segHard = long ? SPK_MAX : SEG_HARD;
+          if (secs >= segHard || (secs >= segMax && a.quietRun >= SHORT_RUN) || (secs >= segMin && a.quietRun >= QUIET_RUN)) cut(a);
           if (Date.now() - a.lastHeard > SILENCE_MS) stop('しばらく声が聞こえなかったので止めました。続けるときはもう一度押してください。');
         };
         src.connect(proc);
@@ -496,7 +584,8 @@
       .catch(function (err) {
         log('getUserMedia ' + (err && err.name));
         if (active !== a) return;
-        stop(err && err.name === 'NotAllowedError'
+        remember('');                           // マイクが使えないのはサーバーのせいではない。次はブラウザの音声認識から試す
+        fail(a, 'getUserMedia:' + (err && err.name), err && err.name === 'NotAllowedError'
           ? 'マイクの使用が許可されていません。ブラウザの設定で、このサイトのマイクを「許可」にしてください。'
           : 'マイクを使えませんでした（' + (err && err.name) + '）。ほかのアプリがマイクを使っていないか確かめてください。');
       });
@@ -521,9 +610,10 @@
     var a = {
       btn: btn, target: target, label: btn.innerHTML, compact: !btn.textContent.trim(),
       first: true, started: Date.now(), lastHeard: Date.now(), restarts: 0, lock: null,
-      pending: '', committed: '', lastText: '', speakers: speakersOn(btn),
+      pending: '', committed: '', lastText: '', speakers: speakersOn(btn), speaker: 1,
     };
     if (!SR && !useServer(a)) {
+      report('stop', 'no-sr');
       note(btn, 'このブラウザは音声入力に対応していません。Chrome・Edge・Safari をお使いください。');
       return;
     }
@@ -533,6 +623,7 @@
     a.timer = setInterval(function () { paint(a); }, 1000);
     note(btn, '');
     keepAwake(a, true);
+    paintSwitch(a);
     if (useServer(a)) startServer(a);
     else begin(a, 0);
   }
@@ -549,9 +640,23 @@
     toggle: toggle, stop: function () { stop(); }, isActive: function () { return !!active; },
     log: function () { return LOG.join('\n'); },
     busy: function () { return uploads; },
+    engine: function () { return active ? (active.server ? 'server' : 'browser') : (remembered() || ''); },
+    forget: function () { remember(''); },      // サーバーに切り替えた覚えを消す（またブラウザの音声認識を試す）
   };
 
   document.addEventListener('click', function (e) {
+    var sw = e.target.closest && e.target.closest('[data-speaker]');
+    if (sw && active && manualSpeakers(active) && switchBox(active) && switchBox(active).contains(sw)) {
+      e.preventDefault();
+      var n = parseInt(sw.getAttribute('data-speaker'), 10) || 1;
+      if (n !== active.speaker) {
+        if (active.chunks && active.samples) cut(active);   // ここまでの声は前の話者として送る
+        active.speaker = n;
+        log('speaker → ' + n);
+        paintSwitch(active); showBusy(active);
+      }
+      return;
+    }
     var btn = e.target.closest && e.target.closest('[data-voice-target]');
     if (!btn) return;
     e.preventDefault();

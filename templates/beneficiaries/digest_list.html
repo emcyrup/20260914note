@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block title %}面談資料 — {{ beneficiary.full_name }}{% endblock %}
+{% block page_title %}面談資料（記録のまとめ）{% endblock %}
+{% block nav_beneficiaries %}active{% endblock %}
+
+{% block content %}
+<div class="px-2" style="max-width:860px;">
+  <a href="{% url 'beneficiaries:detail' beneficiary.pk %}" class="small text-decoration-none"><i class="bi bi-arrow-left me-1"></i>{{ beneficiary.full_name }} の画面に戻る</a>
+  <h5 class="fw-bold mt-2 mb-1"><i class="bi bi-file-earmark-text me-2"></i>{{ beneficiary.full_name }} さんの面談資料</h5>
+  <p class="small text-muted">期間を選ぶと、その間の日誌・療育記録と、5領域アセスメント・支援計画の目標を集めて、利用回数などの数字と、記録にあることだけを使った文章のまとめを作ります。保護者面談・モニタリング・半期の計画の見直しの準備に使えます。</p>
+
+  <div class="card mb-3"><div class="card-body">
+    <form method="post" class="row g-2 align-items-end" id="dg-form" onsubmit="var b=this.querySelector('button[type=submit]');b.disabled=true;b.innerHTML='<span class=\'spinner-border spinner-border-sm\'></span> まとめています（30秒ほど）';">
+      {% csrf_token %}
+      <div class="col-12">
+        <label class="form-label small fw-semibold d-block">期間</label>
+        {% for key, label, months in periods %}
+        <label class="form-check form-check-inline small"><input class="form-check-input" type="radio" name="period" value="{{ key }}" {% if key == '3m' %}checked{% endif %}>{{ label }}</label>
+        {% endfor %}
+        <label class="form-check form-check-inline small"><input class="form-check-input" type="radio" name="period" value="custom" id="dg-custom">日付を指定</label>
+      </div>
+      <div class="col-6 col-md-3"><label class="form-label small">から</label><input type="date" name="date_from" class="form-control form-control-sm" onchange="document.getElementById('dg-custom').checked=true"></div>
+      <div class="col-6 col-md-3"><label class="form-label small">まで</label><input type="date" name="date_to" class="form-control form-control-sm" onchange="document.getElementById('dg-custom').checked=true"></div>
+      <div class="col-12 col-md-4"><label class="form-label small">使い道（任意）</label><input type="text" name="purpose" maxlength="50" class="form-control form-control-sm" placeholder="例：10月の保護者面談"></div>
+      <div class="col-12 col-md-2 d-grid"><button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-stars me-1"></i>AI でまとめる</button></div>
+      <div class="col-12 small text-muted">過去 3 か月（{{ preview_from|date:'Y/n/j' }}〜{{ preview_to|date:'Y/n/j' }}）の記録：日誌 {{ preview.journals }} 件・療育記録 {{ preview.therapy }} 件{% if preview.reserved is not None %}・予約 {{ preview.reserved }} 回（来た {{ preview.attended }}）{% endif %}。記録が多いときは、期間全体から均等に 120 件を選んでまとめます。</div>
+    </form>
+  </div></div>
+
+  <div class="card">
+    <div class="card-body pb-2"><div class="fw-bold"><i class="bi bi-clock-history me-1"></i>これまでの面談資料</div></div>
+    {% for d in digests %}
+    <div class="d-flex justify-content-between align-items-center border-top px-3 py-2 gap-2 flex-wrap">
+      <div>
+        <a href="{% url 'beneficiaries:digest_detail' beneficiary.pk d.pk %}" class="fw-semibold">{{ d.date_from|date:'Y/n/j' }}〜{{ d.date_to|date:'Y/n/j' }}</a>
+        {% if d.purpose %}<span class="small text-muted ms-1">{{ d.purpose }}</span>{% endif %}
+        <div class="small text-muted">作成 {{ d.created_at|date:'Y/n/j H:i' }}{% if d.created_by %}（{{ d.created_by }}）{% endif %}・記録 {{ d.stats.lines|default:0 }} 件</div>
+      </div>
+      <a href="{% url 'beneficiaries:digest_detail' beneficiary.pk d.pk %}?print=1" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="bi bi-printer"></i></a>
+    </div>
+    {% empty %}
+    <div class="text-center text-muted small py-3 border-top">まだありません。上で期間を選んで「AI でまとめる」を押してください。</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

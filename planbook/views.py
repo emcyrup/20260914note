@@ -80,6 +80,8 @@ class StudentCreateView(LoginRequiredMixin, View):
             return render(request, 'planbook/student_new.html', {'form': form})
         b = form.save(commit=False)
         b.facility = request.user.facility
+        if 'line_send_journal' not in request.POST:      # この画面に欄は無い：初期値（送る）のまま
+            b.line_send_journal = True
         b.save()
         messages.success(request, f'{b.full_name} さんを追加しました。続けてプロフィールを入力してください。')
         return redirect('planbook:student', pk=b.pk)
